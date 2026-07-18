@@ -1,3 +1,4 @@
+from optisample.optimize.export import build_it_module, c5speed_for_pitch
 from optisample.optimize.knapsack import (
     Allocation,
     BudgetInfeasibleError,
@@ -44,6 +45,8 @@ __all__ = [
     "rd_curve",
     "solve_exact",
     "solve_lagrangian",
+    "build_it_module",
+    "c5speed_for_pitch",
     "OperatingPoint",
     "SourceClip",
     "SweepGrid",

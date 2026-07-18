@@ -31,6 +31,7 @@ dev = [
     "pytest-cov==7.1.0",
     "pytest-xdist==3.8.0",
     "types-PyYAML==6.0.12.20260518",
+    "xmodits-py>=0.3.5",
     "yamlfmt==1.1.1",
 ]
 
@@ -79,6 +80,8 @@ warn_required_dynamic_aliases = true
 # Thin marimo notebooks (top-level notebooks/*.py) are presentation-only and are not linted;
 # their reusable logic lives in notebooks/utils, which IS linted. See notebooks/README.md.
 ignore-paths = ['(.*/)?notebooks/[^/]+\.py$']
+# xmodits is a compiled (Rust) extension pylint cannot introspect for member checks.
+ignored-modules = ["xmodits"]
 
 [tool.pylint."messages control"]
 disable = [
