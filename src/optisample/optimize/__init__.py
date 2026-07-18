@@ -1,3 +1,13 @@
+from optisample.optimize.knapsack import (
+    Allocation,
+    BudgetInfeasibleError,
+    KnapsackItem,
+    RDCurvePoint,
+    Selection,
+    rd_curve,
+    solve_exact,
+    solve_lagrangian,
+)
 from optisample.optimize.operating_points import (
     OperatingPoint,
     SourceClip,
@@ -8,8 +18,32 @@ from optisample.optimize.operating_points import (
     rd_frontier,
     sample_operating_points,
 )
+from optisample.optimize.orchestrate import (
+    BudgetBreakdown,
+    InstrumentPlan,
+    OptimizeSettings,
+    PitchPlan,
+    format_report,
+    load_instrument_audio,
+    optimize_instrument,
+    run_instrument,
+)
+from optisample.optimize.velocity_map import (
+    VelocityAnchor,
+    VelocityVolumeMap,
+    derive_velocity_map,
+    loudness_by_velocity,
+)
 
 __all__ = [
+    "Allocation",
+    "BudgetInfeasibleError",
+    "KnapsackItem",
+    "RDCurvePoint",
+    "Selection",
+    "rd_curve",
+    "solve_exact",
+    "solve_lagrangian",
     "OperatingPoint",
     "SourceClip",
     "SweepGrid",
@@ -18,4 +52,16 @@ __all__ = [
     "lower_convex_hull",
     "rd_frontier",
     "sample_operating_points",
+    "BudgetBreakdown",
+    "InstrumentPlan",
+    "OptimizeSettings",
+    "PitchPlan",
+    "format_report",
+    "load_instrument_audio",
+    "optimize_instrument",
+    "run_instrument",
+    "VelocityAnchor",
+    "VelocityVolumeMap",
+    "derive_velocity_map",
+    "loudness_by_velocity",
 ]
