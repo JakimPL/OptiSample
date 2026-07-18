@@ -8,7 +8,9 @@ authors = [{ name = "Jakim" }]
 dependencies = [
     "numpy>=2.5.1",
     "pydantic>=2.13.4",
+    "pyloudnorm>=0.2.0",
     "pyyaml>=6.0.3",
+    "scipy>=1.18.0",
     "soundfile>=0.14.0",
 ]
 
