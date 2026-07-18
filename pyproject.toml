@@ -21,6 +21,8 @@ optisample = "optisample.__main__:main"
 dev = [
     "black==26.5.1",
     "isort==8.0.1",
+    "marimo>=0.23.14",
+    "matplotlib>=3.11.1",
     "mypy==2.1.0",
     "pre-commit==4.6.0",
     "pylint==4.0.6",
@@ -60,7 +62,7 @@ show_missing = true
 fail_under = 80
 
 [tool.mypy]
-files = ["src/optisample"]
+files = ["src/optisample", "notebooks/utils"]
 exclude = ["tests"]
 plugins = ["pydantic.mypy"]
 disallow_subclassing_any = true
