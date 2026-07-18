@@ -1,6 +1,4 @@
-def main() -> None:
-    return
-
+from optisample.cli import main
 
 if __name__ == "__main__":
     main()

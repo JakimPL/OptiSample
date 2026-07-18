@@ -5,6 +5,12 @@ description = "Sample Optimizer"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 authors = [{ name = "Jakim" }]
+dependencies = [
+    "numpy>=2.5.1",
+    "pydantic>=2.13.4",
+    "pyyaml>=6.0.3",
+    "soundfile>=0.14.0",
+]
 
 [project.scripts]
 optisample = "optisample.__main__:main"
