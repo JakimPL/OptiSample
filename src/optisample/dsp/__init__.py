@@ -1,3 +1,11 @@
+from optisample.dsp.quantize import (
+    VALID_DEPTHS,
+    apply_gain,
+    normalize_peak,
+    quantization_step,
+    requantize,
+)
+from optisample.dsp.resample import resample_num, resample_to, resampled_frame_count
 from optisample.dsp.spectral import (
     MelParams,
     StftParams,
@@ -12,6 +20,14 @@ from optisample.dsp.spectral import (
     spectral_flux,
     spectral_rolloff,
     stft_magnitude,
+)
+from optisample.dsp.surrogate import (
+    MAX_VOLUME,
+    EncodingParams,
+    StoredSample,
+    encode,
+    render,
+    semitone_ratio,
 )
 
 __all__ = [
@@ -28,4 +44,18 @@ __all__ = [
     "spectral_flux",
     "spectral_rolloff",
     "stft_magnitude",
+    "VALID_DEPTHS",
+    "apply_gain",
+    "normalize_peak",
+    "quantization_step",
+    "requantize",
+    "resample_num",
+    "resample_to",
+    "resampled_frame_count",
+    "MAX_VOLUME",
+    "EncodingParams",
+    "StoredSample",
+    "encode",
+    "render",
+    "semitone_ratio",
 ]

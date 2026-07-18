@@ -63,7 +63,7 @@ fail_under = 80
 
 [tool.mypy]
 files = ["src/optisample", "notebooks/utils"]
-exclude = ["tests"]
+exclude = ["tests", 'notebooks/[^/]+\.py$']
 plugins = ["pydantic.mypy"]
 disallow_subclassing_any = true
 ignore_missing_imports = true
@@ -74,6 +74,11 @@ python_version = "3.13"
 init_forbid_extra = true
 init_typed = true
 warn_required_dynamic_aliases = true
+
+[tool.pylint.main]
+# Thin marimo notebooks (top-level notebooks/*.py) are presentation-only and are not linted;
+# their reusable logic lives in notebooks/utils, which IS linted. See notebooks/README.md.
+ignore-paths = ['(.*/)?notebooks/[^/]+\.py$']
 
 [tool.pylint."messages control"]
 disable = [

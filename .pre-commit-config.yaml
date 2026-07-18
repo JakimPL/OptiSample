@@ -39,7 +39,7 @@ repos:
         types: [python]
         verbose: True
         require_serial: true
-        exclude: ^(tests/)
+        exclude: ^(tests/|notebooks/[^/]+\.py$)
 
       - id: pylint
         name: pylint
@@ -48,7 +48,7 @@ repos:
         types: [python]
         verbose: True
         require_serial: true
-        exclude: ^(tests/)
+        exclude: ^(tests/|notebooks/[^/]+\.py$)
 
       - id: pytest
         name: pytest
