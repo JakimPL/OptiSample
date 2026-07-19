@@ -1,0 +1,4 @@
+# openmpt123 render settings (optisample.config.render.RenderConfig).
+sample_rate: 48000
+interpolation: sinc # none | linear | cubic | sinc (8-tap, highest quality)
+gain_db: 0.0

@@ -1,0 +1,2 @@
+# Budget solver (optisample.config.optimize.OptimizeConfig).
+method: exact # "exact" (pseudo-poly DP) or "lagrangian" (RD sweep)

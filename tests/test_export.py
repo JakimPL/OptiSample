@@ -245,7 +245,7 @@ def test_looped_plan_carries_loop_points_into_the_module() -> None:
     assert plan.pitches[0].chosen.params.loop is True
     begin, end = module.samples[0].loop  # type: ignore[misc]
     assert 0 <= begin < end <= module.samples[0].frames  # the loop lies inside the stored sample
-    assert end < int(0.5 * 22_050)  # storage is a short attack+loop, not the whole 3 s recording
+    assert end < 22_050  # storage is attack + a ~0.5 s loop, not the whole 3 s recording
 
 
 @requires_openmpt

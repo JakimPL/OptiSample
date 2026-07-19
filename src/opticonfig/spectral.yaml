@@ -1,0 +1,10 @@
+# General spectral-analysis sizing for the standalone primitives (optisample.config.dsp.SpectralConfig).
+stft:
+  n_fft: 1024
+  hop_length: 256
+mel:
+  n_fft: 1024
+  hop_length: 256
+  n_mels: 64
+  fmin: 0.0
+  fmax: null

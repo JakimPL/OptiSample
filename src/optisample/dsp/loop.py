@@ -8,9 +8,11 @@ discontinuity the loop seam introduces -- which a crossfade hides.
 
 Detection has three parts:
 
+* **Sustain check** first: a loop repeats forever, so only *level* material may be looped. If the
+  steady region's energy decays (a struck piano note), detection declines and the caller stores the
+  sample whole.
 * **Period estimate** by FFT autocorrelation over the steady region (O(n log n), so it is cheap even
-  on multi-second recordings). A weak autocorrelation peak means the material is not periodic enough
-  to loop (e.g. a decaying piano), and detection declines -- the caller then stores the sample whole.
+  on multi-second recordings). A weak autocorrelation peak (not periodic enough) also declines.
 * **Loop region** = an integer number of periods ending near the end of the steady region, its start
   snapped to an ascending zero crossing so the wrap lands mid-slope in phase.
 * **Crossfade** across the seam: the frames approaching the loop end are blended toward the frames
@@ -31,10 +33,15 @@ _MIN_HZ = 40.0  # lowest fundamental we look for (below this, a "loop" would be 
 _MAX_HZ = 2_000.0
 _MIN_CORRELATION = 0.3  # peak autocorrelation below this = not periodic enough to loop
 _DEFAULT_MIN_PERIODS = 3  # a loop shorter than this beats/buzzes audibly
-_DEFAULT_MIN_LOOP_S = 0.05
+# A short loop is too static vs an evolving sustain (it flutters at 1/loop_len); half a second spans
+# several vibrato cycles, so the looped tone tracks the recording far better while still tiny to store.
+_DEFAULT_MIN_LOOP_S = 0.5
 _ATTACK_SKIP_S = 0.05  # skip the onset when estimating the period and placing the loop
 _TAIL_SKIP_S = 0.02
 _MAX_ESTIMATION_S = 1.0  # cap the autocorrelation window; a second of steady tone is plenty
+_SUSTAIN_DECAY_RATIO = (
+    0.5  # if the steady region's late energy drops below this fraction, it is decaying, not sustained
+)
 DEFAULT_CROSSFADE_S = 0.01
 
 
@@ -77,6 +84,21 @@ def _estimate_period(signal: Signal, sample_rate: int) -> int | None:
     return lag
 
 
+def _is_sustained(region: Signal) -> bool:
+    """Whether ``region`` holds a level (loopable) tone rather than a decaying one.
+
+    A looped sample repeats its region forever, so looping a decay (a struck piano note) would make
+    it ring at a constant level instead of dying away -- wrong. We compare the energy of the region's
+    last third to its first third; a sustain stays roughly level, a decay drops well below it.
+    """
+    if region.size < 6:
+        return False
+    third = region.size // 3
+    early = float(np.sqrt(np.mean(region[:third] ** 2)))
+    late = float(np.sqrt(np.mean(region[-third:] ** 2)))
+    return early > 0.0 and late / early >= _SUSTAIN_DECAY_RATIO
+
+
 def _snap_ascending_zero(signal: Signal, index: int, radius: int) -> int:
     """Nearest ascending zero crossing (``-`` -> ``+``) to ``index`` within ``radius`` (else ``index``)."""
     low = max(1, index - radius)
@@ -100,6 +122,8 @@ def detect_loop(
     attack = int(_ATTACK_SKIP_S * sample_rate)
     tail = total - int(_TAIL_SKIP_S * sample_rate)
     if tail - attack < 8:
+        return None
+    if not _is_sustained(signal[attack:tail]):  # decaying material (e.g. a piano) must not be looped
         return None
     window = signal[attack : min(tail, attack + int(_MAX_ESTIMATION_S * sample_rate))]
     period = _estimate_period(window, sample_rate)

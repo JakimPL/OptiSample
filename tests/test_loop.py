@@ -34,6 +34,12 @@ def test_detect_loop_declines_on_noise() -> None:
     assert detect_loop(rng.standard_normal(SR), SR) is None
 
 
+def test_detect_loop_declines_on_a_decaying_tone() -> None:
+    # A struck note is pitched but decays; looping it would make it ring forever at the loop's level.
+    decay = np.exp(-np.arange(SR, dtype=np.float64) / (0.15 * SR))
+    assert detect_loop(decay * _sine(SR), SR) is None
+
+
 def test_detect_loop_declines_on_a_too_short_signal() -> None:
     assert detect_loop(_sine(4), SR) is None
 

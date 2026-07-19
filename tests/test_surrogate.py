@@ -90,7 +90,7 @@ def test_encode_loop_stores_attack_plus_loop_and_drops_the_tail() -> None:
     stored = encode(sine(440.0, dur=2.0), SR, EncodingParams(target_rate=SR, depth_bits=16, loop=True), root_pitch=60)
     assert stored.loop is not None
     assert stored.frames == stored.loop.end  # storage is trimmed to [0, loop.end)
-    assert stored.frames < int(0.5 * SR)  # ... a small fraction of the 2 s recording
+    assert stored.frames < int(SR)  # ... attack + a ~0.5 s loop, well under the 2 s recording
 
 
 def test_render_loop_sustains_a_note_held_past_the_stored_length() -> None:

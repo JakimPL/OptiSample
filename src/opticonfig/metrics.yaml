@@ -1,0 +1,29 @@
+# Composite fidelity: term weights and each component metric's parameters (optisample.config.metrics).
+# Weights are provisional (calibrated in P7); MCD lives on a large dB scale, hence its small multiplier.
+weights:
+  mrstft: 1.0
+  logmel_l1: 0.35
+  spectral_shape: 1.0
+  mcd: 0.01
+mrstft:
+  resolutions:
+    - {n_fft: 256, hop_length: 64}
+    - {n_fft: 1024, hop_length: 256}
+    - {n_fft: 2048, hop_length: 512}
+logmel:
+  mel: {n_fft: 1024, hop_length: 256, n_mels: 64, fmin: 0.0, fmax: null}
+mcd:
+  n_mfcc: 13
+  mel: {n_fft: 1024, hop_length: 256, n_mels: 64, fmin: 0.0, fmax: null}
+spectral_shape:
+  stft: {n_fft: 1024, hop_length: 256}
+  weights: [0.4, 0.2, 0.2, 0.2] # centroid, rolloff, flatness, flux-variance
+  rolloff_percent: 0.85
+preprocess:
+  target_lufs: -23.0       # EBU R128 loudness-normalization target before comparison
+  dynamic_range_db: 80.0   # log floor shared by mrstft / logmel / mcd (dB below the reference peak)
+  segmental:
+    frame_length: 1024
+    hop_length: 512
+    clip_low_db: -10.0
+    clip_high_db: 35.0

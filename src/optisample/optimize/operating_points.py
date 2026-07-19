@@ -47,7 +47,11 @@ class SweepGrid:
     depths: tuple[int, ...] = DEFAULT_DEPTHS
     dither: bool = True
     noise_shaping: bool = False
-    loops: tuple[bool, ...] = (False,)  # whether to also try looped storage; default keeps P2/P3 behaviour
+    # Loop by default: for sustained material this is the compact, natural storage (attack + looped
+    # sustain), and it is the single biggest byte saving. Non-periodic/decaying material declines to
+    # loop and falls back to a trim automatically, so ``(True,)`` is safe as the sole default. Pass
+    # ``(False, True)`` to let the allocator also weigh full-length storage where it fits.
+    loops: tuple[bool, ...] = (True,)
 
 
 @dataclass(frozen=True)

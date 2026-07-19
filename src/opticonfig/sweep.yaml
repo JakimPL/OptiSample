@@ -1,0 +1,8 @@
+# Encoding sweep grid (optisample.config.optimize.SweepConfig).
+rates: null                  # explicit stored rates, or null to derive from each clip's rate
+rate_divisors: [1, 2, 3, 4, 6, 8] # candidate rates = source rate / divisor
+min_rate: 4000               # floor for derived candidate rates (Hz)
+depths: [16, 8]              # swept bit depths
+dither: true
+noise_shaping: false
+loops: [true]                # loop by default; non-periodic material falls back to a trim

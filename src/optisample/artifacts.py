@@ -37,6 +37,7 @@ from typing import Any
 
 import numpy as np
 
+from optisample.dsp.loop import Loop
 from optisample.dsp.surrogate import StoredSample, encode, render
 from optisample.io.audio import write_wav
 from optisample.io.it_writer import ITModule, write_it
@@ -170,6 +171,11 @@ def _velocity_map_json(velocity_map: VelocityVolumeMap) -> dict[str, Any]:
     }
 
 
+def _loop_json(loop: Loop | None) -> dict[str, int] | None:
+    """The loop actually stored (``{start, end}``), or ``None`` when the sample was not looped."""
+    return None if loop is None else {"start": loop.start, "end": loop.end}
+
+
 def _budget_json(plan: InstrumentPlan | GroupedInstrumentPlan) -> dict[str, int]:
     return {
         "module_budget_bytes": plan.module_budget_bytes,
@@ -179,7 +185,7 @@ def _budget_json(plan: InstrumentPlan | GroupedInstrumentPlan) -> dict[str, int]
     }
 
 
-def _plan_json_ungrouped(plan: InstrumentPlan) -> dict[str, Any]:
+def _plan_json_ungrouped(plan: InstrumentPlan, units: tuple[_Unit, ...]) -> dict[str, Any]:
     return {
         "strategy": "ungrouped",
         "instrument_id": plan.instrument_id,
@@ -196,18 +202,18 @@ def _plan_json_ungrouped(plan: InstrumentPlan) -> dict[str, Any]:
                 "target_rate": pitch.chosen.params.target_rate,
                 "depth_bits": pitch.chosen.params.depth_bits,
                 "trim_s": pitch.chosen.params.trim_s,
-                "loop": pitch.chosen.params.loop,
+                "loop": _loop_json(unit.stored.loop),  # the loop actually stored, not merely requested
                 "frames": pitch.chosen.frames,
                 "stored_bytes": pitch.chosen.stored_bytes,
                 "distortion": pitch.chosen.distortion,
                 "hull_size": len(pitch.hull),
             }
-            for pitch in plan.pitches
+            for pitch, unit in zip(plan.pitches, units)
         ],
     }
 
 
-def _plan_json_grouped(plan: GroupedInstrumentPlan) -> dict[str, Any]:
+def _plan_json_grouped(plan: GroupedInstrumentPlan, units: tuple[_Unit, ...]) -> dict[str, Any]:
     return {
         "strategy": "grouped",
         "instrument_id": plan.instrument_id,
@@ -224,13 +230,13 @@ def _plan_json_grouped(plan: GroupedInstrumentPlan) -> dict[str, Any]:
                 "target_rate": zone.chosen.params.target_rate,
                 "depth_bits": zone.chosen.params.depth_bits,
                 "trim_s": zone.chosen.params.trim_s,
-                "loop": zone.chosen.params.loop,
+                "loop": _loop_json(unit.stored.loop),  # the loop actually stored, not merely requested
                 "frames": zone.chosen.frames,
                 "stored_bytes": zone.chosen.stored_bytes,
                 "distortion": zone.chosen.distortion,
                 "hull_size": len(zone.hull),
             }
-            for zone in plan.zones
+            for zone, unit in zip(plan.zones, units)
         ],
     }
 
@@ -397,21 +403,21 @@ def _dump_plan(kind: _PlanKind, out_dir: Path, dctx: _DumpContext) -> PlanArtifa
 
 
 def _ungrouped_kind(plan: InstrumentPlan, dctx: _DumpContext) -> _PlanKind:
+    units = _ungrouped_units(plan, dctx)
+
     def make_module(material: Sequence[NoteEvent]) -> ITModule:
         return build_it_module(plan, dctx.audio, dctx.sample_rate, list(material), dctx.settings.optimize.seed)
 
-    return _PlanKind(
-        "ungrouped", _ungrouped_units(plan, dctx), format_report(plan), _plan_json_ungrouped(plan), make_module
-    )
+    return _PlanKind("ungrouped", units, format_report(plan), _plan_json_ungrouped(plan, units), make_module)
 
 
 def _grouped_kind(plan: GroupedInstrumentPlan, dctx: _DumpContext) -> _PlanKind:
+    units = _grouped_units(plan, dctx)
+
     def make_module(material: Sequence[NoteEvent]) -> ITModule:
         return build_grouped_it_module(plan, dctx.audio, dctx.sample_rate, list(material), dctx.settings.optimize.seed)
 
-    return _PlanKind(
-        "grouped", _grouped_units(plan, dctx), format_grouping_report(plan), _plan_json_grouped(plan), make_module
-    )
+    return _PlanKind("grouped", units, format_grouping_report(plan), _plan_json_grouped(plan, units), make_module)
 
 
 def _optimize_and_dump(instrument: InstrumentSpec, out_dir: Path, dctx: _DumpContext, grouped: bool) -> PlanArtifacts:

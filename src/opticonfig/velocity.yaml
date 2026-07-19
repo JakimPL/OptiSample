@@ -1,0 +1,2 @@
+# Velocity->volume map shaping (optisample.config.optimize.VelocityConfig).
+loudness_floor_lu: 120.0 # clamp measured loudness to reference - this many LU before interpolation

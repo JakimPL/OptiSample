@@ -1,0 +1,39 @@
+"""Optimization configuration: the encoding sweep grid, the solver method, velocity-map shaping.
+
+``SweepConfig`` is the old ``SweepGrid`` plus the rate-derivation knobs (``rate_divisors``/``min_rate``)
+that used to be module constants. ``loops``/``depths`` are the swept axes; ``rates`` is an optional
+explicit override (``null`` -> derive from each clip's rate). ``Method`` is redeclared here (rather than
+imported from ``optimize.orchestrate``) so the config package stays a dependency leaf.
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from optisample.config.base import ConfigModel
+
+Method = Literal["exact", "lagrangian"]
+
+
+class SweepConfig(ConfigModel):
+    """The encoding axes to sweep for one clip, and how candidate stored rates are derived."""
+
+    rates: tuple[int, ...] | None
+    rate_divisors: tuple[int, ...]
+    min_rate: int
+    depths: tuple[int, ...]
+    dither: bool
+    noise_shaping: bool
+    loops: tuple[bool, ...]
+
+
+class OptimizeConfig(ConfigModel):
+    """Budget-solver settings."""
+
+    method: Method
+
+
+class VelocityConfig(ConfigModel):
+    """Velocity->volume map shaping: how far below the reference a silent velocity is clamped."""
+
+    loudness_floor_lu: float
