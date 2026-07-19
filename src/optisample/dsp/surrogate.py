@@ -17,12 +17,10 @@ P4 -- until then it *is* the objective the rate-distortion search optimizes.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import lru_cache
 
 import numpy as np
 from numpy.typing import NDArray
 
-from optisample.config import load_config
 from optisample.config.dsp import EncodeConfig, LoopConfig
 from optisample.dsp.loop import Loop, crossfade_loop, detect_loop
 from optisample.dsp.quantize import normalize_peak, requantize
@@ -82,17 +80,6 @@ class EncodeContext:
     root_pitch: int
     config: EncodeConfig
     rng: np.random.Generator | None = None
-
-
-@lru_cache(maxsize=1)
-def default_encode_config() -> EncodeConfig:
-    """The bundled encode config, cached so the sweep does not reload YAML per operating point.
-
-    Transitional bridge for call sites that do not yet thread an ``EncodeConfig``
-    (operating_points/orchestrate/grouping -> phase 6, export -> phase 7, artifacts -> phase 9);
-    removed once every caller passes config explicitly.
-    """
-    return load_config().encode
 
 
 def semitone_ratio(semitones: float) -> float:

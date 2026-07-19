@@ -20,18 +20,18 @@ def tone(freq: float = 440.0, duration: float = 1.0, amplitude: float = 0.5) -> 
 
 
 @pytest.fixture(scope="module")
-def demo(tmp_path_factory):
+def demo(tmp_path_factory, config):
     root = tmp_path_factory.mktemp("demo")
-    manifest = loading.load(loading.ensure_demo_manifest(root))
+    manifest = loading.load(loading.ensure_demo_manifest(root, config.synth))
     return root, manifest
 
 
 # --- loading ---------------------------------------------------------------
 
 
-def test_ensure_demo_manifest_is_idempotent(tmp_path):
-    first = loading.ensure_demo_manifest(tmp_path)
-    second = loading.ensure_demo_manifest(tmp_path)
+def test_ensure_demo_manifest_is_idempotent(tmp_path, synth_config):
+    first = loading.ensure_demo_manifest(tmp_path, synth_config)
+    second = loading.ensure_demo_manifest(tmp_path, synth_config)
     assert first == second
     assert first.exists()
 

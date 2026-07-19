@@ -11,22 +11,22 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
+from optisample.config.synth import SynthConfig
 from optisample.io.audio import read_wav
 from optisample.io.manifest import load_manifest
 from optisample.model import InstrumentSpec, Manifest, SourceSample
-from optisample.synth import default_synth_config, generate_demo
+from optisample.synth import generate_demo
 
 Signal = NDArray[np.float64]
 
 
-def ensure_demo_manifest(root: Path | str, *, seed: int = 0) -> Path:
-    """Return the manifest under ``root``, generating the synthetic demo there if absent."""
+def ensure_demo_manifest(root: Path | str, config: SynthConfig, *, seed: int = 0) -> Path:
+    """Return the manifest under ``root``, generating the synthetic demo (from ``config``) if absent."""
     root = Path(root)
     manifest_path = root / "manifest.yaml"
     if manifest_path.exists():
         return manifest_path
-    # transitional: phase 9 threads a SynthConfig from the notebook's config selection.
-    return generate_demo(root, default_synth_config(), seed=seed)
+    return generate_demo(root, config, seed=seed)
 
 
 def load(path: Path | str) -> Manifest:

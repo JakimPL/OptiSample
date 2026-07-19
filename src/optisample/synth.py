@@ -18,30 +18,18 @@ Every archetype coefficient and preset lives in :class:`~optisample.config.synth
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
 import numpy as np
 from numpy.typing import NDArray
 
-from optisample.config import load_config
 from optisample.config.synth import PresetConfig, SynthConfig
 from optisample.io.audio import write_wav
 from optisample.io.manifest import dump_manifest
 from optisample.model import InstrumentSpec, Manifest, NoteEvent, ProjectSpec, SourceSample
 
 Archetype = Literal["sustained", "piano"]
-
-
-@lru_cache(maxsize=1)
-def default_synth_config() -> SynthConfig:
-    """The bundled synth config, cached so repeated demo renders do not reload YAML.
-
-    Transitional bridge for call sites that do not yet thread a ``SynthConfig`` (the CLI/notebook
-    entry points -> phase 9); removed once every caller passes config explicitly.
-    """
-    return load_config().synth
 
 
 @dataclass(frozen=True)

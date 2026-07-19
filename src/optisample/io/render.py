@@ -18,14 +18,12 @@ from __future__ import annotations
 import shutil
 import subprocess
 import tempfile
-from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
 from numpy.typing import NDArray
 
-from optisample.config import load_config
-from optisample.config.render import Interpolation, PlaybackConfig, RenderConfig
+from optisample.config.render import Interpolation, RenderConfig
 from optisample.io.audio import read_wav
 from optisample.io.it_writer import ITModule, write_it
 
@@ -40,26 +38,6 @@ def filter_taps(config: RenderConfig) -> int:
     ``RenderConfig.interpolation`` is a validated literal, so every value is a key of the map.
     """
     return _INTERPOLATION_TAPS[config.interpolation]
-
-
-@lru_cache(maxsize=1)
-def default_render_config() -> RenderConfig:
-    """The bundled render config, cached so repeated ground-truth renders do not reload YAML.
-
-    Transitional bridge for call sites that do not yet thread a ``RenderConfig`` (artifacts/DumpSettings
-    -> phase 9); removed once every caller passes config explicitly.
-    """
-    return load_config().render
-
-
-@lru_cache(maxsize=1)
-def default_playback_config() -> PlaybackConfig:
-    """The bundled IT playback config, cached so repeated dumps do not reload YAML.
-
-    Transitional bridge for call sites that do not yet thread a ``PlaybackConfig`` (artifacts/DumpSettings
-    -> phase 9); removed once every caller passes config explicitly.
-    """
-    return load_config().playback
 
 
 def openmpt123_available() -> bool:

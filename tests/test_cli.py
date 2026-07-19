@@ -6,13 +6,17 @@ import numpy as np
 import pytest
 
 from optisample.cli import _dump_settings, build_parser, main
+from optisample.config import OptiConfig, load_config
 from optisample.io.audio import write_wav
 from optisample.io.manifest import dump_manifest
 from optisample.model import InstrumentSpec, Manifest, NoteEvent, ProjectSpec, SourceSample
-from optisample.synth import NoteSpec, default_synth_config, render_sample
+from optisample.synth import NoteSpec, render_sample
 
 SR = 44_100
 PITCHES = (60, 62, 64)
+
+# render_sample is only a test-signal generator here, so its synth config is fixture-independent data.
+SYNTH = load_config().synth
 
 
 def _tiny_manifest(tmp_path: Path) -> Path:
@@ -20,9 +24,7 @@ def _tiny_manifest(tmp_path: Path) -> Path:
     samples = []
     for pitch in PITCHES:
         rel = Path(f"p{pitch}.wav")
-        signal = render_sample(
-            "piano", NoteSpec(pitch, 100, 0.0, 0.6, SR), np.random.default_rng(pitch), default_synth_config()
-        )
+        signal = render_sample("piano", NoteSpec(pitch, 100, 0.0, 0.6, SR), np.random.default_rng(pitch), SYNTH)
         write_wav(tmp_path / rel, signal, SR)
         samples.append(SourceSample(file=rel, pitch=pitch, velocity=100))
     material = [NoteEvent(pitch=pitch, velocity=100, duration_s=0.5, count=2) for pitch in PITCHES]
@@ -32,7 +34,7 @@ def _tiny_manifest(tmp_path: Path) -> Path:
     return manifest_path
 
 
-def test_dump_settings_maps_grid_and_flags() -> None:
+def test_dump_settings_maps_grid_and_flags(config: OptiConfig) -> None:
     args = build_parser().parse_args(
         [
             "optimize",
@@ -49,7 +51,7 @@ def test_dump_settings_maps_grid_and_flags() -> None:
             "3",
         ]
     )
-    settings = _dump_settings(args)
+    settings = _dump_settings(config, args)
     assert settings.optimize.sweep.rates == (11_025,)
     assert settings.optimize.sweep.depths == (8,)
     assert settings.optimize.sweep.loops == (False,)  # --no-loop disables looping
@@ -58,9 +60,9 @@ def test_dump_settings_maps_grid_and_flags() -> None:
     assert settings.grouped is True and settings.ungrouped is False
 
 
-def test_dump_settings_defaults_to_looping_full_grid_both_strategies() -> None:
+def test_dump_settings_defaults_to_looping_full_grid_both_strategies(config: OptiConfig) -> None:
     args = build_parser().parse_args(["optimize", "m.yaml"])
-    settings = _dump_settings(args)
+    settings = _dump_settings(config, args)
     assert settings.grouped and settings.ungrouped and settings.render_ground_truth
     assert settings.optimize.sweep.loops == (True,)  # looping is on by default
 

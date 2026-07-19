@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
+from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
 from optisample.dsp.surrogate import EncodingParams
 from optisample.io.audio import write_wav
@@ -25,11 +26,14 @@ from optisample.optimize.orchestrate import (
     run_instrument,
 )
 from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
-from optisample.synth import NoteSpec, default_synth_config, render_sample
+from optisample.synth import NoteSpec, render_sample
 
 SR = 44_100
 PITCHES = (60, 67)
 VELOCITIES = (50, 100)
+
+# render_sample is a test-signal generator here; its synth config is fixture-independent test data.
+_SYNTH = load_config().synth
 
 
 def note(pitch: int, velocity: int, dur: float = 0.5) -> NDArray[np.float64]:
@@ -37,7 +41,7 @@ def note(pitch: int, velocity: int, dur: float = 0.5) -> NDArray[np.float64]:
         "piano",
         NoteSpec(pitch, velocity, 0.0, dur, SR),
         np.random.default_rng(pitch * 200 + velocity),
-        default_synth_config(),
+        _SYNTH,
     )
 
 

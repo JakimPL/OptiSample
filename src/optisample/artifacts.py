@@ -31,7 +31,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -39,10 +39,10 @@ import numpy as np
 
 from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.dsp.loop import Loop
-from optisample.dsp.surrogate import EncodeContext, StoredSample, default_encode_config, encode, render
+from optisample.dsp.surrogate import EncodeContext, StoredSample, encode, render
 from optisample.io.audio import write_wav
 from optisample.io.it_writer import ITModule, write_it
-from optisample.io.render import default_playback_config, default_render_config, openmpt123_available, render_module
+from optisample.io.render import openmpt123_available, render_module
 from optisample.metrics.base import Signal
 from optisample.metrics.composite import evaluate
 from optisample.model import InstrumentSpec, Manifest, NoteEvent
@@ -52,7 +52,6 @@ from optisample.optimize.knapsack import BudgetInfeasibleError
 from optisample.optimize.orchestrate import (
     InstrumentPlan,
     OptimizeSettings,
-    default_optimize_settings,
     format_report,
     load_instrument_audio,
     optimize_instrument,
@@ -71,14 +70,16 @@ def _note_name(pitch: int) -> str:
 
 @dataclass(frozen=True)
 class DumpSettings:
-    """What to dump and how (bundled to keep call sites small)."""
+    """What to dump and how (bundled to keep call sites small).
 
-    # transitional: OptimizeSettings is built from a loaded config at the CLI in phase 9.
-    optimize: OptimizeSettings = field(default_factory=default_optimize_settings)
-    # transitional: RenderConfig is threaded from the CLI in phase 9.
-    render: RenderConfig = field(default_factory=default_render_config)
-    # transitional: PlaybackConfig is threaded from the CLI in phase 9.
-    playback: PlaybackConfig = field(default_factory=default_playback_config)
+    ``optimize``/``render``/``playback`` carry the config the run needs; the CLI builds them from a
+    loaded ``OptiConfig`` (see :func:`optisample.cli._dump_settings`). The remaining flags are
+    behavioural toggles, so they keep ergonomic defaults.
+    """
+
+    optimize: OptimizeSettings
+    render: RenderConfig
+    playback: PlaybackConfig
     render_ground_truth: bool = True  # render module + per-note through openmpt123 if it is installed
     grouped: bool = True
     ungrouped: bool = True
@@ -256,8 +257,7 @@ def _ungrouped_units(plan: InstrumentPlan, dctx: _DumpContext) -> tuple[_Unit, .
     units: list[_Unit] = []
     for pitch in plan.pitches:
         task = dctx.tasks_by_pitch[pitch.pitch]
-        # transitional: EncodeConfig is threaded through DumpSettings in phase 9.
-        encode_ctx = EncodeContext(root_pitch=pitch.pitch, config=default_encode_config(), rng=rng)
+        encode_ctx = EncodeContext(root_pitch=pitch.pitch, config=dctx.settings.optimize.encode, rng=rng)
         stored = encode(task.representative, dctx.sample_rate, pitch.chosen.params, encode_ctx)
         units.append(
             _Unit(
@@ -277,8 +277,7 @@ def _grouped_units(plan: GroupedInstrumentPlan, dctx: _DumpContext) -> tuple[_Un
     units: list[_Unit] = []
     for index, zone in enumerate(plan.zones):
         signal: Signal = dctx.audio[(zone.representative, zone.representative_velocity)]
-        # transitional: EncodeConfig is threaded through DumpSettings in phase 9.
-        encode_ctx = EncodeContext(root_pitch=zone.representative, config=default_encode_config(), rng=rng)
+        encode_ctx = EncodeContext(root_pitch=zone.representative, config=dctx.settings.optimize.encode, rng=rng)
         stored = encode(signal, dctx.sample_rate, zone.chosen.params, encode_ctx)
         units.append(
             _Unit(
@@ -459,7 +458,7 @@ def dump_instrument(
     audio: AudioMap,
     sample_rate: int,
     out_dir: Path | str,
-    settings: DumpSettings = DumpSettings(),
+    settings: DumpSettings,
 ) -> DumpResult:
     """Optimize one instrument (both strategies) and write every inspection artifact under ``out_dir``."""
     out_dir = Path(out_dir)
@@ -481,7 +480,7 @@ def dump_instrument(
     return DumpResult(instrument_id=instrument.id, directory=out_dir, plans=tuple(plans))
 
 
-def dump_project(manifest: Manifest, out_dir: Path | str, settings: DumpSettings = DumpSettings()) -> list[DumpResult]:
+def dump_project(manifest: Manifest, out_dir: Path | str, settings: DumpSettings) -> list[DumpResult]:
     """Run :func:`dump_instrument` for every instrument in a loaded manifest under ``out_dir``."""
     out_dir = Path(out_dir)
     results: list[DumpResult] = []

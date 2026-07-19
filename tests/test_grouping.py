@@ -29,7 +29,7 @@ from optisample.optimize.grouping import (
 from optisample.optimize.knapsack import BudgetInfeasibleError
 from optisample.optimize.orchestrate import OptimizeSettings, optimize_instrument, prepare_run
 from optisample.optimize.tasks import Event, PitchTask
-from optisample.synth import NoteSpec, default_synth_config, render_sample
+from optisample.synth import NoteSpec, render_sample
 
 SR = 44_100
 PITCHES = (60, 62, 64)
@@ -68,7 +68,7 @@ def _note(pitch: int, velocity: int, dur: float) -> NDArray[np.float64]:
         "piano",
         NoteSpec(pitch, velocity, 0.0, dur, SR),
         np.random.default_rng(pitch * 137 + velocity),
-        default_synth_config(),
+        _CONFIG.synth,
     )
 
 
@@ -259,7 +259,7 @@ def test_grouping_handles_the_sustained_archetype() -> None:
     pitches = (60, 62, 64)
     audio = {
         (pitch, 100): render_sample(
-            "sustained", NoteSpec(pitch, 100, 0.0, 0.6, SR), np.random.default_rng(pitch), default_synth_config()
+            "sustained", NoteSpec(pitch, 100, 0.0, 0.6, SR), np.random.default_rng(pitch), _CONFIG.synth
         )
         for pitch in pitches
     }

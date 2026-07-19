@@ -20,19 +20,17 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from functools import lru_cache
 from typing import Literal, Protocol
 
 import numpy as np
 
-from optisample.config import load_config
 from optisample.config.dsp import EncodeConfig
 from optisample.config.optimize import SweepConfig, VelocityConfig
 from optisample.dsp.resample import resample_to
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode
 from optisample.io.audio import read_wav
 from optisample.metrics.base import Signal
-from optisample.metrics.composite import CompositeFidelity, build_composite
+from optisample.metrics.composite import CompositeFidelity
 from optisample.metrics.size import FILE_HEADER_BYTES, INSTRUMENT_HEADER_BYTES, bytes_to_kib, kib_to_bytes
 from optisample.model import InstrumentSpec
 from optisample.optimize.knapsack import (
@@ -68,24 +66,6 @@ class OptimizeSettings:
     velocity: VelocityConfig
     method: Method
     seed: int = 0
-
-
-@lru_cache(maxsize=1)
-def default_optimize_settings() -> OptimizeSettings:
-    """Transitional: an ``OptimizeSettings`` built from the bundled config.
-
-    Bridges callers that do not yet construct settings from a loaded config (the ``DumpSettings``
-    default and the CLI base grid); phase 9 wires the entry points to build these explicitly (with a
-    ``--config`` directory) and this bridge is removed.
-    """
-    config = load_config()
-    return OptimizeSettings(
-        sweep=config.sweep,
-        encode=config.encode,
-        composite=build_composite(config.metrics),
-        velocity=config.velocity,
-        method=config.optimize.method,
-    )
 
 
 @dataclass(frozen=True)

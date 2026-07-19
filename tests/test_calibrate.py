@@ -14,13 +14,17 @@ from optisample.calibrate import (
     renderer_agreement,
     single_note_module,
 )
+from optisample.config import load_config
 from optisample.dsp.resample import resample_to
 from optisample.dsp.surrogate import MAX_VOLUME, EncodingParams, StoredSample, encode
 from optisample.io.render import openmpt123_available
 from optisample.optimize.export import c5speed_for_pitch
-from optisample.synth import NoteSpec, default_synth_config, render_sample
+from optisample.synth import NoteSpec, render_sample
 
 SAMPLE_RATE = 44_100
+
+# render_sample is a test-signal generator here; its synth config is fixture-independent test data.
+_SYNTH = load_config().synth
 
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
 
@@ -38,9 +42,7 @@ def _stored(root_pitch: int = 60, rate: int = 22_050, frames: int = 8_000) -> St
 
 
 def _recording(archetype: str, pitch: int, dur: float) -> np.ndarray:
-    return render_sample(
-        archetype, NoteSpec(pitch, 100, 0.0, dur, SAMPLE_RATE), np.random.default_rng(pitch), default_synth_config()
-    )
+    return render_sample(archetype, NoteSpec(pitch, 100, 0.0, dur, SAMPLE_RATE), np.random.default_rng(pitch), _SYNTH)
 
 
 # --- unit tests (no openmpt123 needed) ------------------------------------------------------------

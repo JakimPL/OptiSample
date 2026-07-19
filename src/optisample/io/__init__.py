@@ -13,8 +13,6 @@ from optisample.io.it_writer import (
 )
 from optisample.io.manifest import dump_manifest, load_manifest
 from optisample.io.render import (
-    default_playback_config,
-    default_render_config,
     filter_taps,
     openmpt123_available,
     render_it,
@@ -26,8 +24,6 @@ __all__ = [
     "write_wav",
     "dump_manifest",
     "load_manifest",
-    "default_playback_config",
-    "default_render_config",
     "filter_taps",
     "openmpt123_available",
     "render_it",

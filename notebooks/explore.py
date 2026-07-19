@@ -52,9 +52,9 @@ def _(mo):
 
 
 @app.cell
-def _(loading, mo, root):
+def _(config, loading, mo, root):
     _demo_dir = root / "notebooks" / "_demo"
-    _default_manifest = loading.ensure_demo_manifest(_demo_dir)
+    _default_manifest = loading.ensure_demo_manifest(_demo_dir, config.synth)
     manifest_path_input = mo.ui.text(value=str(_default_manifest), label="manifest.yaml", full_width=True)
     mo.md(f"**Manifest** (defaults to a freshly generated synthetic demo)\n\n{manifest_path_input}")
     return (manifest_path_input,)

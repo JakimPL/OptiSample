@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -19,26 +18,38 @@ from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
 from optisample.io.audio import read_wav, write_wav
 from optisample.io.render import openmpt123_available
+from optisample.metrics import build_composite
 from optisample.model import InstrumentSpec, Manifest, NoteEvent, ProjectSpec, SourceSample
-from optisample.optimize.orchestrate import OptimizeSettings, default_optimize_settings
-from optisample.synth import NoteSpec, default_synth_config, render_sample
+from optisample.optimize.orchestrate import OptimizeSettings
+from optisample.synth import NoteSpec, render_sample
 
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
 
 SR = 44_100
 PITCHES = (60, 62, 64)
 
-# Phase 9 migrates these to config-fed fixtures; for now build a cheap swept grid from the bundled
-# config (dither off: the dump re-encode is deterministic and fast) under "no config defaults".
-_BASE_SWEEP = load_config().sweep
+# Build cheap swept settings straight from the bundled config (dither off, so the dump re-encode is
+# deterministic and fast) under "no config defaults". Loaded once here since these feed module-level
+# constants and helpers that the function-scoped conftest fixtures cannot reach.
+_CONFIG = load_config()
 
 
 def _settings() -> OptimizeSettings:
-    grid = SweepConfig.model_validate({**_BASE_SWEEP.model_dump(), "rates": (11_025,), "depths": (8,), "dither": False})
-    return replace(default_optimize_settings(), sweep=grid)
+    grid = SweepConfig.model_validate(
+        {**_CONFIG.sweep.model_dump(), "rates": (11_025,), "depths": (8,), "dither": False}
+    )
+    return OptimizeSettings(
+        sweep=grid,
+        encode=_CONFIG.encode,
+        composite=build_composite(_CONFIG.metrics),
+        velocity=_CONFIG.velocity,
+        method=_CONFIG.optimize.method,
+    )
 
 
-NO_RENDER = DumpSettings(optimize=_settings(), render_ground_truth=False)
+NO_RENDER = DumpSettings(
+    optimize=_settings(), render=_CONFIG.render, playback=_CONFIG.playback, render_ground_truth=False
+)
 
 
 def _note(pitch: int, velocity: int, dur: float) -> NDArray[np.float64]:
@@ -46,7 +57,7 @@ def _note(pitch: int, velocity: int, dur: float) -> NDArray[np.float64]:
         "piano",
         NoteSpec(pitch, velocity, 0.0, dur, SR),
         np.random.default_rng(pitch * 137 + velocity),
-        default_synth_config(),
+        _CONFIG.synth,
     )
 
 
@@ -151,7 +162,8 @@ def test_ground_truth_render_produces_real_audio(tmp_path: Path) -> None:
         _audio((60, 62)),
         SR,
         out,
-        DumpSettings(optimize=_settings()),  # render_ground_truth defaults True
+        # render_ground_truth defaults True
+        DumpSettings(optimize=_settings(), render=_CONFIG.render, playback=_CONFIG.playback),
     )
     assert all(plan.rendered for plan in result.plans if plan.feasible)
     module_wav = out / "grouped" / "render" / "module.wav"
@@ -188,7 +200,13 @@ def test_impossible_budget_marks_both_infeasible(tmp_path: Path) -> None:
 
 def test_strategy_flags_restrict_which_plans_run(tmp_path: Path) -> None:
     out = tmp_path / "grouped-only"
-    settings = DumpSettings(optimize=_settings(), render_ground_truth=False, ungrouped=False)
+    settings = DumpSettings(
+        optimize=_settings(),
+        render=_CONFIG.render,
+        playback=_CONFIG.playback,
+        render_ground_truth=False,
+        ungrouped=False,
+    )
     result = dump_instrument(_instrument(48.0), _audio(), SR, out, settings)
     assert [plan.name for plan in result.plans] == ["grouped"]
     assert not (out / "ungrouped").exists()
