@@ -31,7 +31,7 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
-from optisample.dsp.surrogate import EncodingParams, encode, semitone_ratio
+from optisample.dsp.surrogate import EncodeContext, EncodingParams, default_encode_config, encode, semitone_ratio
 from optisample.metrics.size import FILE_HEADER_BYTES, INSTRUMENT_HEADER_BYTES, bytes_to_kib, kib_to_bytes
 from optisample.model import InstrumentSpec
 from optisample.optimize.knapsack import BudgetInfeasibleError
@@ -147,9 +147,9 @@ def _zone_options(range_tasks: Sequence[PitchTask], ctx: EvalContext) -> list[Zo
             for depth in ctx.grid.depths:
                 for rate in rates:
                     params = EncodingParams(rate, depth, trim_s, ctx.grid.dither, ctx.grid.noise_shaping, loop)
-                    stored = encode(
-                        rep_task.representative, ctx.sample_rate, params, root_pitch=representative, rng=ctx.rng
-                    )
+                    # transitional: EncodeConfig is threaded through EvalContext in phase 6.
+                    encode_ctx = EncodeContext(root_pitch=representative, config=default_encode_config(), rng=ctx.rng)
+                    stored = encode(rep_task.representative, ctx.sample_rate, params, encode_ctx)
                     distortion = sum(task.weight * score_reconstruction(stored, task, ctx) for task in range_tasks)
                     options.append(ZoneOption(representative, params, stored.stored_bytes, distortion, stored.frames))
     return options

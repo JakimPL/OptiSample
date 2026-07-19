@@ -25,7 +25,7 @@ from typing import Literal, Protocol
 import numpy as np
 
 from optisample.dsp.resample import resample_to
-from optisample.dsp.surrogate import EncodingParams, encode
+from optisample.dsp.surrogate import EncodeContext, EncodingParams, default_encode_config, encode
 from optisample.io.audio import read_wav
 from optisample.metrics.base import Signal
 from optisample.metrics.composite import CompositeFidelity, default_composite
@@ -117,7 +117,9 @@ class InstrumentPlan:
 
 def _evaluate_config(task: PitchTask, ctx: EvalContext, params: EncodingParams) -> OperatingPoint:
     """Encode the pitch's own representative, then score reconstruction against every event at it."""
-    stored = encode(task.representative, ctx.sample_rate, params, root_pitch=task.pitch, rng=ctx.rng)
+    # transitional: EncodeConfig is threaded through EvalContext in phase 6.
+    encode_ctx = EncodeContext(root_pitch=task.pitch, config=default_encode_config(), rng=ctx.rng)
+    stored = encode(task.representative, ctx.sample_rate, params, encode_ctx)
     distortion = score_reconstruction(stored, task, ctx)
     return OperatingPoint(params=params, stored_bytes=stored.stored_bytes, distortion=distortion, frames=stored.frames)
 

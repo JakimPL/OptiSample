@@ -17,11 +17,14 @@ P4 -- until then it *is* the objective the rate-distortion search optimizes.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 
 import numpy as np
 from numpy.typing import NDArray
 
-from optisample.dsp.loop import DEFAULT_CROSSFADE_S, Loop, crossfade_loop, detect_loop
+from optisample.config import load_config
+from optisample.config.dsp import EncodeConfig, LoopConfig
+from optisample.dsp.loop import Loop, crossfade_loop, detect_loop
 from optisample.dsp.quantize import normalize_peak, requantize
 from optisample.dsp.resample import resample_num, resample_to
 from optisample.metrics.size import SampleSize
@@ -71,6 +74,27 @@ class StoredSample:
         return self.frames / self.sample_rate if self.sample_rate else 0.0
 
 
+@dataclass(frozen=True)
+class EncodeContext:
+    """What :func:`encode` needs around one swept ``EncodingParams`` point: the root pitch to stamp on
+    the stored sample, the encode config (loop detection + normalization peak), and the dither RNG."""
+
+    root_pitch: int
+    config: EncodeConfig
+    rng: np.random.Generator | None = None
+
+
+@lru_cache(maxsize=1)
+def default_encode_config() -> EncodeConfig:
+    """The bundled encode config, cached so the sweep does not reload YAML per operating point.
+
+    Transitional bridge for call sites that do not yet thread an ``EncodeConfig``
+    (operating_points/orchestrate/grouping -> phase 6, export -> phase 7, artifacts -> phase 9);
+    removed once every caller passes config explicitly.
+    """
+    return load_config().encode
+
+
 def semitone_ratio(semitones: float) -> float:
     """Playback speed / frequency ratio for a pitch shift of ``semitones`` (12 semitones = 2x)."""
     return float(2.0 ** (semitones / 12.0))
@@ -87,24 +111,17 @@ def _fit_length(signal: Signal, length: int) -> Signal:
     return np.asarray(np.pad(signal, (0, length - signal.size)), dtype=np.float64)
 
 
-def _apply_loop(resampled: Signal, rate: int) -> tuple[Signal, Loop | None]:
+def _apply_loop(resampled: Signal, rate: int, config: LoopConfig) -> tuple[Signal, Loop | None]:
     """Detect a loop, crossfade its seam, and trim storage to attack + loop (or leave the signal be)."""
-    detected = detect_loop(resampled, rate)
+    detected = detect_loop(resampled, rate, config)
     if detected is None:
         return resampled, None
-    fade_len = int(round(DEFAULT_CROSSFADE_S * rate))
+    fade_len = int(round(config.crossfade_s * rate))
     faded = crossfade_loop(resampled, detected, fade_len=fade_len)
     return faded[: detected.end], detected
 
 
-def encode(
-    signal: Signal,
-    sample_rate: int,
-    params: EncodingParams,
-    *,
-    root_pitch: int,
-    rng: np.random.Generator | None = None,
-) -> StoredSample:
+def encode(signal: Signal, sample_rate: int, params: EncodingParams, ctx: EncodeContext) -> StoredSample:
     """Encode ``signal`` into a :class:`StoredSample`: normalize -> resample -> (loop | trim) -> requantize.
 
     With ``params.loop`` set, storage is trimmed to the attack plus a looped sustain region (if the
@@ -112,19 +129,21 @@ def encode(
     it is trimmed to ``trim_s`` and a longer note simply ends. A loop request on non-periodic material
     silently falls back to the trimmed sample, so the config is never worse than its non-looped twin.
     """
-    normalized, gain = normalize_peak(signal)
+    normalized, gain = normalize_peak(signal, ctx.config.target_peak)
     resampled = resample_to(normalized, sample_rate, params.target_rate)
     loop: Loop | None = None
     if params.loop:
-        resampled, loop = _apply_loop(resampled, params.target_rate)
+        resampled, loop = _apply_loop(resampled, params.target_rate, ctx.config.loop)
     if loop is None and params.trim_s is not None:
         resampled = resampled[: max(0, int(round(params.trim_s * params.target_rate)))]
-    pcm = requantize(resampled, params.depth_bits, dither=params.dither, noise_shaping=params.noise_shaping, rng=rng)
+    pcm = requantize(
+        resampled, params.depth_bits, dither=params.dither, noise_shaping=params.noise_shaping, rng=ctx.rng
+    )
     return StoredSample(
         pcm=pcm,
         sample_rate=params.target_rate,
         depth_bits=params.depth_bits,
-        root_pitch=root_pitch,
+        root_pitch=ctx.root_pitch,
         gain=gain,
         loop=loop,
     )

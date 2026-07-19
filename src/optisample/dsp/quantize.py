@@ -28,7 +28,7 @@ def quantization_step(bits: int) -> float:
     return 2.0 ** (1 - bits)
 
 
-def normalize_peak(signal: Signal, target_peak: float = 1.0) -> tuple[Signal, float]:
+def normalize_peak(signal: Signal, target_peak: float) -> tuple[Signal, float]:
     """Scale so ``max|x| == target_peak``; return ``(normalized, gain)``. Silence -> ``(copy, 1.0)``."""
     data = np.asarray(signal, dtype=np.float64)
     largest = float(np.max(np.abs(data))) if data.size else 0.0

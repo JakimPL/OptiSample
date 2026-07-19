@@ -27,22 +27,9 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
-Signal = NDArray[np.float64]
+from optisample.config.dsp import LoopConfig
 
-_MIN_HZ = 40.0  # lowest fundamental we look for (below this, a "loop" would be longer than most sustains)
-_MAX_HZ = 2_000.0
-_MIN_CORRELATION = 0.3  # peak autocorrelation below this = not periodic enough to loop
-_DEFAULT_MIN_PERIODS = 3  # a loop shorter than this beats/buzzes audibly
-# A short loop is too static vs an evolving sustain (it flutters at 1/loop_len); half a second spans
-# several vibrato cycles, so the looped tone tracks the recording far better while still tiny to store.
-_DEFAULT_MIN_LOOP_S = 0.5
-_ATTACK_SKIP_S = 0.05  # skip the onset when estimating the period and placing the loop
-_TAIL_SKIP_S = 0.02
-_MAX_ESTIMATION_S = 1.0  # cap the autocorrelation window; a second of steady tone is plenty
-_SUSTAIN_DECAY_RATIO = (
-    0.5  # if the steady region's late energy drops below this fraction, it is decaying, not sustained
-)
-DEFAULT_CROSSFADE_S = 0.01
+Signal = NDArray[np.float64]
 
 
 @dataclass(frozen=True)
@@ -69,22 +56,22 @@ def _autocorrelation(signal: Signal) -> Signal:
     return np.asarray(corr / corr[0], dtype=np.float64)
 
 
-def _estimate_period(signal: Signal, sample_rate: int) -> int | None:
+def _estimate_period(signal: Signal, sample_rate: int, config: LoopConfig) -> int | None:
     """Fundamental period in frames from the strongest autocorrelation peak in the pitched band."""
     if signal.size < 8:
         return None
     corr = _autocorrelation(signal)
-    low = max(1, int(sample_rate / _MAX_HZ))
-    high = min(signal.size - 1, int(sample_rate / _MIN_HZ))
+    low = max(1, int(sample_rate / config.max_hz))
+    high = min(signal.size - 1, int(sample_rate / config.min_hz))
     if high <= low:
         return None
     lag = int(np.argmax(corr[low : high + 1])) + low
-    if corr[lag] < _MIN_CORRELATION:
+    if corr[lag] < config.min_correlation:
         return None
     return lag
 
 
-def _is_sustained(region: Signal) -> bool:
+def _is_sustained(region: Signal, decay_ratio: float) -> bool:
     """Whether ``region`` holds a level (loopable) tone rather than a decaying one.
 
     A looped sample repeats its region forever, so looping a decay (a struck piano note) would make
@@ -96,7 +83,7 @@ def _is_sustained(region: Signal) -> bool:
     third = region.size // 3
     early = float(np.sqrt(np.mean(region[:third] ** 2)))
     late = float(np.sqrt(np.mean(region[-third:] ** 2)))
-    return early > 0.0 and late / early >= _SUSTAIN_DECAY_RATIO
+    return early > 0.0 and late / early >= decay_ratio
 
 
 def _snap_ascending_zero(signal: Signal, index: int, radius: int) -> int:
@@ -110,35 +97,29 @@ def _snap_ascending_zero(signal: Signal, index: int, radius: int) -> int:
     return best
 
 
-def detect_loop(
-    signal: Signal,
-    sample_rate: int,
-    *,
-    min_periods: int = _DEFAULT_MIN_PERIODS,
-    min_loop_s: float = _DEFAULT_MIN_LOOP_S,
-) -> Loop | None:
+def detect_loop(signal: Signal, sample_rate: int, config: LoopConfig) -> Loop | None:
     """Find a forward loop in the steady region of ``signal``, or ``None`` if it is not periodic enough."""
     total = signal.size
-    attack = int(_ATTACK_SKIP_S * sample_rate)
-    tail = total - int(_TAIL_SKIP_S * sample_rate)
+    attack = int(config.attack_skip_s * sample_rate)
+    tail = total - int(config.tail_skip_s * sample_rate)
     if tail - attack < 8:
         return None
-    if not _is_sustained(signal[attack:tail]):  # decaying material (e.g. a piano) must not be looped
+    if not _is_sustained(signal[attack:tail], config.sustain_decay_ratio):  # a decaying note must not loop
         return None
-    window = signal[attack : min(tail, attack + int(_MAX_ESTIMATION_S * sample_rate))]
-    period = _estimate_period(window, sample_rate)
+    window = signal[attack : min(tail, attack + int(config.max_estimation_s * sample_rate))]
+    period = _estimate_period(window, sample_rate, config)
     if period is None:
         return None
 
-    wanted = max(min_periods * period, int(round(min_loop_s * sample_rate)))
-    loop_len = max(min_periods, int(round(wanted / period))) * period
+    wanted = max(config.min_periods * period, int(round(config.min_loop_s * sample_rate)))
+    loop_len = max(config.min_periods, int(round(wanted / period))) * period
 
     # Place the loop right after the attack and keep it short: we store [0, loop.end) and drop the
     # whole sustain tail past it, so the bytes saved are the tail -- that is the point of looping.
     start = _snap_ascending_zero(signal, attack, radius=period)
     if start + loop_len > tail:  # steady region too short for the wanted loop: take what fits
         loop_len = ((tail - start) // period) * period
-        if loop_len < min_periods * period:
+        if loop_len < config.min_periods * period:
             return None
     end = start + loop_len
     if end > total or end <= start:

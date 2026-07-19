@@ -32,9 +32,9 @@ def test_normalize_peak_hits_target() -> None:
     assert gain == pytest.approx(1.0 / 0.3, rel=1e-6)
 
 
-def test_normalize_peak_silence_is_identity() -> None:
+def test_normalize_peak_silence_is_identity(quantize_config) -> None:
     silence = np.zeros(128, dtype=np.float64)
-    norm, gain = normalize_peak(silence)
+    norm, gain = normalize_peak(silence, quantize_config.target_peak)
     assert gain == 1.0
     assert np.array_equal(norm, silence)
 

@@ -20,7 +20,7 @@ from typing import Protocol, TypeVar
 
 import numpy as np
 
-from optisample.dsp.surrogate import EncodingParams, Signal, encode, render
+from optisample.dsp.surrogate import EncodeContext, EncodingParams, Signal, default_encode_config, encode, render
 from optisample.metrics.composite import CompositeFidelity, default_composite, evaluate
 
 DEFAULT_RATE_DIVISORS = (1, 2, 3, 4, 6, 8)
@@ -91,7 +91,9 @@ def evaluate_encoding(
 ) -> OperatingPoint:
     """Encode ``clip`` with ``params``, render it back at its own pitch, and score the encoding loss."""
     composite = composite if composite is not None else default_composite()
-    stored = encode(clip.signal, clip.sample_rate, params, root_pitch=clip.root_pitch, rng=rng)
+    # transitional: EncodeConfig is threaded through the sweep in phase 6.
+    encode_ctx = EncodeContext(root_pitch=clip.root_pitch, config=default_encode_config(), rng=rng)
+    stored = encode(clip.signal, clip.sample_rate, params, encode_ctx)
     candidate = render(stored, clip.sample_rate, pitch=clip.root_pitch, duration_s=clip.duration_s)
     report = evaluate(_reference(clip), candidate, clip.sample_rate, composite)
     return OperatingPoint(

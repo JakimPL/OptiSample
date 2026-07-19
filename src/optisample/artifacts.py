@@ -38,7 +38,7 @@ from typing import Any
 import numpy as np
 
 from optisample.dsp.loop import Loop
-from optisample.dsp.surrogate import StoredSample, encode, render
+from optisample.dsp.surrogate import EncodeContext, StoredSample, default_encode_config, encode, render
 from optisample.io.audio import write_wav
 from optisample.io.it_writer import ITModule, write_it
 from optisample.io.render import RenderSettings, openmpt123_available, render_module
@@ -250,7 +250,9 @@ def _ungrouped_units(plan: InstrumentPlan, dctx: _DumpContext) -> tuple[_Unit, .
     units: list[_Unit] = []
     for pitch in plan.pitches:
         task = dctx.tasks_by_pitch[pitch.pitch]
-        stored = encode(task.representative, dctx.sample_rate, pitch.chosen.params, root_pitch=pitch.pitch, rng=rng)
+        # transitional: EncodeConfig is threaded through DumpSettings in phase 9.
+        encode_ctx = EncodeContext(root_pitch=pitch.pitch, config=default_encode_config(), rng=rng)
+        stored = encode(task.representative, dctx.sample_rate, pitch.chosen.params, encode_ctx)
         units.append(
             _Unit(
                 label=f"p{pitch.pitch:03d}_{_note_name(pitch.pitch)}",
@@ -269,7 +271,9 @@ def _grouped_units(plan: GroupedInstrumentPlan, dctx: _DumpContext) -> tuple[_Un
     units: list[_Unit] = []
     for index, zone in enumerate(plan.zones):
         signal: Signal = dctx.audio[(zone.representative, zone.representative_velocity)]
-        stored = encode(signal, dctx.sample_rate, zone.chosen.params, root_pitch=zone.representative, rng=rng)
+        # transitional: EncodeConfig is threaded through DumpSettings in phase 9.
+        encode_ctx = EncodeContext(root_pitch=zone.representative, config=default_encode_config(), rng=rng)
+        stored = encode(signal, dctx.sample_rate, zone.chosen.params, encode_ctx)
         units.append(
             _Unit(
                 label=f"zone{index:02d}_rep{zone.representative:03d}_{_note_name(zone.representative)}",

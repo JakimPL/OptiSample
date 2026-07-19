@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+import numpy as np
 import pytest
 
 from optisample.config import OptiConfig, load_config
@@ -18,6 +19,7 @@ from optisample.config.metrics import MetricsConfig
 from optisample.config.optimize import OptimizeConfig, SweepConfig, VelocityConfig
 from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.config.synth import SynthConfig
+from optisample.dsp.surrogate import EncodeContext
 from optisample.metrics import CompositeFidelity, build_composite
 
 
@@ -94,5 +96,20 @@ def sweep(config: OptiConfig) -> Callable[..., SweepConfig]:
 
     def _build(**overrides: object) -> SweepConfig:
         return SweepConfig.model_validate({**config.sweep.model_dump(), **overrides})
+
+    return _build
+
+
+@pytest.fixture
+def make_encode_ctx(config: OptiConfig) -> Callable[..., EncodeContext]:
+    """Factory: an ``EncodeContext`` at ``root_pitch`` using the bundled encode config.
+
+    ``seed`` (when given) seeds the dither RNG; the default leaves it ``None`` so encoding uses the
+    surrogate's own fixed-seed fallback -- matching the pre-config call sites.
+    """
+
+    def _build(root_pitch: int, *, seed: int | None = None) -> EncodeContext:
+        rng = np.random.default_rng(seed) if seed is not None else None
+        return EncodeContext(root_pitch=root_pitch, config=config.encode, rng=rng)
 
     return _build

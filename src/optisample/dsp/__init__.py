@@ -22,6 +22,7 @@ from optisample.dsp.spectral import (
 )
 from optisample.dsp.surrogate import (
     MAX_VOLUME,
+    EncodeContext,
     EncodingParams,
     StoredSample,
     encode,
@@ -50,6 +51,7 @@ __all__ = [
     "resample_to",
     "resampled_frame_count",
     "MAX_VOLUME",
+    "EncodeContext",
     "EncodingParams",
     "StoredSample",
     "encode",

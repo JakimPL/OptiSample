@@ -79,16 +79,16 @@ def test_rank_correlation_is_nan_with_fewer_than_two_points() -> None:
 
 
 @requires_openmpt
-def test_render_note_openmpt_matches_requested_duration() -> None:
-    stored = encode(_recording("piano", 60, 1.5), SAMPLE_RATE, EncodingParams(44_100, 16), root_pitch=60)
+def test_render_note_openmpt_matches_requested_duration(make_encode_ctx) -> None:
+    stored = encode(_recording("piano", 60, 1.5), SAMPLE_RATE, EncodingParams(44_100, 16), make_encode_ctx(60))
     out = render_note_openmpt(stored, NoteProbe(pitch=60, duration_s=1.0), SETTINGS)
     assert out.size == int(round(1.0 * SETTINGS.sample_rate))
 
 
 @requires_openmpt
 @pytest.mark.parametrize("archetype", ["sustained", "piano"])
-def test_surrogate_agrees_with_openmpt_at_root_pitch(archetype: str) -> None:
-    stored = encode(_recording(archetype, 60, 2.0), SAMPLE_RATE, EncodingParams(44_100, 16), root_pitch=60)
+def test_surrogate_agrees_with_openmpt_at_root_pitch(archetype: str, make_encode_ctx) -> None:
+    stored = encode(_recording(archetype, 60, 2.0), SAMPLE_RATE, EncodingParams(44_100, 16), make_encode_ctx(60))
     agree = renderer_agreement(stored, NoteProbe(pitch=60, duration_s=1.5), SETTINGS)
     assert isinstance(agree, RendererAgreement)
     assert agree.distance < 0.05  # observed ~0.001-0.002; the two engines are near-identical at root
@@ -97,15 +97,15 @@ def test_surrogate_agrees_with_openmpt_at_root_pitch(archetype: str) -> None:
 
 
 @requires_openmpt
-def test_surrogate_agrees_with_openmpt_when_transposed() -> None:
-    stored = encode(_recording("piano", 60, 2.0), SAMPLE_RATE, EncodingParams(44_100, 16), root_pitch=60)
+def test_surrogate_agrees_with_openmpt_when_transposed(make_encode_ctx) -> None:
+    stored = encode(_recording("piano", 60, 2.0), SAMPLE_RATE, EncodingParams(44_100, 16), make_encode_ctx(60))
     agree = renderer_agreement(stored, NoteProbe(pitch=67, duration_s=1.0), SETTINGS)  # +7 semitones
     assert agree.distance < 0.1  # observed ~0.013; larger than root (resampler differences) but small
 
 
 @requires_openmpt
 @pytest.mark.parametrize("archetype", ["sustained", "piano"])
-def test_surrogate_ranks_operating_points_like_openmpt(archetype: str) -> None:
+def test_surrogate_ranks_operating_points_like_openmpt(archetype: str, make_encode_ctx) -> None:
     recording = _recording(archetype, 60, 1.5)
     reference = resample_to(recording, SAMPLE_RATE, SETTINGS.sample_rate)
     probe = NoteProbe(pitch=60, duration_s=1.0)
@@ -121,7 +121,7 @@ def test_surrogate_ranks_operating_points_like_openmpt(archetype: str) -> None:
     ]
     surrogate, openmpt = [], []
     for params in grid:
-        stored = encode(recording, SAMPLE_RATE, params, root_pitch=60, rng=np.random.default_rng(0))
+        stored = encode(recording, SAMPLE_RATE, params, make_encode_ctx(60, seed=0))
         d_surrogate, d_openmpt = distortion_vs_source(reference, stored, probe, SETTINGS)
         surrogate.append(d_surrogate)
         openmpt.append(d_openmpt)

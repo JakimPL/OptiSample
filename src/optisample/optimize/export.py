@@ -19,7 +19,7 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from optisample.dsp.surrogate import StoredSample, encode, semitone_ratio
+from optisample.dsp.surrogate import EncodeContext, StoredSample, default_encode_config, encode, semitone_ratio
 from optisample.io.it_writer import (
     NOTE_CUT,
     ITCell,
@@ -70,7 +70,9 @@ def _build_samples(
         if not 0 <= pitch <= _MAX_IT_NOTE:
             raise ValueError(f"pitch {pitch} is outside the IT key range 0..{_MAX_IT_NOTE}")
         representative: Signal = audio[(pitch, pitch_plan.representative_velocity)]
-        stored = encode(representative, sample_rate, pitch_plan.chosen.params, root_pitch=pitch, rng=rng)
+        # transitional: EncodeConfig is threaded through the exporter in phase 7.
+        encode_ctx = EncodeContext(root_pitch=pitch, config=default_encode_config(), rng=rng)
+        stored = encode(representative, sample_rate, pitch_plan.chosen.params, encode_ctx)
         samples.append(
             ITSample(
                 name=f"{plan.instrument_id[:18]} {_note_name(pitch)}",
@@ -137,7 +139,9 @@ def _build_zone_samples(
     assignment: dict[int, int] = {}
     for index, zone in enumerate(plan.zones):
         representative: Signal = audio[(zone.representative, zone.representative_velocity)]
-        stored = encode(representative, sample_rate, zone.chosen.params, root_pitch=zone.representative, rng=rng)
+        # transitional: EncodeConfig is threaded through the exporter in phase 7.
+        encode_ctx = EncodeContext(root_pitch=zone.representative, config=default_encode_config(), rng=rng)
+        stored = encode(representative, sample_rate, zone.chosen.params, encode_ctx)
         samples.append(
             ITSample(
                 name=f"{plan.instrument_id[:18]} {_note_name(zone.representative)}",
