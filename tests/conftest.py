@@ -20,6 +20,7 @@ from optisample.config.optimize import OptimizeConfig, SweepConfig, VelocityConf
 from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.config.synth import SynthConfig
 from optisample.dsp.surrogate import EncodeContext
+from optisample.io.it_writer import ITPlayback, it_playback
 from optisample.metrics import CompositeFidelity, build_composite
 
 
@@ -83,6 +84,12 @@ def render_config(config: OptiConfig) -> RenderConfig:
 @pytest.fixture
 def playback_config(config: OptiConfig) -> PlaybackConfig:
     return config.playback
+
+
+@pytest.fixture
+def playback(playback_config: PlaybackConfig) -> ITPlayback:
+    """The IT playback value-object built from the bundled config (for constructing ITModules in tests)."""
+    return it_playback(playback_config)
 
 
 @pytest.fixture

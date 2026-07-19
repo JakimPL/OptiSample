@@ -24,8 +24,11 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.stats import spearmanr
 
+from optisample.config.render import RenderConfig
 from optisample.dsp.surrogate import MAX_VOLUME, StoredSample, render
 from optisample.io.it_writer import (
+    MAX_ROWS,
+    TICKS_PER_ROW_BASE,
     ITCell,
     ITInstrument,
     ITModule,
@@ -33,17 +36,12 @@ from optisample.io.it_writer import (
     ITPlayback,
     ITSample,
     identity_note_map,
+    it_playback,
 )
-from optisample.io.render import RenderSettings, render_module
+from optisample.io.render import render_module
 from optisample.metrics.base import Signal
 from optisample.metrics.composite import CompositeFidelity, default_composite, evaluate
-from optisample.optimize.export import c5speed_for_pitch
-
-# Seconds per row at a given playback: one tick lasts 2.5 / tempo seconds, a row lasts `speed` ticks
-# (the same constant the exporter uses to lay material into patterns).
-_TICKS_PER_ROW_BASE = 2.5
-_MAX_ROWS = 200
-_DEFAULT_PLAYBACK = ITPlayback()
+from optisample.optimize.export import c5speed_for_pitch, default_playback_config
 
 
 @dataclass(frozen=True)
@@ -72,7 +70,7 @@ class RendererAgreement:
 
 
 def single_note_module(
-    stored: StoredSample, probe: NoteProbe, *, name: str = "calib", playback: ITPlayback = _DEFAULT_PLAYBACK
+    stored: StoredSample, probe: NoteProbe, *, name: str = "calib", playback: ITPlayback | None = None
 ) -> ITModule:
     """Wrap ``stored`` in a minimal one-sample, one-note module that plays ``probe`` from the start.
 
@@ -80,8 +78,10 @@ def single_note_module(
     then transposes exactly as the surrogate does. The note is held (no cut) and the pattern is sized to
     outlast ``probe.duration_s`` -- callers trim the render to the duration they asked for.
     """
-    row_seconds = playback.speed * _TICKS_PER_ROW_BASE / playback.tempo
-    rows = min(_MAX_ROWS, int(probe.duration_s / row_seconds) + 2)
+    # transitional: PlaybackConfig is threaded through the calibrator in phase 7.
+    playback = playback if playback is not None else it_playback(default_playback_config())
+    row_seconds = playback.speed * TICKS_PER_ROW_BASE / playback.tempo
+    rows = min(MAX_ROWS, int(probe.duration_s / row_seconds) + 2)
     sample = ITSample(
         name=name,
         pcm=stored.pcm,
@@ -100,7 +100,7 @@ def render_note_surrogate(stored: StoredSample, probe: NoteProbe, out_rate: int)
     return render(stored, out_rate, pitch=probe.pitch, volume=probe.volume, duration_s=probe.duration_s)
 
 
-def render_note_openmpt(stored: StoredSample, probe: NoteProbe, settings: RenderSettings) -> Signal:
+def render_note_openmpt(stored: StoredSample, probe: NoteProbe, settings: RenderConfig) -> Signal:
     """Render ``probe`` from ``stored`` with openmpt123, trimmed to ``probe.duration_s``."""
     audio, rate = render_module(single_note_module(stored, probe), settings)
     frames = int(round(probe.duration_s * rate))
@@ -108,7 +108,7 @@ def render_note_openmpt(stored: StoredSample, probe: NoteProbe, settings: Render
 
 
 def renderer_agreement(
-    stored: StoredSample, probe: NoteProbe, settings: RenderSettings, composite: CompositeFidelity | None = None
+    stored: StoredSample, probe: NoteProbe, settings: RenderConfig, composite: CompositeFidelity | None = None
 ) -> RendererAgreement:
     """Compare the surrogate and openmpt123 renders of the same note (see :class:`RendererAgreement`)."""
     composite = composite if composite is not None else default_composite()  # transitional: phase 7 threads it in
@@ -127,7 +127,7 @@ def distortion_vs_source(
     reference: Signal,
     stored: StoredSample,
     probe: NoteProbe,
-    settings: RenderSettings,
+    settings: RenderConfig,
     composite: CompositeFidelity | None = None,
 ) -> tuple[float, float]:
     """Distortion of ``stored`` against ``reference`` (source at the analysis rate), surrogate then openmpt.

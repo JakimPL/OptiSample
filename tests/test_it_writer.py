@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
+from optisample.config import load_config
 from optisample.io.it_writer import (
     NOTE_OFF,
     ITCell,
@@ -18,10 +19,15 @@ from optisample.io.it_writer import (
     _instrument_header,
     _sample_header,
     identity_note_map,
+    it_playback,
     write_it,
     write_it_module,
 )
 from optisample.metrics.size import FILE_HEADER_BYTES, INSTRUMENT_HEADER_BYTES, SAMPLE_HEADER_BYTES
+
+# ITModule now requires an explicit playback; these format tests do not assert on it (except the
+# dedicated playback test, which builds its own), so they share the bundled value-object.
+_PLAYBACK = it_playback(load_config().playback)
 
 
 def _u16(blob: bytes, offset: int) -> int:
@@ -40,7 +46,9 @@ def one_sample_module(depth: int = 16, c5: int = 22_050, frames: int = 256, volu
     sample = ITSample(name="ramp", pcm=ramp(frames), depth_bits=depth, c5speed=c5)
     instrument = ITInstrument(name="inst", note_map=identity_note_map({60: 1}))
     pattern = ITPattern(rows=8, cells=((0, 0, ITCell(note=60, instrument=1, volume=volume)),))
-    return ITModule(name="probe", samples=(sample,), instruments=(instrument,), patterns=(pattern,), orders=(0,))
+    return ITModule(
+        name="probe", samples=(sample,), instruments=(instrument,), patterns=(pattern,), orders=(0,), playback=_PLAYBACK
+    )
 
 
 def offset_tables(blob: bytes) -> tuple[list[int], list[int], list[int]]:
@@ -101,7 +109,14 @@ def test_sample_header_writes_loop_flag_and_points() -> None:
     module = one_sample_module(frames=256)
     looped = ITSample(name="ramp", pcm=module.samples[0].pcm, depth_bits=16, c5speed=22_050, loop=(40, 200))
     blob = write_it_module(
-        ITModule(name="probe", samples=(looped,), instruments=module.instruments, patterns=module.patterns, orders=(0,))
+        ITModule(
+            name="probe",
+            samples=(looped,),
+            instruments=module.instruments,
+            patterns=module.patterns,
+            orders=(0,),
+            playback=_PLAYBACK,
+        )
     )
     _, (smp,), _ = offset_tables(blob)
     assert blob[smp + 18] == 0x03 | 0x10  # data | 16-bit | use-loop
@@ -179,7 +194,9 @@ def test_pattern_packs_note_instrument_volume_and_note_off() -> None:
             (8, 0, ITCell(effect=(19, 0x80))),  # Sxx-style command+value
         ),
     )
-    module = ITModule(name="m", samples=(sample,), instruments=(instrument,), patterns=(pattern,), orders=(0,))
+    module = ITModule(
+        name="m", samples=(sample,), instruments=(instrument,), patterns=(pattern,), orders=(0,), playback=_PLAYBACK
+    )
     blob = write_it_module(module)
     _, _, (pat,) = offset_tables(blob)
     cells = unpack_pattern(blob, pat)
@@ -225,10 +242,10 @@ def test_pattern_row_bounds_are_validated() -> None:
     good_sample = (ITSample("s", ramp(16), 16),)
     instrument = (ITInstrument("i", identity_note_map({60: 1})),)
     with pytest.raises(ValueError, match="rows .* out of range"):
-        write_it_module(ITModule("m", good_sample, instrument, (ITPattern(rows=0),), (0,)))
+        write_it_module(ITModule("m", good_sample, instrument, (ITPattern(rows=0),), (0,), _PLAYBACK))
     with pytest.raises(ValueError, match="cell row .* out of range"):
         bad = ITPattern(rows=4, cells=((9, 0, ITCell(note=60)),))
-        write_it_module(ITModule("m", good_sample, instrument, (bad,), (0,)))
+        write_it_module(ITModule("m", good_sample, instrument, (bad,), (0,), _PLAYBACK))
 
 
 def test_private_serializers_validate_their_inputs() -> None:
@@ -242,7 +259,7 @@ def test_empty_cells_emit_nothing() -> None:
     sample = (ITSample("s", ramp(16), 16),)
     instrument = (ITInstrument("i", identity_note_map({60: 1})),)
     pattern = ITPattern(rows=4, cells=((0, 0, ITCell()), (1, 0, ITCell(note=60, instrument=1))))
-    blob = write_it_module(ITModule("m", sample, instrument, (pattern,), (0,)))
+    blob = write_it_module(ITModule("m", sample, instrument, (pattern,), (0,), _PLAYBACK))
     _, _, (pat,) = offset_tables(blob)
     assert set(unpack_pattern(blob, pat)) == {(1, 0)}  # the all-None cell is skipped
 
@@ -258,6 +275,7 @@ def test_xmodits_round_trip_extracts_matching_pcm(tmp_path: Path, depth: int) ->
         instruments=(ITInstrument("i", identity_note_map({60: 1})),),
         patterns=(ITPattern(rows=4, cells=((0, 0, ITCell(note=60, instrument=1)),)),),
         orders=(0,),
+        playback=_PLAYBACK,
     )
     it_path = tmp_path / "rt.it"
     write_it(it_path, module)

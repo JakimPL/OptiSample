@@ -212,9 +212,9 @@ def test_grouped_round_trips_through_xmodits(tmp_path: Path) -> None:
 
 
 @requires_openmpt
-def test_grouped_module_renders_through_openmpt() -> None:
+def test_grouped_module_renders_through_openmpt(render_config) -> None:
     _, module = grouped_build()  # both keys share one repitched sample
-    audio, rate = render_module(module)
+    audio, rate = render_module(module, render_config)
     assert rate == 48_000
     assert audio.ndim == 1 and audio.size > 0
     assert float(np.max(np.abs(audio))) > 0.0  # the repitched zone actually sounds in the real engine
@@ -249,9 +249,9 @@ def test_looped_plan_carries_loop_points_into_the_module() -> None:
 
 
 @requires_openmpt
-def test_looped_note_sustains_in_openmpt_past_the_stored_length() -> None:
+def test_looped_note_sustains_in_openmpt_past_the_stored_length(render_config) -> None:
     _, module = looped_build(hold_s=3.0)  # the stored sample is ~0.1 s; the note is held 3 s
-    audio, rate = render_module(module)
+    audio, rate = render_module(module, render_config)
     assert rate == 48_000
     tail = audio[-rate:]  # the final second, long after a non-looping sample would have fallen silent
     assert float(np.sqrt(np.mean(tail**2))) > 0.05  # the loop keeps the note sounding

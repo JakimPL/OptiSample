@@ -18,38 +18,38 @@ from __future__ import annotations
 import shutil
 import subprocess
 import tempfile
-from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
 from numpy.typing import NDArray
 
+from optisample.config import load_config
+from optisample.config.render import Interpolation, RenderConfig
 from optisample.io.audio import read_wav
 from optisample.io.it_writer import ITModule, write_it
 
 _BINARY = "openmpt123"
 # openmpt123 --filter takes interpolation *taps*; more taps = higher-quality (sinc) interpolation.
-_INTERPOLATION_TAPS = {"none": 1, "linear": 2, "cubic": 4, "sinc": 8}
-_DEFAULT_SAMPLE_RATE = 48_000
+_INTERPOLATION_TAPS: dict[Interpolation, int] = {"none": 1, "linear": 2, "cubic": 4, "sinc": 8}
 
 
-@dataclass(frozen=True)
-class RenderSettings:
-    """How to render an ``.IT`` file: output rate, interpolation filter, and output gain (dB)."""
+def filter_taps(config: RenderConfig) -> int:
+    """Map the interpolation name to the ``--filter`` tap count openmpt123 expects.
 
-    sample_rate: int = _DEFAULT_SAMPLE_RATE
-    interpolation: str = "sinc"
-    gain_db: float = 0.0
-
-    @property
-    def filter_taps(self) -> int:
-        """Map the interpolation name to the ``--filter`` tap count openmpt123 expects."""
-        if self.interpolation not in _INTERPOLATION_TAPS:
-            raise ValueError(f"unknown interpolation {self.interpolation!r}; choose from {sorted(_INTERPOLATION_TAPS)}")
-        return _INTERPOLATION_TAPS[self.interpolation]
+    ``RenderConfig.interpolation`` is a validated literal, so every value is a key of the map.
+    """
+    return _INTERPOLATION_TAPS[config.interpolation]
 
 
-_DEFAULT_SETTINGS = RenderSettings()
+@lru_cache(maxsize=1)
+def default_render_config() -> RenderConfig:
+    """The bundled render config, cached so repeated ground-truth renders do not reload YAML.
+
+    Transitional bridge for call sites that do not yet thread a ``RenderConfig`` (artifacts/DumpSettings
+    -> phase 9); removed once every caller passes config explicitly.
+    """
+    return load_config().render
 
 
 def openmpt123_available() -> bool:
@@ -64,19 +64,19 @@ def _require_binary() -> None:
         )
 
 
-def _render_in_place(it_path: Path, settings: RenderSettings) -> tuple[NDArray[np.float64], int]:
+def _render_in_place(it_path: Path, config: RenderConfig) -> tuple[NDArray[np.float64], int]:
     """Run ``openmpt123 --render`` on ``it_path`` and read back the ``<it_path>.wav`` it produces."""
     command = [
         _BINARY,
         "--render",
         "--samplerate",
-        str(settings.sample_rate),
+        str(config.sample_rate),
         "--channels",
         "1",
         "--filter",
-        str(settings.filter_taps),
+        str(filter_taps(config)),
         "--gain",
-        str(settings.gain_db),
+        str(config.gain_db),
         "--force",
         "--quiet",
         str(it_path),
@@ -88,7 +88,7 @@ def _render_in_place(it_path: Path, settings: RenderSettings) -> tuple[NDArray[n
     return np.asarray(rendered, dtype=np.float64).ravel(), rate
 
 
-def render_it(path: Path | str, settings: RenderSettings = _DEFAULT_SETTINGS) -> tuple[NDArray[np.float64], int]:
+def render_it(path: Path | str, config: RenderConfig) -> tuple[NDArray[np.float64], int]:
     """Render an existing ``.IT`` file to mono float PCM, returning ``(samples, sample_rate)``.
 
     Raises :class:`RuntimeError` if ``openmpt123`` is missing or the render fails.
@@ -98,13 +98,13 @@ def render_it(path: Path | str, settings: RenderSettings = _DEFAULT_SETTINGS) ->
     with tempfile.TemporaryDirectory() as tmp:
         local = Path(tmp) / source.name
         local.write_bytes(source.read_bytes())
-        return _render_in_place(local, settings)
+        return _render_in_place(local, config)
 
 
-def render_module(module: ITModule, settings: RenderSettings = _DEFAULT_SETTINGS) -> tuple[NDArray[np.float64], int]:
+def render_module(module: ITModule, config: RenderConfig) -> tuple[NDArray[np.float64], int]:
     """Write ``module`` to a temporary ``.IT`` file and render it (see :func:`render_it`)."""
     _require_binary()
     with tempfile.TemporaryDirectory() as tmp:
         local = Path(tmp) / "module.it"
         write_it(local, module)
-        return _render_in_place(local, settings)
+        return _render_in_place(local, config)

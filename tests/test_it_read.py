@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from optisample.config import load_config
 from optisample.io.it_read import RippedSample, _parse_name, read_it_samples
 from optisample.io.it_writer import (
     ITCell,
@@ -13,8 +14,11 @@ from optisample.io.it_writer import (
     ITPattern,
     ITSample,
     identity_note_map,
+    it_playback,
     write_it,
 )
+
+_PLAYBACK = it_playback(load_config().playback)  # ITModule requires a playback; this test does not assert on it
 
 
 def _module() -> ITModule:
@@ -27,7 +31,9 @@ def _module() -> ITModule:
     )
     instrument = ITInstrument(name="i", note_map=identity_note_map({60: 1, 62: 2}))
     pattern = ITPattern(rows=4, cells=((0, 0, ITCell(note=60, instrument=1)),))
-    return ITModule(name="rt", samples=samples, instruments=(instrument,), patterns=(pattern,), orders=(0,))
+    return ITModule(
+        name="rt", samples=samples, instruments=(instrument,), patterns=(pattern,), orders=(0,), playback=_PLAYBACK
+    )
 
 
 def test_parse_name_reads_index_prefix_and_falls_back() -> None:

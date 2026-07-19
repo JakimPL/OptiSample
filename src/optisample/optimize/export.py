@@ -16,12 +16,17 @@ and loops/envelopes (P6) would change the samples and note map, not this wiring.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from functools import lru_cache
 
 import numpy as np
 
+from optisample.config import load_config
+from optisample.config.render import PlaybackConfig
 from optisample.dsp.surrogate import EncodeContext, StoredSample, default_encode_config, encode, semitone_ratio
 from optisample.io.it_writer import (
+    MAX_ROWS,
     NOTE_CUT,
+    TICKS_PER_ROW_BASE,
     ITCell,
     ITInstrument,
     ITModule,
@@ -29,6 +34,7 @@ from optisample.io.it_writer import (
     ITPlayback,
     ITSample,
     identity_note_map,
+    it_playback,
 )
 from optisample.metrics.base import Signal
 from optisample.model import NoteEvent
@@ -39,9 +45,17 @@ from optisample.optimize.velocity_map import VelocityVolumeMap
 
 _C5_KEY = 60  # IT reference key C-5; a sample plays at C5Speed when triggered here.
 _MAX_IT_NOTE = 119  # IT keys span C-0..B-9.
-_MAX_ROWS = 200  # IT patterns hold at most 200 rows.
-_TICKS_PER_ROW_BASE = 2.5  # one tick lasts 2.5 / tempo seconds; a row lasts speed ticks.
 _NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+
+
+@lru_cache(maxsize=1)
+def default_playback_config() -> PlaybackConfig:
+    """The bundled IT playback, cached so exporting does not reload YAML per module.
+
+    Transitional bridge for call sites that do not yet thread a ``PlaybackConfig`` (export/calibrate
+    -> phase 7); removed once :class:`ExportContext` carries it explicitly.
+    """
+    return load_config().playback
 
 
 def _note_name(pitch: int) -> str:
@@ -90,13 +104,13 @@ def _material_patterns(
     material: Sequence[NoteEvent], velocity_map: VelocityVolumeMap, playback: ITPlayback
 ) -> tuple[tuple[ITPattern, ...], tuple[int, ...]]:
     """Lay the material events into one or more patterns, applying the velocity->volume map."""
-    row_seconds = playback.speed * _TICKS_PER_ROW_BASE / playback.tempo
+    row_seconds = playback.speed * TICKS_PER_ROW_BASE / playback.tempo
     patterns: list[ITPattern] = []
     cells: list[tuple[int, int, ITCell]] = []
     cursor = 0
     for event in material:
-        rows = min(max(1, int(round(event.duration_s / row_seconds))), _MAX_ROWS - 2)
-        if cells and cursor + rows + 1 > _MAX_ROWS:
+        rows = min(max(1, int(round(event.duration_s / row_seconds))), MAX_ROWS - 2)
+        if cells and cursor + rows + 1 > MAX_ROWS:
             patterns.append(ITPattern(rows=cursor, cells=tuple(cells)))
             cells, cursor = [], 0
         volume = velocity_map.volume(event.velocity)
@@ -113,7 +127,8 @@ def build_it_module(
     """Assemble a complete :class:`ITModule` from an optimized plan, its recordings and its material."""
     samples, assignment = _build_samples(plan, audio, sample_rate, seed)
     instrument = ITInstrument(name=plan.instrument_id[:25], note_map=identity_note_map(assignment))
-    playback = ITPlayback()
+    # transitional: PlaybackConfig is threaded through ExportContext in phase 7.
+    playback = it_playback(default_playback_config())
     patterns, orders = _material_patterns(material, plan.velocity_map, playback)
     return ITModule(
         name=plan.instrument_id[:25],
@@ -164,7 +179,8 @@ def build_grouped_it_module(
     """Assemble a complete :class:`ITModule` from a grouped plan (one sample per zone, repitched)."""
     samples, assignment = _build_zone_samples(plan, audio, sample_rate, seed)
     instrument = ITInstrument(name=plan.instrument_id[:25], note_map=identity_note_map(assignment))
-    playback = ITPlayback()
+    # transitional: PlaybackConfig is threaded through ExportContext in phase 7.
+    playback = it_playback(default_playback_config())
     patterns, orders = _material_patterns(material, plan.velocity_map, playback)
     return ITModule(
         name=plan.instrument_id[:25],

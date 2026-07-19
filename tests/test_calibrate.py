@@ -13,14 +13,15 @@ from optisample.calibrate import (
     renderer_agreement,
     single_note_module,
 )
+from optisample.config.render import RenderConfig
 from optisample.dsp.resample import resample_to
 from optisample.dsp.surrogate import MAX_VOLUME, EncodingParams, StoredSample, encode
-from optisample.io.render import RenderSettings, openmpt123_available
+from optisample.io.render import openmpt123_available
 from optisample.optimize.export import c5speed_for_pitch
 from optisample.synth import SAMPLE_RATE, NoteSpec, render_sample
 
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
-SETTINGS = RenderSettings(sample_rate=48_000, interpolation="sinc")
+SETTINGS = RenderConfig(sample_rate=48_000, interpolation="sinc", gain_db=0.0)
 
 
 def _stored(root_pitch: int = 60, rate: int = 22_050, frames: int = 8_000) -> StoredSample:

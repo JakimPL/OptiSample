@@ -7,18 +7,20 @@ from optisample.io.it_writer import (
     ITPlayback,
     ITSample,
     identity_note_map,
+    it_playback,
     write_it,
     write_it_module,
 )
 from optisample.io.manifest import dump_manifest, load_manifest
-from optisample.io.render import RenderSettings, openmpt123_available, render_it, render_module
+from optisample.io.render import default_render_config, filter_taps, openmpt123_available, render_it, render_module
 
 __all__ = [
     "read_wav",
     "write_wav",
     "dump_manifest",
     "load_manifest",
-    "RenderSettings",
+    "default_render_config",
+    "filter_taps",
     "openmpt123_available",
     "render_it",
     "render_module",
@@ -29,6 +31,7 @@ __all__ = [
     "ITPlayback",
     "ITSample",
     "identity_note_map",
+    "it_playback",
     "write_it",
     "write_it_module",
 ]

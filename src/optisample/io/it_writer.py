@@ -20,12 +20,13 @@ from __future__ import annotations
 
 import struct
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 from numpy.typing import NDArray
 
+from optisample.config.render import PlaybackConfig
 from optisample.metrics.size import FILE_HEADER_BYTES, INSTRUMENT_HEADER_BYTES, SAMPLE_HEADER_BYTES
 
 _IMPM = b"IMPM"
@@ -34,8 +35,11 @@ _IMPI = b"IMPI"
 
 _KEYBOARD_NOTES = 120  # IT keys C-0..B-9 (0..119); the note map holds one (note, sample) pair each.
 _CHANNELS_STORED = 64  # the file header always carries 64 channel pan + 64 channel volume bytes.
-_MAX_ROWS = 200  # IT patterns hold 1..200 rows.
 _MAX_IT_NOTE = _KEYBOARD_NOTES - 1
+
+# Shared IT-format timing facts (the exporter and calibrator both lay material into rows with these).
+MAX_ROWS = 200  # IT patterns hold 1..200 rows.
+TICKS_PER_ROW_BASE = 2.5  # one tick lasts 2.5 / tempo seconds; a row lasts `speed` ticks.
 
 NOTE_OFF = 255  # pattern note value that releases the playing note.
 NOTE_CUT = 254  # pattern note value that cuts it instantly.
@@ -108,12 +112,26 @@ class ITPattern:
 
 @dataclass(frozen=True)
 class ITPlayback:
-    """Global playback settings (bundled to keep :class:`ITModule` small)."""
+    """Global playback settings (bundled to keep :class:`ITModule` small).
 
-    speed: int = 6
-    tempo: int = 125
-    global_volume: int = 128
-    mix_volume: int = 48
+    Built from :class:`~optisample.config.render.PlaybackConfig` at the export boundary via
+    :func:`it_playback`; ``speed``/``tempo`` set the row duration, so they affect rendered timing.
+    """
+
+    speed: int
+    tempo: int
+    global_volume: int
+    mix_volume: int
+
+
+def it_playback(config: PlaybackConfig) -> ITPlayback:
+    """Build the writer's :class:`ITPlayback` value-object from a :class:`PlaybackConfig`."""
+    return ITPlayback(
+        speed=config.speed,
+        tempo=config.tempo,
+        global_volume=config.global_volume,
+        mix_volume=config.mix_volume,
+    )
 
 
 @dataclass(frozen=True)
@@ -125,7 +143,7 @@ class ITModule:
     instruments: tuple[ITInstrument, ...]
     patterns: tuple[ITPattern, ...]
     orders: tuple[int, ...]
-    playback: ITPlayback = field(default_factory=ITPlayback)
+    playback: ITPlayback
 
 
 def identity_note_map(assignments: Mapping[int, int]) -> tuple[tuple[int, int], ...]:
@@ -230,8 +248,8 @@ def _pack_cell(stream: bytearray, channel: int, cell: ITCell) -> None:
 
 def _pack_pattern(pattern: ITPattern) -> bytes:
     """Serialize a pattern: 8-byte header (packed length, rows, reserved) + the packed row stream."""
-    if not 1 <= pattern.rows <= _MAX_ROWS:
-        raise ValueError(f"pattern rows {pattern.rows} out of range 1..{_MAX_ROWS}")
+    if not 1 <= pattern.rows <= MAX_ROWS:
+        raise ValueError(f"pattern rows {pattern.rows} out of range 1..{MAX_ROWS}")
     by_row: dict[int, list[tuple[int, ITCell]]] = {}
     for row, channel, cell in pattern.cells:
         if not 0 <= row < pattern.rows:

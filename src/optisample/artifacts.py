@@ -37,11 +37,12 @@ from typing import Any
 
 import numpy as np
 
+from optisample.config.render import RenderConfig
 from optisample.dsp.loop import Loop
 from optisample.dsp.surrogate import EncodeContext, StoredSample, default_encode_config, encode, render
 from optisample.io.audio import write_wav
 from optisample.io.it_writer import ITModule, write_it
-from optisample.io.render import RenderSettings, openmpt123_available, render_module
+from optisample.io.render import default_render_config, openmpt123_available, render_module
 from optisample.metrics.base import Signal
 from optisample.metrics.composite import evaluate
 from optisample.model import InstrumentSpec, Manifest, NoteEvent
@@ -72,7 +73,8 @@ class DumpSettings:
     """What to dump and how (bundled to keep call sites small)."""
 
     optimize: OptimizeSettings = field(default_factory=OptimizeSettings)
-    render: RenderSettings = field(default_factory=RenderSettings)
+    # transitional: RenderConfig is threaded from the CLI in phase 9.
+    render: RenderConfig = field(default_factory=default_render_config)
     render_ground_truth: bool = True  # render module + per-note through openmpt123 if it is installed
     grouped: bool = True
     ungrouped: bool = True
