@@ -19,7 +19,7 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from optisample.dsp.surrogate import encode, semitone_ratio
+from optisample.dsp.surrogate import StoredSample, encode, semitone_ratio
 from optisample.io.it_writer import (
     NOTE_CUT,
     ITCell,
@@ -53,6 +53,11 @@ def c5speed_for_pitch(stored_rate: int, pitch: int) -> int:
     return int(round(stored_rate * semitone_ratio(_C5_KEY - pitch)))
 
 
+def _it_loop(stored: StoredSample) -> tuple[int, int] | None:
+    """The stored sample's loop as the ``(begin, end)`` frame pair the IT writer expects (or ``None``)."""
+    return None if stored.loop is None else (stored.loop.start, stored.loop.end)
+
+
 def _build_samples(
     plan: InstrumentPlan, audio: AudioMap, sample_rate: int, seed: int
 ) -> tuple[tuple[ITSample, ...], dict[int, int]]:
@@ -72,6 +77,7 @@ def _build_samples(
                 pcm=stored.pcm,
                 depth_bits=stored.depth_bits,
                 c5speed=c5speed_for_pitch(stored.sample_rate, pitch),
+                loop=_it_loop(stored),
             )
         )
         assignment[pitch] = index + 1  # sample numbers are 1-based in the note map
@@ -138,6 +144,7 @@ def _build_zone_samples(
                 pcm=stored.pcm,
                 depth_bits=stored.depth_bits,
                 c5speed=c5speed_for_pitch(stored.sample_rate, zone.representative),
+                loop=_it_loop(stored),
             )
         )
         for pitch in zone.pitches:

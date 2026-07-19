@@ -30,6 +30,32 @@ def point(stored_bytes: int, distortion: float) -> OperatingPoint:
     return OperatingPoint(params=params, stored_bytes=stored_bytes, distortion=distortion, frames=stored_bytes)
 
 
+# 245 Hz has an exact 180-frame period at 44.1 kHz, so a whole-period loop reproduces it exactly
+# (a non-integer period would make the loop play a slightly detuned pitch -- a real limitation, not a bug).
+def harmonic_tone(freq: float = 245.0, dur: float = 3.0) -> np.ndarray:
+    t = np.arange(int(dur * SR), dtype=np.float64) / SR
+    return (
+        0.6 * np.sin(2 * np.pi * freq * t)
+        + 0.3 * np.sin(2 * np.pi * 2 * freq * t)
+        + 0.15 * np.sin(2 * np.pi * 3 * freq * t)
+    )
+
+
+def test_looping_a_periodic_clip_saves_bytes_at_similar_quality() -> None:
+    clip = SourceClip(signal=harmonic_tone(dur=3.0), sample_rate=SR, root_pitch=57, duration_s=3.0)
+    plain = sample_operating_points(clip, SweepGrid(rates=(SR,), depths=(16,), dither=False, loops=(False,)))[0]
+    looped = sample_operating_points(clip, SweepGrid(rates=(SR,), depths=(16,), dither=False, loops=(True,)))[0]
+    assert looped.params.loop is True
+    assert looped.stored_bytes < plain.stored_bytes // 2  # dropping the 3 s sustain tail is a big saving
+    assert looped.distortion < 0.1  # the whole-period loop reconstructs the exactly-periodic tone
+
+
+def test_looping_is_pareto_optimal_on_the_frontier_when_it_helps() -> None:
+    clip = SourceClip(signal=harmonic_tone(dur=3.0), sample_rate=SR, root_pitch=57, duration_s=3.0)
+    hull = rd_frontier(clip, SweepGrid(rates=(SR, 11_025), depths=(16, 8), dither=False, loops=(False, True)))
+    assert any(op.params.loop for op in hull)  # a looped config survives onto the rate-distortion hull
+
+
 def test_default_rates_are_capped_floored_and_sorted() -> None:
     assert default_rates(44_100) == [44_100, 22_050, 14_700, 11_025, 7_350, 5_512]
     assert default_rates(8_000) == [8_000, 4_000]  # low divisors clamp to the floor and dedupe

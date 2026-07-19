@@ -47,6 +47,7 @@ class SweepGrid:
     depths: tuple[int, ...] = DEFAULT_DEPTHS
     dither: bool = True
     noise_shaping: bool = False
+    loops: tuple[bool, ...] = (False,)  # whether to also try looped storage; default keeps P2/P3 behaviour
 
 
 @dataclass(frozen=True)
@@ -105,16 +106,18 @@ def sample_operating_points(
     composite = composite if composite is not None else default_composite()
     rates = grid.rates if grid.rates is not None else default_rates(clip.sample_rate)
     points: list[OperatingPoint] = []
-    for depth in grid.depths:
-        for rate in rates:
-            params = EncodingParams(
-                target_rate=rate,
-                depth_bits=depth,
-                trim_s=clip.duration_s,
-                dither=grid.dither,
-                noise_shaping=grid.noise_shaping,
-            )
-            points.append(evaluate_encoding(clip, params, composite=composite, rng=rng))
+    for loop in grid.loops:
+        for depth in grid.depths:
+            for rate in rates:
+                params = EncodingParams(
+                    target_rate=rate,
+                    depth_bits=depth,
+                    trim_s=clip.duration_s,
+                    dither=grid.dither,
+                    noise_shaping=grid.noise_shaping,
+                    loop=loop,
+                )
+                points.append(evaluate_encoding(clip, params, composite=composite, rng=rng))
     return points
 
 

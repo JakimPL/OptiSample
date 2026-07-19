@@ -143,14 +143,15 @@ def _zone_options(range_tasks: Sequence[PitchTask], ctx: EvalContext) -> list[Zo
     for rep_task in range_tasks:  # k-medoids candidates: each covered key's own recording
         representative = rep_task.pitch
         trim_s = _zone_trim(range_tasks, representative)
-        for depth in ctx.grid.depths:
-            for rate in rates:
-                params = EncodingParams(rate, depth, trim_s, ctx.grid.dither, ctx.grid.noise_shaping)
-                stored = encode(
-                    rep_task.representative, ctx.sample_rate, params, root_pitch=representative, rng=ctx.rng
-                )
-                distortion = sum(task.weight * score_reconstruction(stored, task, ctx) for task in range_tasks)
-                options.append(ZoneOption(representative, params, stored.stored_bytes, distortion, stored.frames))
+        for loop in ctx.grid.loops:
+            for depth in ctx.grid.depths:
+                for rate in rates:
+                    params = EncodingParams(rate, depth, trim_s, ctx.grid.dither, ctx.grid.noise_shaping, loop)
+                    stored = encode(
+                        rep_task.representative, ctx.sample_rate, params, root_pitch=representative, rng=ctx.rng
+                    )
+                    distortion = sum(task.weight * score_reconstruction(stored, task, ctx) for task in range_tasks)
+                    options.append(ZoneOption(representative, params, stored.stored_bytes, distortion, stored.frames))
     return options
 
 

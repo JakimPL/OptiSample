@@ -48,6 +48,7 @@ _PPC_C5 = 60  # pitch-pan centre at C-5.
 
 _SMP_FLAG_DATA = 0x01  # sample data present.
 _SMP_FLAG_16BIT = 0x02  # 16-bit (else 8-bit).
+_SMP_FLAG_LOOP = 0x10  # forward loop enabled (loop begin/end fields are read).
 _CVT_SIGNED = 0x01  # signed PCM (the standard IT storage).
 
 _MASK_NOTE = 0x01
@@ -69,6 +70,7 @@ class ITSample:
     c5speed: int = 44_100
     global_volume: int = 64
     default_volume: int = 64
+    loop: tuple[int, int] | None = None  # forward loop over half-open frame range [begin, end)
 
     @property
     def frames(self) -> int:
@@ -165,7 +167,13 @@ def _sample_header(sample: ITSample, data_offset: int) -> bytes:
     buf = bytearray(SAMPLE_HEADER_BYTES)
     buf[0:4] = _IMPS
     buf[17] = min(sample.global_volume, 64)
-    buf[18] = _SMP_FLAG_DATA | (_SMP_FLAG_16BIT if sample.depth_bits == 16 else 0)
+    flags = _SMP_FLAG_DATA | (_SMP_FLAG_16BIT if sample.depth_bits == 16 else 0)
+    if sample.loop is not None:
+        flags |= _SMP_FLAG_LOOP
+        begin, end = sample.loop
+        struct.pack_into("<I", buf, 52, begin)  # Loop Begin (frame)
+        struct.pack_into("<I", buf, 56, end)  # Loop End (frame after the loop; playback wraps here)
+    buf[18] = flags
     buf[19] = min(sample.default_volume, 64)
     buf[20:46] = _ascii(sample.name, 26)
     buf[46] = _CVT_SIGNED

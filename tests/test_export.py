@@ -218,3 +218,40 @@ def test_grouped_module_renders_through_openmpt() -> None:
     assert rate == 48_000
     assert audio.ndim == 1 and audio.size > 0
     assert float(np.max(np.abs(audio))) > 0.0  # the repitched zone actually sounds in the real engine
+
+
+# --- looping (P6) --------------------------------------------------------------------------------
+
+# 245 Hz has an exact 180-frame period at 44.1 kHz, so a whole-period loop plays it back in tune.
+LOOP_GRID = SweepGrid(rates=(22_050,), depths=(16,), dither=False, loops=(True,))
+
+
+def tone(freq: float = 245.0, dur: float = 3.0) -> NDArray[np.float64]:
+    t = np.arange(int(dur * SR), dtype=np.float64) / SR
+    return 0.7 * np.sin(2.0 * np.pi * freq * t) + 0.2 * np.sin(2.0 * np.pi * 2.0 * freq * t)
+
+
+def looped_build(hold_s: float = 3.0) -> tuple[InstrumentPlan, ITModule]:
+    audio = {(60, 100): tone(dur=3.0)}
+    samples = [SourceSample(file=Path("60.wav"), pitch=60, velocity=100)]
+    material = [NoteEvent(pitch=60, velocity=100, duration_s=hold_s, count=1)]
+    inst = InstrumentSpec(id="pad", budget_kb=64.0, samples=samples, material=material)
+    plan = optimize_instrument(inst, audio, SR, OptimizeSettings(grid=LOOP_GRID))
+    return plan, build_it_module(plan, audio, SR, material)
+
+
+def test_looped_plan_carries_loop_points_into_the_module() -> None:
+    plan, module = looped_build()
+    assert plan.pitches[0].chosen.params.loop is True
+    begin, end = module.samples[0].loop  # type: ignore[misc]
+    assert 0 <= begin < end <= module.samples[0].frames  # the loop lies inside the stored sample
+    assert end < int(0.5 * 22_050)  # storage is a short attack+loop, not the whole 3 s recording
+
+
+@requires_openmpt
+def test_looped_note_sustains_in_openmpt_past_the_stored_length() -> None:
+    _, module = looped_build(hold_s=3.0)  # the stored sample is ~0.1 s; the note is held 3 s
+    audio, rate = render_module(module)
+    assert rate == 48_000
+    tail = audio[-rate:]  # the final second, long after a non-looping sample would have fallen silent
+    assert float(np.sqrt(np.mean(tail**2))) > 0.05  # the loop keeps the note sounding

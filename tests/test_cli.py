@@ -32,11 +32,25 @@ def _tiny_manifest(tmp_path: Path) -> Path:
 
 def test_dump_settings_maps_grid_and_flags() -> None:
     args = build_parser().parse_args(
-        ["optimize", "m.yaml", "--rate", "11025", "--depth", "8", "--no-render", "--strategy", "grouped", "--seed", "3"]
+        [
+            "optimize",
+            "m.yaml",
+            "--rate",
+            "11025",
+            "--depth",
+            "8",
+            "--no-render",
+            "--strategy",
+            "grouped",
+            "--loop",
+            "--seed",
+            "3",
+        ]
     )
     settings = _dump_settings(args)
     assert settings.optimize.grid.rates == (11_025,)
     assert settings.optimize.grid.depths == (8,)
+    assert settings.optimize.grid.loops == (False, True)
     assert settings.optimize.seed == 3
     assert settings.render_ground_truth is False
     assert settings.grouped is True and settings.ungrouped is False
@@ -46,6 +60,7 @@ def test_dump_settings_defaults_to_full_grid_both_strategies() -> None:
     args = build_parser().parse_args(["optimize", "m.yaml"])
     settings = _dump_settings(args)
     assert settings.grouped and settings.ungrouped and settings.render_ground_truth
+    assert settings.optimize.grid.loops == (False,)  # looping is opt-in via --loop
 
 
 def test_optimize_command_writes_artifacts(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

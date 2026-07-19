@@ -138,7 +138,7 @@ _PRESETS: tuple[_Preset, ...] = (
         archetype="sustained",
         pitches=(48, 55, 60, 67, 72),
         velocities=(40, 80, 115),
-        sample_dur=2.0,
+        sample_dur=4.5,  # >= the longest material note (4.0 s), so a real sustain exists to loop/match
         budget_kb=128.0,
         material=(
             (60, 80, 2.5, 10),

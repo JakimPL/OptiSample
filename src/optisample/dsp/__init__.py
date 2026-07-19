@@ -1,3 +1,4 @@
+from optisample.dsp.loop import Loop, crossfade_loop, detect_loop
 from optisample.dsp.quantize import (
     VALID_DEPTHS,
     apply_gain,
@@ -58,4 +59,7 @@ __all__ = [
     "encode",
     "render",
     "semitone_ratio",
+    "Loop",
+    "detect_loop",
+    "crossfade_loop",
 ]

@@ -7,8 +7,10 @@ shaping -- into a :class:`StoredSample`. Rendering reads that sample back at a t
 resample by ``2**(semitones / 12)``, the way a tracker repitches), scales by the note volume
 (``0..64``, linear per IT), and fits the note to a requested duration.
 
-Loop and volume-envelope support are deferred to P6; without a loop, a note held longer than the
-stored sample is zero-padded (it simply ends). The surrogate is calibrated against ``openmpt123`` in
+Looping (P6) lets a short stored sample sustain a long note: with ``params.loop`` set, storage is
+trimmed to the attack plus a looped region and :func:`render` repeats that region to fill the
+duration; without a loop, a note held longer than the sample is zero-padded (it simply ends).
+Volume-envelope support is still deferred. The surrogate is calibrated against ``openmpt123`` in
 P4 -- until then it *is* the objective the rate-distortion search optimizes.
 """
 
@@ -19,6 +21,7 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
+from optisample.dsp.loop import DEFAULT_CROSSFADE_S, Loop, crossfade_loop, detect_loop
 from optisample.dsp.quantize import normalize_peak, requantize
 from optisample.dsp.resample import resample_num, resample_to
 from optisample.metrics.size import SampleSize
@@ -37,6 +40,7 @@ class EncodingParams:
     trim_s: float | None = None
     dither: bool = True
     noise_shaping: bool = False
+    loop: bool = False  # store attack + a looped sustain region instead of the whole trimmed sample
 
 
 @dataclass(frozen=True)
@@ -48,6 +52,7 @@ class StoredSample:
     depth_bits: int
     root_pitch: int
     gain: float = 1.0  # normalization gain applied at encode time (stored = source * gain).
+    loop: Loop | None = None  # forward loop over stored frames, sustaining notes held past the sample
 
     @property
     def frames(self) -> int:
@@ -82,6 +87,16 @@ def _fit_length(signal: Signal, length: int) -> Signal:
     return np.asarray(np.pad(signal, (0, length - signal.size)), dtype=np.float64)
 
 
+def _apply_loop(resampled: Signal, rate: int) -> tuple[Signal, Loop | None]:
+    """Detect a loop, crossfade its seam, and trim storage to attack + loop (or leave the signal be)."""
+    detected = detect_loop(resampled, rate)
+    if detected is None:
+        return resampled, None
+    fade_len = int(round(DEFAULT_CROSSFADE_S * rate))
+    faded = crossfade_loop(resampled, detected, fade_len=fade_len)
+    return faded[: detected.end], detected
+
+
 def encode(
     signal: Signal,
     sample_rate: int,
@@ -90,15 +105,41 @@ def encode(
     root_pitch: int,
     rng: np.random.Generator | None = None,
 ) -> StoredSample:
-    """Encode ``signal`` into a :class:`StoredSample`: normalize -> resample -> trim -> requantize."""
+    """Encode ``signal`` into a :class:`StoredSample`: normalize -> resample -> (loop | trim) -> requantize.
+
+    With ``params.loop`` set, storage is trimmed to the attack plus a looped sustain region (if the
+    signal is periodic enough); the loop then sustains notes held past the stored length. Otherwise
+    it is trimmed to ``trim_s`` and a longer note simply ends. A loop request on non-periodic material
+    silently falls back to the trimmed sample, so the config is never worse than its non-looped twin.
+    """
     normalized, gain = normalize_peak(signal)
     resampled = resample_to(normalized, sample_rate, params.target_rate)
-    if params.trim_s is not None:
+    loop: Loop | None = None
+    if params.loop:
+        resampled, loop = _apply_loop(resampled, params.target_rate)
+    if loop is None and params.trim_s is not None:
         resampled = resampled[: max(0, int(round(params.trim_s * params.target_rate)))]
     pcm = requantize(resampled, params.depth_bits, dither=params.dither, noise_shaping=params.noise_shaping, rng=rng)
     return StoredSample(
-        pcm=pcm, sample_rate=params.target_rate, depth_bits=params.depth_bits, root_pitch=root_pitch, gain=gain
+        pcm=pcm,
+        sample_rate=params.target_rate,
+        depth_bits=params.depth_bits,
+        root_pitch=root_pitch,
+        gain=gain,
+        loop=loop,
     )
+
+
+def _sustain_with_loop(played: Signal, loop: Loop, scale: float, target: int) -> Signal:
+    """Extend ``played`` to ``target`` frames by repeating its loop region (mapped to the output rate)."""
+    start = max(0, min(int(round(loop.start * scale)), played.size))
+    end = max(start + 1, min(int(round(loop.end * scale)), played.size))
+    segment = played[start:end]
+    if segment.size == 0 or target <= end:
+        return played
+    repeats = int(np.ceil((target - end) / segment.size))
+    tail = np.tile(segment, repeats)[: target - end]
+    return np.concatenate([played[:end], tail])
 
 
 def render(
@@ -112,12 +153,19 @@ def render(
     """Render a note from ``stored`` at ``out_rate``: repitch to ``pitch``, scale by ``volume``, fit duration.
 
     ``pitch`` defaults to the sample's root (no transpose). Repitching plays the sample faster/slower
-    (``2**((pitch - root) / 12)``), which shifts both pitch and length the way a tracker does.
+    (``2**((pitch - root) / 12)``), which shifts both pitch and length the way a tracker does. If the
+    sample carries a loop and the note is held past the stored length, the loop region is repeated to
+    sustain it (in the output domain, so it tracks the repitch); otherwise the note simply ends.
     """
     transpose = 0.0 if pitch is None else float(pitch - stored.root_pitch)
     effective_rate = stored.sample_rate * semitone_ratio(transpose)
-    full_num = int(round(stored.frames * out_rate / effective_rate)) if effective_rate > 0.0 else 0
-    rendered = resample_num(stored.pcm, full_num) * (volume / MAX_VOLUME)
+    scale = out_rate / effective_rate if effective_rate > 0.0 else 0.0
+    played = resample_num(stored.pcm, int(round(stored.frames * scale)))
+    if duration_s is not None and stored.loop is not None:
+        target = int(round(duration_s * out_rate))
+        if target > played.size:
+            played = _sustain_with_loop(played, stored.loop, scale, target)
+    rendered = played * (volume / MAX_VOLUME)
     if duration_s is not None:
         rendered = _fit_length(rendered, int(round(duration_s * out_rate)))
     return np.asarray(rendered, dtype=np.float64)

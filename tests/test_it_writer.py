@@ -97,6 +97,25 @@ def test_sample_header_flag_is_8bit_when_depth_is_8() -> None:
     assert data_pointer + 256 == len(blob)  # one byte per frame
 
 
+def test_sample_header_writes_loop_flag_and_points() -> None:
+    module = one_sample_module(frames=256)
+    looped = ITSample(name="ramp", pcm=module.samples[0].pcm, depth_bits=16, c5speed=22_050, loop=(40, 200))
+    blob = write_it_module(
+        ITModule(name="probe", samples=(looped,), instruments=module.instruments, patterns=module.patterns, orders=(0,))
+    )
+    _, (smp,), _ = offset_tables(blob)
+    assert blob[smp + 18] == 0x03 | 0x10  # data | 16-bit | use-loop
+    assert _u32(blob, smp + 52) == 40  # Loop Begin
+    assert _u32(blob, smp + 56) == 200  # Loop End
+
+
+def test_sample_header_has_no_loop_flag_by_default() -> None:
+    blob = write_it_module(one_sample_module())
+    _, (smp,), _ = offset_tables(blob)
+    assert blob[smp + 18] & 0x10 == 0  # use-loop bit clear
+    assert _u32(blob, smp + 52) == 0 and _u32(blob, smp + 56) == 0
+
+
 @pytest.mark.parametrize("depth,scale,dtype", [(16, 32768.0, "<i2"), (8, 128.0, "<i1")])
 def test_pcm_round_trips_in_file(depth: int, scale: float, dtype: str) -> None:
     signal = ramp(256)

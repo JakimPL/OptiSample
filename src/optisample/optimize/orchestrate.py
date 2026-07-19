@@ -127,16 +127,18 @@ def _pitch_points(task: PitchTask, ctx: EvalContext) -> list[OperatingPoint]:
     rates = ctx.grid.rates if ctx.grid.rates is not None else default_rates(ctx.sample_rate)
     trim_s = task.max_duration_s
     points: list[OperatingPoint] = []
-    for depth in ctx.grid.depths:
-        for rate in rates:
-            params = EncodingParams(
-                target_rate=rate,
-                depth_bits=depth,
-                trim_s=trim_s,
-                dither=ctx.grid.dither,
-                noise_shaping=ctx.grid.noise_shaping,
-            )
-            points.append(_evaluate_config(task, ctx, params))
+    for loop in ctx.grid.loops:
+        for depth in ctx.grid.depths:
+            for rate in rates:
+                params = EncodingParams(
+                    target_rate=rate,
+                    depth_bits=depth,
+                    trim_s=trim_s,
+                    dither=ctx.grid.dither,
+                    noise_shaping=ctx.grid.noise_shaping,
+                    loop=loop,
+                )
+                points.append(_evaluate_config(task, ctx, params))
     return points
 
 

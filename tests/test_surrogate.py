@@ -81,3 +81,29 @@ def test_render_duration_pads_and_truncates() -> None:
     assert padded.size == pytest.approx(int(round(2.0 * SR)), abs=1)
     assert truncated.size == pytest.approx(int(round(0.25 * SR)), abs=1)
     assert float(np.max(np.abs(padded[-100:]))) == 0.0  # tail is silence
+
+
+# --- looping -------------------------------------------------------------------------------------
+
+
+def test_encode_loop_stores_attack_plus_loop_and_drops_the_tail() -> None:
+    stored = encode(sine(440.0, dur=2.0), SR, EncodingParams(target_rate=SR, depth_bits=16, loop=True), root_pitch=60)
+    assert stored.loop is not None
+    assert stored.frames == stored.loop.end  # storage is trimmed to [0, loop.end)
+    assert stored.frames < int(0.5 * SR)  # ... a small fraction of the 2 s recording
+
+
+def test_render_loop_sustains_a_note_held_past_the_stored_length() -> None:
+    stored = encode(sine(440.0, dur=2.0), SR, EncodingParams(target_rate=SR, depth_bits=16, loop=True), root_pitch=60)
+    held = render(stored, SR, pitch=60, duration_s=3.0)  # far longer than the ~0.1 s stored
+    assert held.size == pytest.approx(int(round(3.0 * SR)), abs=1)
+    assert float(np.sqrt(np.mean(held[-SR:] ** 2))) > 0.1  # the last second still sounds (loop sustained it)
+
+
+def test_loop_falls_back_to_trim_on_non_periodic_material() -> None:
+    rng = np.random.default_rng(0)
+    noise = rng.standard_normal(SR)
+    looped = encode(noise, SR, EncodingParams(target_rate=SR, depth_bits=16, trim_s=0.5, loop=True), root_pitch=60)
+    plain = encode(noise, SR, EncodingParams(target_rate=SR, depth_bits=16, trim_s=0.5, loop=False), root_pitch=60)
+    assert looped.loop is None  # noise is not periodic enough to loop
+    assert looped.frames == plain.frames  # ... so it is identical to the non-looped trim

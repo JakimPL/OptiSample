@@ -26,17 +26,18 @@ def build_parser() -> argparse.ArgumentParser:
     optimize.add_argument("--no-render", action="store_true", help="Skip openmpt123 ground-truth renders")
     optimize.add_argument("--rate", type=int, action="append", dest="rates", help="Sample rate to sweep (repeatable)")
     optimize.add_argument("--depth", type=int, action="append", dest="depths", help="Bit depth to sweep (repeatable)")
+    optimize.add_argument("--loop", action="store_true", help="Also try looped storage (cheap long sustains)")
     optimize.add_argument("--seed", type=int, default=0, help="RNG seed for reproducible encoding")
     return parser
 
 
 def _dump_settings(args: argparse.Namespace) -> DumpSettings:
-    grid = SweepGrid()
-    if args.rates is not None or args.depths is not None:
-        grid = SweepGrid(
-            rates=tuple(args.rates) if args.rates else grid.rates,
-            depths=tuple(args.depths) if args.depths else grid.depths,
-        )
+    base = SweepGrid()
+    grid = SweepGrid(
+        rates=tuple(args.rates) if args.rates else base.rates,
+        depths=tuple(args.depths) if args.depths else base.depths,
+        loops=(False, True) if args.loop else base.loops,
+    )
     return DumpSettings(
         optimize=OptimizeSettings(grid=grid, seed=args.seed),
         render_ground_truth=not args.no_render,
