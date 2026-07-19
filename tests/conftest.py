@@ -22,6 +22,7 @@ from optisample.config.synth import SynthConfig
 from optisample.dsp.surrogate import EncodeContext
 from optisample.io.it_writer import ITPlayback, it_playback
 from optisample.metrics import CompositeFidelity, build_composite
+from optisample.optimize.export import ExportContext
 from optisample.optimize.orchestrate import OptimizeSettings
 
 
@@ -91,6 +92,12 @@ def playback_config(config: OptiConfig) -> PlaybackConfig:
 def playback(playback_config: PlaybackConfig) -> ITPlayback:
     """The IT playback value-object built from the bundled config (for constructing ITModules in tests)."""
     return it_playback(playback_config)
+
+
+@pytest.fixture
+def export_ctx(config: OptiConfig) -> ExportContext:
+    """The IT-exporter context (encode + playback) built from the bundled config, seed 0."""
+    return ExportContext(encode=config.encode, playback=config.playback)
 
 
 @pytest.fixture

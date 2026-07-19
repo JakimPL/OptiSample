@@ -37,16 +37,16 @@ from typing import Any
 
 import numpy as np
 
-from optisample.config.render import RenderConfig
+from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.dsp.loop import Loop
 from optisample.dsp.surrogate import EncodeContext, StoredSample, default_encode_config, encode, render
 from optisample.io.audio import write_wav
 from optisample.io.it_writer import ITModule, write_it
-from optisample.io.render import default_render_config, openmpt123_available, render_module
+from optisample.io.render import default_playback_config, default_render_config, openmpt123_available, render_module
 from optisample.metrics.base import Signal
 from optisample.metrics.composite import evaluate
 from optisample.model import InstrumentSpec, Manifest, NoteEvent
-from optisample.optimize.export import build_grouped_it_module, build_it_module
+from optisample.optimize.export import ExportContext, build_grouped_it_module, build_it_module
 from optisample.optimize.grouping import GroupedInstrumentPlan, format_grouping_report, optimize_instrument_grouped
 from optisample.optimize.knapsack import BudgetInfeasibleError
 from optisample.optimize.orchestrate import (
@@ -77,6 +77,8 @@ class DumpSettings:
     optimize: OptimizeSettings = field(default_factory=default_optimize_settings)
     # transitional: RenderConfig is threaded from the CLI in phase 9.
     render: RenderConfig = field(default_factory=default_render_config)
+    # transitional: PlaybackConfig is threaded from the CLI in phase 9.
+    playback: PlaybackConfig = field(default_factory=default_playback_config)
     render_ground_truth: bool = True  # render module + per-note through openmpt123 if it is installed
     grouped: bool = True
     ungrouped: bool = True
@@ -410,11 +412,16 @@ def _dump_plan(kind: _PlanKind, out_dir: Path, dctx: _DumpContext) -> PlanArtifa
     )
 
 
+def _export_ctx(settings: DumpSettings) -> ExportContext:
+    """The IT-exporter context (re-encode config + playback + dither seed) built from the dump settings."""
+    return ExportContext(encode=settings.optimize.encode, playback=settings.playback, seed=settings.optimize.seed)
+
+
 def _ungrouped_kind(plan: InstrumentPlan, dctx: _DumpContext) -> _PlanKind:
     units = _ungrouped_units(plan, dctx)
 
     def make_module(material: Sequence[NoteEvent]) -> ITModule:
-        return build_it_module(plan, dctx.audio, dctx.sample_rate, list(material), dctx.settings.optimize.seed)
+        return build_it_module(plan, dctx.audio, dctx.sample_rate, list(material), _export_ctx(dctx.settings))
 
     return _PlanKind("ungrouped", units, format_report(plan), _plan_json_ungrouped(plan, units), make_module)
 
@@ -423,7 +430,7 @@ def _grouped_kind(plan: GroupedInstrumentPlan, dctx: _DumpContext) -> _PlanKind:
     units = _grouped_units(plan, dctx)
 
     def make_module(material: Sequence[NoteEvent]) -> ITModule:
-        return build_grouped_it_module(plan, dctx.audio, dctx.sample_rate, list(material), dctx.settings.optimize.seed)
+        return build_grouped_it_module(plan, dctx.audio, dctx.sample_rate, list(material), _export_ctx(dctx.settings))
 
     return _PlanKind("grouped", units, format_grouping_report(plan), _plan_json_grouped(plan, units), make_module)
 

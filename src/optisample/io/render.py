@@ -25,7 +25,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from optisample.config import load_config
-from optisample.config.render import Interpolation, RenderConfig
+from optisample.config.render import Interpolation, PlaybackConfig, RenderConfig
 from optisample.io.audio import read_wav
 from optisample.io.it_writer import ITModule, write_it
 
@@ -50,6 +50,16 @@ def default_render_config() -> RenderConfig:
     -> phase 9); removed once every caller passes config explicitly.
     """
     return load_config().render
+
+
+@lru_cache(maxsize=1)
+def default_playback_config() -> PlaybackConfig:
+    """The bundled IT playback config, cached so repeated dumps do not reload YAML.
+
+    Transitional bridge for call sites that do not yet thread a ``PlaybackConfig`` (artifacts/DumpSettings
+    -> phase 9); removed once every caller passes config explicitly.
+    """
+    return load_config().playback
 
 
 def openmpt123_available() -> bool:

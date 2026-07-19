@@ -16,13 +16,13 @@ and loops/envelopes (P6) would change the samples and note map, not this wiring.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from functools import lru_cache
+from dataclasses import dataclass
 
 import numpy as np
 
-from optisample.config import load_config
+from optisample.config.dsp import EncodeConfig
 from optisample.config.render import PlaybackConfig
-from optisample.dsp.surrogate import EncodeContext, StoredSample, default_encode_config, encode, semitone_ratio
+from optisample.dsp.surrogate import EncodeContext, StoredSample, encode, semitone_ratio
 from optisample.io.it_writer import (
     MAX_ROWS,
     NOTE_CUT,
@@ -48,14 +48,16 @@ _MAX_IT_NOTE = 119  # IT keys span C-0..B-9.
 _NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
 
 
-@lru_cache(maxsize=1)
-def default_playback_config() -> PlaybackConfig:
-    """The bundled IT playback, cached so exporting does not reload YAML per module.
+@dataclass(frozen=True)
+class ExportContext:
+    """Config the IT exporter needs beyond a plan: how to re-encode each sample and how it plays back.
 
-    Transitional bridge for call sites that do not yet thread a ``PlaybackConfig`` (export/calibrate
-    -> phase 7); removed once :class:`ExportContext` carries it explicitly.
+    ``seed`` seeds the per-sample dither so re-encoding a plan reproduces the exact bytes it budgeted.
     """
-    return load_config().playback
+
+    encode: EncodeConfig
+    playback: PlaybackConfig
+    seed: int = 0
 
 
 def _note_name(pitch: int) -> str:
@@ -73,10 +75,10 @@ def _it_loop(stored: StoredSample) -> tuple[int, int] | None:
 
 
 def _build_samples(
-    plan: InstrumentPlan, audio: AudioMap, sample_rate: int, seed: int
+    plan: InstrumentPlan, audio: AudioMap, sample_rate: int, ctx: ExportContext
 ) -> tuple[tuple[ITSample, ...], dict[int, int]]:
     """Re-encode each pitch's representative with its chosen params; return samples + key->sample-number."""
-    rng = np.random.default_rng(seed)
+    rng = np.random.default_rng(ctx.seed)
     samples: list[ITSample] = []
     assignment: dict[int, int] = {}
     for index, pitch_plan in enumerate(plan.pitches):
@@ -84,8 +86,7 @@ def _build_samples(
         if not 0 <= pitch <= _MAX_IT_NOTE:
             raise ValueError(f"pitch {pitch} is outside the IT key range 0..{_MAX_IT_NOTE}")
         representative: Signal = audio[(pitch, pitch_plan.representative_velocity)]
-        # transitional: EncodeConfig is threaded through the exporter in phase 7.
-        encode_ctx = EncodeContext(root_pitch=pitch, config=default_encode_config(), rng=rng)
+        encode_ctx = EncodeContext(root_pitch=pitch, config=ctx.encode, rng=rng)
         stored = encode(representative, sample_rate, pitch_plan.chosen.params, encode_ctx)
         samples.append(
             ITSample(
@@ -122,13 +123,12 @@ def _material_patterns(
 
 
 def build_it_module(
-    plan: InstrumentPlan, audio: AudioMap, sample_rate: int, material: Sequence[NoteEvent], seed: int = 0
+    plan: InstrumentPlan, audio: AudioMap, sample_rate: int, material: Sequence[NoteEvent], ctx: ExportContext
 ) -> ITModule:
     """Assemble a complete :class:`ITModule` from an optimized plan, its recordings and its material."""
-    samples, assignment = _build_samples(plan, audio, sample_rate, seed)
+    samples, assignment = _build_samples(plan, audio, sample_rate, ctx)
     instrument = ITInstrument(name=plan.instrument_id[:25], note_map=identity_note_map(assignment))
-    # transitional: PlaybackConfig is threaded through ExportContext in phase 7.
-    playback = it_playback(default_playback_config())
+    playback = it_playback(ctx.playback)
     patterns, orders = _material_patterns(material, plan.velocity_map, playback)
     return ITModule(
         name=plan.instrument_id[:25],
@@ -141,7 +141,7 @@ def build_it_module(
 
 
 def _build_zone_samples(
-    plan: GroupedInstrumentPlan, audio: AudioMap, sample_rate: int, seed: int
+    plan: GroupedInstrumentPlan, audio: AudioMap, sample_rate: int, ctx: ExportContext
 ) -> tuple[tuple[ITSample, ...], dict[int, int]]:
     """Re-encode one representative per zone; map every key the zone covers to that shared sample.
 
@@ -149,13 +149,12 @@ def _build_zone_samples(
     plays natural); the note map then sends each covered key to that same sample, and the tracker
     repitches it by ``key - representative`` semitones -- exactly the transpose the surrogate scored.
     """
-    rng = np.random.default_rng(seed)
+    rng = np.random.default_rng(ctx.seed)
     samples: list[ITSample] = []
     assignment: dict[int, int] = {}
     for index, zone in enumerate(plan.zones):
         representative: Signal = audio[(zone.representative, zone.representative_velocity)]
-        # transitional: EncodeConfig is threaded through the exporter in phase 7.
-        encode_ctx = EncodeContext(root_pitch=zone.representative, config=default_encode_config(), rng=rng)
+        encode_ctx = EncodeContext(root_pitch=zone.representative, config=ctx.encode, rng=rng)
         stored = encode(representative, sample_rate, zone.chosen.params, encode_ctx)
         samples.append(
             ITSample(
@@ -174,13 +173,12 @@ def _build_zone_samples(
 
 
 def build_grouped_it_module(
-    plan: GroupedInstrumentPlan, audio: AudioMap, sample_rate: int, material: Sequence[NoteEvent], seed: int = 0
+    plan: GroupedInstrumentPlan, audio: AudioMap, sample_rate: int, material: Sequence[NoteEvent], ctx: ExportContext
 ) -> ITModule:
     """Assemble a complete :class:`ITModule` from a grouped plan (one sample per zone, repitched)."""
-    samples, assignment = _build_zone_samples(plan, audio, sample_rate, seed)
+    samples, assignment = _build_zone_samples(plan, audio, sample_rate, ctx)
     instrument = ITInstrument(name=plan.instrument_id[:25], note_map=identity_note_map(assignment))
-    # transitional: PlaybackConfig is threaded through ExportContext in phase 7.
-    playback = it_playback(default_playback_config())
+    playback = it_playback(ctx.playback)
     patterns, orders = _material_patterns(material, plan.velocity_map, playback)
     return ITModule(
         name=plan.instrument_id[:25],

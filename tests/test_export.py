@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -8,21 +8,15 @@ import pytest
 import soundfile as sf
 from numpy.typing import NDArray
 
-from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
+from optisample.config.render import RenderConfig
 from optisample.dsp.surrogate import EncodingParams
 from optisample.io.it_writer import NOTE_CUT, ITModule, write_it, write_it_module
 from optisample.io.render import openmpt123_available, render_module
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
-from optisample.optimize.export import build_grouped_it_module, build_it_module, c5speed_for_pitch
+from optisample.optimize.export import ExportContext, build_grouped_it_module, build_it_module, c5speed_for_pitch
 from optisample.optimize.grouping import GroupedInstrumentPlan, Zone, ZoneOption, optimize_instrument_grouped
-from optisample.optimize.orchestrate import (
-    BudgetBreakdown,
-    InstrumentPlan,
-    OptimizeSettings,
-    default_optimize_settings,
-    optimize_instrument,
-)
+from optisample.optimize.orchestrate import BudgetBreakdown, InstrumentPlan, OptimizeSettings, optimize_instrument
 from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
 from optisample.synth import NoteSpec, render_sample
 
@@ -31,21 +25,6 @@ requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmp
 SR = 44_100
 PITCHES = (60, 67)
 VELOCITIES = (50, 100)
-
-# Phase 7 migrates these to the conftest fixtures; for now build the swept grids from the bundled
-# config so the export tests keep passing under "no config defaults in Python".
-_BASE_SWEEP = load_config().sweep
-
-
-def _grid(**overrides: object) -> SweepConfig:
-    return SweepConfig.model_validate({**_BASE_SWEEP.model_dump(), **overrides})
-
-
-def _settings(sweep: SweepConfig) -> OptimizeSettings:
-    return replace(default_optimize_settings(), sweep=sweep)
-
-
-GRID = _grid(rates=(44_100, 11_025), depths=(16, 8))
 
 
 def note(pitch: int, velocity: int, dur: float = 0.6) -> NDArray[np.float64]:
@@ -71,14 +50,27 @@ def demo_instrument(budget_kb: float = 64.0) -> InstrumentSpec:
     return InstrumentSpec(id="piano", budget_kb=budget_kb, samples=samples, material=demo_material())
 
 
-def build(material: list[NoteEvent] | None = None) -> tuple[InstrumentPlan, ITModule]:
-    audio = demo_audio()
-    plan = optimize_instrument(demo_instrument(), audio, SR, _settings(GRID))
-    module = build_it_module(plan, audio, SR, material if material is not None else demo_material())
-    return plan, module
+@pytest.fixture
+def build(
+    optimize_settings: Callable[..., OptimizeSettings],
+    sweep: Callable[..., SweepConfig],
+    export_ctx: ExportContext,
+) -> Callable[..., tuple[InstrumentPlan, ITModule]]:
+    """Optimize the demo instrument at a 2x2 grid and export it to an IT module."""
+
+    def _build(material: list[NoteEvent] | None = None) -> tuple[InstrumentPlan, ITModule]:
+        audio = demo_audio()
+        settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depths=(16, 8)))
+        plan = optimize_instrument(demo_instrument(), audio, SR, settings)
+        module = build_it_module(plan, audio, SR, material if material is not None else demo_material(), export_ctx)
+        return plan, module
+
+    return _build
 
 
-def test_one_sample_per_planned_pitch_with_identity_note_map() -> None:
+def test_one_sample_per_planned_pitch_with_identity_note_map(
+    build: Callable[..., tuple[InstrumentPlan, ITModule]],
+) -> None:
     plan, module = build()
     assert len(module.samples) == len(plan.pitches)
     assert len(module.instruments) == 1
@@ -87,7 +79,9 @@ def test_one_sample_per_planned_pitch_with_identity_note_map() -> None:
         assert note_map[pitch_plan.pitch] == (pitch_plan.pitch, index + 1)  # key -> (identity note, 1-based sample)
 
 
-def test_stored_samples_match_the_chosen_operating_points() -> None:
+def test_stored_samples_match_the_chosen_operating_points(
+    build: Callable[..., tuple[InstrumentPlan, ITModule]],
+) -> None:
     plan, module = build()
     for pitch_plan, sample in zip(plan.pitches, module.samples):
         assert sample.depth_bits == pitch_plan.chosen.params.depth_bits
@@ -102,13 +96,15 @@ def test_c5speed_makes_the_root_key_play_natural() -> None:
     assert c5speed_for_pitch(11_025, 72) == 5_512  # an octave up halves it
 
 
-def test_sample_bytes_equal_the_budgeted_amount() -> None:
+def test_sample_bytes_equal_the_budgeted_amount(build: Callable[..., tuple[InstrumentPlan, ITModule]]) -> None:
     plan, module = build()
     sample_bytes = sum(sample.frames * (sample.depth_bits // 8) + 80 for sample in module.samples)
     assert sample_bytes == plan.used_bytes  # PCM + 80-B headers is exactly what the solver budgeted
 
 
-def test_pattern_applies_velocity_volume_map_and_cuts_each_note() -> None:
+def test_pattern_applies_velocity_volume_map_and_cuts_each_note(
+    build: Callable[..., tuple[InstrumentPlan, ITModule]],
+) -> None:
     plan, module = build()
     cells = [cell for pattern in module.patterns for _, _, cell in pattern.cells]
     notes = [(c.note, c.volume) for c in cells if c.note is not None and c.note != NOTE_CUT]
@@ -120,20 +116,26 @@ def test_pattern_applies_velocity_volume_map_and_cuts_each_note() -> None:
     assert len(cuts) == 3  # every event is released
 
 
-def test_long_material_spills_into_multiple_ordered_patterns() -> None:
+def test_long_material_spills_into_multiple_ordered_patterns(
+    build: Callable[..., tuple[InstrumentPlan, ITModule]],
+) -> None:
     _, module = build([NoteEvent(pitch=60, velocity=100, duration_s=0.5) for _ in range(60)])
     assert len(module.patterns) >= 2  # 60 events * 5 rows > 200-row cap
     assert module.orders == tuple(range(len(module.patterns)))
     assert all(1 <= pattern.rows <= 200 for pattern in module.patterns)
 
 
-def test_build_is_deterministic() -> None:
+def test_build_is_deterministic(build: Callable[..., tuple[InstrumentPlan, ITModule]]) -> None:
     _, module_a = build()
     _, module_b = build()
     assert write_it_module(module_a) == write_it_module(module_b)
 
 
-def test_pitch_out_of_it_range_raises() -> None:
+def test_pitch_out_of_it_range_raises(
+    export_ctx: ExportContext,
+    optimize_settings: Callable[..., OptimizeSettings],
+    sweep: Callable[..., SweepConfig],
+) -> None:
     audio = {(120, 100): note(60, 100)}
     inst = InstrumentSpec(
         id="x",
@@ -141,12 +143,14 @@ def test_pitch_out_of_it_range_raises() -> None:
         samples=[SourceSample(file=Path("p.wav"), pitch=120, velocity=100)],
         material=[NoteEvent(pitch=120, velocity=100, duration_s=0.4)],
     )
-    plan = optimize_instrument(inst, audio, SR, _settings(GRID))
+    plan = optimize_instrument(inst, audio, SR, optimize_settings(sweep=sweep(rates=(44_100, 11_025), depths=(16, 8))))
     with pytest.raises(ValueError, match="outside the IT key range"):
-        build_it_module(plan, audio, SR, inst.material or [])
+        build_it_module(plan, audio, SR, inst.material or [], export_ctx)
 
 
-def test_written_file_round_trips_through_xmodits(tmp_path: Path) -> None:
+def test_written_file_round_trips_through_xmodits(
+    tmp_path: Path, build: Callable[..., tuple[InstrumentPlan, ITModule]]
+) -> None:
     xmodits = pytest.importorskip("xmodits")
     _, module = build()
     it_path = tmp_path / "piano.it"
@@ -164,18 +168,28 @@ def test_written_file_round_trips_through_xmodits(tmp_path: Path) -> None:
 
 # --- grouped export (one repitched sample per zone) ----------------------------------------------
 
-# A single cheap operating point and a tight budget, so the two keys are forced into one shared zone.
-GRID_G = _grid(rates=(11_025,), depths=(8,), dither=False)
+
+@pytest.fixture
+def grouped_build(
+    optimize_settings: Callable[..., OptimizeSettings],
+    sweep: Callable[..., SweepConfig],
+    export_ctx: ExportContext,
+) -> Callable[..., tuple[GroupedInstrumentPlan, ITModule]]:
+    """A tight-budget grouped build: one cheap operating point forces both keys into one shared zone."""
+
+    def _grouped_build(budget_kb: float = 8.0) -> tuple[GroupedInstrumentPlan, ITModule]:
+        audio = demo_audio()
+        settings = optimize_settings(sweep=sweep(rates=(11_025,), depths=(8,), dither=False))
+        plan = optimize_instrument_grouped(demo_instrument(budget_kb), audio, SR, settings)
+        module = build_grouped_it_module(plan, audio, SR, demo_material(), export_ctx)
+        return plan, module
+
+    return _grouped_build
 
 
-def grouped_build(budget_kb: float = 8.0) -> tuple[GroupedInstrumentPlan, ITModule]:
-    audio = demo_audio()
-    plan = optimize_instrument_grouped(demo_instrument(budget_kb), audio, SR, _settings(GRID_G))
-    module = build_grouped_it_module(plan, audio, SR, demo_material())
-    return plan, module
-
-
-def test_grouped_module_shares_one_sample_across_a_merged_zone() -> None:
+def test_grouped_module_shares_one_sample_across_a_merged_zone(
+    grouped_build: Callable[..., tuple[GroupedInstrumentPlan, ITModule]],
+) -> None:
     plan, module = grouped_build()
     assert len(plan.zones) == 1  # the tight budget merged both keys into one zone
     assert len(module.samples) == 1  # ... served by a single stored sample
@@ -184,26 +198,30 @@ def test_grouped_module_shares_one_sample_across_a_merged_zone() -> None:
         assert note_map[pitch] == (pitch, 1)  # every covered key -> (its own note, the shared sample)
 
 
-def test_grouped_sample_c5speed_tracks_the_representative() -> None:
+def test_grouped_sample_c5speed_tracks_the_representative(
+    grouped_build: Callable[..., tuple[GroupedInstrumentPlan, ITModule]],
+) -> None:
     plan, module = grouped_build()
     zone = plan.zones[0]
     rate = zone.chosen.params.target_rate
     assert module.samples[0].c5speed == round(rate * 2.0 ** ((60 - zone.representative) / 12.0))
 
 
-def test_grouped_sample_bytes_equal_the_budgeted_amount() -> None:
+def test_grouped_sample_bytes_equal_the_budgeted_amount(
+    grouped_build: Callable[..., tuple[GroupedInstrumentPlan, ITModule]],
+) -> None:
     plan, module = grouped_build()
     sample_bytes = sum(sample.frames * (sample.depth_bits // 8) + 80 for sample in module.samples)
     assert sample_bytes == plan.used_bytes
 
 
-def test_grouped_build_is_deterministic() -> None:
+def test_grouped_build_is_deterministic(grouped_build: Callable[..., tuple[GroupedInstrumentPlan, ITModule]]) -> None:
     _, module_a = grouped_build()
     _, module_b = grouped_build()
     assert write_it_module(module_a) == write_it_module(module_b)
 
 
-def test_grouped_pitch_out_of_it_range_raises() -> None:
+def test_grouped_pitch_out_of_it_range_raises(export_ctx: ExportContext) -> None:
     option = ZoneOption(
         representative=120, params=EncodingParams(11_025, 8, 0.2), stored_bytes=100, distortion=0.0, frames=20
     )
@@ -219,10 +237,12 @@ def test_grouped_pitch_out_of_it_range_raises() -> None:
         objective=0.0,
     )
     with pytest.raises(ValueError, match="outside the IT key range"):
-        build_grouped_it_module(plan, {(120, 100): note(60, 100)}, SR, [])
+        build_grouped_it_module(plan, {(120, 100): note(60, 100)}, SR, [], export_ctx)
 
 
-def test_grouped_round_trips_through_xmodits(tmp_path: Path) -> None:
+def test_grouped_round_trips_through_xmodits(
+    tmp_path: Path, grouped_build: Callable[..., tuple[GroupedInstrumentPlan, ITModule]]
+) -> None:
     xmodits = pytest.importorskip("xmodits")
     _, module = grouped_build()
     it_path = tmp_path / "grouped.it"
@@ -234,7 +254,9 @@ def test_grouped_round_trips_through_xmodits(tmp_path: Path) -> None:
 
 
 @requires_openmpt
-def test_grouped_module_renders_through_openmpt(render_config) -> None:
+def test_grouped_module_renders_through_openmpt(
+    grouped_build: Callable[..., tuple[GroupedInstrumentPlan, ITModule]], render_config: RenderConfig
+) -> None:
     _, module = grouped_build()  # both keys share one repitched sample
     audio, rate = render_module(module, render_config)
     assert rate == 48_000
@@ -245,7 +267,6 @@ def test_grouped_module_renders_through_openmpt(render_config) -> None:
 # --- looping (P6) --------------------------------------------------------------------------------
 
 # 245 Hz has an exact 180-frame period at 44.1 kHz, so a whole-period loop plays it back in tune.
-LOOP_GRID = _grid(rates=(22_050,), depths=(16,), dither=False, loops=(True,))
 
 
 def tone(freq: float = 245.0, dur: float = 3.0) -> NDArray[np.float64]:
@@ -253,16 +274,29 @@ def tone(freq: float = 245.0, dur: float = 3.0) -> NDArray[np.float64]:
     return 0.7 * np.sin(2.0 * np.pi * freq * t) + 0.2 * np.sin(2.0 * np.pi * 2.0 * freq * t)
 
 
-def looped_build(hold_s: float = 3.0) -> tuple[InstrumentPlan, ITModule]:
-    audio = {(60, 100): tone(dur=3.0)}
-    samples = [SourceSample(file=Path("60.wav"), pitch=60, velocity=100)]
-    material = [NoteEvent(pitch=60, velocity=100, duration_s=hold_s, count=1)]
-    inst = InstrumentSpec(id="pad", budget_kb=64.0, samples=samples, material=material)
-    plan = optimize_instrument(inst, audio, SR, _settings(LOOP_GRID))
-    return plan, build_it_module(plan, audio, SR, material)
+@pytest.fixture
+def looped_build(
+    optimize_settings: Callable[..., OptimizeSettings],
+    sweep: Callable[..., SweepConfig],
+    export_ctx: ExportContext,
+) -> Callable[..., tuple[InstrumentPlan, ITModule]]:
+    """Optimize a periodic pad with looping forced on, so the stored sample is attack + a short loop."""
+
+    def _looped_build(hold_s: float = 3.0) -> tuple[InstrumentPlan, ITModule]:
+        audio = {(60, 100): tone(dur=3.0)}
+        samples = [SourceSample(file=Path("60.wav"), pitch=60, velocity=100)]
+        material = [NoteEvent(pitch=60, velocity=100, duration_s=hold_s, count=1)]
+        inst = InstrumentSpec(id="pad", budget_kb=64.0, samples=samples, material=material)
+        settings = optimize_settings(sweep=sweep(rates=(22_050,), depths=(16,), dither=False, loops=(True,)))
+        plan = optimize_instrument(inst, audio, SR, settings)
+        return plan, build_it_module(plan, audio, SR, material, export_ctx)
+
+    return _looped_build
 
 
-def test_looped_plan_carries_loop_points_into_the_module() -> None:
+def test_looped_plan_carries_loop_points_into_the_module(
+    looped_build: Callable[..., tuple[InstrumentPlan, ITModule]],
+) -> None:
     plan, module = looped_build()
     assert plan.pitches[0].chosen.params.loop is True
     begin, end = module.samples[0].loop  # type: ignore[misc]
@@ -271,7 +305,9 @@ def test_looped_plan_carries_loop_points_into_the_module() -> None:
 
 
 @requires_openmpt
-def test_looped_note_sustains_in_openmpt_past_the_stored_length(render_config) -> None:
+def test_looped_note_sustains_in_openmpt_past_the_stored_length(
+    looped_build: Callable[..., tuple[InstrumentPlan, ITModule]], render_config: RenderConfig
+) -> None:
     _, module = looped_build(hold_s=3.0)  # the stored sample is ~0.1 s; the note is held 3 s
     audio, rate = render_module(module, render_config)
     assert rate == 48_000

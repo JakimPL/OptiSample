@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from optisample.calibrate import (
+    CalibrationContext,
     NoteProbe,
     RendererAgreement,
     distortion_vs_source,
@@ -13,7 +14,6 @@ from optisample.calibrate import (
     renderer_agreement,
     single_note_module,
 )
-from optisample.config.render import RenderConfig
 from optisample.dsp.resample import resample_to
 from optisample.dsp.surrogate import MAX_VOLUME, EncodingParams, StoredSample, encode
 from optisample.io.render import openmpt123_available
@@ -21,7 +21,12 @@ from optisample.optimize.export import c5speed_for_pitch
 from optisample.synth import SAMPLE_RATE, NoteSpec, render_sample
 
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
-SETTINGS = RenderConfig(sample_rate=48_000, interpolation="sinc", gain_db=0.0)
+
+
+@pytest.fixture
+def calib_ctx(render_config, playback_config, composite) -> CalibrationContext:
+    """The calibration context (openmpt render settings + IT playback + composite) from the bundled config."""
+    return CalibrationContext(render=render_config, playback=playback_config, composite=composite)
 
 
 def _stored(root_pitch: int = 60, rate: int = 22_050, frames: int = 8_000) -> StoredSample:
@@ -41,9 +46,9 @@ def test_note_probe_defaults_to_full_volume() -> None:
     assert NoteProbe(pitch=60).volume == MAX_VOLUME
 
 
-def test_single_note_module_wires_one_sample_to_the_probed_key() -> None:
+def test_single_note_module_wires_one_sample_to_the_probed_key(playback) -> None:
     stored = _stored(root_pitch=48, rate=22_050)
-    module = single_note_module(stored, NoteProbe(pitch=60, volume=50, duration_s=0.5))
+    module = single_note_module(stored, NoteProbe(pitch=60, volume=50, duration_s=0.5), playback)
     assert len(module.samples) == 1
     assert module.samples[0].c5speed == c5speed_for_pitch(22_050, 48)  # root key plays natural
     assert module.instruments[0].note_map[60] == (60, 1)  # probed key -> (identity note, sample 1)
@@ -52,10 +57,10 @@ def test_single_note_module_wires_one_sample_to_the_probed_key() -> None:
     assert (cell.note, cell.instrument, cell.volume) == (60, 1, 50)
 
 
-def test_single_note_module_rows_cover_the_duration() -> None:
+def test_single_note_module_rows_cover_the_duration(playback) -> None:
     stored = _stored()
-    short = single_note_module(stored, NoteProbe(pitch=60, duration_s=0.5))
-    longer = single_note_module(stored, NoteProbe(pitch=60, duration_s=2.0))
+    short = single_note_module(stored, NoteProbe(pitch=60, duration_s=0.5), playback)
+    longer = single_note_module(stored, NoteProbe(pitch=60, duration_s=2.0), playback)
     assert longer.patterns[0].rows > short.patterns[0].rows
     assert short.patterns[0].rows == int(0.5 / (6 * 2.5 / 125)) + 2  # speed 6, tempo 125 -> 0.12 s/row
 
@@ -80,17 +85,17 @@ def test_rank_correlation_is_nan_with_fewer_than_two_points() -> None:
 
 
 @requires_openmpt
-def test_render_note_openmpt_matches_requested_duration(make_encode_ctx) -> None:
+def test_render_note_openmpt_matches_requested_duration(make_encode_ctx, render_config, playback) -> None:
     stored = encode(_recording("piano", 60, 1.5), SAMPLE_RATE, EncodingParams(44_100, 16), make_encode_ctx(60))
-    out = render_note_openmpt(stored, NoteProbe(pitch=60, duration_s=1.0), SETTINGS)
-    assert out.size == int(round(1.0 * SETTINGS.sample_rate))
+    out = render_note_openmpt(stored, NoteProbe(pitch=60, duration_s=1.0), render_config, playback)
+    assert out.size == int(round(1.0 * render_config.sample_rate))
 
 
 @requires_openmpt
 @pytest.mark.parametrize("archetype", ["sustained", "piano"])
-def test_surrogate_agrees_with_openmpt_at_root_pitch(archetype: str, make_encode_ctx) -> None:
+def test_surrogate_agrees_with_openmpt_at_root_pitch(archetype: str, make_encode_ctx, calib_ctx) -> None:
     stored = encode(_recording(archetype, 60, 2.0), SAMPLE_RATE, EncodingParams(44_100, 16), make_encode_ctx(60))
-    agree = renderer_agreement(stored, NoteProbe(pitch=60, duration_s=1.5), SETTINGS)
+    agree = renderer_agreement(stored, NoteProbe(pitch=60, duration_s=1.5), calib_ctx)
     assert isinstance(agree, RendererAgreement)
     assert agree.distance < 0.05  # observed ~0.001-0.002; the two engines are near-identical at root
     assert abs(agree.loudness_delta_lu) < 25.0  # a real (constant) level gap from IT gain staging exists
@@ -98,17 +103,17 @@ def test_surrogate_agrees_with_openmpt_at_root_pitch(archetype: str, make_encode
 
 
 @requires_openmpt
-def test_surrogate_agrees_with_openmpt_when_transposed(make_encode_ctx) -> None:
+def test_surrogate_agrees_with_openmpt_when_transposed(make_encode_ctx, calib_ctx) -> None:
     stored = encode(_recording("piano", 60, 2.0), SAMPLE_RATE, EncodingParams(44_100, 16), make_encode_ctx(60))
-    agree = renderer_agreement(stored, NoteProbe(pitch=67, duration_s=1.0), SETTINGS)  # +7 semitones
+    agree = renderer_agreement(stored, NoteProbe(pitch=67, duration_s=1.0), calib_ctx)  # +7 semitones
     assert agree.distance < 0.1  # observed ~0.013; larger than root (resampler differences) but small
 
 
 @requires_openmpt
 @pytest.mark.parametrize("archetype", ["sustained", "piano"])
-def test_surrogate_ranks_operating_points_like_openmpt(archetype: str, make_encode_ctx) -> None:
+def test_surrogate_ranks_operating_points_like_openmpt(archetype: str, make_encode_ctx, calib_ctx) -> None:
     recording = _recording(archetype, 60, 1.5)
-    reference = resample_to(recording, SAMPLE_RATE, SETTINGS.sample_rate)
+    reference = resample_to(recording, SAMPLE_RATE, calib_ctx.render.sample_rate)
     probe = NoteProbe(pitch=60, duration_s=1.0)
     # Operating points that are each meaningfully separated (distortions span ~0.002 -> ~3.0), so a
     # correct ranking is well-defined. We deliberately do not pit 44.1/16 against 22/16: both are
@@ -123,7 +128,7 @@ def test_surrogate_ranks_operating_points_like_openmpt(archetype: str, make_enco
     surrogate, openmpt = [], []
     for params in grid:
         stored = encode(recording, SAMPLE_RATE, params, make_encode_ctx(60, seed=0))
-        d_surrogate, d_openmpt = distortion_vs_source(reference, stored, probe, SETTINGS)
+        d_surrogate, d_openmpt = distortion_vs_source(reference, stored, probe, calib_ctx)
         surrogate.append(d_surrogate)
         openmpt.append(d_openmpt)
     # The headline calibration claim: the objective ranks encodings the way ground truth does.

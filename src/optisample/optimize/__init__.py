@@ -1,4 +1,4 @@
-from optisample.optimize.export import build_grouped_it_module, build_it_module, c5speed_for_pitch
+from optisample.optimize.export import ExportContext, build_grouped_it_module, build_it_module, c5speed_for_pitch
 from optisample.optimize.grouping import (
     GroupedInstrumentPlan,
     GroupingResult,
@@ -65,6 +65,7 @@ __all__ = [
     "rd_curve",
     "solve_exact",
     "solve_lagrangian",
+    "ExportContext",
     "build_it_module",
     "build_grouped_it_module",
     "c5speed_for_pitch",
