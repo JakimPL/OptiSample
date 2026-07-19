@@ -11,10 +11,6 @@ from typing import Literal
 
 from optisample.config.base import ConfigModel
 
-# PresetConfig intentionally mirrors the legacy synth._Preset dataclass during the config migration;
-# the duplication disappears once synth.py adopts these configs (plan phase 8).
-# pylint: disable=duplicate-code
-
 Archetype = Literal["sustained", "piano"]
 
 

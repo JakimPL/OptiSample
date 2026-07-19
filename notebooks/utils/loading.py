@@ -14,7 +14,7 @@ from numpy.typing import NDArray
 from optisample.io.audio import read_wav
 from optisample.io.manifest import load_manifest
 from optisample.model import InstrumentSpec, Manifest, SourceSample
-from optisample.synth import generate_demo
+from optisample.synth import default_synth_config, generate_demo
 
 Signal = NDArray[np.float64]
 
@@ -25,7 +25,8 @@ def ensure_demo_manifest(root: Path | str, *, seed: int = 0) -> Path:
     manifest_path = root / "manifest.yaml"
     if manifest_path.exists():
         return manifest_path
-    return generate_demo(root, seed=seed)
+    # transitional: phase 9 threads a SynthConfig from the notebook's config selection.
+    return generate_demo(root, default_synth_config(), seed=seed)
 
 
 def load(path: Path | str) -> Manifest:

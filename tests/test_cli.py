@@ -9,9 +9,9 @@ from optisample.cli import _dump_settings, build_parser, main
 from optisample.io.audio import write_wav
 from optisample.io.manifest import dump_manifest
 from optisample.model import InstrumentSpec, Manifest, NoteEvent, ProjectSpec, SourceSample
-from optisample.synth import SAMPLE_RATE, NoteSpec, render_sample
+from optisample.synth import NoteSpec, default_synth_config, render_sample
 
-SR = SAMPLE_RATE
+SR = 44_100
 PITCHES = (60, 62, 64)
 
 
@@ -20,7 +20,9 @@ def _tiny_manifest(tmp_path: Path) -> Path:
     samples = []
     for pitch in PITCHES:
         rel = Path(f"p{pitch}.wav")
-        signal = render_sample("piano", NoteSpec(pitch, 100, 0.0, 0.6, SR), np.random.default_rng(pitch))
+        signal = render_sample(
+            "piano", NoteSpec(pitch, 100, 0.0, 0.6, SR), np.random.default_rng(pitch), default_synth_config()
+        )
         write_wav(tmp_path / rel, signal, SR)
         samples.append(SourceSample(file=rel, pitch=pitch, velocity=100))
     material = [NoteEvent(pitch=pitch, velocity=100, duration_s=0.5, count=2) for pitch in PITCHES]

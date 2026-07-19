@@ -8,7 +8,7 @@ from optisample.artifacts import DumpSettings, dump_project
 from optisample.config.optimize import SweepConfig
 from optisample.io.manifest import load_manifest
 from optisample.optimize.orchestrate import default_optimize_settings
-from optisample.synth import SAMPLE_RATE, generate_demo
+from optisample.synth import default_synth_config, generate_demo
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -17,7 +17,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     synth = sub.add_parser("synth", help="Generate a synthetic demo dataset + manifest")
     synth.add_argument("outdir", type=Path, help="Directory to write samples and manifest.yaml into")
-    synth.add_argument("--sample-rate", type=int, default=SAMPLE_RATE, help="Render sample rate (Hz)")
+    # transitional: phase 9 sources the default rate from the --config directory the user tunes.
+    synth.add_argument(
+        "--sample-rate", type=int, default=default_synth_config().sample_rate, help="Render sample rate (Hz)"
+    )
     synth.add_argument("--seed", type=int, default=0, help="RNG seed for reproducible output")
 
     optimize = sub.add_parser("optimize", help="Optimize a manifest and dump inspectable artifacts")
@@ -67,7 +70,7 @@ def _run_optimize(args: argparse.Namespace) -> None:
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     if args.command == "synth":
-        manifest_path = generate_demo(args.outdir, sample_rate=args.sample_rate, seed=args.seed)
+        manifest_path = generate_demo(args.outdir, default_synth_config(), sample_rate=args.sample_rate, seed=args.seed)
         print(f"Wrote demo dataset and manifest to {manifest_path}")
     elif args.command == "optimize":
         _run_optimize(args)

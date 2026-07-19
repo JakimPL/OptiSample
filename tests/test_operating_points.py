@@ -19,14 +19,14 @@ from optisample.optimize import (
     rd_frontier,
     sample_operating_points,
 )
-from optisample.synth import NoteSpec, render_sample
+from optisample.synth import NoteSpec, default_synth_config, render_sample
 
 SR = 44_100
 
 
 def bright_piano(pitch: int = 84, velocity: int = 115, dur: float = 1.0) -> np.ndarray:
     spec = NoteSpec(pitch=pitch, velocity=velocity, controller=60.0, duration_s=dur, sample_rate=SR)
-    return render_sample("piano", spec, np.random.default_rng(1))
+    return render_sample("piano", spec, np.random.default_rng(1), default_synth_config())
 
 
 def point(stored_bytes: int, distortion: float) -> OperatingPoint:

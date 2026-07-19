@@ -18,7 +18,7 @@ from optisample.optimize.export import ExportContext, build_grouped_it_module, b
 from optisample.optimize.grouping import GroupedInstrumentPlan, Zone, ZoneOption, optimize_instrument_grouped
 from optisample.optimize.orchestrate import BudgetBreakdown, InstrumentPlan, OptimizeSettings, optimize_instrument
 from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
-from optisample.synth import NoteSpec, render_sample
+from optisample.synth import NoteSpec, default_synth_config, render_sample
 
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
 
@@ -29,7 +29,10 @@ VELOCITIES = (50, 100)
 
 def note(pitch: int, velocity: int, dur: float = 0.6) -> NDArray[np.float64]:
     return render_sample(
-        "piano", NoteSpec(pitch, velocity, 0.0, dur, SR), np.random.default_rng(pitch * 200 + velocity)
+        "piano",
+        NoteSpec(pitch, velocity, 0.0, dur, SR),
+        np.random.default_rng(pitch * 200 + velocity),
+        default_synth_config(),
     )
 
 

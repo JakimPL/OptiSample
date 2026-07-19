@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from optisample.cli import main
+from optisample.config.synth import SynthConfig
 from optisample.io.audio import read_wav
 from optisample.io.manifest import load_manifest
 from optisample.synth import Archetype, NoteSpec, generate_demo, midi_to_freq, render_sample
@@ -18,12 +19,12 @@ def test_midi_to_freq_a4() -> None:
     assert midi_to_freq(81) == pytest.approx(880.0)
 
 
-def test_generate_demo_writes_manifest_and_audio(tmp_path: Path) -> None:
-    manifest_path = generate_demo(tmp_path, sample_rate=QUICK_RATE)
+def test_generate_demo_writes_manifest_and_audio(synth_config: SynthConfig, tmp_path: Path) -> None:
+    manifest_path = generate_demo(tmp_path, synth_config, sample_rate=QUICK_RATE)
     assert manifest_path.exists()
 
     manifest = load_manifest(manifest_path)
-    assert {inst.id for inst in manifest.instruments} == {"strings", "piano"}
+    assert {inst.id for inst in manifest.instruments} == {preset.id for preset in synth_config.presets}
 
     for instrument in manifest.instruments:
         for sample in instrument.samples:
@@ -35,9 +36,9 @@ def test_generate_demo_writes_manifest_and_audio(tmp_path: Path) -> None:
             assert np.max(np.abs(data)) > 0.0  # not silent
 
 
-def test_generate_demo_is_deterministic(tmp_path: Path) -> None:
-    a = load_manifest(generate_demo(tmp_path / "a", sample_rate=QUICK_RATE, seed=7))
-    b = load_manifest(generate_demo(tmp_path / "b", sample_rate=QUICK_RATE, seed=7))
+def test_generate_demo_is_deterministic(synth_config: SynthConfig, tmp_path: Path) -> None:
+    a = load_manifest(generate_demo(tmp_path / "a", synth_config, sample_rate=QUICK_RATE, seed=7))
+    b = load_manifest(generate_demo(tmp_path / "b", synth_config, sample_rate=QUICK_RATE, seed=7))
     wave_a, _ = read_wav(a.instruments[0].samples[0].file)
     wave_b, _ = read_wav(b.instruments[0].samples[0].file)
     np.testing.assert_array_equal(wave_a, wave_b)
@@ -48,10 +49,10 @@ def _note(velocity: int) -> NoteSpec:
 
 
 @pytest.mark.parametrize("archetype", ["sustained", "piano"])
-def test_higher_velocity_is_louder(archetype: Archetype) -> None:
+def test_higher_velocity_is_louder(archetype: Archetype, synth_config: SynthConfig) -> None:
     rng = np.random.default_rng(0)
-    soft = render_sample(archetype, _note(40), rng)
-    loud = render_sample(archetype, _note(120), rng)
+    soft = render_sample(archetype, _note(40), rng, synth_config)
+    loud = render_sample(archetype, _note(120), rng, synth_config)
 
     def rms(x: np.ndarray) -> float:
         return float(np.sqrt(np.mean(x**2)))
@@ -60,10 +61,10 @@ def test_higher_velocity_is_louder(archetype: Archetype) -> None:
 
 
 @pytest.mark.parametrize("archetype", ["sustained", "piano"])
-def test_higher_velocity_is_brighter(archetype: Archetype) -> None:
+def test_higher_velocity_is_brighter(archetype: Archetype, synth_config: SynthConfig) -> None:
     rng = np.random.default_rng(0)
-    soft = render_sample(archetype, _note(40), rng)
-    loud = render_sample(archetype, _note(120), rng)
+    soft = render_sample(archetype, _note(40), rng, synth_config)
+    loud = render_sample(archetype, _note(120), rng, synth_config)
 
     def centroid(x: np.ndarray) -> float:
         mag = np.abs(np.fft.rfft(x))

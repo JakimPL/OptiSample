@@ -21,11 +21,11 @@ from optisample.io.audio import read_wav, write_wav
 from optisample.io.render import openmpt123_available
 from optisample.model import InstrumentSpec, Manifest, NoteEvent, ProjectSpec, SourceSample
 from optisample.optimize.orchestrate import OptimizeSettings, default_optimize_settings
-from optisample.synth import SAMPLE_RATE, NoteSpec, render_sample
+from optisample.synth import NoteSpec, default_synth_config, render_sample
 
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
 
-SR = SAMPLE_RATE
+SR = 44_100
 PITCHES = (60, 62, 64)
 
 # Phase 9 migrates these to config-fed fixtures; for now build a cheap swept grid from the bundled
@@ -43,7 +43,10 @@ NO_RENDER = DumpSettings(optimize=_settings(), render_ground_truth=False)
 
 def _note(pitch: int, velocity: int, dur: float) -> NDArray[np.float64]:
     return render_sample(
-        "piano", NoteSpec(pitch, velocity, 0.0, dur, SR), np.random.default_rng(pitch * 137 + velocity)
+        "piano",
+        NoteSpec(pitch, velocity, 0.0, dur, SR),
+        np.random.default_rng(pitch * 137 + velocity),
+        default_synth_config(),
     )
 
 

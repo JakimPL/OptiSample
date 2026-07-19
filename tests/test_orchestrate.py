@@ -25,7 +25,7 @@ from optisample.optimize.orchestrate import (
     run_instrument,
 )
 from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
-from optisample.synth import NoteSpec, render_sample
+from optisample.synth import NoteSpec, default_synth_config, render_sample
 
 SR = 44_100
 PITCHES = (60, 67)
@@ -34,7 +34,10 @@ VELOCITIES = (50, 100)
 
 def note(pitch: int, velocity: int, dur: float = 0.5) -> NDArray[np.float64]:
     return render_sample(
-        "piano", NoteSpec(pitch, velocity, 0.0, dur, SR), np.random.default_rng(pitch * 200 + velocity)
+        "piano",
+        NoteSpec(pitch, velocity, 0.0, dur, SR),
+        np.random.default_rng(pitch * 200 + velocity),
+        default_synth_config(),
     )
 
 

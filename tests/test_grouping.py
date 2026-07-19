@@ -29,9 +29,9 @@ from optisample.optimize.grouping import (
 from optisample.optimize.knapsack import BudgetInfeasibleError
 from optisample.optimize.orchestrate import OptimizeSettings, optimize_instrument, prepare_run
 from optisample.optimize.tasks import Event, PitchTask
-from optisample.synth import SAMPLE_RATE, NoteSpec, render_sample
+from optisample.synth import NoteSpec, default_synth_config, render_sample
 
-SR = SAMPLE_RATE
+SR = 44_100
 PITCHES = (60, 62, 64)
 
 # The module-scoped option-build fixtures below need config-derived settings at import/collection time,
@@ -65,7 +65,10 @@ GRID_TINY = _grid(rates=(11_025,), depths=(8,), dither=False)
 
 def _note(pitch: int, velocity: int, dur: float) -> NDArray[np.float64]:
     return render_sample(
-        "piano", NoteSpec(pitch, velocity, 0.0, dur, SR), np.random.default_rng(pitch * 137 + velocity)
+        "piano",
+        NoteSpec(pitch, velocity, 0.0, dur, SR),
+        np.random.default_rng(pitch * 137 + velocity),
+        default_synth_config(),
     )
 
 
@@ -255,7 +258,9 @@ def test_grouping_raises_when_even_one_merged_zone_overflows(audio: dict[tuple[i
 def test_grouping_handles_the_sustained_archetype() -> None:
     pitches = (60, 62, 64)
     audio = {
-        (pitch, 100): render_sample("sustained", NoteSpec(pitch, 100, 0.0, 0.6, SR), np.random.default_rng(pitch))
+        (pitch, 100): render_sample(
+            "sustained", NoteSpec(pitch, 100, 0.0, 0.6, SR), np.random.default_rng(pitch), default_synth_config()
+        )
         for pitch in pitches
     }
     samples = [SourceSample(file=Path(f"{pitch}.wav"), pitch=pitch, velocity=100) for pitch in pitches]
