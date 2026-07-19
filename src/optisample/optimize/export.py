@@ -32,7 +32,10 @@ from optisample.io.it_writer import (
 )
 from optisample.metrics.base import Signal
 from optisample.model import NoteEvent
-from optisample.optimize.orchestrate import AudioMap, InstrumentPlan
+from optisample.optimize.grouping import GroupedInstrumentPlan
+from optisample.optimize.orchestrate import InstrumentPlan
+from optisample.optimize.tasks import AudioMap
+from optisample.optimize.velocity_map import VelocityVolumeMap
 
 _C5_KEY = 60  # IT reference key C-5; a sample plays at C5Speed when triggered here.
 _MAX_IT_NOTE = 119  # IT keys span C-0..B-9.
@@ -76,7 +79,7 @@ def _build_samples(
 
 
 def _material_patterns(
-    material: Sequence[NoteEvent], plan: InstrumentPlan, playback: ITPlayback
+    material: Sequence[NoteEvent], velocity_map: VelocityVolumeMap, playback: ITPlayback
 ) -> tuple[tuple[ITPattern, ...], tuple[int, ...]]:
     """Lay the material events into one or more patterns, applying the velocity->volume map."""
     row_seconds = playback.speed * _TICKS_PER_ROW_BASE / playback.tempo
@@ -88,7 +91,7 @@ def _material_patterns(
         if cells and cursor + rows + 1 > _MAX_ROWS:
             patterns.append(ITPattern(rows=cursor, cells=tuple(cells)))
             cells, cursor = [], 0
-        volume = plan.velocity_map.volume(event.velocity)
+        volume = velocity_map.volume(event.velocity)
         cells.append((cursor, 0, ITCell(note=event.pitch, instrument=1, volume=volume)))
         cells.append((cursor + rows, 0, ITCell(note=NOTE_CUT)))
         cursor += rows + 1
@@ -103,7 +106,55 @@ def build_it_module(
     samples, assignment = _build_samples(plan, audio, sample_rate, seed)
     instrument = ITInstrument(name=plan.instrument_id[:25], note_map=identity_note_map(assignment))
     playback = ITPlayback()
-    patterns, orders = _material_patterns(material, plan, playback)
+    patterns, orders = _material_patterns(material, plan.velocity_map, playback)
+    return ITModule(
+        name=plan.instrument_id[:25],
+        samples=samples,
+        instruments=(instrument,),
+        patterns=patterns,
+        orders=orders,
+        playback=playback,
+    )
+
+
+def _build_zone_samples(
+    plan: GroupedInstrumentPlan, audio: AudioMap, sample_rate: int, seed: int
+) -> tuple[tuple[ITSample, ...], dict[int, int]]:
+    """Re-encode one representative per zone; map every key the zone covers to that shared sample.
+
+    A zone's sample is rooted at its representative pitch (``C5Speed`` tuned so the representative key
+    plays natural); the note map then sends each covered key to that same sample, and the tracker
+    repitches it by ``key - representative`` semitones -- exactly the transpose the surrogate scored.
+    """
+    rng = np.random.default_rng(seed)
+    samples: list[ITSample] = []
+    assignment: dict[int, int] = {}
+    for index, zone in enumerate(plan.zones):
+        representative: Signal = audio[(zone.representative, zone.representative_velocity)]
+        stored = encode(representative, sample_rate, zone.chosen.params, root_pitch=zone.representative, rng=rng)
+        samples.append(
+            ITSample(
+                name=f"{plan.instrument_id[:18]} {_note_name(zone.representative)}",
+                pcm=stored.pcm,
+                depth_bits=stored.depth_bits,
+                c5speed=c5speed_for_pitch(stored.sample_rate, zone.representative),
+            )
+        )
+        for pitch in zone.pitches:
+            if not 0 <= pitch <= _MAX_IT_NOTE:
+                raise ValueError(f"pitch {pitch} is outside the IT key range 0..{_MAX_IT_NOTE}")
+            assignment[pitch] = index + 1  # sample numbers are 1-based in the note map
+    return tuple(samples), assignment
+
+
+def build_grouped_it_module(
+    plan: GroupedInstrumentPlan, audio: AudioMap, sample_rate: int, material: Sequence[NoteEvent], seed: int = 0
+) -> ITModule:
+    """Assemble a complete :class:`ITModule` from a grouped plan (one sample per zone, repitched)."""
+    samples, assignment = _build_zone_samples(plan, audio, sample_rate, seed)
+    instrument = ITInstrument(name=plan.instrument_id[:25], note_map=identity_note_map(assignment))
+    playback = ITPlayback()
+    patterns, orders = _material_patterns(material, plan.velocity_map, playback)
     return ITModule(
         name=plan.instrument_id[:25],
         samples=samples,

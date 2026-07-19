@@ -7,12 +7,18 @@ import pytest
 import soundfile as sf
 from numpy.typing import NDArray
 
+from optisample.dsp.surrogate import EncodingParams
 from optisample.io.it_writer import NOTE_CUT, ITModule, write_it, write_it_module
+from optisample.io.render import openmpt123_available, render_module
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
-from optisample.optimize.export import build_it_module, c5speed_for_pitch
+from optisample.optimize.export import build_grouped_it_module, build_it_module, c5speed_for_pitch
+from optisample.optimize.grouping import GroupedInstrumentPlan, Zone, ZoneOption, optimize_instrument_grouped
 from optisample.optimize.operating_points import SweepGrid
-from optisample.optimize.orchestrate import InstrumentPlan, OptimizeSettings, optimize_instrument
+from optisample.optimize.orchestrate import BudgetBreakdown, InstrumentPlan, OptimizeSettings, optimize_instrument
+from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
 from optisample.synth import NoteSpec, render_sample
+
+requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
 
 SR = 44_100
 GRID = SweepGrid(rates=(44_100, 11_025), depths=(16, 8))
@@ -132,3 +138,83 @@ def test_written_file_round_trips_through_xmodits(tmp_path: Path) -> None:
         data, sample_rate = sf.read(str(path), dtype="float64", always_2d=False)
         assert np.asarray(data).size == sample.frames
         assert sample_rate == sample.c5speed  # xmodits tags the WAV with the sample's C5Speed
+
+
+# --- grouped export (one repitched sample per zone) ----------------------------------------------
+
+# A single cheap operating point and a tight budget, so the two keys are forced into one shared zone.
+GRID_G = SweepGrid(rates=(11_025,), depths=(8,), dither=False)
+
+
+def grouped_build(budget_kb: float = 8.0) -> tuple[GroupedInstrumentPlan, ITModule]:
+    audio = demo_audio()
+    plan = optimize_instrument_grouped(demo_instrument(budget_kb), audio, SR, OptimizeSettings(grid=GRID_G))
+    module = build_grouped_it_module(plan, audio, SR, demo_material())
+    return plan, module
+
+
+def test_grouped_module_shares_one_sample_across_a_merged_zone() -> None:
+    plan, module = grouped_build()
+    assert len(plan.zones) == 1  # the tight budget merged both keys into one zone
+    assert len(module.samples) == 1  # ... served by a single stored sample
+    note_map = module.instruments[0].note_map
+    for pitch in plan.zones[0].pitches:
+        assert note_map[pitch] == (pitch, 1)  # every covered key -> (its own note, the shared sample)
+
+
+def test_grouped_sample_c5speed_tracks_the_representative() -> None:
+    plan, module = grouped_build()
+    zone = plan.zones[0]
+    rate = zone.chosen.params.target_rate
+    assert module.samples[0].c5speed == round(rate * 2.0 ** ((60 - zone.representative) / 12.0))
+
+
+def test_grouped_sample_bytes_equal_the_budgeted_amount() -> None:
+    plan, module = grouped_build()
+    sample_bytes = sum(sample.frames * (sample.depth_bits // 8) + 80 for sample in module.samples)
+    assert sample_bytes == plan.used_bytes
+
+
+def test_grouped_build_is_deterministic() -> None:
+    _, module_a = grouped_build()
+    _, module_b = grouped_build()
+    assert write_it_module(module_a) == write_it_module(module_b)
+
+
+def test_grouped_pitch_out_of_it_range_raises() -> None:
+    option = ZoneOption(
+        representative=120, params=EncodingParams(11_025, 8, 0.2), stored_bytes=100, distortion=0.0, frames=20
+    )
+    zone = Zone(
+        pitches=(120,), representative=120, representative_velocity=100, weight=1.0, chosen=option, hull=(option,)
+    )
+    plan = GroupedInstrumentPlan(
+        instrument_id="x",
+        budget=BudgetBreakdown(module_bytes=64 * 1024, sample_bytes=64 * 1024 - 746),
+        velocity_map=VelocityVolumeMap(tuple(64 for _ in range(128)), (VelocityAnchor(100, -10.0, 64),)),
+        zones=(zone,),
+        total_bytes=100,
+        objective=0.0,
+    )
+    with pytest.raises(ValueError, match="outside the IT key range"):
+        build_grouped_it_module(plan, {(120, 100): note(60, 100)}, SR, [])
+
+
+def test_grouped_round_trips_through_xmodits(tmp_path: Path) -> None:
+    xmodits = pytest.importorskip("xmodits")
+    _, module = grouped_build()
+    it_path = tmp_path / "grouped.it"
+    write_it(it_path, module)
+    dest = tmp_path / "out"
+    dest.mkdir()
+    xmodits.dump(str(it_path), str(dest), format="wav")
+    assert len(sorted(dest.glob("*.wav"))) == len(module.samples)
+
+
+@requires_openmpt
+def test_grouped_module_renders_through_openmpt() -> None:
+    _, module = grouped_build()  # both keys share one repitched sample
+    audio, rate = render_module(module)
+    assert rate == 48_000
+    assert audio.ndim == 1 and audio.size > 0
+    assert float(np.max(np.abs(audio))) > 0.0  # the repitched zone actually sounds in the real engine

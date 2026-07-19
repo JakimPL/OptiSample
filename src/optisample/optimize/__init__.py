@@ -1,4 +1,16 @@
-from optisample.optimize.export import build_it_module, c5speed_for_pitch
+from optisample.optimize.export import build_grouped_it_module, build_it_module, c5speed_for_pitch
+from optisample.optimize.grouping import (
+    GroupedInstrumentPlan,
+    GroupingResult,
+    Zone,
+    ZoneOption,
+    build_zone_options,
+    format_grouping_report,
+    optimize_instrument_grouped,
+    run_instrument_grouped,
+    solve_grouping,
+    zone_hull,
+)
 from optisample.optimize.knapsack import (
     Allocation,
     BudgetInfeasibleError,
@@ -29,6 +41,14 @@ from optisample.optimize.orchestrate import (
     optimize_instrument,
     run_instrument,
 )
+from optisample.optimize.tasks import (
+    AudioMap,
+    EvalContext,
+    Event,
+    PitchTask,
+    build_tasks,
+    score_reconstruction,
+)
 from optisample.optimize.velocity_map import (
     VelocityAnchor,
     VelocityVolumeMap,
@@ -46,7 +66,18 @@ __all__ = [
     "solve_exact",
     "solve_lagrangian",
     "build_it_module",
+    "build_grouped_it_module",
     "c5speed_for_pitch",
+    "GroupedInstrumentPlan",
+    "GroupingResult",
+    "Zone",
+    "ZoneOption",
+    "build_zone_options",
+    "format_grouping_report",
+    "optimize_instrument_grouped",
+    "run_instrument_grouped",
+    "solve_grouping",
+    "zone_hull",
     "OperatingPoint",
     "SourceClip",
     "SweepGrid",
@@ -63,6 +94,12 @@ __all__ = [
     "load_instrument_audio",
     "optimize_instrument",
     "run_instrument",
+    "AudioMap",
+    "EvalContext",
+    "Event",
+    "PitchTask",
+    "build_tasks",
+    "score_reconstruction",
     "VelocityAnchor",
     "VelocityVolumeMap",
     "derive_velocity_map",

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Protocol, TypeVar
 
 import numpy as np
 
@@ -117,21 +118,38 @@ def sample_operating_points(
     return points
 
 
-def _slope(low: OperatingPoint, high: OperatingPoint) -> float:
+class RDPoint(Protocol):
+    """A byte-cost/distortion point -- what the rate-distortion hull needs (per-sample or per-zone)."""
+
+    @property
+    def stored_bytes(self) -> int: ...
+
+    @property
+    def distortion(self) -> float: ...
+
+
+_RDPointT = TypeVar("_RDPointT", bound=RDPoint)
+
+
+def _slope(low: RDPoint, high: RDPoint) -> float:
     """Distortion change per byte between two points (negative: more bytes buy less distortion)."""
     return (high.distortion - low.distortion) / (high.stored_bytes - low.stored_bytes)
 
 
-def lower_convex_hull(points: Sequence[OperatingPoint]) -> list[OperatingPoint]:
-    """Rate-distortion frontier: Pareto-optimal points on the lower convex hull, ordered by bytes."""
+def lower_convex_hull(points: Sequence[_RDPointT]) -> list[_RDPointT]:
+    """Rate-distortion frontier: Pareto-optimal points on the lower convex hull, ordered by bytes.
+
+    Generic over the point type so it serves both per-sample operating points and the per-zone
+    ``(representative, encoding)`` options of :mod:`optisample.optimize.grouping`.
+    """
     ordered = sorted(points, key=lambda point: (point.stored_bytes, point.distortion))
-    frontier: list[OperatingPoint] = []
+    frontier: list[_RDPointT] = []
     best = np.inf
     for point in ordered:
         if point.distortion < best - _HULL_EPS and (not frontier or point.stored_bytes > frontier[-1].stored_bytes):
             frontier.append(point)
             best = point.distortion
-    hull: list[OperatingPoint] = []
+    hull: list[_RDPointT] = []
     for point in frontier:
         while len(hull) >= 2 and _slope(hull[-2], hull[-1]) >= _slope(hull[-1], point) - _HULL_EPS:
             hull.pop()
