@@ -20,3 +20,6 @@ __pycache__/
 *.coverage.*
 
 notebooks/_demo/
+
+# Inspection artifacts dumped by `optisample optimize` (generated audio, IT modules, metrics).
+artifacts/
