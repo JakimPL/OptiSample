@@ -8,8 +8,11 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
+from optisample.config import load_config
+from optisample.config.optimize import SweepConfig
 from optisample.dsp.surrogate import EncodingParams
 from optisample.io.audio import write_wav
+from optisample.metrics.composite import build_composite
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.grouping import (
     GroupedInstrumentPlan,
@@ -24,19 +27,40 @@ from optisample.optimize.grouping import (
     zone_hull,
 )
 from optisample.optimize.knapsack import BudgetInfeasibleError
-from optisample.optimize.operating_points import SweepGrid
 from optisample.optimize.orchestrate import OptimizeSettings, optimize_instrument, prepare_run
 from optisample.optimize.tasks import Event, PitchTask
 from optisample.synth import SAMPLE_RATE, NoteSpec, render_sample
 
 SR = SAMPLE_RATE
 PITCHES = (60, 62, 64)
+
+# The module-scoped option-build fixtures below need config-derived settings at import/collection time,
+# so the swept grids are built once from the bundled config here (rather than via the function-scoped
+# conftest factories, which module-scoped fixtures cannot request).
+_CONFIG = load_config()
+_COMPOSITE = build_composite(_CONFIG.metrics)
+
+
+def _grid(**overrides: object) -> SweepConfig:
+    return SweepConfig.model_validate({**_CONFIG.sweep.model_dump(), **overrides})
+
+
+def _settings(sweep: SweepConfig) -> OptimizeSettings:
+    return OptimizeSettings(
+        sweep=sweep,
+        encode=_CONFIG.encode,
+        composite=_COMPOSITE,
+        velocity=_CONFIG.velocity,
+        method=_CONFIG.optimize.method,
+    )
+
+
 # No dither, so a singleton zone encodes bit-identically to the ungrouped per-pitch sample -- that is
 # what makes "grouping is never worse than ungrouped" an exact (not approximate) invariant to assert.
-GRID = SweepGrid(rates=(44_100, 11_025), depths=(16, 8), dither=False)
+GRID = _grid(rates=(44_100, 11_025), depths=(16, 8), dither=False)
 # A single cheap operating point: the composite eval dominates test time, so feasibility/merging tests
 # (which do not care about the exact objective) use this to keep the option-building cheap.
-GRID_TINY = SweepGrid(rates=(11_025,), depths=(8,), dither=False)
+GRID_TINY = _grid(rates=(11_025,), depths=(8,), dither=False)
 
 
 def _note(pitch: int, velocity: int, dur: float) -> NDArray[np.float64]:
@@ -71,13 +95,13 @@ def audio() -> dict[tuple[int, int], NDArray[np.float64]]:
 def options48(
     audio: dict[tuple[int, int], NDArray[np.float64]],
 ) -> tuple[list[PitchTask], dict[tuple[int, int], tuple[ZoneOption, ...]]]:
-    _, ctx, tasks = prepare_run(_instrument(48.0), audio, SR, OptimizeSettings(grid=GRID))
+    _, ctx, tasks = prepare_run(_instrument(48.0), audio, SR, _settings(GRID))
     return tasks, build_zone_options(tasks, ctx)
 
 
 @pytest.fixture(scope="module")
 def plan48(audio: dict[tuple[int, int], NDArray[np.float64]]) -> GroupedInstrumentPlan:
-    return optimize_instrument_grouped(_instrument(48.0), audio, SR, OptimizeSettings(grid=GRID))
+    return optimize_instrument_grouped(_instrument(48.0), audio, SR, _settings(GRID))
 
 
 # --- exact DP, checked against brute force (no audio; fabricated options) -------------------------
@@ -188,7 +212,7 @@ def test_zone_hull_is_a_monotone_frontier(
 def test_grouping_is_never_worse_than_ungrouped_at_a_feasible_budget(
     audio: dict[tuple[int, int], NDArray[np.float64]], plan48: GroupedInstrumentPlan
 ) -> None:
-    ungrouped = optimize_instrument(_instrument(48.0), audio, SR, OptimizeSettings(grid=GRID))
+    ungrouped = optimize_instrument(_instrument(48.0), audio, SR, _settings(GRID))
     assert plan48.objective <= ungrouped.objective + 1e-9  # singletons are always in the search space
     assert plan48.used_bytes <= plan48.sample_budget_bytes
 
@@ -213,7 +237,7 @@ def test_report_has_the_expected_sections(plan48: GroupedInstrumentPlan) -> None
 
 
 def test_grouping_is_feasible_where_ungrouped_is_not(audio: dict[tuple[int, int], NDArray[np.float64]]) -> None:
-    settings = OptimizeSettings(grid=GRID_TINY)
+    settings = _settings(GRID_TINY)
     inst = _instrument(10.0)  # room for one shared sample, not for three separate ones
     with pytest.raises(BudgetInfeasibleError):
         optimize_instrument(inst, audio, SR, settings)
@@ -225,7 +249,7 @@ def test_grouping_is_feasible_where_ungrouped_is_not(audio: dict[tuple[int, int]
 
 def test_grouping_raises_when_even_one_merged_zone_overflows(audio: dict[tuple[int, int], NDArray[np.float64]]) -> None:
     with pytest.raises(BudgetInfeasibleError):
-        optimize_instrument_grouped(_instrument(1.0), audio, SR, OptimizeSettings(grid=GRID_TINY))
+        optimize_instrument_grouped(_instrument(1.0), audio, SR, _settings(GRID_TINY))
 
 
 def test_grouping_handles_the_sustained_archetype() -> None:
@@ -237,7 +261,7 @@ def test_grouping_handles_the_sustained_archetype() -> None:
     samples = [SourceSample(file=Path(f"{pitch}.wav"), pitch=pitch, velocity=100) for pitch in pitches]
     material = [NoteEvent(pitch=pitch, velocity=100, duration_s=0.5, count=3) for pitch in pitches]
     inst = InstrumentSpec(id="strings", budget_kb=10.0, samples=samples, material=material)
-    grouped = optimize_instrument_grouped(inst, audio, SR, OptimizeSettings(grid=GRID_TINY))
+    grouped = optimize_instrument_grouped(inst, audio, SR, _settings(GRID_TINY))
     assert set(grouped.pitches) == set(pitches)  # the pad archetype groups the same way the piano does
     assert len(grouped.zones) < len(pitches)  # tight budget forces at least one merge
     assert grouped.used_bytes <= grouped.sample_budget_bytes
@@ -250,6 +274,6 @@ def test_run_instrument_grouped_reads_wavs_from_disk(tmp_path: Path) -> None:
         write_wav(path, _note(pitch, 100, 0.6), SR)
         samples.append(SourceSample(file=path, pitch=pitch, velocity=100))
     inst = InstrumentSpec(id="piano", budget_kb=48.0, samples=samples, material=_material())
-    grouped = run_instrument_grouped(inst, OptimizeSettings(grid=GRID_TINY))
+    grouped = run_instrument_grouped(inst, _settings(GRID_TINY))
     assert set(grouped.pitches) == set(PITCHES)
     assert grouped.used_bytes <= grouped.sample_budget_bytes

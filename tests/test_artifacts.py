@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -14,20 +15,30 @@ from optisample.artifacts import (
     dump_instrument,
     dump_project,
 )
+from optisample.config import load_config
+from optisample.config.optimize import SweepConfig
 from optisample.io.audio import read_wav, write_wav
 from optisample.io.render import openmpt123_available
 from optisample.model import InstrumentSpec, Manifest, NoteEvent, ProjectSpec, SourceSample
-from optisample.optimize.operating_points import SweepGrid
-from optisample.optimize.orchestrate import OptimizeSettings
+from optisample.optimize.orchestrate import OptimizeSettings, default_optimize_settings
 from optisample.synth import SAMPLE_RATE, NoteSpec, render_sample
 
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
 
 SR = SAMPLE_RATE
 PITCHES = (60, 62, 64)
-# One cheap operating point, dither off: the dump re-encode is deterministic and fast.
-GRID = SweepGrid(rates=(11_025,), depths=(8,), dither=False)
-NO_RENDER = DumpSettings(optimize=OptimizeSettings(grid=GRID), render_ground_truth=False)
+
+# Phase 9 migrates these to config-fed fixtures; for now build a cheap swept grid from the bundled
+# config (dither off: the dump re-encode is deterministic and fast) under "no config defaults".
+_BASE_SWEEP = load_config().sweep
+
+
+def _settings() -> OptimizeSettings:
+    grid = SweepConfig.model_validate({**_BASE_SWEEP.model_dump(), "rates": (11_025,), "depths": (8,), "dither": False})
+    return replace(default_optimize_settings(), sweep=grid)
+
+
+NO_RENDER = DumpSettings(optimize=_settings(), render_ground_truth=False)
 
 
 def _note(pitch: int, velocity: int, dur: float) -> NDArray[np.float64]:
@@ -137,7 +148,7 @@ def test_ground_truth_render_produces_real_audio(tmp_path: Path) -> None:
         _audio((60, 62)),
         SR,
         out,
-        DumpSettings(optimize=OptimizeSettings(grid=GRID)),  # render_ground_truth defaults True
+        DumpSettings(optimize=_settings()),  # render_ground_truth defaults True
     )
     assert all(plan.rendered for plan in result.plans if plan.feasible)
     module_wav = out / "grouped" / "render" / "module.wav"
@@ -174,7 +185,7 @@ def test_impossible_budget_marks_both_infeasible(tmp_path: Path) -> None:
 
 def test_strategy_flags_restrict_which_plans_run(tmp_path: Path) -> None:
     out = tmp_path / "grouped-only"
-    settings = DumpSettings(optimize=OptimizeSettings(grid=GRID), render_ground_truth=False, ungrouped=False)
+    settings = DumpSettings(optimize=_settings(), render_ground_truth=False, ungrouped=False)
     result = dump_instrument(_instrument(48.0), _audio(), SR, out, settings)
     assert [plan.name for plan in result.plans] == ["grouped"]
     assert not (out / "ungrouped").exists()

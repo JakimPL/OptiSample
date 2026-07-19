@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from pathlib import Path
 
 from optisample.artifacts import DumpSettings, dump_project
+from optisample.config.optimize import SweepConfig
 from optisample.io.manifest import load_manifest
-from optisample.optimize.operating_points import SweepGrid
-from optisample.optimize.orchestrate import OptimizeSettings
+from optisample.optimize.orchestrate import default_optimize_settings
 from optisample.synth import SAMPLE_RATE, generate_demo
 
 
@@ -32,14 +33,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _dump_settings(args: argparse.Namespace) -> DumpSettings:
-    base = SweepGrid()
-    grid = SweepGrid(
-        rates=tuple(args.rates) if args.rates else base.rates,
-        depths=tuple(args.depths) if args.depths else base.depths,
-        loops=(False,) if args.no_loop else base.loops,
+    # transitional: phase 9 replaces the bundled default with a --config directory the user tunes.
+    base = default_optimize_settings()
+    grid = SweepConfig.model_validate(
+        {
+            **base.sweep.model_dump(),
+            "rates": tuple(args.rates) if args.rates else base.sweep.rates,
+            "depths": tuple(args.depths) if args.depths else base.sweep.depths,
+            "loops": (False,) if args.no_loop else base.sweep.loops,
+        }
     )
     return DumpSettings(
-        optimize=OptimizeSettings(grid=grid, seed=args.seed),
+        optimize=replace(base, sweep=grid, seed=args.seed),
         render_ground_truth=not args.no_render,
         grouped=args.strategy in ("both", "grouped"),
         ungrouped=args.strategy in ("both", "ungrouped"),

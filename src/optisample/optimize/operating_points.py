@@ -20,12 +20,11 @@ from typing import Protocol, TypeVar
 
 import numpy as np
 
-from optisample.dsp.surrogate import EncodeContext, EncodingParams, Signal, default_encode_config, encode, render
-from optisample.metrics.composite import CompositeFidelity, default_composite, evaluate
+from optisample.config.dsp import EncodeConfig
+from optisample.config.optimize import SweepConfig
+from optisample.dsp.surrogate import EncodeContext, EncodingParams, Signal, encode, render
+from optisample.metrics.composite import CompositeFidelity, evaluate
 
-DEFAULT_RATE_DIVISORS = (1, 2, 3, 4, 6, 8)
-DEFAULT_DEPTHS = (16, 8)
-DEFAULT_MIN_RATE = 4_000
 _HULL_EPS = 1e-12
 
 
@@ -37,21 +36,6 @@ class SourceClip:
     sample_rate: int
     root_pitch: int
     duration_s: float | None = None
-
-
-@dataclass(frozen=True)
-class SweepGrid:
-    """The encoding axes to sweep for one clip (rates default to fractions of the source rate)."""
-
-    rates: tuple[int, ...] | None = None
-    depths: tuple[int, ...] = DEFAULT_DEPTHS
-    dither: bool = True
-    noise_shaping: bool = False
-    # Loop by default: for sustained material this is the compact, natural storage (attack + looped
-    # sustain), and it is the single biggest byte saving. Non-periodic/decaying material declines to
-    # loop and falls back to a trim automatically, so ``(True,)`` is safe as the sole default. Pass
-    # ``(False, True)`` to let the allocator also weigh full-length storage where it fits.
-    loops: tuple[bool, ...] = (True,)
 
 
 @dataclass(frozen=True)
@@ -68,12 +52,17 @@ class OperatingPoint:
         return self.stored_bytes / 1024.0
 
 
-def default_rates(
-    sample_rate: int, divisors: Sequence[int] = DEFAULT_RATE_DIVISORS, min_rate: int = DEFAULT_MIN_RATE
-) -> list[int]:
+def default_rates(sample_rate: int, divisors: Sequence[int], min_rate: int) -> list[int]:
     """Candidate stored rates: ``sample_rate`` divided by ``divisors``, floored at ``min_rate``, deduped."""
     rates = {min(sample_rate, max(min_rate, int(round(sample_rate / divisor)))) for divisor in divisors}
     return sorted(rates, reverse=True)
+
+
+def sweep_rates(sweep: SweepConfig, sample_rate: int) -> list[int]:
+    """Stored rates to try: the explicit ``sweep.rates`` override, else derived from ``sample_rate``."""
+    if sweep.rates is not None:
+        return list(sweep.rates)
+    return default_rates(sample_rate, sweep.rate_divisors, sweep.min_rate)
 
 
 def _reference(clip: SourceClip) -> Signal:
@@ -86,13 +75,12 @@ def evaluate_encoding(
     clip: SourceClip,
     params: EncodingParams,
     *,
-    composite: CompositeFidelity | None = None,
+    composite: CompositeFidelity,
+    encode_config: EncodeConfig,
     rng: np.random.Generator | None = None,
 ) -> OperatingPoint:
     """Encode ``clip`` with ``params``, render it back at its own pitch, and score the encoding loss."""
-    composite = composite if composite is not None else default_composite()
-    # transitional: EncodeConfig is threaded through the sweep in phase 6.
-    encode_ctx = EncodeContext(root_pitch=clip.root_pitch, config=default_encode_config(), rng=rng)
+    encode_ctx = EncodeContext(root_pitch=clip.root_pitch, config=encode_config, rng=rng)
     stored = encode(clip.signal, clip.sample_rate, params, encode_ctx)
     candidate = render(stored, clip.sample_rate, pitch=clip.root_pitch, duration_s=clip.duration_s)
     report = evaluate(_reference(clip), candidate, clip.sample_rate, composite)
@@ -103,27 +91,29 @@ def evaluate_encoding(
 
 def sample_operating_points(
     clip: SourceClip,
-    grid: SweepGrid = SweepGrid(),
+    sweep: SweepConfig,
     *,
-    composite: CompositeFidelity | None = None,
+    composite: CompositeFidelity,
+    encode_config: EncodeConfig,
     rng: np.random.Generator | None = None,
 ) -> list[OperatingPoint]:
-    """Evaluate every ``(rate, depth)`` in ``grid`` for ``clip`` (trimmed to its material duration)."""
-    composite = composite if composite is not None else default_composite()
-    rates = grid.rates if grid.rates is not None else default_rates(clip.sample_rate)
+    """Evaluate every ``(rate, depth)`` in ``sweep`` for ``clip`` (trimmed to its material duration)."""
+    rates = sweep_rates(sweep, clip.sample_rate)
     points: list[OperatingPoint] = []
-    for loop in grid.loops:
-        for depth in grid.depths:
+    for loop in sweep.loops:
+        for depth in sweep.depths:
             for rate in rates:
                 params = EncodingParams(
                     target_rate=rate,
                     depth_bits=depth,
                     trim_s=clip.duration_s,
-                    dither=grid.dither,
-                    noise_shaping=grid.noise_shaping,
+                    dither=sweep.dither,
+                    noise_shaping=sweep.noise_shaping,
                     loop=loop,
                 )
-                points.append(evaluate_encoding(clip, params, composite=composite, rng=rng))
+                points.append(
+                    evaluate_encoding(clip, params, composite=composite, encode_config=encode_config, rng=rng)
+                )
     return points
 
 
@@ -168,10 +158,12 @@ def lower_convex_hull(points: Sequence[_RDPointT]) -> list[_RDPointT]:
 
 def rd_frontier(
     clip: SourceClip,
-    grid: SweepGrid = SweepGrid(),
+    sweep: SweepConfig,
     *,
-    composite: CompositeFidelity | None = None,
+    composite: CompositeFidelity,
+    encode_config: EncodeConfig,
     rng: np.random.Generator | None = None,
 ) -> list[OperatingPoint]:
-    """Convenience: sweep ``clip`` over ``grid`` and return only the rate-distortion hull."""
-    return lower_convex_hull(sample_operating_points(clip, grid, composite=composite, rng=rng))
+    """Convenience: sweep ``clip`` over ``sweep`` and return only the rate-distortion hull."""
+    points = sample_operating_points(clip, sweep, composite=composite, encode_config=encode_config, rng=rng)
+    return lower_convex_hull(points)

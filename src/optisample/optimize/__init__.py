@@ -24,12 +24,12 @@ from optisample.optimize.knapsack import (
 from optisample.optimize.operating_points import (
     OperatingPoint,
     SourceClip,
-    SweepGrid,
     default_rates,
     evaluate_encoding,
     lower_convex_hull,
     rd_frontier,
     sample_operating_points,
+    sweep_rates,
 )
 from optisample.optimize.orchestrate import (
     BudgetBreakdown,
@@ -80,12 +80,12 @@ __all__ = [
     "zone_hull",
     "OperatingPoint",
     "SourceClip",
-    "SweepGrid",
     "default_rates",
     "evaluate_encoding",
     "lower_convex_hull",
     "rd_frontier",
     "sample_operating_points",
+    "sweep_rates",
     "BudgetBreakdown",
     "InstrumentPlan",
     "OptimizeSettings",

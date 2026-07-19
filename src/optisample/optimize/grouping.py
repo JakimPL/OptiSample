@@ -31,11 +31,11 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
-from optisample.dsp.surrogate import EncodeContext, EncodingParams, default_encode_config, encode, semitone_ratio
+from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode, semitone_ratio
 from optisample.metrics.size import FILE_HEADER_BYTES, INSTRUMENT_HEADER_BYTES, bytes_to_kib, kib_to_bytes
 from optisample.model import InstrumentSpec
 from optisample.optimize.knapsack import BudgetInfeasibleError
-from optisample.optimize.operating_points import default_rates, lower_convex_hull
+from optisample.optimize.operating_points import lower_convex_hull, sweep_rates
 from optisample.optimize.orchestrate import (
     BudgetBreakdown,
     OptimizeSettings,
@@ -138,17 +138,16 @@ def _zone_trim(range_tasks: Sequence[PitchTask], representative: int) -> float:
 
 def _zone_options(range_tasks: Sequence[PitchTask], ctx: EvalContext) -> list[ZoneOption]:
     """Every ``(representative, encoding)`` for one candidate zone, with its cost and total distortion."""
-    rates = ctx.grid.rates if ctx.grid.rates is not None else default_rates(ctx.sample_rate)
+    rates = sweep_rates(ctx.sweep, ctx.sample_rate)
     options: list[ZoneOption] = []
     for rep_task in range_tasks:  # k-medoids candidates: each covered key's own recording
         representative = rep_task.pitch
         trim_s = _zone_trim(range_tasks, representative)
-        for loop in ctx.grid.loops:
-            for depth in ctx.grid.depths:
+        for loop in ctx.sweep.loops:
+            for depth in ctx.sweep.depths:
                 for rate in rates:
-                    params = EncodingParams(rate, depth, trim_s, ctx.grid.dither, ctx.grid.noise_shaping, loop)
-                    # transitional: EncodeConfig is threaded through EvalContext in phase 6.
-                    encode_ctx = EncodeContext(root_pitch=representative, config=default_encode_config(), rng=ctx.rng)
+                    params = EncodingParams(rate, depth, trim_s, ctx.sweep.dither, ctx.sweep.noise_shaping, loop)
+                    encode_ctx = EncodeContext(root_pitch=representative, config=ctx.encode, rng=ctx.rng)
                     stored = encode(rep_task.representative, ctx.sample_rate, params, encode_ctx)
                     distortion = sum(task.weight * score_reconstruction(stored, task, ctx) for task in range_tasks)
                     options.append(ZoneOption(representative, params, stored.stored_bytes, distortion, stored.frames))
@@ -268,7 +267,7 @@ def solve_grouping(tasks: Sequence[PitchTask], options: _ZoneOptions, budget_byt
 
 
 def optimize_instrument_grouped(
-    instrument: InstrumentSpec, audio: AudioMap, sample_rate: int, settings: OptimizeSettings = OptimizeSettings()
+    instrument: InstrumentSpec, audio: AudioMap, sample_rate: int, settings: OptimizeSettings
 ) -> GroupedInstrumentPlan:
     """Optimize one instrument with pitch-zone grouping and return a structured plan.
 
@@ -293,9 +292,7 @@ def optimize_instrument_grouped(
     )
 
 
-def run_instrument_grouped(
-    instrument: InstrumentSpec, settings: OptimizeSettings = OptimizeSettings()
-) -> GroupedInstrumentPlan:
+def run_instrument_grouped(instrument: InstrumentSpec, settings: OptimizeSettings) -> GroupedInstrumentPlan:
     """Load an instrument's recordings from disk and optimize it with grouping."""
     audio, sample_rate = load_instrument_audio(instrument)
     return optimize_instrument_grouped(instrument, audio, sample_rate, settings)

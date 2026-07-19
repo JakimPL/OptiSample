@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -7,23 +8,44 @@ import pytest
 import soundfile as sf
 from numpy.typing import NDArray
 
+from optisample.config import load_config
+from optisample.config.optimize import SweepConfig
 from optisample.dsp.surrogate import EncodingParams
 from optisample.io.it_writer import NOTE_CUT, ITModule, write_it, write_it_module
 from optisample.io.render import openmpt123_available, render_module
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.export import build_grouped_it_module, build_it_module, c5speed_for_pitch
 from optisample.optimize.grouping import GroupedInstrumentPlan, Zone, ZoneOption, optimize_instrument_grouped
-from optisample.optimize.operating_points import SweepGrid
-from optisample.optimize.orchestrate import BudgetBreakdown, InstrumentPlan, OptimizeSettings, optimize_instrument
+from optisample.optimize.orchestrate import (
+    BudgetBreakdown,
+    InstrumentPlan,
+    OptimizeSettings,
+    default_optimize_settings,
+    optimize_instrument,
+)
 from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
 from optisample.synth import NoteSpec, render_sample
 
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
 
 SR = 44_100
-GRID = SweepGrid(rates=(44_100, 11_025), depths=(16, 8))
 PITCHES = (60, 67)
 VELOCITIES = (50, 100)
+
+# Phase 7 migrates these to the conftest fixtures; for now build the swept grids from the bundled
+# config so the export tests keep passing under "no config defaults in Python".
+_BASE_SWEEP = load_config().sweep
+
+
+def _grid(**overrides: object) -> SweepConfig:
+    return SweepConfig.model_validate({**_BASE_SWEEP.model_dump(), **overrides})
+
+
+def _settings(sweep: SweepConfig) -> OptimizeSettings:
+    return replace(default_optimize_settings(), sweep=sweep)
+
+
+GRID = _grid(rates=(44_100, 11_025), depths=(16, 8))
 
 
 def note(pitch: int, velocity: int, dur: float = 0.6) -> NDArray[np.float64]:
@@ -51,7 +73,7 @@ def demo_instrument(budget_kb: float = 64.0) -> InstrumentSpec:
 
 def build(material: list[NoteEvent] | None = None) -> tuple[InstrumentPlan, ITModule]:
     audio = demo_audio()
-    plan = optimize_instrument(demo_instrument(), audio, SR, OptimizeSettings(grid=GRID))
+    plan = optimize_instrument(demo_instrument(), audio, SR, _settings(GRID))
     module = build_it_module(plan, audio, SR, material if material is not None else demo_material())
     return plan, module
 
@@ -119,7 +141,7 @@ def test_pitch_out_of_it_range_raises() -> None:
         samples=[SourceSample(file=Path("p.wav"), pitch=120, velocity=100)],
         material=[NoteEvent(pitch=120, velocity=100, duration_s=0.4)],
     )
-    plan = optimize_instrument(inst, audio, SR, OptimizeSettings(grid=GRID))
+    plan = optimize_instrument(inst, audio, SR, _settings(GRID))
     with pytest.raises(ValueError, match="outside the IT key range"):
         build_it_module(plan, audio, SR, inst.material or [])
 
@@ -143,12 +165,12 @@ def test_written_file_round_trips_through_xmodits(tmp_path: Path) -> None:
 # --- grouped export (one repitched sample per zone) ----------------------------------------------
 
 # A single cheap operating point and a tight budget, so the two keys are forced into one shared zone.
-GRID_G = SweepGrid(rates=(11_025,), depths=(8,), dither=False)
+GRID_G = _grid(rates=(11_025,), depths=(8,), dither=False)
 
 
 def grouped_build(budget_kb: float = 8.0) -> tuple[GroupedInstrumentPlan, ITModule]:
     audio = demo_audio()
-    plan = optimize_instrument_grouped(demo_instrument(budget_kb), audio, SR, OptimizeSettings(grid=GRID_G))
+    plan = optimize_instrument_grouped(demo_instrument(budget_kb), audio, SR, _settings(GRID_G))
     module = build_grouped_it_module(plan, audio, SR, demo_material())
     return plan, module
 
@@ -223,7 +245,7 @@ def test_grouped_module_renders_through_openmpt(render_config) -> None:
 # --- looping (P6) --------------------------------------------------------------------------------
 
 # 245 Hz has an exact 180-frame period at 44.1 kHz, so a whole-period loop plays it back in tune.
-LOOP_GRID = SweepGrid(rates=(22_050,), depths=(16,), dither=False, loops=(True,))
+LOOP_GRID = _grid(rates=(22_050,), depths=(16,), dither=False, loops=(True,))
 
 
 def tone(freq: float = 245.0, dur: float = 3.0) -> NDArray[np.float64]:
@@ -236,7 +258,7 @@ def looped_build(hold_s: float = 3.0) -> tuple[InstrumentPlan, ITModule]:
     samples = [SourceSample(file=Path("60.wav"), pitch=60, velocity=100)]
     material = [NoteEvent(pitch=60, velocity=100, duration_s=hold_s, count=1)]
     inst = InstrumentSpec(id="pad", budget_kb=64.0, samples=samples, material=material)
-    plan = optimize_instrument(inst, audio, SR, OptimizeSettings(grid=LOOP_GRID))
+    plan = optimize_instrument(inst, audio, SR, _settings(LOOP_GRID))
     return plan, build_it_module(plan, audio, SR, material)
 
 

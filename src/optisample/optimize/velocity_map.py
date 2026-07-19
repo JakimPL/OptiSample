@@ -17,11 +17,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from optisample.config.optimize import VelocityConfig
 from optisample.dsp.surrogate import MAX_VOLUME
 from optisample.metrics.base import Signal
 from optisample.metrics.preprocess import integrated_loudness
 
-_LOUDNESS_FLOOR_LU = 120.0  # clamp measured loudness to ref - 120 LU before interpolation
 _MIDI_VELOCITIES = 128
 
 
@@ -66,7 +66,9 @@ def _silent_map(anchors: Sequence[tuple[int, float]]) -> VelocityVolumeMap:
     return VelocityVolumeMap(volumes, tuple(VelocityAnchor(int(v), float(loud), 0) for v, loud in anchors))
 
 
-def derive_velocity_map(loudness: Mapping[int, float], *, max_volume: int = MAX_VOLUME) -> VelocityVolumeMap:
+def derive_velocity_map(
+    loudness: Mapping[int, float], config: VelocityConfig, *, max_volume: int = MAX_VOLUME
+) -> VelocityVolumeMap:
     """Build a loudness-matched velocity->volume map from per-velocity loudness measurements."""
     if not loudness:
         raise ValueError("need at least one velocity measurement")
@@ -77,7 +79,7 @@ def derive_velocity_map(loudness: Mapping[int, float], *, max_volume: int = MAX_
         return _silent_map(anchors_in)
 
     reference = float(np.max(measured[np.isfinite(measured)]))
-    clamped = np.maximum(measured, reference - _LOUDNESS_FLOOR_LU)  # -inf (silence) -> the floor
+    clamped = np.maximum(measured, reference - config.loudness_floor_lu)  # -inf (silence) -> the floor
     grid = np.arange(_MIDI_VELOCITIES, dtype=np.float64)
     interpolated = np.interp(grid, velocities, clamped)  # flat extrapolation beyond the anchors
     gains = 10.0 ** ((interpolated - reference) / 20.0)

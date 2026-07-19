@@ -1,17 +1,19 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
 import pytest
 from numpy.typing import NDArray
 
+from optisample.config.optimize import SweepConfig
 from optisample.dsp.surrogate import EncodingParams
 from optisample.io.audio import write_wav
 from optisample.metrics.size import bytes_to_kib
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.knapsack import Allocation, BudgetInfeasibleError, RDCurvePoint, Selection
-from optisample.optimize.operating_points import OperatingPoint, SweepGrid
+from optisample.optimize.operating_points import OperatingPoint
 from optisample.optimize.orchestrate import (
     BudgetBreakdown,
     InstrumentPlan,
@@ -26,7 +28,6 @@ from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
 from optisample.synth import NoteSpec, render_sample
 
 SR = 44_100
-GRID = SweepGrid(rates=(44_100, 11_025), depths=(16, 8))
 PITCHES = (60, 67)
 VELOCITIES = (50, 100)
 
@@ -54,12 +55,24 @@ def instrument(budget_kb: float) -> InstrumentSpec:
     return InstrumentSpec(id="piano", budget_kb=budget_kb, samples=samples, material=demo_material())
 
 
-def optimize(budget_kb: float, method: str = "exact") -> InstrumentPlan:
-    settings = OptimizeSettings(grid=GRID, method=method)  # type: ignore[arg-type]
-    return optimize_instrument(instrument(budget_kb), demo_audio(), SR, settings)
+@pytest.fixture
+def grid(sweep: Callable[..., SweepConfig]) -> SweepConfig:
+    """The swept grid these tests exercise: 2 rates x 2 depths, over the bundled defaults."""
+    return sweep(rates=(44_100, 11_025), depths=(16, 8))
 
 
-def test_plan_respects_budget_and_covers_every_material_pitch() -> None:
+@pytest.fixture
+def optimize(grid: SweepConfig, optimize_settings: Callable[..., OptimizeSettings]) -> Callable[..., InstrumentPlan]:
+    """Optimize the demo instrument at a byte budget, defaulting to the exact solver."""
+
+    def _optimize(budget_kb: float, method: str = "exact") -> InstrumentPlan:
+        settings = optimize_settings(sweep=grid, method=method)
+        return optimize_instrument(instrument(budget_kb), demo_audio(), SR, settings)
+
+    return _optimize
+
+
+def test_plan_respects_budget_and_covers_every_material_pitch(optimize: Callable[..., InstrumentPlan]) -> None:
     plan = optimize(64.0)
     assert plan.used_bytes <= plan.sample_budget_bytes
     assert plan.module_bytes <= plan.module_budget_bytes
@@ -67,14 +80,14 @@ def test_plan_respects_budget_and_covers_every_material_pitch() -> None:
     assert plan.objective == pytest.approx(sum(p.weight * p.chosen.distortion for p in plan.pitches))
 
 
-def test_tighter_budget_costs_fewer_bytes_and_more_distortion() -> None:
+def test_tighter_budget_costs_fewer_bytes_and_more_distortion(optimize: Callable[..., InstrumentPlan]) -> None:
     generous = optimize(64.0)
     tight = optimize(16.0)
     assert tight.used_bytes < generous.used_bytes
     assert tight.objective >= generous.objective - 1e-9
 
 
-def test_exact_and_lagrangian_are_both_feasible() -> None:
+def test_exact_and_lagrangian_are_both_feasible(optimize: Callable[..., InstrumentPlan]) -> None:
     exact = optimize(48.0, "exact")
     lagrangian = optimize(48.0, "lagrangian")
     assert exact.used_bytes <= exact.sample_budget_bytes
@@ -82,16 +95,16 @@ def test_exact_and_lagrangian_are_both_feasible() -> None:
     assert lagrangian.objective >= exact.objective - 1e-9  # exact is optimal
 
 
-def test_representative_velocity_is_the_loudest_used_at_each_pitch() -> None:
+def test_representative_velocity_is_the_loudest_used_at_each_pitch(optimize: Callable[..., InstrumentPlan]) -> None:
     plan = optimize(64.0)
     reps = {p.pitch: p.representative_velocity for p in plan.pitches}
     assert reps[60] == 100  # pitch 60 is played at 50 and 100 → store the loud one
     assert reps[67] == 100
 
 
-def test_each_pitch_hull_is_a_valid_rd_frontier() -> None:
+def test_each_pitch_hull_is_a_valid_rd_frontier(optimize: Callable[..., InstrumentPlan], grid: SweepConfig) -> None:
     plan = optimize(64.0)
-    configs = len(GRID.rates or ()) * len(GRID.depths)  # 2 rates x 2 depths swept per pitch
+    configs = len(grid.rates or ()) * len(grid.depths)  # 2 rates x 2 depths swept per pitch
     for pitch in plan.pitches:
         hull = pitch.hull
         assert 1 <= len(hull) <= configs
@@ -99,12 +112,14 @@ def test_each_pitch_hull_is_a_valid_rd_frontier() -> None:
         assert all(a.distortion > b.distortion for a, b in zip(hull, hull[1:]))  # descending distortion
 
 
-def test_infeasible_budget_raises() -> None:
+def test_infeasible_budget_raises(optimize: Callable[..., InstrumentPlan]) -> None:
     with pytest.raises(BudgetInfeasibleError):
         optimize(2.0)
 
 
-def test_material_pitch_without_a_recording_raises() -> None:
+def test_material_pitch_without_a_recording_raises(
+    grid: SweepConfig, optimize_settings: Callable[..., OptimizeSettings]
+) -> None:
     audio = {(60, 100): note(60, 100, dur=0.6)}
     inst = InstrumentSpec(
         id="piano",
@@ -113,7 +128,7 @@ def test_material_pitch_without_a_recording_raises() -> None:
         material=[NoteEvent(pitch=99, velocity=100, duration_s=0.4, count=1)],  # pitch 99 not recorded
     )
     with pytest.raises(ValueError, match="no recorded sample for pitch 99"):
-        optimize_instrument(inst, audio, SR, OptimizeSettings(grid=GRID))
+        optimize_instrument(inst, audio, SR, optimize_settings(sweep=grid))
 
 
 def test_report_curve_always_includes_the_final_point() -> None:
@@ -135,21 +150,21 @@ def test_report_curve_always_includes_the_final_point() -> None:
     assert f"{bytes_to_kib(curve[-1].total_bytes):7.1f} KiB" in report  # final vertex shown despite the stride
 
 
-def test_velocity_map_is_derived_and_anchored_at_full_volume() -> None:
+def test_velocity_map_is_derived_and_anchored_at_full_volume(optimize: Callable[..., InstrumentPlan]) -> None:
     plan = optimize(64.0)
     anchors = {a.velocity: a.volume for a in plan.velocity_map.anchors}
     assert set(anchors) == set(VELOCITIES)
     assert max(anchors.values()) == 64  # loudest recorded velocity anchors the map
 
 
-def test_rd_curve_brackets_the_chosen_allocation() -> None:
+def test_rd_curve_brackets_the_chosen_allocation(optimize: Callable[..., InstrumentPlan]) -> None:
     plan = optimize(48.0)
     fits = [pt for pt in plan.curve if pt.total_bytes <= plan.sample_budget_bytes]
     assert fits, "at least the cheapest curve point must fit"
     assert plan.objective <= fits[0].objective + 1e-9  # exact is no worse than the cheapest hull point
 
 
-def test_format_report_has_all_sections() -> None:
+def test_format_report_has_all_sections(optimize: Callable[..., InstrumentPlan]) -> None:
     report = format_report(optimize(32.0))
     assert "Instrument 'piano'" in report
     assert "Budget:" in report and "Objective:" in report
@@ -160,7 +175,9 @@ def test_format_report_has_all_sections() -> None:
     assert report.endswith("\n")
 
 
-def test_run_instrument_reads_wavs_from_disk(tmp_path: Path) -> None:
+def test_run_instrument_reads_wavs_from_disk(
+    tmp_path: Path, grid: SweepConfig, optimize_settings: Callable[..., OptimizeSettings]
+) -> None:
     samples = []
     for pitch in PITCHES:
         for velocity in VELOCITIES:
@@ -168,7 +185,7 @@ def test_run_instrument_reads_wavs_from_disk(tmp_path: Path) -> None:
             write_wav(path, note(pitch, velocity, dur=0.6), SR)
             samples.append(SourceSample(file=path, pitch=pitch, velocity=velocity))
     inst = InstrumentSpec(id="piano", budget_kb=64.0, samples=samples, material=demo_material())
-    plan = run_instrument(inst, OptimizeSettings(grid=GRID))
+    plan = run_instrument(inst, optimize_settings(sweep=grid))
     assert plan.used_bytes <= plan.sample_budget_bytes
     assert tuple(p.pitch for p in plan.pitches) == PITCHES
 

@@ -52,6 +52,7 @@ from optisample.optimize.knapsack import BudgetInfeasibleError
 from optisample.optimize.orchestrate import (
     InstrumentPlan,
     OptimizeSettings,
+    default_optimize_settings,
     format_report,
     load_instrument_audio,
     optimize_instrument,
@@ -72,7 +73,8 @@ def _note_name(pitch: int) -> str:
 class DumpSettings:
     """What to dump and how (bundled to keep call sites small)."""
 
-    optimize: OptimizeSettings = field(default_factory=OptimizeSettings)
+    # transitional: OptimizeSettings is built from a loaded config at the CLI in phase 9.
+    optimize: OptimizeSettings = field(default_factory=default_optimize_settings)
     # transitional: RenderConfig is threaded from the CLI in phase 9.
     render: RenderConfig = field(default_factory=default_render_config)
     render_ground_truth: bool = True  # render module + per-note through openmpt123 if it is installed

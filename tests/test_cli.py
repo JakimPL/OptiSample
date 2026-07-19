@@ -48,9 +48,9 @@ def test_dump_settings_maps_grid_and_flags() -> None:
         ]
     )
     settings = _dump_settings(args)
-    assert settings.optimize.grid.rates == (11_025,)
-    assert settings.optimize.grid.depths == (8,)
-    assert settings.optimize.grid.loops == (False,)  # --no-loop disables looping
+    assert settings.optimize.sweep.rates == (11_025,)
+    assert settings.optimize.sweep.depths == (8,)
+    assert settings.optimize.sweep.loops == (False,)  # --no-loop disables looping
     assert settings.optimize.seed == 3
     assert settings.render_ground_truth is False
     assert settings.grouped is True and settings.ungrouped is False
@@ -60,7 +60,7 @@ def test_dump_settings_defaults_to_looping_full_grid_both_strategies() -> None:
     args = build_parser().parse_args(["optimize", "m.yaml"])
     settings = _dump_settings(args)
     assert settings.grouped and settings.ungrouped and settings.render_ground_truth
-    assert settings.optimize.grid.loops == (True,)  # looping is on by default
+    assert settings.optimize.sweep.loops == (True,)  # looping is on by default
 
 
 def test_optimize_command_writes_artifacts(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

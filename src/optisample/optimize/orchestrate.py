@@ -20,15 +20,19 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Literal, Protocol
 
 import numpy as np
 
+from optisample.config import load_config
+from optisample.config.dsp import EncodeConfig
+from optisample.config.optimize import SweepConfig, VelocityConfig
 from optisample.dsp.resample import resample_to
-from optisample.dsp.surrogate import EncodeContext, EncodingParams, default_encode_config, encode
+from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode
 from optisample.io.audio import read_wav
 from optisample.metrics.base import Signal
-from optisample.metrics.composite import CompositeFidelity, default_composite
+from optisample.metrics.composite import CompositeFidelity, build_composite
 from optisample.metrics.size import FILE_HEADER_BYTES, INSTRUMENT_HEADER_BYTES, bytes_to_kib, kib_to_bytes
 from optisample.model import InstrumentSpec
 from optisample.optimize.knapsack import (
@@ -39,7 +43,7 @@ from optisample.optimize.knapsack import (
     solve_exact,
     solve_lagrangian,
 )
-from optisample.optimize.operating_points import OperatingPoint, SweepGrid, default_rates, lower_convex_hull
+from optisample.optimize.operating_points import OperatingPoint, lower_convex_hull, sweep_rates
 from optisample.optimize.tasks import AudioMap, EvalContext, PitchTask, build_tasks, score_reconstruction
 from optisample.optimize.velocity_map import VelocityVolumeMap, derive_velocity_map, loudness_by_velocity
 
@@ -51,12 +55,37 @@ _CURVE_ROWS = 6
 
 @dataclass(frozen=True)
 class OptimizeSettings:
-    """Knobs for one optimization run (bundled to keep the call site small)."""
+    """Knobs for one optimization run (bundled to keep the call site small).
 
-    grid: SweepGrid = SweepGrid()
-    method: Method = "exact"
-    composite: CompositeFidelity | None = None
+    Carries the config the run needs -- the encoding sweep grid, the encode config, the prebuilt
+    composite fidelity, the velocity-map shaping and the solver method -- all sourced from config at
+    the entry point. ``seed`` drives the dither RNG (not a tuning knob, so it keeps a code default).
+    """
+
+    sweep: SweepConfig
+    encode: EncodeConfig
+    composite: CompositeFidelity
+    velocity: VelocityConfig
+    method: Method
     seed: int = 0
+
+
+@lru_cache(maxsize=1)
+def default_optimize_settings() -> OptimizeSettings:
+    """Transitional: an ``OptimizeSettings`` built from the bundled config.
+
+    Bridges callers that do not yet construct settings from a loaded config (the ``DumpSettings``
+    default and the CLI base grid); phase 9 wires the entry points to build these explicitly (with a
+    ``--config`` directory) and this bridge is removed.
+    """
+    config = load_config()
+    return OptimizeSettings(
+        sweep=config.sweep,
+        encode=config.encode,
+        composite=build_composite(config.metrics),
+        velocity=config.velocity,
+        method=config.optimize.method,
+    )
 
 
 @dataclass(frozen=True)
@@ -117,8 +146,7 @@ class InstrumentPlan:
 
 def _evaluate_config(task: PitchTask, ctx: EvalContext, params: EncodingParams) -> OperatingPoint:
     """Encode the pitch's own representative, then score reconstruction against every event at it."""
-    # transitional: EncodeConfig is threaded through EvalContext in phase 6.
-    encode_ctx = EncodeContext(root_pitch=task.pitch, config=default_encode_config(), rng=ctx.rng)
+    encode_ctx = EncodeContext(root_pitch=task.pitch, config=ctx.encode, rng=ctx.rng)
     stored = encode(task.representative, ctx.sample_rate, params, encode_ctx)
     distortion = score_reconstruction(stored, task, ctx)
     return OperatingPoint(params=params, stored_bytes=stored.stored_bytes, distortion=distortion, frames=stored.frames)
@@ -126,18 +154,18 @@ def _evaluate_config(task: PitchTask, ctx: EvalContext, params: EncodingParams) 
 
 def _pitch_points(task: PitchTask, ctx: EvalContext) -> list[OperatingPoint]:
     """Sweep the rate x depth grid for one pitch, trimming storage to its longest note."""
-    rates = ctx.grid.rates if ctx.grid.rates is not None else default_rates(ctx.sample_rate)
+    rates = sweep_rates(ctx.sweep, ctx.sample_rate)
     trim_s = task.max_duration_s
     points: list[OperatingPoint] = []
-    for loop in ctx.grid.loops:
-        for depth in ctx.grid.depths:
+    for loop in ctx.sweep.loops:
+        for depth in ctx.sweep.depths:
             for rate in rates:
                 params = EncodingParams(
                     target_rate=rate,
                     depth_bits=depth,
                     trim_s=trim_s,
-                    dither=ctx.grid.dither,
-                    noise_shaping=ctx.grid.noise_shaping,
+                    dither=ctx.sweep.dither,
+                    noise_shaping=ctx.sweep.noise_shaping,
                     loop=loop,
                 )
                 points.append(_evaluate_config(task, ctx, params))
@@ -183,20 +211,22 @@ def prepare_run(
     identically (the grouping objective must be comparable to the ungrouped one).
     """
     velocity_map = derive_velocity_map(
-        loudness_by_velocity([(velocity, signal) for (_, velocity), signal in audio.items()], sample_rate)
+        loudness_by_velocity([(velocity, signal) for (_, velocity), signal in audio.items()], sample_rate),
+        settings.velocity,
     )
     ctx = EvalContext(
         sample_rate=sample_rate,
         velocity_map=velocity_map,
-        composite=settings.composite if settings.composite is not None else default_composite(),
+        composite=settings.composite,
         rng=np.random.default_rng(settings.seed),
-        grid=settings.grid,
+        sweep=settings.sweep,
+        encode=settings.encode,
     )
     return velocity_map, ctx, build_tasks(instrument, audio)
 
 
 def optimize_instrument(
-    instrument: InstrumentSpec, audio: AudioMap, sample_rate: int, settings: OptimizeSettings = OptimizeSettings()
+    instrument: InstrumentSpec, audio: AudioMap, sample_rate: int, settings: OptimizeSettings
 ) -> InstrumentPlan:
     """Optimize one instrument's byte budget end to end and return a structured plan."""
     velocity_map, ctx, tasks = prepare_run(instrument, audio, sample_rate, settings)
@@ -234,7 +264,7 @@ def load_instrument_audio(instrument: InstrumentSpec) -> tuple[dict[tuple[int, i
     return audio, sample_rate
 
 
-def run_instrument(instrument: InstrumentSpec, settings: OptimizeSettings = OptimizeSettings()) -> InstrumentPlan:
+def run_instrument(instrument: InstrumentSpec, settings: OptimizeSettings) -> InstrumentPlan:
     """Load an instrument's recordings from disk and optimize it."""
     audio, sample_rate = load_instrument_audio(instrument)
     return optimize_instrument(instrument, audio, sample_rate, settings)

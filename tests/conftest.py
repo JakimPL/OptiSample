@@ -16,12 +16,13 @@ import pytest
 from optisample.config import OptiConfig, load_config
 from optisample.config.dsp import EncodeConfig, LoopConfig, QuantizeConfig, SpectralConfig
 from optisample.config.metrics import MetricsConfig
-from optisample.config.optimize import OptimizeConfig, SweepConfig, VelocityConfig
+from optisample.config.optimize import Method, OptimizeConfig, SweepConfig, VelocityConfig
 from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.config.synth import SynthConfig
 from optisample.dsp.surrogate import EncodeContext
 from optisample.io.it_writer import ITPlayback, it_playback
 from optisample.metrics import CompositeFidelity, build_composite
+from optisample.optimize.orchestrate import OptimizeSettings
 
 
 @pytest.fixture(scope="session")
@@ -103,6 +104,27 @@ def sweep(config: OptiConfig) -> Callable[..., SweepConfig]:
 
     def _build(**overrides: object) -> SweepConfig:
         return SweepConfig.model_validate({**config.sweep.model_dump(), **overrides})
+
+    return _build
+
+
+@pytest.fixture
+def optimize_settings(config: OptiConfig, composite: CompositeFidelity) -> Callable[..., OptimizeSettings]:
+    """Factory: an ``OptimizeSettings`` from the bundled config, overriding the swept grid/method/seed.
+
+    ``sweep`` (a ``SweepConfig``, usually built via the ``sweep`` factory) is the only knob the
+    optimize tests vary; ``encode``, ``composite`` and ``velocity`` come from the bundled config.
+    """
+
+    def _build(*, sweep: SweepConfig, method: Method | None = None, seed: int = 0) -> OptimizeSettings:
+        return OptimizeSettings(
+            sweep=sweep,
+            encode=config.encode,
+            composite=composite,
+            velocity=config.velocity,
+            method=method if method is not None else config.optimize.method,
+            seed=seed,
+        )
 
     return _build
 

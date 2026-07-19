@@ -17,15 +17,16 @@ the task's references.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
+from optisample.config.dsp import EncodeConfig
+from optisample.config.optimize import SweepConfig
 from optisample.dsp.surrogate import StoredSample, render
 from optisample.metrics.base import Signal
 from optisample.metrics.composite import CompositeFidelity, evaluate
 from optisample.model import InstrumentSpec, NoteEvent
-from optisample.optimize.operating_points import SweepGrid
 from optisample.optimize.velocity_map import VelocityVolumeMap
 
 AudioMap = Mapping[tuple[int, int], Signal]
@@ -65,7 +66,8 @@ class EvalContext:
     velocity_map: VelocityVolumeMap
     composite: CompositeFidelity
     rng: np.random.Generator
-    grid: SweepGrid = field(default_factory=SweepGrid)
+    sweep: SweepConfig
+    encode: EncodeConfig
 
 
 def nearest_velocity(available: Sequence[int], target: int) -> int:

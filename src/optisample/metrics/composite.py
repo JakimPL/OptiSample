@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 
-from optisample.config import load_config  # transitional: only ``default_composite`` needs it (removed in phase 6)
+from optisample.config import load_config  # transitional: only ``default_composite`` needs it (removed in phase 7)
 from optisample.config.metrics import MetricsConfig, SegmentalSnrConfig
 from optisample.metrics.base import Metric, MetricContext, Signal, build_metric
 from optisample.metrics.diagnostics import loudness_delta, segmental_snr, si_sdr, snr
@@ -58,8 +58,9 @@ def build_composite(config: MetricsConfig) -> CompositeFidelity:
 def default_composite() -> CompositeFidelity:
     """Transitional: the composite built from the bundled config.
 
-    Phase 6 threads a config-built composite through ``EvalContext``/``OptimizeSettings`` and removes
-    this bridge (the optimize layer still falls back to it when no composite is supplied).
+    The optimize layer now threads a config-built composite through ``EvalContext``/``OptimizeSettings``
+    (phase 6); this bridge remains only for the calibrator's fallback and is removed once phase 7
+    threads a composite through it.
     """
     return build_composite(load_config().metrics)
 
