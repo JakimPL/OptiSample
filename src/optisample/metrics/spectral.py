@@ -8,27 +8,21 @@ The log terms clamp magnitudes to a fixed dynamic range below the *reference pea
 logarithm. Without this, a plain ``log(mag + tiny_eps)`` blows up in near-silent bins: it would
 rate a transparent 16-bit requantization (whose −90 dB noise fills otherwise-empty HF bins)
 as *worse* than an audible bandwidth cut. The floor makes inaudible noise invisible while
-still penalizing audible noise (e.g. 8-bit at ~−49 dB).
+still penalizing audible noise (e.g. 8-bit at ~−49 dB). The floor depth is ``dynamic_range_db``
+dB below the peak — a single config knob shared with the log-mel and MCD metrics.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
-from optisample.dsp.spectral import MelParams, StftParams, melspectrogram, stft_magnitude
-from optisample.metrics.base import MetricContext, Signal
+from optisample.config.dsp import MelParams, StftParams
+from optisample.dsp.spectral import melspectrogram, stft_magnitude
+from optisample.metrics.base import MetricContext, Signal, register_metric
 
 _TINY = 1e-12
-_STFT_REL_FLOOR = 1e-4  # 80 dB below the reference peak, amplitude domain
-_MEL_REL_FLOOR = 1e-8  # 80 dB below the reference peak, power domain
-
-DEFAULT_RESOLUTIONS: tuple[StftParams, ...] = (
-    StftParams(n_fft=256, hop_length=64),
-    StftParams(n_fft=1024, hop_length=256),
-    StftParams(n_fft=2048, hop_length=512),
-)
 
 
 def _min_frames(first: Signal, second: Signal) -> int:
@@ -45,11 +39,13 @@ def _floored_log(values: Signal, reference_peak: float, rel_floor: float) -> Sig
 class MultiResolutionStft:
     """Mean over resolutions of (spectral convergence + dynamic-range-floored log-magnitude L1)."""
 
-    resolutions: tuple[StftParams, ...] = DEFAULT_RESOLUTIONS
+    resolutions: tuple[StftParams, ...]
+    dynamic_range_db: float
     name: str = "mrstft"
 
     def distance(self, reference: Signal, candidate: Signal, ctx: MetricContext) -> float:
         del ctx  # resolution set is fixed; sample rate does not change the distance
+        rel_floor = 10.0 ** (-self.dynamic_range_db / 20.0)  # amplitude domain: dB below peak
         total = 0.0
         for params in self.resolutions:
             ref_mag = stft_magnitude(reference, params)
@@ -59,9 +55,7 @@ class MultiResolutionStft:
             convergence = float(np.linalg.norm(ref_mag - cand_mag) / (np.linalg.norm(ref_mag) + _TINY))
             peak = float(np.max(ref_mag)) if ref_mag.size else 0.0
             log_l1 = float(
-                np.mean(
-                    np.abs(_floored_log(ref_mag, peak, _STFT_REL_FLOOR) - _floored_log(cand_mag, peak, _STFT_REL_FLOOR))
-                )
+                np.mean(np.abs(_floored_log(ref_mag, peak, rel_floor) - _floored_log(cand_mag, peak, rel_floor)))
             )
             total += convergence + log_l1
         return total / len(self.resolutions)
@@ -71,15 +65,29 @@ class MultiResolutionStft:
 class LogMelL1:
     """Mean absolute difference of dynamic-range-floored log-mel spectrograms."""
 
-    params: MelParams = field(default_factory=MelParams)
+    params: MelParams
+    dynamic_range_db: float
     name: str = "logmel_l1"
 
     def distance(self, reference: Signal, candidate: Signal, ctx: MetricContext) -> float:
+        rel_floor = 10.0 ** (-self.dynamic_range_db / 10.0)  # power domain: dB below peak
         ref_mel = melspectrogram(reference, ctx.sample_rate, self.params)
         cand_mel = melspectrogram(candidate, ctx.sample_rate, self.params)
         frames = _min_frames(ref_mel, cand_mel)
         ref_mel, cand_mel = ref_mel[:frames], cand_mel[:frames]
         peak = float(np.max(ref_mel)) if ref_mel.size else 0.0
-        ref_log = _floored_log(ref_mel, peak, _MEL_REL_FLOOR)
-        cand_log = _floored_log(cand_mel, peak, _MEL_REL_FLOOR)
+        ref_log = _floored_log(ref_mel, peak, rel_floor)
+        cand_log = _floored_log(cand_mel, peak, rel_floor)
         return float(np.mean(np.abs(ref_log - cand_log)))
+
+
+register_metric(
+    "mrstft",
+    lambda config: MultiResolutionStft(
+        resolutions=config.mrstft.resolutions, dynamic_range_db=config.preprocess.dynamic_range_db
+    ),
+)
+register_metric(
+    "logmel_l1",
+    lambda config: LogMelL1(params=config.logmel.mel, dynamic_range_db=config.preprocess.dynamic_range_db),
+)

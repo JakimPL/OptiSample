@@ -12,7 +12,6 @@ import pyloudnorm as pyln
 
 from optisample.metrics.base import MetricContext, Signal
 
-DEFAULT_TARGET_LUFS = -23.0
 _MIN_LOUDNESS_SECONDS = 0.4  # BS.1770 integrated-loudness block size
 
 
@@ -31,7 +30,7 @@ def integrated_loudness(signal: Signal, sample_rate: int) -> float:
     return -np.inf if rms <= 0.0 else 20.0 * float(np.log10(rms))
 
 
-def loudness_normalize(signal: Signal, sample_rate: int, target_lufs: float = DEFAULT_TARGET_LUFS) -> Signal:
+def loudness_normalize(signal: Signal, sample_rate: int, target_lufs: float) -> Signal:
     """Scale ``signal`` to ``target_lufs`` (no-op for silence)."""
     loudness = integrated_loudness(signal, sample_rate)
     if not np.isfinite(loudness):
@@ -44,9 +43,9 @@ def prepare(
     reference: Signal,
     candidate: Signal,
     sample_rate: int,
+    target_lufs: float,
     *,
     normalize: bool = True,
-    target_lufs: float = DEFAULT_TARGET_LUFS,
 ) -> tuple[Signal, Signal, MetricContext]:
     """Length-match (and optionally loudness-normalize) two signals for comparison."""
     reference, candidate = match_length(reference, candidate)

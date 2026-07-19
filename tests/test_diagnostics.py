@@ -5,6 +5,7 @@ import pytest
 from numpy.typing import NDArray
 from scipy.signal import resample_poly
 
+from optisample.config.metrics import MetricsConfig
 from optisample.dsp.spectral import bandlimit
 from optisample.metrics.diagnostics import (
     band_snr,
@@ -57,18 +58,18 @@ def test_si_sdr_silent_reference_is_neg_inf() -> None:
     assert si_sdr(np.zeros(1000), np.ones(1000)) == -np.inf
 
 
-def test_segmental_snr_identical_hits_ceiling() -> None:
+def test_segmental_snr_identical_hits_ceiling(metrics_config: MetricsConfig) -> None:
     signal = sine(440.0, 0.5)
-    assert segmental_snr(signal, signal) == pytest.approx(35.0)
+    assert segmental_snr(signal, signal, metrics_config.preprocess.segmental) == pytest.approx(35.0)
 
 
-def test_segmental_snr_degraded_below_ceiling() -> None:
+def test_segmental_snr_degraded_below_ceiling(metrics_config: MetricsConfig) -> None:
     signal = sine(440.0, 0.5)
-    assert segmental_snr(signal, quantize(signal, 5)) < 35.0
+    assert segmental_snr(signal, quantize(signal, 5), metrics_config.preprocess.segmental) < 35.0
 
 
-def test_segmental_snr_silence_is_zero() -> None:
-    assert segmental_snr(np.zeros(4096), np.zeros(4096)) == 0.0
+def test_segmental_snr_silence_is_zero(metrics_config: MetricsConfig) -> None:
+    assert segmental_snr(np.zeros(4096), np.zeros(4096), metrics_config.preprocess.segmental) == 0.0
 
 
 def test_loudness_delta_positive_when_reference_louder() -> None:

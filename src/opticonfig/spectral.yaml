@@ -8,3 +8,4 @@ mel:
   n_mels: 64
   fmin: 0.0
   fmax: null
+rolloff_percent: 0.85 # fraction of energy below the reported rolloff frequency (standalone diagnostic)

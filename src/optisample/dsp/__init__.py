@@ -8,8 +8,6 @@ from optisample.dsp.quantize import (
 )
 from optisample.dsp.resample import resample_num, resample_to, resampled_frame_count
 from optisample.dsp.spectral import (
-    MelParams,
-    StftParams,
     band_energy,
     bandlimit,
     frame,
@@ -32,8 +30,6 @@ from optisample.dsp.surrogate import (
 )
 
 __all__ = [
-    "MelParams",
-    "StftParams",
     "band_energy",
     "bandlimit",
     "frame",

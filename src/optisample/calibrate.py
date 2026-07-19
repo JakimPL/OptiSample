@@ -36,7 +36,7 @@ from optisample.io.it_writer import (
 )
 from optisample.io.render import RenderSettings, render_module
 from optisample.metrics.base import Signal
-from optisample.metrics.composite import CompositeFidelity, evaluate
+from optisample.metrics.composite import CompositeFidelity, default_composite, evaluate
 from optisample.optimize.export import c5speed_for_pitch
 
 # Seconds per row at a given playback: one tick lasts 2.5 / tempo seconds, a row lasts `speed` ticks
@@ -111,6 +111,7 @@ def renderer_agreement(
     stored: StoredSample, probe: NoteProbe, settings: RenderSettings, composite: CompositeFidelity | None = None
 ) -> RendererAgreement:
     """Compare the surrogate and openmpt123 renders of the same note (see :class:`RendererAgreement`)."""
+    composite = composite if composite is not None else default_composite()  # transitional: phase 7 threads it in
     surrogate = render_note_surrogate(stored, probe, settings.sample_rate)
     openmpt = render_note_openmpt(stored, probe, settings)
     report = evaluate(surrogate, openmpt, settings.sample_rate, composite)
@@ -135,6 +136,7 @@ def distortion_vs_source(
     to each render internally. Returns ``(surrogate_distortion, openmpt_distortion)`` -- the two numbers
     whose *ranking* across encodings should agree.
     """
+    composite = composite if composite is not None else default_composite()  # transitional: phase 7 threads it in
     surrogate = render_note_surrogate(stored, probe, settings.sample_rate)
     openmpt = render_note_openmpt(stored, probe, settings)
     surrogate_distortion = evaluate(reference, surrogate, settings.sample_rate, composite).fidelity

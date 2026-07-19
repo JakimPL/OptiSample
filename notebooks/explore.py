@@ -25,6 +25,17 @@ def _():
 
 
 @app.cell
+def _():
+    # All algorithm knobs come from the bundled config; the composite is built once and threaded through.
+    from optisample.config import load_config
+    from optisample.metrics import build_composite
+
+    config = load_config()
+    composite = build_composite(config.metrics)
+    return composite, config
+
+
+@app.cell
 def _(mo):
     mo.md("""
         # OptiSample — sample & metric inspector
@@ -86,8 +97,11 @@ def _(instrument_dropdown, loading, manifest, mo, views):
 
 
 @app.cell
-def _(instrument, loading, mo, signals, views):
-    _rows = [views.sample_row(sample, *signals[loading.sample_label(sample)]) for sample in instrument.samples]
+def _(config, instrument, loading, mo, signals, views):
+    _rows = [
+        views.sample_row(sample, *signals[loading.sample_label(sample)], config.spectral)
+        for sample in instrument.samples
+    ]
     mo.vstack([mo.md("**Per-sample descriptors & footprint**"), mo.ui.table(_rows, selection=None)])
     return
 
@@ -104,14 +118,24 @@ def _(instrument, loading, mo):
 
 
 @app.cell
-def _(audioio, io, mo, sample_dropdown, signals, viz):
+def _(audioio, config, io, mo, sample_dropdown, signals, viz):
     reference, ref_sr = signals[sample_dropdown.value]
     mo.vstack(
         [
             mo.md(f"#### `{sample_dropdown.value}` — listen & inspect"),
             mo.audio(io.BytesIO(audioio.to_wav_bytes(reference, ref_sr))),
             mo.image(viz.figure_png(viz.waveform_figure(reference, ref_sr, title="waveform"))),
-            mo.image(viz.figure_png(viz.spectrogram_figure(reference, ref_sr, title="spectrogram (dB rel. peak)"))),
+            mo.image(
+                viz.figure_png(
+                    viz.spectrogram_figure(
+                        reference,
+                        ref_sr,
+                        params=config.spectral.stft,
+                        dynamic_range_db=config.metrics.preprocess.dynamic_range_db,
+                        title="spectrogram (dB rel. peak)",
+                    )
+                )
+            ),
         ]
     )
     return ref_sr, reference
@@ -145,6 +169,8 @@ def _(mo):
 def _(
     audioio,
     bits_slider,
+    composite,
+    config,
     cutoff_slider,
     degrade,
     factor_slider,
@@ -165,7 +191,7 @@ def _(
         target_sr=int(target_sr_slider.value),
     )
     _candidate = degrade.apply(_spec, reference, ref_sr)
-    _row = views.compare(reference, _candidate, ref_sr, _spec.label)
+    _row = views.compare(reference, _candidate, ref_sr, _spec.label, composite)
     mo.vstack(
         [
             mo.md(f"**Candidate: {_spec.label}**  · previews are peak-normalized, so read level from `loudness_dLU`."),
@@ -176,15 +202,25 @@ def _(
                 ]
             ),
             mo.ui.table([_row], selection=None),
-            mo.image(viz.figure_png(viz.spectrogram_figure(_candidate, ref_sr, title=f"{_spec.label} spectrogram"))),
+            mo.image(
+                viz.figure_png(
+                    viz.spectrogram_figure(
+                        _candidate,
+                        ref_sr,
+                        params=config.spectral.stft,
+                        dynamic_range_db=config.metrics.preprocess.dynamic_range_db,
+                        title=f"{_spec.label} spectrogram",
+                    )
+                )
+            ),
         ]
     )
     return
 
 
 @app.cell
-def _(degrade, mo, ref_sr, reference, views, viz):
-    _smoke_rows = views.compare_specs(reference, ref_sr, degrade.smoke_specs())
+def _(composite, config, degrade, mo, ref_sr, reference, views, viz):
+    _smoke_rows = views.compare_specs(reference, ref_sr, degrade.smoke_specs(), composite)
     mo.vstack(
         [
             mo.md(
@@ -193,7 +229,7 @@ def _(degrade, mo, ref_sr, reference, views, viz):
                 "cut loses brightness, and the level drop moves only loudness. Bar height ≈ fidelity."
             ),
             mo.ui.table(_smoke_rows, selection=None),
-            mo.image(viz.figure_png(viz.contribution_bar(_smoke_rows))),
+            mo.image(viz.figure_png(viz.contribution_bar(_smoke_rows, config.metrics.weights))),
         ]
     )
     return

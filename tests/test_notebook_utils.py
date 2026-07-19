@@ -10,7 +10,6 @@ import soundfile as sf
 
 from notebooks.utils import audioio, degrade, loading, views, viz
 from optisample.dsp.spectral import band_energy
-from optisample.metrics.composite import DEFAULT_WEIGHTS
 
 SR = 44_100
 
@@ -145,11 +144,11 @@ def test_smoke_specs_cover_the_p1_set():
 # --- views -----------------------------------------------------------------
 
 
-def test_sample_row_has_expected_shape(demo):
+def test_sample_row_has_expected_shape(demo, spectral_config):
     _, manifest = demo
     sample = loading.get_instrument(manifest, "strings").samples[0]
     signal, sample_rate = loading.load_signal(sample)
-    row = views.sample_row(sample, signal, sample_rate)
+    row = views.sample_row(sample, signal, sample_rate, spectral_config)
     assert row["frames"] == signal.size
     assert row["dur_s"] == pytest.approx(signal.size / sample_rate)
     assert float(row["kib_16"]) > float(row["kib_8"]) > 0.0
@@ -182,48 +181,55 @@ def test_budget_summary_flags_over_budget(demo):
     assert isinstance(summary["fits_16"], bool)
 
 
-def test_compare_identical_is_transparent():
+def test_compare_identical_is_transparent(composite):
     signal = tone()
-    row = views.compare(signal, signal.copy(), SR, "identical")
+    row = views.compare(signal, signal.copy(), SR, "identical", composite)
     assert float(row["fidelity"]) == pytest.approx(0.0, abs=1e-6)
     assert float(row["snr_db"]) > 100.0
 
 
-def test_compare_ranks_16bit_above_8bit():
+def test_compare_ranks_16bit_above_8bit(composite):
     signal = tone()
-    row16 = views.compare(signal, degrade.quantize(signal, 16), SR, "16-bit")
-    row8 = views.compare(signal, degrade.quantize(signal, 8), SR, "8-bit")
+    row16 = views.compare(signal, degrade.quantize(signal, 16), SR, "16-bit", composite)
+    row8 = views.compare(signal, degrade.quantize(signal, 8), SR, "8-bit", composite)
     assert float(row16["fidelity"]) < float(row8["fidelity"])
 
 
-def test_compare_isolates_pure_level_change_to_loudness():
+def test_compare_isolates_pure_level_change_to_loudness(composite):
     signal = tone()
-    row = views.compare(signal, degrade.gain(signal, 0.3), SR, "quieter")
+    row = views.compare(signal, degrade.gain(signal, 0.3), SR, "quieter", composite)
     assert float(row["fidelity"]) == pytest.approx(0.0, abs=1e-3)
     assert abs(float(row["loudness_dLU"])) > 5.0
 
 
-def test_compare_specs_labels_align():
+def test_compare_specs_labels_align(composite):
     signal = tone()
     specs = degrade.smoke_specs()
-    rows = views.compare_specs(signal, SR, specs)
+    rows = views.compare_specs(signal, SR, specs, composite)
     assert [row["candidate"] for row in rows] == [spec.label for spec in specs]
 
 
 # --- viz -------------------------------------------------------------------
 
 
-def test_waveform_and_spectrogram_render_to_png():
+def test_waveform_and_spectrogram_render_to_png(spectral_config, metrics_config):
     signal = tone()
-    for figure in (viz.waveform_figure(signal, SR), viz.spectrogram_figure(signal, SR)):
+    figures = (
+        viz.waveform_figure(signal, SR),
+        viz.spectrogram_figure(
+            signal, SR, params=spectral_config.stft, dynamic_range_db=metrics_config.preprocess.dynamic_range_db
+        ),
+    )
+    for figure in figures:
         png = viz.figure_png(figure)
         assert png[:8] == b"\x89PNG\r\n\x1a\n"
 
 
-def test_contribution_bar_totals_match_fidelity():
+def test_contribution_bar_totals_match_fidelity(composite, metrics_config):
     signal = tone()
-    rows = views.compare_specs(signal, SR, degrade.smoke_specs())
+    weights = metrics_config.weights
+    rows = views.compare_specs(signal, SR, degrade.smoke_specs(), composite)
     for row in rows:
-        stacked = sum(DEFAULT_WEIGHTS.get(key, 0.0) * float(row[key]) for key in viz._CONTRIBUTION_KEYS)
+        stacked = sum(weights.get(key, 0.0) * float(row[key]) for key in viz._CONTRIBUTION_KEYS)
         assert stacked == pytest.approx(float(row["fidelity"]), rel=1e-9, abs=1e-9)
-    assert viz.figure_png(viz.contribution_bar(rows))[:8] == b"\x89PNG\r\n\x1a\n"
+    assert viz.figure_png(viz.contribution_bar(rows, weights))[:8] == b"\x89PNG\r\n\x1a\n"

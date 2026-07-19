@@ -1,9 +1,16 @@
-from optisample.metrics.base import Metric, MetricContext, available, get, register, unregister
+from optisample.metrics.base import (
+    Metric,
+    MetricContext,
+    available_metrics,
+    build_metric,
+    register_metric,
+    unregister_metric,
+)
 from optisample.metrics.composite import (
     CompositeFidelity,
     QualityReport,
     WeightedMetric,
-    default_composite,
+    build_composite,
     evaluate,
 )
 from optisample.metrics.diagnostics import (
@@ -26,14 +33,14 @@ from optisample.metrics.timbre import MelCepstralDistortion, SpectralShape
 __all__ = [
     "Metric",
     "MetricContext",
-    "available",
-    "get",
-    "register",
-    "unregister",
+    "available_metrics",
+    "build_metric",
+    "register_metric",
+    "unregister_metric",
     "CompositeFidelity",
     "QualityReport",
     "WeightedMetric",
-    "default_composite",
+    "build_composite",
     "evaluate",
     "LoopSeam",
     "band_snr",

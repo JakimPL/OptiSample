@@ -1,42 +1,21 @@
 """Spectral analysis primitives shared by the metrics.
 
-Kept dependency-light (numpy + scipy) and fully typed. STFT/mel parameters are bundled into
-small frozen param objects so callers pass one config, not a long argument list.
+Kept dependency-light (numpy + scipy) and fully typed. STFT/mel parameters are the frozen
+``StftParams``/``MelParams`` config objects (:mod:`optisample.config.dsp`), which callers must pass
+explicitly -- the analysis resolution is a tunable loaded from YAML, not a hidden signature default.
 """
 
 from __future__ import annotations
-
-from dataclasses import dataclass
 
 import numpy as np
 from numpy.typing import NDArray
 from scipy.fft import dct
 
+from optisample.config.dsp import MelParams, StftParams
+
 Signal = NDArray[np.float64]
 
 _LOG_FLOOR = 1e-10
-
-
-@dataclass(frozen=True)
-class StftParams:
-    """Short-time Fourier transform settings."""
-
-    n_fft: int = 1024
-    hop_length: int = 256
-
-
-@dataclass(frozen=True)
-class MelParams:
-    """Mel-spectrogram settings (includes its own STFT sizing)."""
-
-    n_fft: int = 1024
-    hop_length: int = 256
-    n_mels: int = 64
-    fmin: float = 0.0
-    fmax: float | None = None
-
-    def stft(self) -> StftParams:
-        return StftParams(n_fft=self.n_fft, hop_length=self.hop_length)
 
 
 def frame(signal: Signal, frame_length: int, hop_length: int) -> Signal:
@@ -50,7 +29,7 @@ def frame(signal: Signal, frame_length: int, hop_length: int) -> Signal:
     return np.asarray(np.take(data, indices), dtype=np.float64)
 
 
-def stft_magnitude(signal: Signal, params: StftParams = StftParams()) -> Signal:
+def stft_magnitude(signal: Signal, params: StftParams) -> Signal:
     """Magnitude STFT with a Hann window: ``(n_frames, n_fft // 2 + 1)``."""
     window = np.hanning(params.n_fft)
     frames = frame(signal, params.n_fft, params.hop_length) * window
@@ -66,7 +45,7 @@ def _mel_to_hz(mel: NDArray[np.float64]) -> NDArray[np.float64]:
     return np.asarray(700.0 * (10.0 ** (mel / 2595.0) - 1.0), dtype=np.float64)
 
 
-def mel_filterbank(sample_rate: int, params: MelParams = MelParams()) -> Signal:
+def mel_filterbank(sample_rate: int, params: MelParams) -> Signal:
     """Triangular mel filterbank ``(n_mels, n_fft // 2 + 1)`` on the FFT frequency grid."""
     fmax = params.fmax if params.fmax is not None else sample_rate / 2.0
     fft_freqs = np.fft.rfftfreq(params.n_fft, 1.0 / sample_rate)
@@ -80,16 +59,14 @@ def mel_filterbank(sample_rate: int, params: MelParams = MelParams()) -> Signal:
     return filters
 
 
-def melspectrogram(signal: Signal, sample_rate: int, params: MelParams = MelParams()) -> Signal:
+def melspectrogram(signal: Signal, sample_rate: int, params: MelParams) -> Signal:
     """Mel power spectrogram ``(n_frames, n_mels)``."""
     power = stft_magnitude(signal, params.stft()) ** 2
     filters = mel_filterbank(sample_rate, params)
     return np.asarray(power @ filters.T, dtype=np.float64)
 
 
-def mfcc(
-    signal: Signal, sample_rate: int, n_mfcc: int = 13, params: MelParams = MelParams(), top_db: float = 80.0
-) -> Signal:
+def mfcc(signal: Signal, sample_rate: int, params: MelParams, n_mfcc: int, top_db: float) -> Signal:
     """Mel-frequency cepstral coefficients ``(n_frames, n_mfcc)`` (DCT-II of log-mel energies).
 
     The log-mel is floored ``top_db`` dB below its peak so near-silent bins (and any noise
@@ -108,7 +85,7 @@ def _magnitude_and_freqs(signal: Signal, sample_rate: int, params: StftParams) -
     return magnitude, np.asarray(freqs, dtype=np.float64)
 
 
-def spectral_centroid(signal: Signal, sample_rate: int, params: StftParams = StftParams()) -> float:
+def spectral_centroid(signal: Signal, sample_rate: int, params: StftParams) -> float:
     """Energy-weighted mean frequency (Hz), averaged over frames — a brightness proxy."""
     magnitude, freqs = _magnitude_and_freqs(signal, sample_rate, params)
     total = np.sum(magnitude, axis=1)
@@ -116,9 +93,7 @@ def spectral_centroid(signal: Signal, sample_rate: int, params: StftParams = Stf
     return float(np.mean(centroid))
 
 
-def spectral_rolloff(
-    signal: Signal, sample_rate: int, roll_percent: float = 0.85, params: StftParams = StftParams()
-) -> float:
+def spectral_rolloff(signal: Signal, sample_rate: int, params: StftParams, roll_percent: float) -> float:
     """Frequency (Hz) below which ``roll_percent`` of the energy lies, averaged over frames."""
     magnitude, freqs = _magnitude_and_freqs(signal, sample_rate, params)
     cumulative = np.cumsum(magnitude, axis=1)
@@ -129,7 +104,7 @@ def spectral_rolloff(
     return float(np.mean(rolloff))
 
 
-def spectral_flatness(signal: Signal, params: StftParams = StftParams()) -> float:
+def spectral_flatness(signal: Signal, params: StftParams) -> float:
     """Geometric/arithmetic mean-power ratio, averaged over frames (1.0 ≈ noise, ~0 ≈ tonal)."""
     power = stft_magnitude(signal, params) ** 2 + _LOG_FLOOR
     geometric = np.exp(np.mean(np.log(power), axis=1))
@@ -137,7 +112,7 @@ def spectral_flatness(signal: Signal, params: StftParams = StftParams()) -> floa
     return float(np.mean(geometric / np.maximum(arithmetic, _LOG_FLOOR)))
 
 
-def spectral_flux(signal: Signal, params: StftParams = StftParams()) -> Signal:
+def spectral_flux(signal: Signal, params: StftParams) -> Signal:
     """Per-frame L2 magnitude change ``(n_frames - 1,)`` — how fast the spectrum evolves."""
     magnitude = stft_magnitude(signal, params)
     if magnitude.shape[0] < 2:

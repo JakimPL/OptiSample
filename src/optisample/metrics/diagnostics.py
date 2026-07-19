@@ -10,7 +10,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from optisample.dsp.spectral import StftParams, band_energy, bandlimit, frame, spectral_flux
+from optisample.config.dsp import StftParams
+from optisample.config.metrics import SegmentalSnrConfig
+from optisample.dsp.spectral import band_energy, bandlimit, frame, spectral_flux
 from optisample.metrics.base import Signal
 from optisample.metrics.preprocess import integrated_loudness, match_length
 
@@ -27,23 +29,18 @@ def snr(reference: Signal, candidate: Signal) -> float:
     return 10.0 * float(np.log10((signal_power + _EPS) / noise_power))
 
 
-def segmental_snr(
-    reference: Signal,
-    candidate: Signal,
-    frame_length: int = 1024,
-    hop_length: int = 512,
-) -> float:
-    """Mean per-frame SNR (dB), clipped to [-10, 35] and ignoring silent frames."""
+def segmental_snr(reference: Signal, candidate: Signal, config: SegmentalSnrConfig) -> float:
+    """Mean per-frame SNR (dB), clipped to the config's dB range and ignoring silent frames."""
     reference, candidate = match_length(reference, candidate)
-    ref_frames = frame(reference, frame_length, hop_length)
-    err_frames = frame(reference - candidate, frame_length, hop_length)
+    ref_frames = frame(reference, config.frame_length, config.hop_length)
+    err_frames = frame(reference - candidate, config.frame_length, config.hop_length)
     signal_power = np.sum(ref_frames**2, axis=1)
     noise_power = np.sum(err_frames**2, axis=1)
     active = signal_power > _EPS
     if not np.any(active):
         return 0.0
     ratio = 10.0 * np.log10((signal_power[active] + _EPS) / (noise_power[active] + _EPS))
-    return float(np.mean(np.clip(ratio, -10.0, 35.0)))
+    return float(np.mean(np.clip(ratio, config.clip_low_db, config.clip_high_db)))
 
 
 def si_sdr(reference: Signal, candidate: Signal) -> float:
@@ -106,6 +103,6 @@ def loop_seam(signal: Signal, loop_start: int, loop_end: int) -> LoopSeam:
     return LoopSeam(amplitude_jump=amplitude_jump, derivative_jump=abs(slope_out - slope_in))
 
 
-def flux_variance(signal: Signal, params: StftParams = StftParams()) -> float:
+def flux_variance(signal: Signal, params: StftParams) -> float:
     """Standard deviation of spectral flux — near zero for a static loop, higher for evolving audio."""
     return float(np.std(spectral_flux(signal, params)))

@@ -15,8 +15,9 @@ from numpy.typing import NDArray
 
 from notebooks.utils.degrade import DegradeSpec, apply
 from notebooks.utils.loading import sample_label
+from optisample.config.dsp import SpectralConfig
 from optisample.dsp.spectral import spectral_centroid, spectral_flatness, spectral_rolloff
-from optisample.metrics import SampleSize, bytes_to_kib, evaluate, integrated_loudness, kib_to_bytes
+from optisample.metrics import CompositeFidelity, SampleSize, bytes_to_kib, evaluate, integrated_loudness, kib_to_bytes
 from optisample.metrics.size import INSTRUMENT_HEADER_BYTES
 from optisample.model import InstrumentSpec, SourceSample
 
@@ -25,7 +26,7 @@ Signal = NDArray[np.float64]
 Row = dict[str, float | int | str | bool]
 
 
-def sample_row(sample: SourceSample, signal: Signal, sample_rate: int) -> Row:
+def sample_row(sample: SourceSample, signal: Signal, sample_rate: int, spectral: SpectralConfig) -> Row:
     """Descriptors + storage footprint for one sample (a single table row)."""
     data = np.asarray(signal, dtype=np.float64)
     frames = int(data.size)
@@ -41,9 +42,9 @@ def sample_row(sample: SourceSample, signal: Signal, sample_rate: int) -> Row:
         "peak": peak,
         "rms": rms,
         "lufs": integrated_loudness(data, sample_rate),
-        "centroid_hz": spectral_centroid(data, sample_rate),
-        "rolloff_hz": spectral_rolloff(data, sample_rate),
-        "flatness": spectral_flatness(data),
+        "centroid_hz": spectral_centroid(data, sample_rate, spectral.stft),
+        "rolloff_hz": spectral_rolloff(data, sample_rate, spectral.stft, spectral.rolloff_percent),
+        "flatness": spectral_flatness(data, spectral.stft),
         "kib_16": bytes_to_kib(SampleSize(frames, 16).total_bytes),
         "kib_8": bytes_to_kib(SampleSize(frames, 8).total_bytes),
     }
@@ -88,9 +89,9 @@ def budget_summary(instrument: InstrumentSpec, frame_counts: Sequence[int]) -> R
     }
 
 
-def compare(reference: Signal, candidate: Signal, sample_rate: int, label: str) -> Row:
+def compare(reference: Signal, candidate: Signal, sample_rate: int, label: str, composite: CompositeFidelity) -> Row:
     """Evaluate ``candidate`` against ``reference`` and flatten it into one comparison row."""
-    report = evaluate(reference, candidate, sample_rate)
+    report = evaluate(reference, candidate, sample_rate, composite)
     breakdown, diagnostics = report.breakdown, report.diagnostics
     return {
         "candidate": label,
@@ -106,6 +107,10 @@ def compare(reference: Signal, candidate: Signal, sample_rate: int, label: str) 
     }
 
 
-def compare_specs(reference: Signal, sample_rate: int, specs: Sequence[DegradeSpec]) -> list[Row]:
+def compare_specs(
+    reference: Signal, sample_rate: int, specs: Sequence[DegradeSpec], composite: CompositeFidelity
+) -> list[Row]:
     """Apply each degradation to ``reference`` and return one comparison row per spec."""
-    return [compare(reference, apply(spec, reference, sample_rate), sample_rate, spec.label) for spec in specs]
+    return [
+        compare(reference, apply(spec, reference, sample_rate), sample_rate, spec.label, composite) for spec in specs
+    ]

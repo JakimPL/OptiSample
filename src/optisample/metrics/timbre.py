@@ -7,20 +7,19 @@ alone would not catch.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
+from optisample.config.dsp import MelParams, StftParams
 from optisample.dsp.spectral import (
-    MelParams,
-    StftParams,
     mfcc,
     spectral_centroid,
     spectral_flatness,
     spectral_flux,
     spectral_rolloff,
 )
-from optisample.metrics.base import MetricContext, Signal
+from optisample.metrics.base import MetricContext, Signal, register_metric
 
 _EPS = 1e-9
 _MCD_CONSTANT = 10.0 / np.log(10.0) * np.sqrt(2.0)
@@ -30,13 +29,14 @@ _MCD_CONSTANT = 10.0 / np.log(10.0) * np.sqrt(2.0)
 class MelCepstralDistortion:
     """Frame-averaged mel-cepstral distortion in dB (c0 excluded), assuming time-aligned input."""
 
-    n_mfcc: int = 13
-    params: MelParams = field(default_factory=MelParams)
+    n_mfcc: int
+    params: MelParams
+    dynamic_range_db: float
     name: str = "mcd"
 
     def distance(self, reference: Signal, candidate: Signal, ctx: MetricContext) -> float:
-        ref_mfcc = mfcc(reference, ctx.sample_rate, self.n_mfcc, self.params)[:, 1:]
-        cand_mfcc = mfcc(candidate, ctx.sample_rate, self.n_mfcc, self.params)[:, 1:]
+        ref_mfcc = mfcc(reference, ctx.sample_rate, self.params, self.n_mfcc, self.dynamic_range_db)[:, 1:]
+        cand_mfcc = mfcc(candidate, ctx.sample_rate, self.params, self.n_mfcc, self.dynamic_range_db)[:, 1:]
         frames = int(min(ref_mfcc.shape[0], cand_mfcc.shape[0]))
         if frames == 0:
             return 0.0
@@ -53,8 +53,9 @@ def _relative_delta(reference: float, candidate: float) -> float:
 class SpectralShape:
     """Weighted brightness/rolloff/flatness deltas plus a flux-variance (static-loop) mismatch."""
 
-    params: StftParams = field(default_factory=StftParams)
-    weights: tuple[float, float, float, float] = (0.4, 0.2, 0.2, 0.2)
+    params: StftParams
+    weights: tuple[float, float, float, float]
+    rolloff_percent: float
     name: str = "spectral_shape"
 
     def components(self, reference: Signal, candidate: Signal, sample_rate: int) -> dict[str, float]:
@@ -63,8 +64,8 @@ class SpectralShape:
             spectral_centroid(candidate, sample_rate, self.params),
         )
         rolloff = _relative_delta(
-            spectral_rolloff(reference, sample_rate, params=self.params),
-            spectral_rolloff(candidate, sample_rate, params=self.params),
+            spectral_rolloff(reference, sample_rate, self.params, self.rolloff_percent),
+            spectral_rolloff(candidate, sample_rate, self.params, self.rolloff_percent),
         )
         flatness = abs(spectral_flatness(reference, self.params) - spectral_flatness(candidate, self.params))
         flux_variance = _relative_delta(
@@ -77,3 +78,19 @@ class SpectralShape:
         parts = self.components(reference, candidate, ctx.sample_rate)
         keys = ("centroid", "rolloff", "flatness", "flux_variance")
         return float(sum(weight * parts[key] for weight, key in zip(self.weights, keys)))
+
+
+register_metric(
+    "mcd",
+    lambda config: MelCepstralDistortion(
+        n_mfcc=config.mcd.n_mfcc, params=config.mcd.mel, dynamic_range_db=config.preprocess.dynamic_range_db
+    ),
+)
+register_metric(
+    "spectral_shape",
+    lambda config: SpectralShape(
+        params=config.spectral_shape.stft,
+        weights=config.spectral_shape.weights,
+        rolloff_percent=config.spectral_shape.rolloff_percent,
+    ),
+)

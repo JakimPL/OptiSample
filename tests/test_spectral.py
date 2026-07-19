@@ -4,9 +4,8 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
+from optisample.config.dsp import MelParams, SpectralConfig, StftParams
 from optisample.dsp.spectral import (
-    MelParams,
-    StftParams,
     band_energy,
     bandlimit,
     mel_filterbank,
@@ -31,22 +30,24 @@ def test_stft_magnitude_shape() -> None:
 
 
 def test_mel_filterbank_shape_and_nonnegative() -> None:
-    filters = mel_filterbank(SR, MelParams(n_fft=512, n_mels=20))
+    filters = mel_filterbank(SR, MelParams(n_fft=512, hop_length=256, n_mels=20, fmin=0.0, fmax=None))
     assert filters.shape == (20, 512 // 2 + 1)
     assert np.all(filters >= 0.0)
     assert np.all(filters.sum(axis=1) > 0.0)  # no degenerate empty filters
 
 
-def test_centroid_tracks_tone_frequency() -> None:
-    assert spectral_centroid(tone(1500), SR) == pytest.approx(1500.0, abs=200.0)
+def test_centroid_tracks_tone_frequency(spectral_config: SpectralConfig) -> None:
+    assert spectral_centroid(tone(1500), SR, spectral_config.stft) == pytest.approx(1500.0, abs=200.0)
 
 
-def test_centroid_higher_for_brighter_tone() -> None:
-    assert spectral_centroid(tone(2500), SR) > spectral_centroid(tone(600), SR)
+def test_centroid_higher_for_brighter_tone(spectral_config: SpectralConfig) -> None:
+    stft = spectral_config.stft
+    assert spectral_centroid(tone(2500), SR, stft) > spectral_centroid(tone(600), SR, stft)
 
 
-def test_rolloff_near_tone_frequency() -> None:
-    assert spectral_rolloff(tone(1200), SR) == pytest.approx(1200.0, abs=250.0)
+def test_rolloff_near_tone_frequency(spectral_config: SpectralConfig) -> None:
+    rolloff = spectral_rolloff(tone(1200), SR, spectral_config.stft, spectral_config.rolloff_percent)
+    assert rolloff == pytest.approx(1200.0, abs=250.0)
 
 
 def test_band_energy_is_localized() -> None:
@@ -60,8 +61,9 @@ def test_bandlimit_removes_out_of_band_tone() -> None:
     assert float(np.sum(removed**2)) < 1e-3 * float(np.sum(signal**2))
 
 
-def test_flux_variance_higher_for_evolving_signal() -> None:
+def test_flux_variance_higher_for_evolving_signal(spectral_config: SpectralConfig) -> None:
+    stft = spectral_config.stft
     static = tone(1000, dur=1.0)
     t = np.arange(static.size, dtype=np.float64) / SR
     evolving = (1.0 + 0.8 * np.sin(2.0 * np.pi * 3.0 * t)) * np.sin(2.0 * np.pi * 1000.0 * t)
-    assert float(np.std(spectral_flux(evolving))) > float(np.std(spectral_flux(static)))
+    assert float(np.std(spectral_flux(evolving, stft))) > float(np.std(spectral_flux(static, stft)))

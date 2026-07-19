@@ -18,6 +18,7 @@ from optisample.config.metrics import MetricsConfig
 from optisample.config.optimize import OptimizeConfig, SweepConfig, VelocityConfig
 from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.config.synth import SynthConfig
+from optisample.metrics import CompositeFidelity, build_composite
 
 
 @pytest.fixture(scope="session")
@@ -49,6 +50,12 @@ def spectral_config(config: OptiConfig) -> SpectralConfig:
 @pytest.fixture
 def metrics_config(config: OptiConfig) -> MetricsConfig:
     return config.metrics
+
+
+@pytest.fixture
+def composite(config: OptiConfig) -> CompositeFidelity:
+    """The composite fidelity built once from the bundled metrics config."""
+    return build_composite(config.metrics)
 
 
 @pytest.fixture

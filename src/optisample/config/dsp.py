@@ -36,6 +36,7 @@ class SpectralConfig(ConfigModel):
 
     stft: StftParams
     mel: MelParams
+    rolloff_percent: float
 
 
 class LoopConfig(ConfigModel):  # pylint: disable=too-many-instance-attributes
