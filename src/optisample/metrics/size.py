@@ -11,15 +11,16 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from optisample.dsp.quantize import VALID_DEPTHS
+
 SAMPLE_HEADER_BYTES = 80
 INSTRUMENT_HEADER_BYTES = 554
 FILE_HEADER_BYTES = 192
 _BYTES_PER_KIB = 1024
-_VALID_DEPTHS = (8, 16)
 
 
 def _bytes_per_frame(depth_bits: int, channels: int) -> int:
-    if depth_bits not in _VALID_DEPTHS:
+    if depth_bits not in VALID_DEPTHS:
         raise ValueError(f"IT samples are 8- or 16-bit, got {depth_bits}")
     if channels < 1:
         raise ValueError(f"channels must be >= 1, got {channels}")
