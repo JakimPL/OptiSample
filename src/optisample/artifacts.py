@@ -46,6 +46,7 @@ from optisample.io.render import openmpt123_available, render_module
 from optisample.metrics.base import Signal
 from optisample.metrics.composite import evaluate
 from optisample.model import InstrumentSpec, Manifest, NoteEvent
+from optisample.music import note_name
 from optisample.optimize.export import ExportContext, build_grouped_it_module, build_it_module
 from optisample.optimize.grouping import GroupedInstrumentPlan, format_grouping_report, optimize_instrument_grouped
 from optisample.optimize.knapsack import BudgetInfeasibleError
@@ -59,13 +60,6 @@ from optisample.optimize.orchestrate import (
 )
 from optisample.optimize.tasks import AudioMap, EvalContext, Event, PitchTask
 from optisample.optimize.velocity_map import VelocityVolumeMap
-
-_NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
-
-
-def _note_name(pitch: int) -> str:
-    """MIDI note number -> scientific pitch name (60 -> ``C4``)."""
-    return f"{_NOTE_NAMES[pitch % 12]}{pitch // 12 - 1}"
 
 
 @dataclass(frozen=True)
@@ -203,7 +197,7 @@ def _plan_json_ungrouped(plan: InstrumentPlan, units: tuple[_Unit, ...]) -> dict
         "pitches": [
             {
                 "pitch": pitch.pitch,
-                "note": _note_name(pitch.pitch),
+                "note": note_name(pitch.pitch),
                 "weight": pitch.weight,
                 "representative_velocity": pitch.representative_velocity,
                 "target_rate": pitch.chosen.params.target_rate,
@@ -261,7 +255,7 @@ def _ungrouped_units(plan: InstrumentPlan, dctx: _DumpContext) -> tuple[_Unit, .
         stored = encode(task.representative, dctx.sample_rate, pitch.chosen.params, encode_ctx)
         units.append(
             _Unit(
-                label=f"p{pitch.pitch:03d}_{_note_name(pitch.pitch)}",
+                label=f"p{pitch.pitch:03d}_{note_name(pitch.pitch)}",
                 stored=stored,
                 tasks=(task,),
                 representative=pitch.pitch,
@@ -281,7 +275,7 @@ def _grouped_units(plan: GroupedInstrumentPlan, dctx: _DumpContext) -> tuple[_Un
         stored = encode(signal, dctx.sample_rate, zone.chosen.params, encode_ctx)
         units.append(
             _Unit(
-                label=f"zone{index:02d}_rep{zone.representative:03d}_{_note_name(zone.representative)}",
+                label=f"zone{index:02d}_rep{zone.representative:03d}_{note_name(zone.representative)}",
                 stored=stored,
                 tasks=tuple(dctx.tasks_by_pitch[pitch] for pitch in zone.pitches),
                 representative=zone.representative,
@@ -344,14 +338,14 @@ def _dump_one_note(kind: _PlanKind, unit: _Unit, task: PitchTask, out_dir: Path,
     """Write the reference/rendered A/B pair for one pitch and return its metric record."""
     events_json, contribution = _note_metrics(unit, task, dctx.ctx)
     rep = _representative_event(task)
-    stem = f"p{task.pitch:03d}_{_note_name(task.pitch)}"
+    stem = f"p{task.pitch:03d}_{note_name(task.pitch)}"
     reference = rep.reference[: max(0, int(round(rep.duration_s * dctx.sample_rate)))]
     write_wav(out_dir / "compare" / f"{stem}_ref.wav", reference, dctx.sample_rate)
     rendered, rate, source = _rendered_note(dctx, kind, unit, task, rep)
     write_wav(out_dir / "compare" / f"{stem}_render.wav", rendered, rate)
     return {
         "pitch": task.pitch,
-        "note": _note_name(task.pitch),
+        "note": note_name(task.pitch),
         "served_by": unit.label,
         "representative": unit.representative,
         "weight": task.weight,

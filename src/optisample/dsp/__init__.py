@@ -27,7 +27,6 @@ from optisample.dsp.surrogate import (
     StoredSample,
     encode,
     render,
-    semitone_ratio,
 )
 
 __all__ = [
@@ -56,7 +55,6 @@ __all__ = [
     "StoredSample",
     "encode",
     "render",
-    "semitone_ratio",
     "Loop",
     "detect_loop",
     "crossfade_loop",

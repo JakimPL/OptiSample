@@ -28,6 +28,7 @@ from optisample.config.synth import PresetConfig, SynthConfig
 from optisample.io.audio import write_wav
 from optisample.io.manifest import dump_manifest
 from optisample.model import InstrumentSpec, Manifest, NoteEvent, ProjectSpec, SourceSample
+from optisample.music import A4_FREQ_HZ, MIDI_A4, semitone_ratio
 
 Archetype = Literal["sustained", "piano"]
 
@@ -53,7 +54,7 @@ class NoteSpec:
 
 def midi_to_freq(pitch: int) -> float:
     """MIDI note number → fundamental frequency in Hz (A4/69 = 440 Hz)."""
-    return float(440.0 * 2.0 ** ((pitch - 69) / 12.0))
+    return A4_FREQ_HZ * semitone_ratio(pitch - MIDI_A4)
 
 
 def _n_partials(fundamental: float, sample_rate: int, requested: int, nyquist_fraction: float) -> int:
@@ -110,7 +111,7 @@ def render_piano(spec: NoteSpec, rng: np.random.Generator, config: SynthConfig) 
     t = spec.time_axis()
 
     base_tau = float(
-        np.clip(cfg.base_tau_scale * (440.0 / fundamental) ** cfg.base_tau_exp, cfg.base_tau_min, cfg.base_tau_max)
+        np.clip(cfg.base_tau_scale * (A4_FREQ_HZ / fundamental) ** cfg.base_tau_exp, cfg.base_tau_min, cfg.base_tau_max)
     )
     rolloff = (cfg.rolloff_base + cfg.rolloff_vel * spec.vel) * (1.0 + cfg.rolloff_controller * spec.controller)
     signal = np.zeros_like(t)

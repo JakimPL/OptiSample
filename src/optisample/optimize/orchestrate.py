@@ -33,6 +33,7 @@ from optisample.metrics.base import Signal
 from optisample.metrics.composite import CompositeFidelity
 from optisample.metrics.size import FILE_HEADER_BYTES, INSTRUMENT_HEADER_BYTES, bytes_to_kib, kib_to_bytes
 from optisample.model import InstrumentSpec
+from optisample.music import note_name
 from optisample.optimize.knapsack import (
     Allocation,
     KnapsackItem,
@@ -47,7 +48,6 @@ from optisample.optimize.velocity_map import VelocityVolumeMap, derive_velocity_
 
 Method = Literal["exact", "lagrangian"]
 
-_NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
 _CURVE_ROWS = 6
 
 
@@ -250,11 +250,6 @@ def run_instrument(instrument: InstrumentSpec, settings: OptimizeSettings) -> In
     return optimize_instrument(instrument, audio, sample_rate, settings)
 
 
-def _note_name(pitch: int) -> str:
-    """MIDI note number -> scientific pitch name (60 -> ``C4``)."""
-    return f"{_NOTE_NAMES[pitch % 12]}{pitch // 12 - 1}"
-
-
 class _Budgeted(Protocol):
     """The budget-facing surface every plan exposes -- what :func:`format_budget_block` needs."""
 
@@ -308,7 +303,7 @@ def _format_pitches(plan: InstrumentPlan) -> str:
     for pitch in plan.pitches:
         point = pitch.chosen
         lines.append(
-            f"{pitch.pitch:>5}  {_note_name(pitch.pitch):>4}  {pitch.weight:>9.1f}  "
+            f"{pitch.pitch:>5}  {note_name(pitch.pitch):>4}  {pitch.weight:>9.1f}  "
             f"{pitch.representative_velocity:>7}  {point.params.target_rate:>8}  {point.params.depth_bits:>5}  "
             f"{bytes_to_kib(point.stored_bytes):>9.1f}  {point.distortion:>10.4f}  {len(pitch.hull):>4}"
         )

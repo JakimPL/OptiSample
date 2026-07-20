@@ -31,9 +31,10 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
-from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode, semitone_ratio
+from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode
 from optisample.metrics.size import FILE_HEADER_BYTES, INSTRUMENT_HEADER_BYTES, bytes_to_kib, kib_to_bytes
 from optisample.model import InstrumentSpec
+from optisample.music import semitone_ratio
 from optisample.optimize.knapsack import BudgetInfeasibleError
 from optisample.optimize.operating_points import lower_convex_hull, sweep_rates
 from optisample.optimize.orchestrate import (

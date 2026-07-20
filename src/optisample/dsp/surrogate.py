@@ -26,6 +26,7 @@ from optisample.dsp.loop import Loop, crossfade_loop, detect_loop
 from optisample.dsp.quantize import normalize_peak, requantize
 from optisample.dsp.resample import resample_num, resample_to
 from optisample.metrics.size import SampleSize
+from optisample.music import semitone_ratio
 
 Signal = NDArray[np.float64]
 
@@ -80,11 +81,6 @@ class EncodeContext:
     root_pitch: int
     config: EncodeConfig
     rng: np.random.Generator | None = None
-
-
-def semitone_ratio(semitones: float) -> float:
-    """Playback speed / frequency ratio for a pitch shift of ``semitones`` (12 semitones = 2x)."""
-    return float(2.0 ** (semitones / 12.0))
 
 
 def _fit_length(signal: Signal, length: int) -> Signal:

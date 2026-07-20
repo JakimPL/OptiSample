@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from optisample.dsp.surrogate import MAX_VOLUME, EncodingParams, StoredSample, encode, render, semitone_ratio
+from optisample.dsp.surrogate import MAX_VOLUME, EncodingParams, StoredSample, encode, render
 from optisample.metrics.diagnostics import snr
 from optisample.metrics.size import SampleSize
 
@@ -14,12 +14,6 @@ SR = 44_100
 def sine(freq: float, dur: float = 1.0, amp: float = 1.0) -> NDArray[np.float64]:
     t = np.arange(int(dur * SR), dtype=np.float64) / SR
     return amp * np.sin(2.0 * np.pi * freq * t)
-
-
-def test_semitone_ratio_octaves() -> None:
-    assert semitone_ratio(0.0) == pytest.approx(1.0)
-    assert semitone_ratio(12.0) == pytest.approx(2.0)
-    assert semitone_ratio(-12.0) == pytest.approx(0.5)
 
 
 def test_stored_sample_properties() -> None:

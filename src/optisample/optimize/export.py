@@ -22,7 +22,7 @@ import numpy as np
 
 from optisample.config.dsp import EncodeConfig
 from optisample.config.render import PlaybackConfig
-from optisample.dsp.surrogate import EncodeContext, StoredSample, encode, semitone_ratio
+from optisample.dsp.surrogate import EncodeContext, StoredSample, encode
 from optisample.io.it_writer import (
     MAX_ROWS,
     NOTE_CUT,
@@ -38,6 +38,7 @@ from optisample.io.it_writer import (
 )
 from optisample.metrics.base import Signal
 from optisample.model import NoteEvent
+from optisample.music import note_name, semitone_ratio
 from optisample.optimize.grouping import GroupedInstrumentPlan
 from optisample.optimize.orchestrate import InstrumentPlan
 from optisample.optimize.tasks import AudioMap
@@ -45,7 +46,6 @@ from optisample.optimize.velocity_map import VelocityVolumeMap
 
 _C5_KEY = 60  # IT reference key C-5; a sample plays at C5Speed when triggered here.
 _MAX_IT_NOTE = 119  # IT keys span C-0..B-9.
-_NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
 
 
 @dataclass(frozen=True)
@@ -58,10 +58,6 @@ class ExportContext:
     encode: EncodeConfig
     playback: PlaybackConfig
     seed: int = 0
-
-
-def _note_name(pitch: int) -> str:
-    return f"{_NOTE_NAMES[pitch % 12]}{pitch // 12 - 1}"
 
 
 def c5speed_for_pitch(stored_rate: int, pitch: int) -> int:
@@ -90,7 +86,7 @@ def _build_samples(
         stored = encode(representative, sample_rate, pitch_plan.chosen.params, encode_ctx)
         samples.append(
             ITSample(
-                name=f"{plan.instrument_id[:18]} {_note_name(pitch)}",
+                name=f"{plan.instrument_id[:18]} {note_name(pitch)}",
                 pcm=stored.pcm,
                 depth_bits=stored.depth_bits,
                 c5speed=c5speed_for_pitch(stored.sample_rate, pitch),
@@ -158,7 +154,7 @@ def _build_zone_samples(
         stored = encode(representative, sample_rate, zone.chosen.params, encode_ctx)
         samples.append(
             ITSample(
-                name=f"{plan.instrument_id[:18]} {_note_name(zone.representative)}",
+                name=f"{plan.instrument_id[:18]} {note_name(zone.representative)}",
                 pcm=stored.pcm,
                 depth_bits=stored.depth_bits,
                 c5speed=c5speed_for_pitch(stored.sample_rate, zone.representative),
