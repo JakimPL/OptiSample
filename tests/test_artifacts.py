@@ -8,12 +8,8 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from optisample.artifacts import (
-    DumpSettings,
-    _json_safe,
-    dump_instrument,
-    dump_project,
-)
+from optisample.artifacts import DumpSettings, dump_instrument, dump_project
+from optisample.artifacts.serialize import _json_safe
 from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
 from optisample.io.audio import read_wav, write_wav
