@@ -35,6 +35,7 @@ from optisample.io.it_writer import (
     ITSample,
     identity_note_map,
     it_playback,
+    require_it_note,
 )
 from optisample.metrics.base import Signal
 from optisample.model import NoteEvent
@@ -45,7 +46,6 @@ from optisample.optimize.tasks import AudioMap
 from optisample.optimize.velocity_map import VelocityVolumeMap
 
 _C5_KEY = 60  # IT reference key C-5; a sample plays at C5Speed when triggered here.
-_MAX_IT_NOTE = 119  # IT keys span C-0..B-9.
 
 
 @dataclass(frozen=True)
@@ -78,9 +78,7 @@ def _build_samples(
     samples: list[ITSample] = []
     assignment: dict[int, int] = {}
     for index, pitch_plan in enumerate(plan.pitches):
-        pitch = pitch_plan.pitch
-        if not 0 <= pitch <= _MAX_IT_NOTE:
-            raise ValueError(f"pitch {pitch} is outside the IT key range 0..{_MAX_IT_NOTE}")
+        pitch = require_it_note(pitch_plan.pitch)
         representative: Signal = audio[(pitch, pitch_plan.representative_velocity)]
         encode_ctx = EncodeContext(root_pitch=pitch, config=ctx.encode, rng=rng)
         stored = encode(representative, sample_rate, pitch_plan.chosen.params, encode_ctx)
@@ -162,8 +160,7 @@ def _build_zone_samples(
             )
         )
         for pitch in zone.pitches:
-            if not 0 <= pitch <= _MAX_IT_NOTE:
-                raise ValueError(f"pitch {pitch} is outside the IT key range 0..{_MAX_IT_NOTE}")
+            require_it_note(pitch)
             assignment[pitch] = index + 1  # sample numbers are 1-based in the note map
     return tuple(samples), assignment
 

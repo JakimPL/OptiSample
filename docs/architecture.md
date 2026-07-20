@@ -14,7 +14,7 @@ in the right place.
 | `dsp/` | Signal primitives (`spectral`, `resample`, `quantize`, `loop`) and the surrogate codec (`surrogate`: `encode`/`render`, `StoredSample`, `EncodingParams`). | `config`, `music`, `metrics.size` |
 | `metrics/` | Fidelity measurement (`composite`, `spectral`, `timbre`, `diagnostics`, `preprocess`) and the byte-`size` model. | `config`, `dsp` primitives |
 | `optimize/` | The allocation pipeline (see below). | `dsp`, `metrics`, `model`, `io`, `config`, `music` |
-| `io/` | The file/format boundary: `audio` (WAV), `manifest`, `it_format` (declarative IT record layout), `it_writer` (IT binary), `it_read` (round-trip), `render` (openmpt123 wrapper). | `config`, `metrics.size`, `music` |
+| `io/` | The file/format boundary: `audio` (WAV), `manifest`, `it_format` (declarative IT record layout), `it_writer` (IT binary), `it_read` (round-trip), `render` (openmpt123 wrapper). | `config`, `metrics.size`, `music`, `dsp.surrogate` (`MAX_VOLUME`) |
 | `synth.py` | Synthetic demo-audio generation. | `config`, `music` |
 | `calibrate.py` | Surrogate-vs-openmpt calibration diagnostics. | `optimize`, `io`, `metrics` |
 | `artifacts/` | Inspection-artifact dumper (module + report + plan + per-note A/B WAVs + metrics). | `optimize`, `io`, `metrics` |
@@ -34,8 +34,9 @@ in the right place.
 
 ## Rules
 
-1. **Shared primitives have one home.** Pitch/music math lives in `music.py`; IT-format facts live in `io/`
-   (the format owner); byte-size math lives in `metrics/size.py`. Import from the owner — do not re-derive.
+1. **Shared primitives have one home.** Pitch/music math lives in `music.py`; the IT record layout in
+   `io/it_format.py`; byte-size math in `metrics/size.py`; the IT volume ceiling (`MAX_VOLUME`, 0x40) sits with
+   the surrogate codec that renders against it and is imported from there. Import from the owner — do not re-derive.
 2. **Config is schema, not values.** No tunable value defaults live in Python; YAML in `src/opticonfig/` is the
    single source. Config loads once at the entry point and threads down as explicit arguments.
 3. **One responsibility per module.** Keep data shapes, algorithms, and reporting/serialization separated. When

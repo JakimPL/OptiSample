@@ -27,15 +27,22 @@ import numpy as np
 from numpy.typing import NDArray
 
 from optisample.config.render import PlaybackConfig
-from optisample.metrics.size import FILE_HEADER_BYTES, INSTRUMENT_HEADER_BYTES, SAMPLE_HEADER_BYTES
+from optisample.dsp.surrogate import MAX_VOLUME
+from optisample.io.it_format import (
+    CHANNELS_STORED,
+    FILE_HEADER,
+    INSTRUMENT_HEADER,
+    KEYBOARD_NOTES,
+    MAX_IT_NOTE,
+    SAMPLE_HEADER,
+)
+from optisample.metrics.size import FILE_HEADER_BYTES, SAMPLE_HEADER_BYTES
 
 _IMPM = b"IMPM"
 _IMPS = b"IMPS"
 _IMPI = b"IMPI"
 
-_KEYBOARD_NOTES = 120  # IT keys C-0..B-9 (0..119); the note map holds one (note, sample) pair each.
-_CHANNELS_STORED = 64  # the file header always carries 64 channel pan + 64 channel volume bytes.
-_MAX_IT_NOTE = _KEYBOARD_NOTES - 1
+_NAME_BYTES = 26  # every IT name field (song, instrument, sample) is 26 ASCII bytes, null-padded.
 
 # Shared IT-format timing facts (the exporter and calibrator both lay material into rows with these).
 MAX_ROWS = 200  # IT patterns hold 1..200 rows.
@@ -55,13 +62,31 @@ _SMP_FLAG_16BIT = 0x02  # 16-bit (else 8-bit).
 _SMP_FLAG_LOOP = 0x10  # forward loop enabled (loop begin/end fields are read).
 _CVT_SIGNED = 0x01  # signed PCM (the standard IT storage).
 
+MAX_GLOBAL_VOLUME = 128  # file-header and instrument global-volume ceiling.
+MAX_MIX_VOLUME = 128  # file-header mix-volume ceiling.
+PANNING_SEPARATION = 128  # full stereo separation in the file header.
+PAN_CENTER = 32  # centred channel pan (IT pan spans 0..64).
+CHANNEL_VOLUME_FULL = MAX_VOLUME  # every stored channel plays at full volume (0..64).
+
 _MASK_NOTE = 0x01
 _MASK_INSTRUMENT = 0x02
 _MASK_VOLUME = 0x04
 _MASK_EFFECT = 0x08
 
+CHANNEL_MARKER = 0x80  # high bit set on a packed cell's channel byte (always followed by a mask).
+END_OF_ROW = 0x00  # a zero byte terminates a packed pattern row.
+ORDER_TERMINATOR = 0xFF  # ends the order list.
+OFFSET_TABLE_ENTRY_BYTES = 4  # each instrument/sample/pattern offset is a little-endian u32.
+
 _INT16_SCALE = 32768.0
 _INT8_SCALE = 128.0
+
+
+def require_it_note(note: int) -> int:
+    """Return ``note`` if it is a playable IT key (0..119); raise ``ValueError`` otherwise."""
+    if not 0 <= note <= MAX_IT_NOTE:
+        raise ValueError(f"note {note} is outside the IT key range 0..{MAX_IT_NOTE}")
+    return note
 
 
 @dataclass(frozen=True)
@@ -153,11 +178,10 @@ def identity_note_map(assignments: Mapping[int, int]) -> tuple[tuple[int, int], 
     identity mapping; the per-sample ``C5Speed`` carries the real pitch, so each key plays naturally.
     """
     for note, sample_number in assignments.items():
-        if not 0 <= note <= _MAX_IT_NOTE:
-            raise ValueError(f"note {note} out of IT range 0..{_MAX_IT_NOTE}")
+        require_it_note(note)
         if sample_number < 0:
             raise ValueError(f"sample number {sample_number} must be non-negative")
-    return tuple((note, assignments.get(note, 0)) for note in range(_KEYBOARD_NOTES))
+    return tuple((note, assignments.get(note, 0)) for note in range(KEYBOARD_NOTES))
 
 
 def _ascii(text: str, length: int) -> bytes:
@@ -182,41 +206,46 @@ def _sample_header(sample: ITSample, data_offset: int) -> bytes:
     """Serialize an 80-byte IMPS sample header pointing at ``data_offset``."""
     if sample.depth_bits not in (8, 16):
         raise ValueError(f"unsupported depth {sample.depth_bits} (expected 8 or 16)")
-    buf = bytearray(SAMPLE_HEADER_BYTES)
-    buf[0:4] = _IMPS
-    buf[17] = min(sample.global_volume, 64)
     flags = _SMP_FLAG_DATA | (_SMP_FLAG_16BIT if sample.depth_bits == 16 else 0)
+    loop_begin, loop_end = 0, 0
     if sample.loop is not None:
         flags |= _SMP_FLAG_LOOP
-        begin, end = sample.loop
-        struct.pack_into("<I", buf, 52, begin)  # Loop Begin (frame)
-        struct.pack_into("<I", buf, 56, end)  # Loop End (frame after the loop; playback wraps here)
-    buf[18] = flags
-    buf[19] = min(sample.default_volume, 64)
-    buf[20:46] = _ascii(sample.name, 26)
-    buf[46] = _CVT_SIGNED
-    struct.pack_into("<I", buf, 48, sample.frames)  # Length (in frames)
-    struct.pack_into("<I", buf, 60, int(sample.c5speed))  # C5Speed
-    struct.pack_into("<I", buf, 72, data_offset)  # SamplePointer
-    return bytes(buf)
+        loop_begin, loop_end = sample.loop  # Loop End is the frame after the loop; playback wraps here.
+    return SAMPLE_HEADER.pack(
+        {
+            "magic": _IMPS,
+            "global_volume": min(sample.global_volume, MAX_VOLUME),
+            "flags": flags,
+            "default_volume": min(sample.default_volume, MAX_VOLUME),
+            "name": _ascii(sample.name, _NAME_BYTES),
+            "convert": _CVT_SIGNED,
+            "length": sample.frames,
+            "loop_begin": loop_begin,
+            "loop_end": loop_end,
+            "c5speed": int(sample.c5speed),
+            "sample_pointer": data_offset,
+        }
+    )
 
 
 def _instrument_header(instrument: ITInstrument) -> bytes:
     """Serialize a 554-byte IMPI instrument header with disabled envelopes."""
-    if len(instrument.note_map) != _KEYBOARD_NOTES:
-        raise ValueError(f"note map must have {_KEYBOARD_NOTES} entries, got {len(instrument.note_map)}")
-    buf = bytearray(INSTRUMENT_HEADER_BYTES)
-    buf[0:4] = _IMPI
-    buf[17] = instrument.new_note_action & 0xFF
-    buf[23] = _PPC_C5  # pitch-pan centre
-    buf[24] = min(instrument.global_volume, 128)
-    buf[25] = instrument.default_pan & 0xFF
-    buf[32:58] = _ascii(instrument.name, 26)
-    for note, (play_note, sample_number) in enumerate(instrument.note_map):
-        buf[64 + 2 * note] = play_note & 0xFF
-        buf[64 + 2 * note + 1] = sample_number & 0xFF
+    if len(instrument.note_map) != KEYBOARD_NOTES:
+        raise ValueError(f"note map must have {KEYBOARD_NOTES} entries, got {len(instrument.note_map)}")
     # Envelopes (offsets 304..550) and the 4 trailing reserved bytes stay zero = disabled.
-    return bytes(buf)
+    return INSTRUMENT_HEADER.pack(
+        {
+            "magic": _IMPI,
+            "new_note_action": instrument.new_note_action & 0xFF,
+            "pitch_pan_center": _PPC_C5,
+            "global_volume": min(instrument.global_volume, MAX_GLOBAL_VOLUME),
+            "default_pan": instrument.default_pan & 0xFF,
+            "name": _ascii(instrument.name, _NAME_BYTES),
+            "note_map": tuple(
+                (play_note & 0xFF, sample_number & 0xFF) for play_note, sample_number in instrument.note_map
+            ),
+        }
+    )
 
 
 def _pack_cell(stream: bytearray, channel: int, cell: ITCell) -> None:
@@ -232,7 +261,7 @@ def _pack_cell(stream: bytearray, channel: int, cell: ITCell) -> None:
         mask |= _MASK_EFFECT
     if mask == 0:
         return
-    stream.append(((channel + 1) | 0x80) & 0xFF)  # channel marker, always followed by an explicit mask
+    stream.append(((channel + 1) | CHANNEL_MARKER) & 0xFF)  # channel marker, always followed by an explicit mask
     stream.append(mask)
     if cell.note is not None:
         stream.append(cell.note & 0xFF)
@@ -259,28 +288,35 @@ def _pack_pattern(pattern: ITPattern) -> bytes:
     for row in range(pattern.rows):
         for channel, cell in sorted(by_row.get(row, []), key=lambda item: item[0]):
             _pack_cell(stream, channel, cell)
-        stream.append(0)  # end-of-row marker
+        stream.append(END_OF_ROW)
     return struct.pack("<HHI", len(stream), pattern.rows, 0) + bytes(stream)
 
 
 def _file_header(module: ITModule, counts: tuple[int, int, int, int]) -> bytes:
     """Serialize the 192-byte IMPM header (up to and including the channel pan/volume arrays)."""
     ord_num, ins_num, smp_num, pat_num = counts
-    buf = bytearray(FILE_HEADER_BYTES)
-    buf[0:4] = _IMPM
-    buf[4:30] = _ascii(module.name, 26)
-    flags = _FLAG_USE_INSTRUMENTS | _FLAG_LINEAR_SLIDES
-    struct.pack_into("<HHHHHHHH", buf, 30, 0, ord_num, ins_num, smp_num, pat_num, _CWT, _CMWT, flags)
     playback = module.playback
-    buf[48] = min(playback.global_volume, 128)
-    buf[49] = min(playback.mix_volume, 128)
-    buf[50] = playback.speed
-    buf[51] = playback.tempo
-    buf[52] = 128  # panning separation
-    for channel in range(_CHANNELS_STORED):
-        buf[64 + channel] = 32  # centre pan
-        buf[128 + channel] = 64  # full channel volume
-    return bytes(buf)
+    return FILE_HEADER.pack(
+        {
+            "magic": _IMPM,
+            "name": _ascii(module.name, _NAME_BYTES),
+            "highlight": 0,
+            "order_count": ord_num,
+            "instrument_count": ins_num,
+            "sample_count": smp_num,
+            "pattern_count": pat_num,
+            "created_with": _CWT,
+            "compatible_with": _CMWT,
+            "flags": _FLAG_USE_INSTRUMENTS | _FLAG_LINEAR_SLIDES,
+            "global_volume": min(playback.global_volume, MAX_GLOBAL_VOLUME),
+            "mix_volume": min(playback.mix_volume, MAX_MIX_VOLUME),
+            "speed": playback.speed,
+            "tempo": playback.tempo,
+            "panning_separation": PANNING_SEPARATION,
+            "channel_pan": bytes([PAN_CENTER]) * CHANNELS_STORED,
+            "channel_volume": bytes([CHANNEL_VOLUME_FULL]) * CHANNELS_STORED,
+        }
+    )
 
 
 def _offsets(blobs: list[bytes], start: int) -> list[int]:
@@ -319,9 +355,9 @@ def _serialize_body(module: ITModule, start: int) -> tuple[list[int], bytes]:
 
 def write_it_module(module: ITModule) -> bytes:
     """Serialize ``module`` to the complete bytes of an uncompressed ``.IT`` file."""
-    orders = tuple(module.orders) + (0xFF,)  # 0xFF terminates the order list.
+    orders = tuple(module.orders) + (ORDER_TERMINATOR,)
     counts = (len(orders), len(module.instruments), len(module.samples), len(module.patterns))
-    table_end = FILE_HEADER_BYTES + len(orders) + 4 * (counts[1] + counts[2] + counts[3])
+    table_end = FILE_HEADER_BYTES + len(orders) + OFFSET_TABLE_ENTRY_BYTES * (counts[1] + counts[2] + counts[3])
     tables, body = _serialize_body(module, table_end)
 
     out = bytearray(_file_header(module, counts))

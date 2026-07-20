@@ -227,7 +227,7 @@ def test_multiple_samples_orders_and_playback() -> None:
 
 
 def test_identity_note_map_rejects_out_of_range() -> None:
-    with pytest.raises(ValueError, match="out of IT range"):
+    with pytest.raises(ValueError, match="outside the IT key range"):
         identity_note_map({120: 1})
     with pytest.raises(ValueError, match="non-negative"):
         identity_note_map({60: -1})
