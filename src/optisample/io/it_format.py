@@ -71,8 +71,6 @@ class ITRecord:
         return bytes(buf)
 
 
-# --- Record layouts (offsets and struct codes straight from ITTECH.TXT) --------------------------
-
 FILE_HEADER = ITRecord(
     size=FILE_HEADER_BYTES,
     fields=(

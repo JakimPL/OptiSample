@@ -22,4 +22,5 @@ __pycache__/
 notebooks/_demo/
 
 # Inspection artifacts dumped by `optisample optimize` (generated audio, IT modules, metrics).
-artifacts/
+# Root-anchored so it ignores the default `--out artifacts` dump, not the src/optisample/artifacts package.
+/artifacts/

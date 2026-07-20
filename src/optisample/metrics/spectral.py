@@ -44,8 +44,12 @@ class MultiResolutionStft:
     name: str = "mrstft"
 
     def distance(self, reference: Signal, candidate: Signal, ctx: MetricContext) -> float:
-        del ctx  # resolution set is fixed; sample rate does not change the distance
-        rel_floor = 10.0 ** (-self.dynamic_range_db / 20.0)  # amplitude domain: dB below peak
+        """``ctx`` satisfies the metric protocol yet leaves the result unchanged -- the resolutions are
+        fixed in frames, so the sample rate is irrelevant. ``dynamic_range_db`` floors an amplitude
+        ratio, hence the ``/20`` conversion.
+        """
+        del ctx
+        rel_floor = 10.0 ** (-self.dynamic_range_db / 20.0)
         total = 0.0
         for params in self.resolutions:
             ref_mag = stft_magnitude(reference, params)
@@ -70,7 +74,8 @@ class LogMelL1:
     name: str = "logmel_l1"
 
     def distance(self, reference: Signal, candidate: Signal, ctx: MetricContext) -> float:
-        rel_floor = 10.0 ** (-self.dynamic_range_db / 10.0)  # power domain: dB below peak
+        """``dynamic_range_db`` floors mel *power*, hence the ``/10`` conversion (amplitude would use ``/20``)."""
+        rel_floor = 10.0 ** (-self.dynamic_range_db / 10.0)
         ref_mel = melspectrogram(reference, ctx.sample_rate, self.params)
         cand_mel = melspectrogram(candidate, ctx.sample_rate, self.params)
         frames = _min_frames(ref_mel, cand_mel)

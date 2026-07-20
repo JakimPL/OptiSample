@@ -168,13 +168,17 @@ def rd_curve(items: tuple[KnapsackItem, ...]) -> list[RDCurvePoint]:
 
 
 def solve_lagrangian(items: tuple[KnapsackItem, ...], budget_bytes: int) -> Allocation:
-    """Near-optimal MCKP via the Lagrangian sweep: the best hull point that fits ``budget_bytes``."""
+    """Near-optimal MCKP via the Lagrangian sweep: the richest hull point that fits ``budget_bytes``.
+
+    The curve's first point is the all-cheapest allocation (checked for feasibility), and byte cost
+    rises monotonically along it, so the last point within budget is the highest-quality feasible one.
+    """
     if not items:
         return Allocation(selections=(), total_bytes=0, objective=0.0)
     curve, hulls = _lagrangian_curve(items)
-    require_feasible(curve[0].total_bytes, budget_bytes)  # curve[0] is the all-cheapest point
+    require_feasible(curve[0].total_bytes, budget_bytes)
     feasible = [point for point in curve if point.total_bytes <= budget_bytes]
-    best = feasible[-1]  # curve bytes increase monotonically, so the last feasible point is the richest
+    best = feasible[-1]
     selections = tuple(
         Selection(key=item.key, weight=item.weight, point=hull[vertex])
         for item, hull, vertex in zip(items, hulls, best.indices)

@@ -44,7 +44,6 @@ _IMPI = b"IMPI"
 
 _NAME_BYTES = 26  # every IT name field (song, instrument, sample) is 26 ASCII bytes, null-padded.
 
-# Shared IT-format timing facts (the exporter and calibrator both lay material into rows with these).
 MAX_ROWS = 200  # IT patterns hold 1..200 rows.
 TICKS_PER_ROW_BASE = 2.5  # one tick lasts 2.5 / tempo seconds; a row lasts `speed` ticks.
 
@@ -261,7 +260,7 @@ def _pack_cell(stream: bytearray, channel: int, cell: ITCell) -> None:
         mask |= _MASK_EFFECT
     if mask == 0:
         return
-    stream.append(((channel + 1) | CHANNEL_MARKER) & 0xFF)  # channel marker, always followed by an explicit mask
+    stream.append(((channel + 1) | CHANNEL_MARKER) & 0xFF)
     stream.append(mask)
     if cell.note is not None:
         stream.append(cell.note & 0xFF)

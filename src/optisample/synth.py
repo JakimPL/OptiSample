@@ -83,6 +83,12 @@ def _attack_release(t: NDArray[np.float64], attack_s: float, release_s: float) -
 
 
 def render_sustained(spec: NoteSpec, rng: np.random.Generator, config: SynthConfig) -> NDArray[np.float64]:
+    """Synthesize a sustained tone: vibrato-modulated partials rolled off by velocity and controller.
+
+    Partials at or above ``evolution_min_partial`` get a slow independent wax/wane, so the sustain
+    drifts rather than repeating exactly; an attack/release envelope then shapes it and it is
+    peak-normalized to the velocity's target level.
+    """
     cfg = config.sustained
     fundamental = midi_to_freq(spec.pitch)
     partials = _n_partials(fundamental, spec.sample_rate, cfg.n_partials, config.nyquist_fraction)
@@ -93,7 +99,6 @@ def render_sustained(spec: NoteSpec, rng: np.random.Generator, config: SynthConf
     signal = np.zeros_like(t)
     for n in range(1, partials + 1):
         phase = 2.0 * np.pi * np.cumsum(n * fundamental * vibrato) / spec.sample_rate + rng.uniform(0.0, 2.0 * np.pi)
-        # High partials slowly wax/wane so the sustain is not perfectly periodic.
         depth = cfg.evolution_depth if n >= cfg.evolution_min_partial else 0.0
         evolution = 1.0 + depth * np.sin(2.0 * np.pi * cfg.evolution_hz * t + n)
         signal += rolloff ** (n - 1) / n * evolution * np.sin(phase)
@@ -105,6 +110,12 @@ def render_sustained(spec: NoteSpec, rng: np.random.Generator, config: SynthConf
 
 
 def render_piano(spec: NoteSpec, rng: np.random.Generator, config: SynthConfig) -> NDArray[np.float64]:
+    """Synthesize a struck-string tone: inharmonic partials with frequency-dependent decay.
+
+    Partial ``n`` is stretched slightly sharp by ``inharmonicity`` (the stiff-string effect) and rings
+    with a time constant that shortens for higher partials, so the tone darkens as it decays; a short
+    attack ramp and peak-normalization to the velocity's target level finish it.
+    """
     cfg = config.piano
     fundamental = midi_to_freq(spec.pitch)
     partials = _n_partials(fundamental, spec.sample_rate, cfg.n_partials, config.nyquist_fraction)
@@ -116,8 +127,8 @@ def render_piano(spec: NoteSpec, rng: np.random.Generator, config: SynthConfig) 
     rolloff = (cfg.rolloff_base + cfg.rolloff_vel * spec.vel) * (1.0 + cfg.rolloff_controller * spec.controller)
     signal = np.zeros_like(t)
     for n in range(1, partials + 1):
-        freq = n * fundamental * np.sqrt(1.0 + cfg.inharmonicity * n * n)  # mild inharmonicity
-        tau = base_tau / (1.0 + cfg.decay_partial_factor * (n - 1))  # high partials decay faster → tone darkens
+        freq = n * fundamental * np.sqrt(1.0 + cfg.inharmonicity * n * n)
+        tau = base_tau / (1.0 + cfg.decay_partial_factor * (n - 1))
         phase = 2.0 * np.pi * freq * t + rng.uniform(0.0, 2.0 * np.pi)
         signal += rolloff ** (n - 1) / n * np.exp(-t / tau) * np.sin(phase)
 

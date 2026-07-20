@@ -5,7 +5,6 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-# MIDI-range constrained scalar types.
 MidiNote = Annotated[int, Field(ge=0, le=127)]
 MidiVelocity = Annotated[int, Field(ge=0, le=127)]
 PositiveFloat = Annotated[float, Field(gt=0.0)]

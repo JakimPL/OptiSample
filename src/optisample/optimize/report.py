@@ -41,9 +41,6 @@ def _format_header(plan: BudgetedPlanMixin, title: str, summary: str) -> str:
     return "\n".join((title, SECTION_RULE, *format_budget_block(plan), summary))
 
 
-# --- ungrouped report ----------------------------------------------------------------------------
-
-
 def _ungrouped_header(plan: InstrumentPlan) -> str:
     return _format_header(
         plan,
@@ -101,9 +98,6 @@ def format_report(plan: InstrumentPlan) -> str:
     """Render a human-readable summary of an instrument optimization."""
     sections = (_ungrouped_header(plan), _format_pitches(plan), _format_velocity_map(plan), _format_curve(plan))
     return "\n\n".join(sections) + "\n"
-
-
-# --- grouped report ------------------------------------------------------------------------------
 
 
 def _grouped_header(plan: GroupedInstrumentPlan) -> str:
