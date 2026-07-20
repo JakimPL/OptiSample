@@ -135,11 +135,11 @@ def _slope(low: RDPoint, high: RDPoint) -> float:
     return (high.distortion - low.distortion) / (high.stored_bytes - low.stored_bytes)
 
 
-def lower_convex_hull(points: Sequence[_RDPointT]) -> list[_RDPointT]:
-    """Rate-distortion frontier: Pareto-optimal points on the lower convex hull, ordered by bytes.
+def _pareto_frontier(points: Sequence[_RDPointT]) -> list[_RDPointT]:
+    """Pass 1 -- Pareto filter: sorted by bytes ascending, keep points strictly better than all cheaper ones.
 
-    Generic over the point type so it serves both per-sample operating points and the per-zone
-    ``(representative, encoding)`` options of :mod:`optisample.optimize.grouping`.
+    A point is dominated (and dropped) if some cheaper point already reaches its distortion or lower;
+    the ``stored_bytes`` guard also collapses ties in bytes to the lowest-distortion representative.
     """
     ordered = sorted(points, key=lambda point: (point.stored_bytes, point.distortion))
     frontier: list[_RDPointT] = []
@@ -148,12 +148,32 @@ def lower_convex_hull(points: Sequence[_RDPointT]) -> list[_RDPointT]:
         if point.distortion < best - _HULL_EPS and (not frontier or point.stored_bytes > frontier[-1].stored_bytes):
             frontier.append(point)
             best = point.distortion
+    return frontier
+
+
+def _hull_pop(frontier: Sequence[_RDPointT]) -> list[_RDPointT]:
+    """Pass 2 -- convex-hull pop: drop Pareto points that sit above the chord of their neighbours.
+
+    Walking the byte-ordered frontier, a point whose incoming slope is no steeper than the previous
+    edge's marks a concave kink; pop the middle point until every successive edge gets strictly
+    steeper, leaving only the vertices of the lower convex hull (a Lagrangian sweep's candidates).
+    """
     hull: list[_RDPointT] = []
     for point in frontier:
         while len(hull) >= 2 and _slope(hull[-2], hull[-1]) >= _slope(hull[-1], point) - _HULL_EPS:
             hull.pop()
         hull.append(point)
     return hull
+
+
+def lower_convex_hull(points: Sequence[_RDPointT]) -> list[_RDPointT]:
+    """Rate-distortion frontier: Pareto-optimal points on the lower convex hull, ordered by bytes.
+
+    Generic over the point type so it serves both per-sample operating points and the per-zone
+    ``(representative, encoding)`` options of :mod:`optisample.optimize.grouping`. Built in two passes:
+    :func:`_pareto_frontier` drops dominated points, then :func:`_hull_pop` drops the concave ones.
+    """
+    return _hull_pop(_pareto_frontier(points))
 
 
 def rd_frontier(

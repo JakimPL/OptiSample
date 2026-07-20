@@ -88,31 +88,52 @@ def merge_events(events: Sequence[NoteEvent]) -> list[tuple[int, float, float]]:
     return [(velocity, duration, weight) for (velocity, duration), weight in weights.items()]
 
 
+def _group_events_by_pitch(material: Sequence[NoteEvent]) -> dict[int, list[NoteEvent]]:
+    """Bucket the material's note events by the pitch they play."""
+    by_pitch: dict[int, list[NoteEvent]] = {}
+    for event in material:
+        by_pitch.setdefault(event.pitch, []).append(event)
+    return by_pitch
+
+
+def _recorded_velocities(audio: AudioMap) -> dict[int, list[int]]:
+    """The velocities actually recorded at each pitch (``audio``'s keys, grouped by pitch)."""
+    velocities_at: dict[int, list[int]] = {}
+    for pitch, velocity in audio:
+        velocities_at.setdefault(pitch, []).append(velocity)
+    return velocities_at
+
+
+def _build_pitch_task(pitch: int, events: Sequence[NoteEvent], available: Sequence[int], audio: AudioMap) -> PitchTask:
+    """Assemble one pitch's task: its representative recording and per-(velocity, duration) references.
+
+    Each distinct ``(velocity, duration)`` the material plays becomes an :class:`Event` referenced by the
+    recording at the nearest available velocity; the representative is the recording nearest the loudest
+    velocity played here (the sample the zone stores when this pitch is chosen representative).
+    """
+    representative_velocity = nearest_velocity(available, max(event.velocity for event in events))
+    built = tuple(
+        Event(velocity, duration, weight, audio[(pitch, nearest_velocity(available, velocity))])
+        for velocity, duration, weight in merge_events(events)
+    )
+    weight = sum(event.weight for event in built)
+    return PitchTask(pitch, weight, representative_velocity, audio[(pitch, representative_velocity)], built)
+
+
 def build_tasks(instrument: InstrumentSpec, audio: AudioMap) -> list[PitchTask]:
     """Group the material by pitch and attach each pitch's representative recording and references.
 
     Returned tasks are ordered by pitch -- the order the pitch-zone partitioning DP segments over.
     """
-    material = instrument.material or []
-    by_pitch: dict[int, list[NoteEvent]] = {}
-    for event in material:
-        by_pitch.setdefault(event.pitch, []).append(event)
-    velocities_at: dict[int, list[int]] = {}
-    for pitch, velocity in audio:
-        velocities_at.setdefault(pitch, []).append(velocity)
+    by_pitch = _group_events_by_pitch(instrument.material or [])
+    velocities_at = _recorded_velocities(audio)
 
     tasks: list[PitchTask] = []
     for pitch, events in sorted(by_pitch.items()):
         available = sorted(velocities_at.get(pitch, []))
         if not available:
             raise ValueError(f"instrument {instrument.id!r} has no recorded sample for pitch {pitch}")
-        representative_velocity = nearest_velocity(available, max(event.velocity for event in events))
-        built = tuple(
-            Event(velocity, duration, weight, audio[(pitch, nearest_velocity(available, velocity))])
-            for velocity, duration, weight in merge_events(events)
-        )
-        weight = sum(event.weight for event in built)
-        tasks.append(PitchTask(pitch, weight, representative_velocity, audio[(pitch, representative_velocity)], built))
+        tasks.append(_build_pitch_task(pitch, events, available, audio))
     return tasks
 
 

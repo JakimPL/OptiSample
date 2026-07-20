@@ -16,6 +16,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import numpy as np
+from numpy.typing import NDArray
 
 from optisample.config.optimize import VelocityConfig
 from optisample.dsp.surrogate import MAX_VOLUME
@@ -66,10 +67,51 @@ def _silent_map(anchors: Sequence[tuple[int, float]]) -> VelocityVolumeMap:
     return VelocityVolumeMap(volumes, tuple(VelocityAnchor(int(v), float(loud), 0) for v, loud in anchors))
 
 
+def _reference_loudness(measured: NDArray[np.float64]) -> float:
+    """The loudness the map anchors to full volume: the loudest measured velocity."""
+    return float(np.max(measured[np.isfinite(measured)]))
+
+
+def _clamp_to_floor(measured: NDArray[np.float64], reference: float, floor_lu: float) -> NDArray[np.float64]:
+    """Raise every anchor to at least ``reference - floor_lu`` so silence maps to a defined quietest level.
+
+    Silent velocities measure ``-inf``; without a floor they would map to volume 0 and near-silent ones
+    to extreme negative dB. Clamping bounds how quiet the map can get relative to the loudest recording.
+    """
+    return np.maximum(measured, reference - floor_lu)
+
+
+def _interpolate_over_velocities(velocities: NDArray[np.float64], loudness: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Loudness for every MIDI velocity 0..127, linearly interpolated in dB between the sparse anchors.
+
+    ``np.interp`` extrapolates flat beyond the measured anchors (holding the nearest endpoint), so
+    velocities outside the recorded range reuse the closest measured loudness instead of running off
+    the linear trend into implausible levels.
+    """
+    grid = np.arange(_MIDI_VELOCITIES, dtype=np.float64)
+    return np.interp(grid, velocities, loudness)
+
+
+def _gains_to_volumes(loudness: NDArray[np.float64], reference: float, max_volume: int) -> tuple[int, ...]:
+    """Turn per-velocity loudness (dB) into IT note volumes matched to the reference's amplitude.
+
+    Note volume is linear in amplitude, so a velocity ``d`` dB below the reference (``d = loudness -
+    reference <= 0``) must play at amplitude ratio ``10**(d/20)``; that ratio scaled to ``max_volume``
+    and rounded is the volume written into the pattern.
+    """
+    gains = 10.0 ** ((loudness - reference) / 20.0)
+    return tuple(int(np.clip(round(float(gain) * max_volume), 0, max_volume)) for gain in gains)
+
+
 def derive_velocity_map(
     loudness: Mapping[int, float], config: VelocityConfig, *, max_volume: int = MAX_VOLUME
 ) -> VelocityVolumeMap:
-    """Build a loudness-matched velocity->volume map from per-velocity loudness measurements."""
+    """Build a loudness-matched velocity->volume map from per-velocity loudness measurements.
+
+    Steps: anchor the loudest velocity at full volume (:func:`_reference_loudness`), floor the silent
+    ones (:func:`_clamp_to_floor`), fill in every velocity 0..127 (:func:`_interpolate_over_velocities`),
+    and convert the resulting dB curve to note volumes (:func:`_gains_to_volumes`).
+    """
     if not loudness:
         raise ValueError("need at least one velocity measurement")
     anchors_in = sorted(loudness.items())
@@ -78,11 +120,9 @@ def derive_velocity_map(
     if not np.any(np.isfinite(measured)):
         return _silent_map(anchors_in)
 
-    reference = float(np.max(measured[np.isfinite(measured)]))
-    clamped = np.maximum(measured, reference - config.loudness_floor_lu)  # -inf (silence) -> the floor
-    grid = np.arange(_MIDI_VELOCITIES, dtype=np.float64)
-    interpolated = np.interp(grid, velocities, clamped)  # flat extrapolation beyond the anchors
-    gains = 10.0 ** ((interpolated - reference) / 20.0)
-    volumes = tuple(int(np.clip(round(float(gain) * max_volume), 0, max_volume)) for gain in gains)
+    reference = _reference_loudness(measured)
+    clamped = _clamp_to_floor(measured, reference, config.loudness_floor_lu)
+    interpolated = _interpolate_over_velocities(velocities, clamped)
+    volumes = _gains_to_volumes(interpolated, reference, max_volume)
     anchors = tuple(VelocityAnchor(int(velocity), float(loud), volumes[int(velocity)]) for velocity, loud in anchors_in)
     return VelocityVolumeMap(volumes, anchors)

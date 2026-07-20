@@ -37,21 +37,36 @@ def _zone_trim(range_tasks: Sequence[PitchTask], representative: int) -> float:
     return max(task.max_duration_s * semitone_ratio(task.pitch - representative) for task in range_tasks)
 
 
+def _evaluate_zone_option(
+    rep_task: PitchTask, range_tasks: Sequence[PitchTask], params: EncodingParams, ctx: EvalContext
+) -> ZoneOption:
+    """Store ``rep_task``'s recording with ``params`` and score it reconstructing every key in the zone.
+
+    The zone's total distortion is the usage-weighted sum of each covered key's reconstruction from this
+    one stored sample (repitched to that key), so a distant key that the representative serves poorly
+    costs the option here rather than being averaged away.
+    """
+    encode_ctx = EncodeContext(root_pitch=rep_task.pitch, config=ctx.encode, rng=ctx.rng)
+    stored = encode(rep_task.representative, ctx.sample_rate, params, encode_ctx)
+    distortion = sum(task.weight * score_reconstruction(stored, task, ctx) for task in range_tasks)
+    return ZoneOption(rep_task.pitch, params, stored.stored_bytes, distortion, stored.frames)
+
+
 def _zone_options(range_tasks: Sequence[PitchTask], ctx: EvalContext) -> list[ZoneOption]:
-    """Every ``(representative, encoding)`` for one candidate zone, with its cost and total distortion."""
+    """Every ``(representative, encoding)`` for one candidate zone, with its cost and total distortion.
+
+    Enumerates the outer product of representative (each covered key's own recording, the k-medoids
+    candidates) and encoding (loop x depth x rate); :func:`_evaluate_zone_option` scores each.
+    """
     rates = sweep_rates(ctx.sweep, ctx.sample_rate)
     options: list[ZoneOption] = []
-    for rep_task in range_tasks:  # k-medoids candidates: each covered key's own recording
-        representative = rep_task.pitch
-        trim_s = _zone_trim(range_tasks, representative)
+    for rep_task in range_tasks:
+        trim_s = _zone_trim(range_tasks, rep_task.pitch)
         for loop in ctx.sweep.loops:
             for depth in ctx.sweep.depths:
                 for rate in rates:
                     params = EncodingParams(rate, depth, trim_s, ctx.sweep.dither, ctx.sweep.noise_shaping, loop)
-                    encode_ctx = EncodeContext(root_pitch=representative, config=ctx.encode, rng=ctx.rng)
-                    stored = encode(rep_task.representative, ctx.sample_rate, params, encode_ctx)
-                    distortion = sum(task.weight * score_reconstruction(stored, task, ctx) for task in range_tasks)
-                    options.append(ZoneOption(representative, params, stored.stored_bytes, distortion, stored.frames))
+                    options.append(_evaluate_zone_option(rep_task, range_tasks, params, ctx))
     return options
 
 

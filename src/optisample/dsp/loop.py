@@ -57,7 +57,13 @@ def _autocorrelation(signal: Signal) -> Signal:
 
 
 def _estimate_period(signal: Signal, sample_rate: int, config: LoopConfig) -> int | None:
-    """Fundamental period in frames from the strongest autocorrelation peak in the pitched band."""
+    """Fundamental period in frames from the strongest autocorrelation peak in the pitched band.
+
+    Searches lags from ``sample_rate / max_hz`` (the shortest period the band admits) to
+    ``sample_rate / min_hz`` (the longest). Returns ``None`` when the signal spans fewer than 8 frames,
+    the band holds no lag at this rate, or the strongest peak stays below ``config.min_correlation`` --
+    each the mark of material too aperiodic to loop.
+    """
     if signal.size < 8:
         return None
     corr = _autocorrelation(signal)
@@ -98,13 +104,26 @@ def _snap_ascending_zero(signal: Signal, index: int, radius: int) -> int:
 
 
 def detect_loop(signal: Signal, sample_rate: int, config: LoopConfig) -> Loop | None:
-    """Find a forward loop in the steady region of ``signal``, or ``None`` if it is not periodic enough."""
+    """Find a forward loop in the steady region of ``signal``, or ``None`` if it cannot be looped.
+
+    Analyses the steady region between the attack skip (past the onset transient) and the tail skip
+    (before the release). The region must sustain a level tone -- a loop repeats its content forever, so
+    a decaying region would ring on at a constant level -- and carry a fundamental period, found by
+    :func:`_estimate_period`. The loop spans a whole number of periods (at least ``min_periods`` and
+    ``min_loop_s`` worth), begins at an ascending zero crossing just after the attack so the wrap lands
+    mid-slope in phase, and keeps only ``[0, loop.end)`` -- storing the attack plus one loop region while
+    dropping the sustain tail, which is where the bytes are saved. A region shorter than the wanted loop
+    uses as many whole periods as fit.
+
+    Returns ``None`` when the steady region is too short to analyse, decays instead of sustaining, has no
+    reliable period, or leaves room for fewer than ``min_periods`` whole periods.
+    """
     total = signal.size
     attack = int(config.attack_skip_s * sample_rate)
     tail = total - int(config.tail_skip_s * sample_rate)
     if tail - attack < 8:
         return None
-    if not _is_sustained(signal[attack:tail], config.sustain_decay_ratio):  # a decaying note must not loop
+    if not _is_sustained(signal[attack:tail], config.sustain_decay_ratio):
         return None
     window = signal[attack : min(tail, attack + int(config.max_estimation_s * sample_rate))]
     period = _estimate_period(window, sample_rate, config)
@@ -114,10 +133,8 @@ def detect_loop(signal: Signal, sample_rate: int, config: LoopConfig) -> Loop | 
     wanted = max(config.min_periods * period, int(round(config.min_loop_s * sample_rate)))
     loop_len = max(config.min_periods, int(round(wanted / period))) * period
 
-    # Place the loop right after the attack and keep it short: we store [0, loop.end) and drop the
-    # whole sustain tail past it, so the bytes saved are the tail -- that is the point of looping.
     start = _snap_ascending_zero(signal, attack, radius=period)
-    if start + loop_len > tail:  # steady region too short for the wanted loop: take what fits
+    if start + loop_len > tail:
         loop_len = ((tail - start) // period) * period
         if loop_len < config.min_periods * period:
             return None

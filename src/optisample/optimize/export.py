@@ -142,16 +142,27 @@ def _build_unit_samples(
     return tuple(samples), assignment
 
 
+def _event_rows(duration_s: float, row_seconds: float) -> int:
+    """A note's length in pattern rows: at least one row, capped so the note plus its cut fit a pattern."""
+    return min(max(1, int(round(duration_s / row_seconds))), MAX_ROWS - 2)
+
+
 def _material_patterns(
     material: Sequence[NoteEvent], velocity_map: VelocityVolumeMap, playback: ITPlayback
 ) -> tuple[tuple[ITPattern, ...], tuple[int, ...]]:
-    """Lay the material events into one or more patterns, applying the velocity->volume map."""
+    """Lay the material events into one or more patterns, applying the velocity->volume map.
+
+    Each note writes a note-on cell (its pitch, the instrument, and its velocity mapped to a volume) at
+    the current row and a note-cut cell one row past its length, so it occupies its duration in rows plus
+    one. Notes fill rows back to back; when the next note would overflow ``MAX_ROWS`` the current pattern
+    is flushed and a fresh one begins, so a long piece spans several patterns played in order.
+    """
     row_seconds = playback.speed * TICKS_PER_ROW_BASE / playback.tempo
     patterns: list[ITPattern] = []
     cells: list[tuple[int, int, ITCell]] = []
     cursor = 0
     for event in material:
-        rows = min(max(1, int(round(event.duration_s / row_seconds))), MAX_ROWS - 2)
+        rows = _event_rows(event.duration_s, row_seconds)
         if cells and cursor + rows + 1 > MAX_ROWS:
             patterns.append(ITPattern(rows=cursor, cells=tuple(cells)))
             cells, cursor = [], 0

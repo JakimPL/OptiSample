@@ -104,6 +104,22 @@ def _apply_loop(resampled: Signal, rate: int, config: LoopConfig) -> tuple[Signa
     return faded[: detected.end], detected
 
 
+def _loop_or_trim(resampled: Signal, params: EncodingParams, config: LoopConfig) -> tuple[Signal, Loop | None]:
+    """Bound stored length by looping *or* trimming -- never both.
+
+    A detected loop already trims storage to ``[0, loop.end)`` (attack + one loop region), so trimming
+    on top would cut into or past the loop. Trimming to ``trim_s`` therefore applies only when looping
+    was not requested, or was requested but the material was not periodic enough to loop.
+    """
+    if params.loop:
+        looped, loop = _apply_loop(resampled, params.target_rate, config)
+        if loop is not None:
+            return looped, loop
+    if params.trim_s is not None:
+        return resampled[: max(0, int(round(params.trim_s * params.target_rate)))], None
+    return resampled, None
+
+
 def encode(signal: Signal, sample_rate: int, params: EncodingParams, ctx: EncodeContext) -> StoredSample:
     """Encode ``signal`` into a :class:`StoredSample`: normalize -> resample -> (loop | trim) -> requantize.
 
@@ -114,11 +130,7 @@ def encode(signal: Signal, sample_rate: int, params: EncodingParams, ctx: Encode
     """
     normalized, gain = normalize_peak(signal, ctx.config.target_peak)
     resampled = resample_to(normalized, sample_rate, params.target_rate)
-    loop: Loop | None = None
-    if params.loop:
-        resampled, loop = _apply_loop(resampled, params.target_rate, ctx.config.loop)
-    if loop is None and params.trim_s is not None:
-        resampled = resampled[: max(0, int(round(params.trim_s * params.target_rate)))]
+    resampled, loop = _loop_or_trim(resampled, params, ctx.config.loop)
     pcm = requantize(
         resampled, params.depth_bits, dither=params.dither, noise_shaping=params.noise_shaping, rng=ctx.rng
     )
@@ -144,6 +156,17 @@ def _sustain_with_loop(played: Signal, loop: Loop, scale: float, target: int) ->
     return np.concatenate([played[:end], tail])
 
 
+def _effective_rate(stored: StoredSample, pitch: int | None) -> float:
+    """Rate the sample effectively plays at after repitching to ``pitch``.
+
+    A tracker repitches by resampling: triggering key ``pitch`` transposes ``pitch - root_pitch``
+    semitones, so the stored rate scaled by ``2**(semitones / 12)`` is the effective playback rate --
+    the ratio that maps stored frames to output frames. ``pitch = None`` means no transpose.
+    """
+    transpose = 0.0 if pitch is None else float(pitch - stored.root_pitch)
+    return stored.sample_rate * semitone_ratio(transpose)
+
+
 def render(
     stored: StoredSample,
     out_rate: int,
@@ -159,8 +182,7 @@ def render(
     sample carries a loop and the note is held past the stored length, the loop region is repeated to
     sustain it (in the output domain, so it tracks the repitch); otherwise the note simply ends.
     """
-    transpose = 0.0 if pitch is None else float(pitch - stored.root_pitch)
-    effective_rate = stored.sample_rate * semitone_ratio(transpose)
+    effective_rate = _effective_rate(stored, pitch)
     scale = out_rate / effective_rate if effective_rate > 0.0 else 0.0
     played = resample_num(stored.pcm, int(round(stored.frames * scale)))
     if duration_s is not None and stored.loop is not None:
