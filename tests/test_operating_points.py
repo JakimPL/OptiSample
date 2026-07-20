@@ -11,7 +11,7 @@ from optisample.config.optimize import SweepConfig
 from optisample.dsp.surrogate import EncodingParams
 from optisample.metrics.composite import CompositeFidelity
 from optisample.metrics.size import SampleSize
-from optisample.optimize import (
+from optisample.optimize.operating_points import (
     OperatingPoint,
     SourceClip,
     default_rates,
