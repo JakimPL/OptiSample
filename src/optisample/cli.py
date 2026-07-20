@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import cProfile
+import pstats
+import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from optisample.artifacts import DumpSettings, dump_project
@@ -32,6 +36,9 @@ def build_parser() -> argparse.ArgumentParser:
     optimize.add_argument("--depth", type=int, action="append", dest="depths", help="Bit depth to sweep (repeatable)")
     optimize.add_argument("--no-loop", action="store_true", help="Disable looping (store full-length samples)")
     optimize.add_argument("--seed", type=int, default=0, help="RNG seed for reproducible encoding")
+    optimize.add_argument(
+        "--profile", action="store_true", help="Run under cProfile and print the hottest functions to stderr"
+    )
     return parser
 
 
@@ -70,14 +77,29 @@ def _dump_settings(config: OptiConfig, args: argparse.Namespace) -> DumpSettings
 def _run_optimize(config: OptiConfig, args: argparse.Namespace) -> None:
     manifest = load_manifest(args.manifest)
     results = dump_project(manifest, args.out, _dump_settings(config, args))
+    total_s = 0.0
     for result in results:
         print(f"{result.instrument_id}: {result.directory}")
         for plan in result.plans:
+            total_s += plan.elapsed_s
+            timing = f"[{plan.elapsed_s:.1f}s]"
             if not plan.feasible:
-                print(f"  {plan.name:>9}: infeasible ({plan.reason})")
+                print(f"  {plan.name:>9}: infeasible ({plan.reason})  {timing}")
                 continue
             rendered = "rendered" if plan.rendered else "no render"
-            print(f"  {plan.name:>9}: objective {plan.objective:.4f}, {plan.used_bytes} B used, {rendered}")
+            print(f"  {plan.name:>9}: objective {plan.objective:.4f}, {plan.used_bytes} B used, {rendered}  {timing}")
+    print(f"total: {total_s:.1f}s")
+
+
+def _run_profiled(run: Callable[[], None], *, top: int = 20) -> None:
+    """Run ``run`` under cProfile and print the ``top`` functions by cumulative time to stderr."""
+    profiler = cProfile.Profile()
+    profiler.enable()
+    try:
+        run()
+    finally:
+        profiler.disable()
+        pstats.Stats(profiler, stream=sys.stderr).sort_stats("cumulative").print_stats(top)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -87,4 +109,7 @@ def main(argv: list[str] | None = None) -> None:
         manifest_path = generate_demo(args.outdir, config.synth, sample_rate=args.sample_rate, seed=args.seed)
         print(f"Wrote demo dataset and manifest to {manifest_path}")
     elif args.command == "optimize":
-        _run_optimize(config, args)
+        if args.profile:
+            _run_profiled(lambda: _run_optimize(config, args))
+        else:
+            _run_optimize(config, args)

@@ -6,9 +6,9 @@ import numpy as np
 import pytest
 
 from optisample.dsp.surrogate import EncodingParams
+from optisample.optimize.dp import BudgetInfeasibleError
 from optisample.optimize.knapsack import (
     Allocation,
-    BudgetInfeasibleError,
     KnapsackItem,
     rd_curve,
     solve_exact,

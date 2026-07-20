@@ -1,7 +1,7 @@
+from optisample.optimize.dp import BudgetInfeasibleError
 from optisample.optimize.export import ExportContext, build_grouped_it_module, build_it_module, c5speed_for_pitch
 from optisample.optimize.knapsack import (
     Allocation,
-    BudgetInfeasibleError,
     KnapsackItem,
     RDCurvePoint,
     Selection,

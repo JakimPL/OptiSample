@@ -16,8 +16,8 @@ from collections.abc import Sequence
 import numpy as np
 from numpy.typing import NDArray
 
+from optisample.optimize.dp import require_feasible
 from optisample.optimize.grouping.cost_model import _Range, _ZoneOptions, zone_hull
-from optisample.optimize.knapsack import BudgetInfeasibleError
 from optisample.optimize.plans.grouped import GroupingResult, Zone, ZoneOption
 from optisample.optimize.tasks import PitchTask
 
@@ -93,9 +93,7 @@ def solve_grouping(tasks: Sequence[PitchTask], options: _ZoneOptions, budget_byt
     count = len(tasks)
     if count == 0:
         return GroupingResult(zones=(), total_bytes=0, objective=0.0)
-    cheapest = _cheapest_partition_bytes(options, count)
-    if cheapest > budget_bytes:
-        raise BudgetInfeasibleError(cheapest, budget_bytes)
+    require_feasible(_cheapest_partition_bytes(options, count), budget_bytes)
     dp, from_i, from_opt = _forward_dp(options, count, budget_bytes)
     reachable = np.flatnonzero(np.isfinite(dp[count]))
     best_bytes = int(reachable[int(np.argmin(dp[count][reachable]))])

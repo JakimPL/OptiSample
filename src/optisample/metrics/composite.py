@@ -36,12 +36,24 @@ class CompositeFidelity:
     segmental: SegmentalSnrConfig
     name: str = "composite"
 
+    def score(self, reference: Signal, candidate: Signal, ctx: MetricContext) -> tuple[float, dict[str, float]]:
+        """Weighted fidelity and the raw per-metric breakdown, from a single pass over the components.
+
+        Equivalent to :meth:`distance` paired with :meth:`breakdown`, but evaluates each metric only
+        once -- the two are always needed together in :func:`evaluate`, which dominates the run, and
+        each metric.distance is an STFT-heavy computation worth not repeating.
+        """
+        raw = [(item, item.metric.distance(reference, candidate, ctx)) for item in self.components]
+        fidelity = float(sum(item.weight * dist for item, dist in raw))
+        return fidelity, {item.metric.name: dist for item, dist in raw}
+
     def distance(self, reference: Signal, candidate: Signal, ctx: MetricContext) -> float:
-        return float(sum(item.weight * item.metric.distance(reference, candidate, ctx) for item in self.components))
+        """Weighted composite distance (0 = identical)."""
+        return self.score(reference, candidate, ctx)[0]
 
     def breakdown(self, reference: Signal, candidate: Signal, ctx: MetricContext) -> dict[str, float]:
         """Raw (unweighted) per-metric distances, for interpretability."""
-        return {item.metric.name: item.metric.distance(reference, candidate, ctx) for item in self.components}
+        return self.score(reference, candidate, ctx)[1]
 
 
 def build_composite(config: MetricsConfig) -> CompositeFidelity:
@@ -72,9 +84,10 @@ def evaluate(
     """Compare two signals: composite fidelity (loudness-matched) + interpretable diagnostics."""
     raw_ref, raw_cand = match_length(reference, candidate)
     norm_ref, norm_cand, ctx = prepare(reference, candidate, sample_rate, composite.target_lufs, normalize=normalize)
+    fidelity, breakdown = composite.score(norm_ref, norm_cand, ctx)
     return QualityReport(
-        fidelity=composite.distance(norm_ref, norm_cand, ctx),
-        breakdown=composite.breakdown(norm_ref, norm_cand, ctx),
+        fidelity=fidelity,
+        breakdown=breakdown,
         diagnostics={
             "loudness_delta_lu": loudness_delta(raw_ref, raw_cand, sample_rate),
             "si_sdr_db": si_sdr(raw_ref, raw_cand),

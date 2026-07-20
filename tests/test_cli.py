@@ -77,6 +77,39 @@ def test_optimize_command_writes_artifacts(tmp_path: Path, capsys: pytest.Captur
     assert "piano" in printed and "objective" in printed
 
 
+def test_optimize_command_reports_timing(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    manifest_path = _tiny_manifest(tmp_path)
+    out = tmp_path / "artifacts"
+    main(["optimize", str(manifest_path), "--out", str(out), "--rate", "11025", "--depth", "8", "--no-render"])
+    printed = capsys.readouterr().out
+    assert "s]" in printed  # each strategy line carries its wall-clock, e.g. "[0.4s]"
+    assert "total:" in printed
+
+
+def test_optimize_command_profile_flag_still_writes_and_profiles(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    manifest_path = _tiny_manifest(tmp_path)
+    out = tmp_path / "artifacts"
+    main(
+        [
+            "optimize",
+            str(manifest_path),
+            "--out",
+            str(out),
+            "--rate",
+            "11025",
+            "--depth",
+            "8",
+            "--no-render",
+            "--profile",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert (out / "piano" / "ungrouped" / "plan.json").is_file()  # profiling does not change the run
+    assert "function calls" in captured.err  # cProfile's report went to stderr
+
+
 def test_optimize_command_honors_single_strategy(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     manifest_path = _tiny_manifest(tmp_path)
     out = tmp_path / "artifacts"

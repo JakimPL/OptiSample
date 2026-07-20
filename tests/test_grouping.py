@@ -14,6 +14,7 @@ from optisample.dsp.surrogate import EncodingParams
 from optisample.io.audio import write_wav
 from optisample.metrics.composite import build_composite
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
+from optisample.optimize.dp import BudgetInfeasibleError
 from optisample.optimize.grouping import (
     build_zone_options,
     optimize_instrument_grouped,
@@ -23,7 +24,6 @@ from optisample.optimize.grouping import (
 )
 from optisample.optimize.grouping.cost_model import _zone_trim
 from optisample.optimize.grouping.solve import _cheapest_partition_bytes
-from optisample.optimize.knapsack import BudgetInfeasibleError
 from optisample.optimize.orchestrate import OptimizeSettings, optimize_instrument, prepare_run
 from optisample.optimize.plans import GroupedInstrumentPlan, ZoneOption
 from optisample.optimize.tasks import Event, PitchTask

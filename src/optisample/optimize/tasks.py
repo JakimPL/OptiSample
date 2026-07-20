@@ -9,14 +9,18 @@ how well a *stored* sample reconstructs a pitch's notes.
 The two callers differ only in *which* stored sample scores a pitch. Ungrouped, the stored sample is
 that pitch's own recording (no transpose). Grouped, it is a *different* pitch's recording, repitched
 to cover this one -- which is exactly what :func:`optisample.dsp.surrogate.render` does when asked for
-``pitch=task.pitch`` from a sample whose ``root_pitch`` differs. :func:`score_reconstruction` is
-therefore agnostic to the stored sample's origin: it renders it at the task's pitch and compares to
-the task's references.
+``pitch=task.pitch`` from a sample whose ``root_pitch`` differs. :func:`score_events` is therefore
+agnostic to the stored sample's origin: it renders it at the task's pitch and compares to the task's
+references.
+
+:func:`score_events` is the *single* per-event scorer. The optimizer sums it into the distortion it
+minimizes (via :func:`score_reconstruction`), and the artifact dumper renders the same stream into
+``metrics.json`` -- so the reported per-note scores can never drift from the objective they explain.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -25,7 +29,7 @@ from optisample.config.dsp import EncodeConfig
 from optisample.config.optimize import SweepConfig
 from optisample.dsp.surrogate import StoredSample, render
 from optisample.metrics.base import Signal
-from optisample.metrics.composite import CompositeFidelity, evaluate
+from optisample.metrics.composite import CompositeFidelity, QualityReport, evaluate
 from optisample.model import InstrumentSpec, NoteEvent
 from optisample.optimize.velocity_map import VelocityVolumeMap
 
@@ -112,18 +116,42 @@ def build_tasks(instrument: InstrumentSpec, audio: AudioMap) -> list[PitchTask]:
     return tasks
 
 
-def score_reconstruction(stored: StoredSample, task: PitchTask, ctx: EvalContext) -> float:
-    """Weighted mean distortion of reconstructing ``task``'s notes from ``stored`` (repitched to its key).
+@dataclass(frozen=True)
+class EventScore:
+    """One event scored: the note, the volume it mapped to, and the fidelity report of its reconstruction."""
+
+    event: Event
+    volume: int
+    report: QualityReport
+
+    @property
+    def weighted_fidelity(self) -> float:
+        """This event's contribution to the objective: its usage weight times its distortion."""
+        return self.event.weight * self.report.fidelity
+
+
+def score_events(stored: StoredSample, task: PitchTask, ctx: EvalContext) -> Iterator[EventScore]:
+    """Reconstruct each of ``task``'s notes from ``stored`` and score it, one :class:`EventScore` per event.
 
     ``stored`` is rendered at ``task.pitch`` -- a transpose of ``task.pitch - stored.root_pitch``
-    semitones, zero when ``stored`` is this pitch's own recording -- scaled by each event's mapped
-    volume and fitted to its duration, then compared to that event's source note. The result is
-    normalized per second of material so it can be reweighted by usage at the call site.
+    semitones, zero when ``stored`` is this pitch's own recording -- scaled by each event's mapped volume
+    and fitted to its duration, then compared to that event's source note. This is the shared scorer both
+    the objective and ``metrics.json`` consume.
     """
-    total = 0.0
     for event in task.events:
         volume = ctx.velocity_map.volume(event.velocity)
         candidate = render(stored, ctx.sample_rate, pitch=task.pitch, volume=volume, duration_s=event.duration_s)
         reference = event.reference[: max(0, int(round(event.duration_s * ctx.sample_rate)))]
-        total += event.weight * evaluate(reference, candidate, ctx.sample_rate, ctx.composite).fidelity
+        yield EventScore(
+            event=event, volume=volume, report=evaluate(reference, candidate, ctx.sample_rate, ctx.composite)
+        )
+
+
+def score_reconstruction(stored: StoredSample, task: PitchTask, ctx: EvalContext) -> float:
+    """Weighted mean distortion of reconstructing ``task``'s notes from ``stored`` (repitched to its key).
+
+    The weighted sum of :func:`score_events` normalized per unit of material weight, so it can be
+    reweighted by usage at the call site.
+    """
+    total = sum(score.weighted_fidelity for score in score_events(stored, task, ctx))
     return total / task.weight if task.weight > 0.0 else 0.0

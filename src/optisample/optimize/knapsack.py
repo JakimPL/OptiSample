@@ -23,6 +23,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from optisample.optimize.dp import require_feasible
 from optisample.optimize.operating_points import OperatingPoint, lower_convex_hull
 
 
@@ -61,15 +62,6 @@ class RDCurvePoint:
     total_bytes: int
     objective: float
     indices: tuple[int, ...]  # chosen hull-vertex index per item
-
-
-class BudgetInfeasibleError(Exception):
-    """Raised when even the cheapest config per item overflows the budget."""
-
-    def __init__(self, min_bytes: int, budget_bytes: int) -> None:
-        self.min_bytes = min_bytes
-        self.budget_bytes = budget_bytes
-        super().__init__(f"budget {budget_bytes} B too small; cheapest allocation needs {min_bytes} B")
 
 
 def _cheapest_total(items: tuple[KnapsackItem, ...]) -> int:
@@ -117,9 +109,7 @@ def solve_exact(items: tuple[KnapsackItem, ...], budget_bytes: int) -> Allocatio
     """Exact MCKP: the min-distortion assignment of one config per item within ``budget_bytes``."""
     if not items:
         return Allocation(selections=(), total_bytes=0, objective=0.0)
-    cheapest = _cheapest_total(items)
-    if cheapest > budget_bytes:
-        raise BudgetInfeasibleError(cheapest, budget_bytes)
+    require_feasible(_cheapest_total(items), budget_bytes)
     dp, choices = _forward_dp(items, budget_bytes)
     reachable = np.flatnonzero(np.isfinite(dp))
     best_bytes = int(reachable[int(np.argmin(dp[reachable]))])
@@ -171,9 +161,8 @@ def solve_lagrangian(items: tuple[KnapsackItem, ...], budget_bytes: int) -> Allo
     if not items:
         return Allocation(selections=(), total_bytes=0, objective=0.0)
     curve, hulls = _lagrangian_curve(items)
+    require_feasible(curve[0].total_bytes, budget_bytes)  # curve[0] is the all-cheapest point
     feasible = [point for point in curve if point.total_bytes <= budget_bytes]
-    if not feasible:
-        raise BudgetInfeasibleError(curve[0].total_bytes, budget_bytes)
     best = feasible[-1]  # curve bytes increase monotonically, so the last feasible point is the richest
     selections = tuple(
         Selection(key=item.key, weight=item.weight, point=hull[vertex])

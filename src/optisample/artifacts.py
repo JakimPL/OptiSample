@@ -33,6 +33,7 @@ import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 import numpy as np
@@ -44,12 +45,11 @@ from optisample.io.audio import write_wav
 from optisample.io.it_writer import ITModule, write_it
 from optisample.io.render import openmpt123_available, render_module
 from optisample.metrics.base import Signal
-from optisample.metrics.composite import evaluate
 from optisample.model import InstrumentSpec, Manifest, NoteEvent
 from optisample.music import note_name
+from optisample.optimize.dp import BudgetInfeasibleError
 from optisample.optimize.export import ExportContext, build_grouped_it_module, build_it_module
 from optisample.optimize.grouping import optimize_instrument_grouped
-from optisample.optimize.knapsack import BudgetInfeasibleError
 from optisample.optimize.orchestrate import (
     OptimizeSettings,
     load_instrument_audio,
@@ -58,7 +58,7 @@ from optisample.optimize.orchestrate import (
 )
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
 from optisample.optimize.report import format_grouping_report, format_report
-from optisample.optimize.tasks import AudioMap, EvalContext, Event, PitchTask
+from optisample.optimize.tasks import AudioMap, EvalContext, Event, PitchTask, score_events
 from optisample.optimize.velocity_map import VelocityVolumeMap
 
 
@@ -81,15 +81,18 @@ class DumpSettings:
 
 @dataclass(frozen=True)
 class PlanArtifacts:
-    """What one strategy produced under its subdirectory (or why it could not)."""
+    """What one strategy produced under its subdirectory (or why it could not).
+
+    Its directory is ``DumpResult.directory / name``; only the per-strategy outcome is kept here.
+    """
 
     name: str
-    directory: Path
     feasible: bool
     reason: str | None
     rendered: bool  # whether an openmpt123 ground-truth render was written
     objective: float | None
     used_bytes: int | None
+    elapsed_s: float  # wall-clock for this strategy end to end (optimize + artifact dump)
 
 
 @dataclass(frozen=True)
@@ -296,26 +299,23 @@ def _representative_event(task: PitchTask) -> Event:
 def _note_metrics(unit: _Unit, task: PitchTask, ctx: EvalContext) -> tuple[list[dict[str, Any]], float]:
     """Score every event of one pitch from ``unit``; return per-event JSON and the weighted sum.
 
-    This mirrors :func:`optisample.optimize.tasks.score_reconstruction` exactly, so the returned sum
-    is the pitch's contribution to the objective (``weight * mean distortion``).
+    It consumes :func:`optisample.optimize.tasks.score_events` -- the exact stream the optimizer sums
+    into its objective -- so the returned contribution is precisely this pitch's share of
+    ``plan.objective`` (``weight * mean distortion``).
     """
     events_json: list[dict[str, Any]] = []
     contribution = 0.0
-    for event in task.events:
-        volume = ctx.velocity_map.volume(event.velocity)
-        candidate = render(unit.stored, ctx.sample_rate, pitch=task.pitch, volume=volume, duration_s=event.duration_s)
-        reference = event.reference[: max(0, int(round(event.duration_s * ctx.sample_rate)))]
-        report = evaluate(reference, candidate, ctx.sample_rate, ctx.composite)
-        contribution += event.weight * report.fidelity
+    for score in score_events(unit.stored, task, ctx):
+        contribution += score.weighted_fidelity
         events_json.append(
             {
-                "velocity": event.velocity,
-                "duration_s": event.duration_s,
-                "weight": event.weight,
-                "volume": volume,
-                "fidelity": report.fidelity,
-                "breakdown": report.breakdown,
-                "diagnostics": report.diagnostics,
+                "velocity": score.event.velocity,
+                "duration_s": score.event.duration_s,
+                "weight": score.event.weight,
+                "volume": score.volume,
+                "fidelity": score.report.fidelity,
+                "breakdown": score.report.breakdown,
+                "diagnostics": score.report.diagnostics,
             }
         )
     return events_json, contribution
@@ -374,8 +374,12 @@ def _dump_notes(kind: _PlanKind, out_dir: Path, dctx: _DumpContext) -> dict[str,
 # --- orchestration -------------------------------------------------------------------------------
 
 
-def _dump_plan(kind: _PlanKind, out_dir: Path, dctx: _DumpContext) -> PlanArtifacts:
-    """Write every artifact for one strategy and return a summary of what landed on disk."""
+def _dump_plan(kind: _PlanKind, out_dir: Path, dctx: _DumpContext, started_at: float) -> PlanArtifacts:
+    """Write every artifact for one strategy and return a summary of what landed on disk.
+
+    ``started_at`` is the :func:`time.perf_counter` reading taken before the optimize call, so the
+    reported ``elapsed_s`` spans the whole strategy (optimize + this dump), not just the I/O here.
+    """
     (out_dir / "samples").mkdir(parents=True, exist_ok=True)
     (out_dir / "compare").mkdir(parents=True, exist_ok=True)
     _write_text(out_dir / "report.txt", kind.report_text)
@@ -396,12 +400,12 @@ def _dump_plan(kind: _PlanKind, out_dir: Path, dctx: _DumpContext) -> PlanArtifa
     _write_json(out_dir / "metrics.json", _dump_notes(kind, out_dir, dctx))
     return PlanArtifacts(
         name=kind.name,
-        directory=out_dir,
         feasible=True,
         reason=None,
         rendered=rendered,
         objective=kind.plan_json["objective"],
         used_bytes=kind.plan_json["budget"]["used_bytes"],
+        elapsed_s=perf_counter() - started_at,
     )
 
 
@@ -432,6 +436,7 @@ def _optimize_and_dump(instrument: InstrumentSpec, out_dir: Path, dctx: _DumpCon
     """Optimize one strategy and dump it; on an infeasible budget, record why instead of raising."""
     out_dir.mkdir(parents=True, exist_ok=True)
     name = "grouped" if grouped else "ungrouped"
+    started_at = perf_counter()
     try:
         if grouped:
             grouped_plan = optimize_instrument_grouped(instrument, dctx.audio, dctx.sample_rate, dctx.settings.optimize)
@@ -442,9 +447,15 @@ def _optimize_and_dump(instrument: InstrumentSpec, out_dir: Path, dctx: _DumpCon
     except BudgetInfeasibleError as exc:
         _write_text(out_dir / "INFEASIBLE.txt", f"{name} allocation is infeasible at this budget:\n{exc}\n")
         return PlanArtifacts(
-            name, out_dir, feasible=False, reason=str(exc), rendered=False, objective=None, used_bytes=None
+            name,
+            feasible=False,
+            reason=str(exc),
+            rendered=False,
+            objective=None,
+            used_bytes=None,
+            elapsed_s=perf_counter() - started_at,
         )
-    return _dump_plan(kind, out_dir, dctx)
+    return _dump_plan(kind, out_dir, dctx, started_at)
 
 
 def dump_instrument(
