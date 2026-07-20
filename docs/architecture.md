@@ -27,7 +27,7 @@ in the right place.
 - `velocity_map.py` — the loudness-matched velocity→volume map.
 - `knapsack.py` — the MCKP byte-budget DP (exact + Lagrangian).
 - `grouping/` — pitch-zone grouping as a subpackage: `cost_model` (zone-option enumeration), `solve` (exact partition + allocation DP), and the `__init__` orchestration + `GroupedInstrumentPlan`.
-- `orchestrate.py` — the ungrouped end-to-end pipeline.
+- `orchestrate/` — the ungrouped end-to-end pipeline as a subpackage: `cost_model` (per-pitch rate-distortion sweep → knapsack items), `solve` (MCKP allocation + per-pitch plans), and the `__init__` orchestration plus the shared `OptimizeSettings`/`prepare_run`/`load_instrument_audio` that pitch-zone grouping reuses.
 - `export.py` — plan → `ITModule` bridge.
 - `plans/` — plan value objects (`budget`, `ungrouped`, `grouped`), grouped as a subpackage rather than one bag-of-classes module.
 - `report.py` — human-readable text reports for both strategies.
