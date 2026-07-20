@@ -1,16 +1,4 @@
 from optisample.optimize.export import ExportContext, build_grouped_it_module, build_it_module, c5speed_for_pitch
-from optisample.optimize.grouping import (
-    GroupedInstrumentPlan,
-    GroupingResult,
-    Zone,
-    ZoneOption,
-    build_zone_options,
-    format_grouping_report,
-    optimize_instrument_grouped,
-    run_instrument_grouped,
-    solve_grouping,
-    zone_hull,
-)
 from optisample.optimize.knapsack import (
     Allocation,
     BudgetInfeasibleError,
@@ -36,11 +24,11 @@ from optisample.optimize.orchestrate import (
     InstrumentPlan,
     OptimizeSettings,
     PitchPlan,
-    format_report,
     load_instrument_audio,
     optimize_instrument,
     run_instrument,
 )
+from optisample.optimize.report import format_grouping_report, format_report
 from optisample.optimize.tasks import (
     AudioMap,
     EvalContext,
@@ -69,16 +57,7 @@ __all__ = [
     "build_it_module",
     "build_grouped_it_module",
     "c5speed_for_pitch",
-    "GroupedInstrumentPlan",
-    "GroupingResult",
-    "Zone",
-    "ZoneOption",
-    "build_zone_options",
     "format_grouping_report",
-    "optimize_instrument_grouped",
-    "run_instrument_grouped",
-    "solve_grouping",
-    "zone_hull",
     "OperatingPoint",
     "SourceClip",
     "default_rates",

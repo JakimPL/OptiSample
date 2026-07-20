@@ -17,15 +17,14 @@ from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.grouping import (
     GroupedInstrumentPlan,
     ZoneOption,
-    _cheapest_partition_bytes,
-    _zone_trim,
     build_zone_options,
-    format_grouping_report,
     optimize_instrument_grouped,
     run_instrument_grouped,
     solve_grouping,
     zone_hull,
 )
+from optisample.optimize.grouping.cost_model import _zone_trim
+from optisample.optimize.grouping.solve import _cheapest_partition_bytes
 from optisample.optimize.knapsack import BudgetInfeasibleError
 from optisample.optimize.orchestrate import OptimizeSettings, optimize_instrument, prepare_run
 from optisample.optimize.tasks import Event, PitchTask
@@ -230,13 +229,6 @@ def test_zones_partition_all_pitches_and_bytes_add_up(plan48: GroupedInstrumentP
     assert covered == list(PITCHES)  # ascending, contiguous, no gaps or overlaps
     assert all(zone.representative in zone.pitches for zone in plan48.zones)
     assert plan48.used_bytes == sum(zone.chosen.stored_bytes for zone in plan48.zones)
-
-
-def test_report_has_the_expected_sections(plan48: GroupedInstrumentPlan) -> None:
-    report = format_grouping_report(plan48)
-    assert "pitch-zone grouping" in report
-    assert "Budget:" in report and "Zones" in report
-    assert report.endswith("\n")
 
 
 def test_grouping_is_feasible_where_ungrouped_is_not(audio: dict[tuple[int, int], NDArray[np.float64]]) -> None:

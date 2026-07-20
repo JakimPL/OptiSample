@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Literal
 
 import numpy as np
 
@@ -31,9 +31,8 @@ from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode
 from optisample.io.audio import read_wav
 from optisample.metrics.base import Signal
 from optisample.metrics.composite import CompositeFidelity
-from optisample.metrics.size import FILE_HEADER_BYTES, INSTRUMENT_HEADER_BYTES, bytes_to_kib, kib_to_bytes
+from optisample.metrics.size import FILE_HEADER_BYTES, INSTRUMENT_HEADER_BYTES, kib_to_bytes
 from optisample.model import InstrumentSpec
-from optisample.music import note_name
 from optisample.optimize.knapsack import (
     Allocation,
     KnapsackItem,
@@ -47,8 +46,6 @@ from optisample.optimize.tasks import AudioMap, EvalContext, PitchTask, build_ta
 from optisample.optimize.velocity_map import VelocityVolumeMap, derive_velocity_map, loudness_by_velocity
 
 Method = Literal["exact", "lagrangian"]
-
-_CURVE_ROWS = 6
 
 
 @dataclass(frozen=True)
@@ -248,96 +245,3 @@ def run_instrument(instrument: InstrumentSpec, settings: OptimizeSettings) -> In
     """Load an instrument's recordings from disk and optimize it."""
     audio, sample_rate = load_instrument_audio(instrument)
     return optimize_instrument(instrument, audio, sample_rate, settings)
-
-
-class _Budgeted(Protocol):
-    """The budget-facing surface every plan exposes -- what :func:`format_budget_block` needs."""
-
-    @property
-    def module_budget_bytes(self) -> int: ...
-
-    @property
-    def sample_budget_bytes(self) -> int: ...
-
-    @property
-    def used_bytes(self) -> int: ...
-
-    @property
-    def module_bytes(self) -> int: ...
-
-
-def format_budget_block(plan: _Budgeted) -> list[str]:
-    """The two-line ``Budget:``/``Used:`` summary shared by the ungrouped and grouped reports."""
-    overhead = FILE_HEADER_BYTES + INSTRUMENT_HEADER_BYTES
-    used = plan.used_bytes
-    fraction = used / plan.sample_budget_bytes if plan.sample_budget_bytes > 0 else float("nan")
-    headroom = plan.sample_budget_bytes - used
-    return [
-        f"Budget:    {bytes_to_kib(plan.module_budget_bytes):7.1f} KiB module  ->  "
-        f"{bytes_to_kib(plan.sample_budget_bytes):7.1f} KiB samples  "
-        f"(overhead {overhead} B: file {FILE_HEADER_BYTES} + instrument {INSTRUMENT_HEADER_BYTES})",
-        f"Used:      {bytes_to_kib(used):7.1f} KiB samples  ({fraction:6.1%} of budget, "
-        f"{bytes_to_kib(headroom):.1f} KiB free)  ->  {bytes_to_kib(plan.module_bytes):.1f} KiB module",
-    ]
-
-
-def _format_header(plan: InstrumentPlan) -> str:
-    return "\n".join(
-        (
-            f"Instrument {plan.instrument_id!r} - budget solver (method: {plan.method})",
-            "=" * 70,
-            *format_budget_block(plan),
-            f"Objective: {plan.objective:8.4f}  (sum of weight x distortion over "
-            f"{len(plan.pitches)} pitches, {plan.total_weight:.1f} s of material)",
-        )
-    )
-
-
-def _format_pitches(plan: InstrumentPlan) -> str:
-    lines = [
-        "Per-pitch allocation",
-        "-" * 70,
-        f"{'pitch':>5}  {'note':>4}  {'weight(s)':>9}  {'rep.vel':>7}  "
-        f"{'rate(Hz)':>8}  {'depth':>5}  {'size(KiB)':>9}  {'distortion':>10}  {'hull':>4}",
-    ]
-    for pitch in plan.pitches:
-        point = pitch.chosen
-        lines.append(
-            f"{pitch.pitch:>5}  {note_name(pitch.pitch):>4}  {pitch.weight:>9.1f}  "
-            f"{pitch.representative_velocity:>7}  {point.params.target_rate:>8}  {point.params.depth_bits:>5}  "
-            f"{bytes_to_kib(point.stored_bytes):>9.1f}  {point.distortion:>10.4f}  {len(pitch.hull):>4}"
-        )
-    return "\n".join(lines)
-
-
-def _format_velocity_map(plan: InstrumentPlan) -> str:
-    anchors = plan.velocity_map.anchors
-    reference_volume = max((anchor.volume for anchor in anchors), default=0)
-    lines = ["Velocity->volume map (loudness-matched, 0-64; loudest velocity -> 64)", "-" * 70]
-    for anchor in anchors:
-        marker = "  [reference]" if anchor.volume == reference_volume else ""
-        lines.append(
-            f"  vel {anchor.velocity:>3}  ->  vol {anchor.volume:>2}   ({anchor.loudness_lufs:6.1f} LUFS){marker}"
-        )
-    lines.append("  (full 0-127 map interpolated between these anchors)")
-    return "\n".join(lines)
-
-
-def _format_curve(plan: InstrumentPlan) -> str:
-    curve = plan.curve
-    lines = ["Budget->quality curve (Lagrangian sweep over the RD hulls)", "-" * 70]
-    step = max(1, (len(curve) - 1) // (_CURVE_ROWS - 1)) if len(curve) > 1 else 1
-    shown = list(range(0, len(curve), step))
-    if shown and shown[-1] != len(curve) - 1:
-        shown.append(len(curve) - 1)
-    for position in shown:
-        point = curve[position]
-        fits = "" if point.total_bytes > plan.sample_budget_bytes else "  <= budget"
-        lines.append(f"  {bytes_to_kib(point.total_bytes):7.1f} KiB  ->  objective {point.objective:8.4f}{fits}")
-    return "\n".join(lines)
-
-
-def format_report(plan: InstrumentPlan) -> str:
-    """Render a human-readable summary of an instrument optimization."""
-    sections = (_format_header(plan), _format_pitches(plan), _format_velocity_map(plan), _format_curve(plan))
-    return "\n\n".join(sections) + "\n"
