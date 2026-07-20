@@ -13,12 +13,12 @@ from optisample.io.audio import write_wav
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.knapsack import BudgetInfeasibleError
 from optisample.optimize.orchestrate import (
-    InstrumentPlan,
     OptimizeSettings,
     load_instrument_audio,
     optimize_instrument,
     run_instrument,
 )
+from optisample.optimize.plans import InstrumentPlan
 from optisample.synth import NoteSpec, render_sample
 
 SR = 44_100

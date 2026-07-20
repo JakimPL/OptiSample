@@ -48,15 +48,15 @@ from optisample.metrics.composite import evaluate
 from optisample.model import InstrumentSpec, Manifest, NoteEvent
 from optisample.music import note_name
 from optisample.optimize.export import ExportContext, build_grouped_it_module, build_it_module
-from optisample.optimize.grouping import GroupedInstrumentPlan, optimize_instrument_grouped
+from optisample.optimize.grouping import optimize_instrument_grouped
 from optisample.optimize.knapsack import BudgetInfeasibleError
 from optisample.optimize.orchestrate import (
-    InstrumentPlan,
     OptimizeSettings,
     load_instrument_audio,
     optimize_instrument,
     prepare_run,
 )
+from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
 from optisample.optimize.report import format_grouping_report, format_report
 from optisample.optimize.tasks import AudioMap, EvalContext, Event, PitchTask
 from optisample.optimize.velocity_map import VelocityVolumeMap

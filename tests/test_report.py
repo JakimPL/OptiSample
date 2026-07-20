@@ -2,10 +2,16 @@ from __future__ import annotations
 
 from optisample.dsp.surrogate import EncodingParams
 from optisample.metrics.size import bytes_to_kib
-from optisample.optimize.grouping import GroupedInstrumentPlan, Zone, ZoneOption
 from optisample.optimize.knapsack import Allocation, RDCurvePoint, Selection
 from optisample.optimize.operating_points import OperatingPoint
-from optisample.optimize.orchestrate import BudgetBreakdown, InstrumentPlan, PitchPlan
+from optisample.optimize.plans import (
+    BudgetBreakdown,
+    GroupedInstrumentPlan,
+    InstrumentPlan,
+    PitchPlan,
+    Zone,
+    ZoneOption,
+)
 from optisample.optimize.report import format_grouping_report, format_report
 from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
 

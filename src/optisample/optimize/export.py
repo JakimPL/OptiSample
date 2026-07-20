@@ -40,8 +40,7 @@ from optisample.io.it_writer import (
 from optisample.metrics.base import Signal
 from optisample.model import NoteEvent
 from optisample.music import note_name, semitone_ratio
-from optisample.optimize.grouping import GroupedInstrumentPlan
-from optisample.optimize.orchestrate import InstrumentPlan
+from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
 from optisample.optimize.tasks import AudioMap
 from optisample.optimize.velocity_map import VelocityVolumeMap
 

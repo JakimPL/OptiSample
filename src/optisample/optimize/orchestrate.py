@@ -31,17 +31,10 @@ from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode
 from optisample.io.audio import read_wav
 from optisample.metrics.base import Signal
 from optisample.metrics.composite import CompositeFidelity
-from optisample.metrics.size import FILE_HEADER_BYTES, INSTRUMENT_HEADER_BYTES, kib_to_bytes
 from optisample.model import InstrumentSpec
-from optisample.optimize.knapsack import (
-    Allocation,
-    KnapsackItem,
-    RDCurvePoint,
-    rd_curve,
-    solve_exact,
-    solve_lagrangian,
-)
+from optisample.optimize.knapsack import Allocation, KnapsackItem, rd_curve, solve_exact, solve_lagrangian
 from optisample.optimize.operating_points import OperatingPoint, lower_convex_hull, sweep_rates
+from optisample.optimize.plans import InstrumentPlan, PitchPlan, split_budget
 from optisample.optimize.tasks import AudioMap, EvalContext, PitchTask, build_tasks, score_reconstruction
 from optisample.optimize.velocity_map import VelocityVolumeMap, derive_velocity_map, loudness_by_velocity
 
@@ -63,62 +56,6 @@ class OptimizeSettings:
     velocity: VelocityConfig
     method: Method
     seed: int = 0
-
-
-@dataclass(frozen=True)
-class PitchPlan:
-    """The outcome for one pitch: its representative recording and the config the solver chose."""
-
-    pitch: int
-    weight: float
-    representative_velocity: int
-    chosen: OperatingPoint
-    hull: tuple[OperatingPoint, ...]
-
-
-@dataclass(frozen=True)
-class BudgetBreakdown:
-    """The byte budget split into the whole module and the part left for sample PCM + headers."""
-
-    module_bytes: int
-    sample_bytes: int  # module_bytes minus the file + instrument header overhead
-
-
-@dataclass(frozen=True)
-class InstrumentPlan:
-    """The full result for one instrument: the map, per-pitch choices, and the allocation."""
-
-    instrument_id: str
-    budget: BudgetBreakdown
-    velocity_map: VelocityVolumeMap
-    pitches: tuple[PitchPlan, ...]
-    allocation: Allocation
-    curve: tuple[RDCurvePoint, ...]
-    method: str
-
-    @property
-    def module_budget_bytes(self) -> int:
-        return self.budget.module_bytes
-
-    @property
-    def sample_budget_bytes(self) -> int:
-        return self.budget.sample_bytes
-
-    @property
-    def used_bytes(self) -> int:
-        return self.allocation.total_bytes
-
-    @property
-    def objective(self) -> float:
-        return self.allocation.objective
-
-    @property
-    def module_bytes(self) -> int:
-        return self.used_bytes + FILE_HEADER_BYTES + INSTRUMENT_HEADER_BYTES
-
-    @property
-    def total_weight(self) -> float:
-        return sum(plan.weight for plan in self.pitches)
 
 
 def _evaluate_config(task: PitchTask, ctx: EvalContext, params: EncodingParams) -> OperatingPoint:
@@ -209,14 +146,13 @@ def optimize_instrument(
     velocity_map, ctx, tasks = prepare_run(instrument, audio, sample_rate, settings)
     items, hulls = _build_items(tasks, ctx)
 
-    module_budget = kib_to_bytes(instrument.budget_kb)
-    sample_budget = module_budget - FILE_HEADER_BYTES - INSTRUMENT_HEADER_BYTES
+    budget = split_budget(instrument.budget_kb)
     solve = solve_exact if settings.method == "exact" else solve_lagrangian
-    allocation = solve(items, sample_budget)
+    allocation = solve(items, budget.sample_bytes)
 
     return InstrumentPlan(
         instrument_id=instrument.id,
-        budget=BudgetBreakdown(module_bytes=module_budget, sample_bytes=sample_budget),
+        budget=budget,
         velocity_map=velocity_map,
         pitches=_pitch_plans(tasks, allocation, hulls),
         allocation=allocation,

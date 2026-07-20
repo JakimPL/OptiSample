@@ -12,35 +12,14 @@ the same budget (an approximate one can, and does).
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 
 import numpy as np
 from numpy.typing import NDArray
 
-from optisample.optimize.grouping.cost_model import ZoneOption, _Range, _ZoneOptions, zone_hull
+from optisample.optimize.grouping.cost_model import _Range, _ZoneOptions, zone_hull
 from optisample.optimize.knapsack import BudgetInfeasibleError
+from optisample.optimize.plans.grouped import GroupingResult, Zone, ZoneOption
 from optisample.optimize.tasks import PitchTask
-
-
-@dataclass(frozen=True)
-class Zone:
-    """A contiguous run of keys served by one stored sample, with the option the solver chose."""
-
-    pitches: tuple[int, ...]
-    representative: int
-    representative_velocity: int
-    weight: float  # total material usage (seconds) across the zone's pitches
-    chosen: ZoneOption
-    hull: tuple[ZoneOption, ...]
-
-
-@dataclass(frozen=True)
-class GroupingResult:
-    """The solver's output: the chosen zones and the totals they add up to."""
-
-    zones: tuple[Zone, ...]
-    total_bytes: int
-    objective: float
 
 
 def _cheapest_partition_bytes(options: _ZoneOptions, count: int) -> int:

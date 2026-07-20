@@ -15,8 +15,6 @@ from optisample.io.audio import write_wav
 from optisample.metrics.composite import build_composite
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.grouping import (
-    GroupedInstrumentPlan,
-    ZoneOption,
     build_zone_options,
     optimize_instrument_grouped,
     run_instrument_grouped,
@@ -27,6 +25,7 @@ from optisample.optimize.grouping.cost_model import _zone_trim
 from optisample.optimize.grouping.solve import _cheapest_partition_bytes
 from optisample.optimize.knapsack import BudgetInfeasibleError
 from optisample.optimize.orchestrate import OptimizeSettings, optimize_instrument, prepare_run
+from optisample.optimize.plans import GroupedInstrumentPlan, ZoneOption
 from optisample.optimize.tasks import Event, PitchTask
 from optisample.synth import NoteSpec, render_sample
 

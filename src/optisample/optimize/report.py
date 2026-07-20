@@ -9,12 +9,10 @@ header, one budget block and one set of rules instead of drifting copies.
 
 from __future__ import annotations
 
-from typing import Protocol
-
 from optisample.metrics.size import FILE_HEADER_BYTES, INSTRUMENT_HEADER_BYTES, bytes_to_kib
 from optisample.music import note_name
-from optisample.optimize.grouping import GroupedInstrumentPlan
-from optisample.optimize.orchestrate import InstrumentPlan
+from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
+from optisample.optimize.plans.budget import BudgetedPlanMixin
 
 RULE_WIDTH = 70
 SECTION_RULE = "=" * RULE_WIDTH
@@ -23,23 +21,7 @@ SUBSECTION_RULE = "-" * RULE_WIDTH
 _CURVE_ROWS = 6
 
 
-class _Budgeted(Protocol):
-    """The budget-facing surface every plan exposes -- what :func:`format_budget_block` needs."""
-
-    @property
-    def module_budget_bytes(self) -> int: ...
-
-    @property
-    def sample_budget_bytes(self) -> int: ...
-
-    @property
-    def used_bytes(self) -> int: ...
-
-    @property
-    def module_bytes(self) -> int: ...
-
-
-def format_budget_block(plan: _Budgeted) -> list[str]:
+def format_budget_block(plan: BudgetedPlanMixin) -> list[str]:
     """The two-line ``Budget:``/``Used:`` summary shared by the ungrouped and grouped reports."""
     overhead = FILE_HEADER_BYTES + INSTRUMENT_HEADER_BYTES
     used = plan.used_bytes
@@ -54,7 +36,7 @@ def format_budget_block(plan: _Budgeted) -> list[str]:
     ]
 
 
-def _format_header(plan: _Budgeted, title: str, summary: str) -> str:
+def _format_header(plan: BudgetedPlanMixin, title: str, summary: str) -> str:
     """Title, section rule, the shared budget block, then a strategy-specific summary line."""
     return "\n".join((title, SECTION_RULE, *format_budget_block(plan), summary))
 

@@ -20,14 +20,12 @@ from optisample.optimize.operating_points import (
     sweep_rates,
 )
 from optisample.optimize.orchestrate import (
-    BudgetBreakdown,
-    InstrumentPlan,
     OptimizeSettings,
-    PitchPlan,
     load_instrument_audio,
     optimize_instrument,
     run_instrument,
 )
+from optisample.optimize.plans import BudgetBreakdown, InstrumentPlan, PitchPlan
 from optisample.optimize.report import format_grouping_report, format_report
 from optisample.optimize.tasks import (
     AudioMap,

@@ -17,31 +17,15 @@ encoding and covered pitch); the DP that consumes the menu is cheap.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode
 from optisample.music import semitone_ratio
 from optisample.optimize.operating_points import lower_convex_hull, sweep_rates
+from optisample.optimize.plans.grouped import ZoneOption
 from optisample.optimize.tasks import EvalContext, PitchTask, score_reconstruction
 
 _Range = tuple[int, int]  # half-open [i, j) index range into the ordered pitch tasks
-_ZoneOptions = dict[_Range, tuple["ZoneOption", ...]]
-
-
-@dataclass(frozen=True)
-class ZoneOption:
-    """One way to realize a zone: which member is the stored representative and how it is encoded.
-
-    ``distortion`` is the *usage-weighted, summed* reconstruction distortion over every pitch the
-    zone covers (so it is directly comparable to the ungrouped objective), and ``stored_bytes``
-    already includes the one 80-byte sample header the zone costs.
-    """
-
-    representative: int
-    params: EncodingParams
-    stored_bytes: int
-    distortion: float
-    frames: int
+_ZoneOptions = dict[_Range, tuple[ZoneOption, ...]]
 
 
 def _zone_trim(range_tasks: Sequence[PitchTask], representative: int) -> float:
