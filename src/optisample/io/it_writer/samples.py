@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Final
 
 import numpy as np
 from numpy.typing import NDArray
@@ -21,6 +22,9 @@ from optisample.io.it_writer.constants import (
     _ascii,
 )
 
+_DEFAULT_DEPTH_BITS: Final = 16
+_DEFAULT_C5SPEED_HZ: Final = 44_100
+
 
 @dataclass(frozen=True)
 class ITSample:
@@ -28,8 +32,8 @@ class ITSample:
 
     name: str
     pcm: NDArray[np.floating]
-    depth_bits: int = 16
-    c5speed: int = 44_100
+    depth_bits: int = _DEFAULT_DEPTH_BITS
+    c5speed: int = _DEFAULT_C5SPEED_HZ
     global_volume: int = MAX_VOLUME
     default_volume: int = MAX_VOLUME
     loop: tuple[int, int] | None = None  # forward loop over half-open frame range [begin, end)

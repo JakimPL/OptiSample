@@ -1,7 +1,7 @@
 """Typed documents for the artifact dump tree and the writers that render them to disk.
 
 Every JSON file the dumper emits is modelled as a frozen Pydantic document here, so the rest of the
-subpackage builds and reads structured objects instead of untyped ``dict[str, Any]`` keyed by string.
+subpackage builds and reads structured objects with named, typed fields.
 The documents serialize through :func:`write_json`, which runs :func:`_json_safe` over ``model_dump``
 output -- coercing numpy scalars to Python and non-finite floats to ``null`` -- so the bytes on disk are
 identical to hand-built JSON (field order follows each model's definition order).
@@ -112,7 +112,7 @@ class _ZoneHead(_Frozen):
 
 
 # Listing the head base last puts its fields first and EncodingRecord's after them (MRO field order),
-# reproducing the flat ``{head..., encoding...}`` layout the dump tree has always written.
+# reproducing the flat ``{head..., encoding...}`` layout the dump tree writes.
 class PitchItemRecord(EncodingRecord, _PitchHead):
     """One kept pitch: its identity and the encoding chosen for its sample."""
 
@@ -125,8 +125,8 @@ class PlanDocument(_Frozen):
     """One optimized plan for either strategy: budgets, the velocity map, and the kept items.
 
     ``method`` is recorded only for the ungrouped strategy; ``pitches`` and ``zones`` are mutually
-    exclusive. The unused optional-head fields are dropped at serialization so each strategy writes
-    exactly the keys it has always written.
+    exclusive. The optional-head fields a strategy leaves unset are dropped at serialization, so each
+    strategy writes exactly the keys that apply to it.
     """
 
     strategy: str

@@ -18,6 +18,8 @@ from optisample.config.dsp import MelParams, StftParams
 Signal = NDArray[np.float64]
 
 _LOG_FLOOR: Final = 1e-10
+_MEL_SCALE: Final = 2595.0  # HTK mel scale factor
+_MEL_BREAK_HZ: Final = 700.0  # HTK mel break frequency (Hz)
 
 
 def frame(signal: Signal, frame_length: int, hop_length: int) -> Signal:
@@ -40,11 +42,13 @@ def stft_magnitude(signal: Signal, params: StftParams) -> Signal:
 
 
 def _hz_to_mel(hertz: NDArray[np.float64] | float) -> NDArray[np.float64]:
-    return np.asarray(2595.0 * np.log10(1.0 + np.asarray(hertz, dtype=np.float64) / 700.0), dtype=np.float64)
+    return np.asarray(
+        _MEL_SCALE * np.log10(1.0 + np.asarray(hertz, dtype=np.float64) / _MEL_BREAK_HZ), dtype=np.float64
+    )
 
 
 def _mel_to_hz(mel: NDArray[np.float64]) -> NDArray[np.float64]:
-    return np.asarray(700.0 * (10.0 ** (mel / 2595.0) - 1.0), dtype=np.float64)
+    return np.asarray(_MEL_BREAK_HZ * (10.0 ** (mel / _MEL_SCALE) - 1.0), dtype=np.float64)
 
 
 def mel_filterbank(sample_rate: int, params: MelParams) -> Signal:

@@ -33,7 +33,7 @@ class SourceSample(OptiSampleModel):
     """One recorded note of an instrument, grouped by (pitch, velocity, controller).
 
     ``controller`` is the CC0/C00 value averaged to a single scalar over the note.
-    ``articulation`` is carried but ignored by the optimizer for now.
+    ``articulation`` is carried through the model; the optimizer keys on (pitch, velocity, controller).
     """
 
     file: Path

@@ -2,8 +2,8 @@
 
 Impulse Tracker stores signed little-endian PCM; ``Length`` counts frames. Overhead is fixed:
 80 B per sample header, 554 B per instrument header (incl. the 240-B note map), ~192 B file
-header. IT214/215 compression is content-dependent (no fixed ratio) and is modelled later; the
-optimizer stays correct on this uncompressed model regardless.
+header. IT214/215 compression is content-dependent (no fixed ratio); the optimizer stays correct
+on this uncompressed model regardless.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ SAMPLE_HEADER_BYTES: Final = 80
 INSTRUMENT_HEADER_BYTES: Final = 554
 FILE_HEADER_BYTES: Final = 192
 _BYTES_PER_KIB: Final = 1024
+_MONO_CHANNELS: Final = 1
 
 
 def _bytes_per_frame(depth_bits: int, channels: int) -> int:
@@ -34,7 +35,7 @@ class SampleSize:
 
     frames: int
     depth_bits: int
-    channels: int = 1
+    channels: int = _MONO_CHANNELS
 
     @property
     def pcm_bytes(self) -> int:
@@ -50,7 +51,7 @@ def module_bytes(samples: Sequence[SampleSize], n_instruments: int) -> int:
     return FILE_HEADER_BYTES + n_instruments * INSTRUMENT_HEADER_BYTES + sum(sample.total_bytes for sample in samples)
 
 
-def max_frames_for_budget(budget_bytes: int, depth_bits: int, channels: int = 1) -> int:
+def max_frames_for_budget(budget_bytes: int, depth_bits: int, channels: int = _MONO_CHANNELS) -> int:
     """Largest frame count whose stored sample (incl. header) fits in ``budget_bytes`` (0 if none)."""
     usable = budget_bytes - SAMPLE_HEADER_BYTES
     if usable <= 0:

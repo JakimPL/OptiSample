@@ -77,8 +77,8 @@ def _reference_loudness(measured: NDArray[np.float64]) -> float:
 def _clamp_to_floor(measured: NDArray[np.float64], reference: float, floor_lu: float) -> NDArray[np.float64]:
     """Raise every anchor to at least ``reference - floor_lu`` so silence maps to a defined quietest level.
 
-    Silent velocities measure ``-inf``; without a floor they would map to volume 0 and near-silent ones
-    to extreme negative dB. Clamping bounds how quiet the map can get relative to the loudest recording.
+    Silent velocities measure ``-inf``; the floor lifts them (and any near-silent ones) to a bounded
+    quietest level, keeping the map within ``floor_lu`` of the loudest recording.
     """
     return np.maximum(measured, reference - floor_lu)
 
@@ -87,8 +87,8 @@ def _interpolate_over_velocities(velocities: NDArray[np.float64], loudness: NDAr
     """Loudness for every MIDI velocity 0..127, linearly interpolated in dB between the sparse anchors.
 
     ``np.interp`` extrapolates flat beyond the measured anchors (holding the nearest endpoint), so
-    velocities outside the recorded range reuse the closest measured loudness instead of running off
-    the linear trend into implausible levels.
+    velocities outside the recorded range reuse the closest measured loudness, holding the edges at a
+    plausible level.
     """
     grid = np.arange(_MIDI_VELOCITIES, dtype=np.float64)
     return np.interp(grid, velocities, loudness)

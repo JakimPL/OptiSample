@@ -11,13 +11,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 import numpy as np
 from numpy.typing import NDArray
 
-if TYPE_CHECKING:
-    from optisample.config.metrics import MetricsConfig
+from optisample.config.metrics import MetricsConfig
 
 Signal = NDArray[np.float64]
 
@@ -41,7 +40,7 @@ class Metric(Protocol):
     def distance(self, reference: Signal, candidate: Signal, context: MetricContext) -> float: ...
 
 
-MetricFactory = Callable[["MetricsConfig"], Metric]
+MetricFactory = Callable[[MetricsConfig], Metric]
 
 _FACTORIES: dict[str, MetricFactory] = {}
 

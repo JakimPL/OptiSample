@@ -26,11 +26,12 @@ def _apply_loop(resampled: Signal, rate: int, config: LoopConfig) -> tuple[Signa
 
 
 def _loop_or_trim(resampled: Signal, params: EncodingParams, config: LoopConfig) -> tuple[Signal, Loop | None]:
-    """Bound stored length by looping *or* trimming -- never both.
+    """Bound stored length by looping *or* trimming, whichever the config selects.
 
-    A detected loop already trims storage to ``[0, loop.end)`` (attack + one loop region), so trimming
-    on top would cut into or past the loop. Trimming to ``trim_s`` therefore applies only when looping
-    was not requested, or was requested but the material was not periodic enough to loop.
+    A detected loop already trims storage to ``[0, loop.end)`` (attack + one loop region), so it sets
+    the full stored length itself. Trimming to ``trim_s`` governs the remaining cases: a config that
+    requests trimming, and a loop request that falls back to trimming when the material is too
+    aperiodic to loop.
     """
     if params.loop:
         looped, loop = _apply_loop(resampled, params.target_rate, config)
@@ -44,10 +45,10 @@ def _loop_or_trim(resampled: Signal, params: EncodingParams, config: LoopConfig)
 def encode(signal: Signal, sample_rate: int, params: EncodingParams, context: EncodeContext) -> StoredSample:
     """Encode ``signal`` into a :class:`StoredSample`: normalize -> resample -> (loop | trim) -> requantize.
 
-    With ``params.loop`` set, storage is trimmed to the attack plus a looped sustain region (if the
-    signal is periodic enough); the loop then sustains notes held past the stored length. Otherwise
-    it is trimmed to ``trim_s`` and a longer note simply ends. A loop request on non-periodic material
-    silently falls back to the trimmed sample, so the config is never worse than its non-looped twin.
+    With ``params.loop`` set, storage is trimmed to the attack plus a looped sustain region (when the
+    signal is periodic enough); the loop then sustains notes held past the stored length. For a plain
+    config, storage is trimmed to ``trim_s`` and a longer note ends there. A loop request on aperiodic
+    material falls back to the trimmed sample, so a looped config always matches or beats its plain twin.
     """
     normalized, gain = normalize_peak(signal, context.config.target_peak)
     resampled = resample_to(normalized, sample_rate, params.target_rate)

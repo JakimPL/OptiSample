@@ -7,7 +7,8 @@ check that the surrogate ranks operating points the way ``openmpt123`` does -- t
 budget solver pick the winners ground truth would pick.
 
 Every comparison runs through the loudness-normalized composite, so IT's gain staging (which attenuates
-the absolute level heavily) surfaces as a reported ``loudness_delta_lu`` rather than as timbre error.
+the absolute level heavily) surfaces as a reported ``loudness_delta_lu`` while the timbre terms score
+spectral fidelity on level-matched signals.
 Repitching (playing a stored sample at a non-root key) is a genuine part of the calibration: the
 surrogate resamples in numpy while ``openmpt123`` uses its configured interpolation filter, and that is
 where the two engines diverge most.

@@ -83,8 +83,8 @@ def render_sustained(spec: NoteSpec, rng: np.random.Generator, config: SynthConf
     """Synthesize a sustained tone: vibrato-modulated partials rolled off by velocity and controller.
 
     Partials at or above ``evolution_min_partial`` get a slow independent wax/wane, so the sustain
-    drifts rather than repeating exactly; an attack/release envelope then shapes it and it is
-    peak-normalized to the velocity's target level.
+    drifts continuously; an attack/release envelope then shapes it and it is peak-normalized to the
+    velocity's target level.
     """
     archetype_config = config.sustained
     fundamental = midi_to_freq(spec.pitch)

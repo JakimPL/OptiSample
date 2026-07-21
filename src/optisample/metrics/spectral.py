@@ -1,15 +1,14 @@
 """Spectral fidelity metrics: multi-resolution STFT and log-mel L1.
 
 The multi-resolution STFT distance is the workhorse — it captures quantization noise,
-bandlimiting/HF loss and coarse envelope shape at once, and is invariant to nothing it
-shouldn't be (level is handled by the normalize-before-compare harness).
+bandlimiting/HF loss and coarse envelope shape at once, while level is handled upstream by the
+normalize-before-compare harness.
 
 The log terms clamp magnitudes to a fixed dynamic range below the *reference peak* before the
-logarithm. Without this, a plain ``log(mag + tiny_eps)`` blows up in near-silent bins: it would
-rate a transparent 16-bit requantization (whose −90 dB noise fills otherwise-empty HF bins)
-as *worse* than an audible bandwidth cut. The floor makes inaudible noise invisible while
-still penalizing audible noise (e.g. 8-bit at ~−49 dB). The floor depth is ``dynamic_range_db``
-dB below the peak — a single config knob shared with the log-mel and MCD metrics.
+logarithm, keeping the score stable in near-silent bins. The floor lets a transparent 16-bit
+requantization (whose −90 dB noise fills otherwise-empty HF bins) rank as near-perfect while
+audible noise (e.g. 8-bit at ~−49 dB) still counts against the score. The floor depth is
+``dynamic_range_db`` dB below the peak — a single config knob shared with the log-mel and MCD metrics.
 """
 
 from __future__ import annotations

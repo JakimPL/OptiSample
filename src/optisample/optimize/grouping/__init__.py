@@ -30,9 +30,9 @@ def optimize_instrument_grouped(
 ) -> GroupedInstrumentPlan:
     """Optimize one instrument with pitch-zone grouping and return a structured plan.
 
-    Reuses the ungrouped pipeline's velocity map and per-pitch tasks; only the allocation changes
-    (zones of repitched representatives instead of one sample per key). ``settings.method`` is not
-    used -- grouping always solves partition and allocation together with the exact DP.
+    Reuses the ungrouped pipeline's velocity map and per-pitch tasks; the allocation switches to
+    zones of repitched representatives. Grouping always solves partition and allocation together with
+    the exact DP, so ``settings.method`` applies only to the ungrouped solver.
     """
     velocity_map, context, tasks = prepare_run(instrument, audio, sample_rate, settings)
     options = build_zone_options(tasks, context)

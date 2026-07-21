@@ -19,6 +19,7 @@ from optisample.model import InstrumentSpec, Manifest, NoteEvent, ProjectSpec, S
 from optisample.synth.archetypes import NoteSpec, render_sample
 
 DEFAULT_SEED: Final = 0  # default RNG seed for reproducible demo generation.
+_NO_CONTROLLER: Final = 0.0  # the synth renders one controller position, recorded as 0.
 
 
 def _render_instrument(
@@ -32,7 +33,7 @@ def _render_instrument(
             spec = NoteSpec(pitch, velocity, 0.0, preset.sample_dur, rate)
             rel = Path(preset.id) / f"p{pitch}_v{velocity}_c0.wav"
             write_wav(outdir / rel, render_sample(preset.archetype, spec, rng, config), rate)
-            samples.append(SourceSample(file=rel, pitch=pitch, velocity=velocity, controller=0.0))
+            samples.append(SourceSample(file=rel, pitch=pitch, velocity=velocity, controller=_NO_CONTROLLER))
     material = [
         NoteEvent(pitch=event.pitch, velocity=event.velocity, duration_s=event.duration_s, count=event.count)
         for event in preset.material

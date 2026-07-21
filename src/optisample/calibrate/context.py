@@ -30,10 +30,10 @@ class NoteProbe:
 class RendererAgreement:
     """How closely the surrogate and openmpt123 agree on one rendered note.
 
-    ``breakdown`` is the raw per-metric distance (not weighted), which is what makes this a
-    *calibration* result rather than a single opaque score: it shows *which* term drives any
-    disagreement. Log-scale terms (``mcd``, ``logmel_l1``) can inflate on near-silent frames even when
-    the waveforms are audibly identical, so read ``distance`` alongside the breakdown.
+    ``breakdown`` is the raw, unweighted per-metric distance, which makes this a *calibration*
+    result: it shows *which* term drives any disagreement. Log-scale terms (``mcd``, ``logmel_l1``)
+    can inflate on near-silent frames even when the waveforms are audibly identical, so read
+    ``distance`` alongside the breakdown.
     """
 
     probe: NoteProbe

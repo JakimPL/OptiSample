@@ -1,7 +1,7 @@
 """Interpretable diagnostics that explain *why* a candidate differs, and can veto search moves.
 
-These report in natural, signed units (dB, LUFS, sample amplitude) rather than a fused distance,
-so a report can say "lost 9 dB above 4 kHz" or "loop seam jumps 0.3" instead of one opaque number.
+These report in natural, signed units (dB, LUFS, sample amplitude), so a report can say
+"lost 9 dB above 4 kHz" or "loop seam jumps 0.3" — one concrete, interpretable figure per diagnostic.
 """
 
 from __future__ import annotations

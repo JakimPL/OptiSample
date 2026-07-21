@@ -3,8 +3,8 @@
 The optimizers in :mod:`optisample.optimize.orchestrate` (one sample per key) and
 :mod:`optisample.optimize.grouping` (pitch zones) return structured plans; this module turns either
 plan into the fixed-width text summary the CLI and the inspection dump print. Reporting lives apart
-from the solvers so the algorithm modules carry no formatting, and so the two reports share one
-header, one budget block and one set of rules instead of drifting copies.
+from the solvers so the algorithm modules stay purely computational, and so the two reports share one
+header, one budget block and one set of rules from a single source.
 """
 
 from __future__ import annotations

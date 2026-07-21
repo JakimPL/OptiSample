@@ -5,6 +5,8 @@ JSON/text writers, unit-building and per-instrument context internals live in th
 (:mod:`.serialize`, :mod:`.units`, :mod:`.context`, :mod:`.dump`).
 """
 
+from __future__ import annotations
+
 from optisample.artifacts.context import DumpResult, DumpSettings, PlanArtifacts
 from optisample.artifacts.dump import dump_instrument, dump_project
 

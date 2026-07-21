@@ -22,6 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from numpy.typing import NDArray
 
 from optisample.optimize.dp import require_feasible
 from optisample.optimize.operating_points import OperatingPoint, lower_convex_hull
@@ -69,12 +70,14 @@ def _cheapest_total(items: tuple[KnapsackItem, ...]) -> int:
     return sum(min(point.stored_bytes for point in item.points) for item in items)
 
 
-def _forward_dp(items: tuple[KnapsackItem, ...], budget_bytes: int) -> tuple[np.ndarray, list[np.ndarray]]:
+def _forward_dp(
+    items: tuple[KnapsackItem, ...], budget_bytes: int
+) -> tuple[NDArray[np.float64], list[NDArray[np.int64]]]:
     """Fill ``dp[b]`` = min objective at total cost exactly ``b``; return it and per-item choices."""
     size = budget_bytes + 1
     dp = np.full(size, np.inf, dtype=np.float64)
     dp[0] = 0.0
-    choices: list[np.ndarray] = []
+    choices: list[NDArray[np.int64]] = []
     for item in items:
         new_dp = np.full(size, np.inf, dtype=np.float64)
         choice = np.full(size, -1, dtype=np.int64)
@@ -92,7 +95,9 @@ def _forward_dp(items: tuple[KnapsackItem, ...], budget_bytes: int) -> tuple[np.
     return dp, choices
 
 
-def _reconstruct(items: tuple[KnapsackItem, ...], choices: list[np.ndarray], total_bytes: int) -> tuple[Selection, ...]:
+def _reconstruct(
+    items: tuple[KnapsackItem, ...], choices: list[NDArray[np.int64]], total_bytes: int
+) -> tuple[Selection, ...]:
     """Walk the DP backpointers from ``total_bytes`` to recover one selection per item."""
     selections: list[Selection] = []
     budget = total_bytes

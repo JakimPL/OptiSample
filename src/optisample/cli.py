@@ -1,3 +1,11 @@
+"""Command-line entry point: the ``synth`` and ``optimize`` subcommands.
+
+``synth`` renders the bundled demo dataset and writes its ``manifest.yaml``; ``optimize`` loads a
+manifest, runs the optimizer, and dumps the inspectable artifact tree. Both load an
+:class:`~optisample.config.OptiConfig` (bundled or from ``--config``) and layer the CLI flags on top
+before handing off to the library, so this module holds argument wiring and printing alone.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -17,6 +25,7 @@ from optisample.optimize.orchestrate import OptimizeSettings
 from optisample.synth import generate_demo
 
 DEFAULT_SEED: Final = 0  # default RNG seed for both subcommands when --seed is not given.
+_PROFILE_TOP_FUNCTIONS: Final = 20  # functions --profile prints, ranked by cumulative time.
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -94,7 +103,7 @@ def _run_optimize(config: OptiConfig, args: argparse.Namespace) -> None:
     print(f"total: {total_s:.1f}s")
 
 
-def _run_profiled(run: Callable[[], None], *, top: int = 20) -> None:
+def _run_profiled(run: Callable[[], None], *, top: int = _PROFILE_TOP_FUNCTIONS) -> None:
     """Run ``run`` under cProfile and print the ``top`` functions by cumulative time to stderr."""
     profiler = cProfile.Profile()
     profiler.enable()

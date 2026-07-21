@@ -12,7 +12,7 @@ map applied to the volume column, held for the event's duration, then cut. The t
 only in the units a plan reports (:meth:`~optisample.optimize.plans.StrategyPlan.sample_units`):
 ungrouped stores one sample per key (an identity note map), grouped stores one repitched sample per zone
 (every covered key routed to it). Both feed the same build loop and pattern assembly below, so this
-module reads the plan through :class:`~optisample.optimize.plans.StrategyPlan` and never branches on it.
+module reads either plan through the one :class:`~optisample.optimize.plans.StrategyPlan` interface.
 """
 
 from __future__ import annotations

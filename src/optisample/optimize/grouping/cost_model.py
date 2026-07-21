@@ -5,10 +5,10 @@ representative and any encoding can store it; each choice reconstructs the whole
 usage-weighted, summed distortion at some byte cost. This module enumerates all of them -- the "menu"
 the partition+allocation DP in :mod:`optisample.optimize.grouping.solve` chooses from.
 
-Folding representative selection into the RD options (rather than picking a medoid up front) is what
-makes the choice budget-aware: at minimum byte pressure the best representative is exactly the
-k-medoids/PAM medoid (the member minimizing within-zone distortion), but a tighter budget may prefer a
-different member or a cheaper encoding, so representative and allocation are chosen jointly by the DP.
+Folding representative selection into the RD options makes the choice budget-aware: at minimum byte
+pressure the best representative is exactly the k-medoids/PAM medoid (the member minimizing within-zone
+distortion), while a tighter budget may prefer a different member or a cheaper encoding, so the DP
+chooses representative and allocation jointly.
 
 This is the expensive half of grouping (an encode plus a reconstruction score per representative,
 encoding and covered pitch); the DP that consumes the menu is cheap.

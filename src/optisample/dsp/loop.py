@@ -52,13 +52,13 @@ class Loop:
 def _autocorrelation(signal: Signal) -> Signal:
     """Unbiased-enough autocorrelation via FFT (lags ``0..n-1``), normalized so lag 0 == 1."""
     centered = signal - float(np.mean(signal))
-    n = centered.size
-    size = 1 << int(np.ceil(np.log2(2 * n)))
+    length = centered.size
+    size = 1 << int(np.ceil(np.log2(2 * length)))
     spectrum = np.fft.rfft(centered, size)
-    corr = np.fft.irfft(spectrum * np.conj(spectrum), size)[:n]
-    if corr[0] <= 0.0:
-        return np.zeros(n, dtype=np.float64)
-    return np.asarray(corr / corr[0], dtype=np.float64)
+    correlation = np.fft.irfft(spectrum * np.conj(spectrum), size)[:length]
+    if correlation[0] <= 0.0:
+        return np.zeros(length, dtype=np.float64)
+    return np.asarray(correlation / correlation[0], dtype=np.float64)
 
 
 def _estimate_period(signal: Signal, sample_rate: int, config: LoopConfig) -> int | None:
@@ -71,23 +71,24 @@ def _estimate_period(signal: Signal, sample_rate: int, config: LoopConfig) -> in
     """
     if signal.size < _MIN_STEADY_FRAMES:
         return None
-    corr = _autocorrelation(signal)
+    correlation = _autocorrelation(signal)
     low = max(1, int(sample_rate / config.max_hz))
     high = min(signal.size - 1, int(sample_rate / config.min_hz))
     if high <= low:
         return None
-    lag = int(np.argmax(corr[low : high + 1])) + low
-    if corr[lag] < config.min_correlation:
+    lag = int(np.argmax(correlation[low : high + 1])) + low
+    if correlation[lag] < config.min_correlation:
         return None
     return lag
 
 
 def _is_sustained(region: Signal, decay_ratio: float) -> bool:
-    """Whether ``region`` holds a level (loopable) tone rather than a decaying one.
+    """Whether ``region`` holds a level, loopable tone.
 
-    A looped sample repeats its region forever, so looping a decay (a struck piano note) would make
-    it ring at a constant level instead of dying away -- wrong. We compare the energy of the region's
-    last third to its first third; a sustain stays roughly level, a decay drops well below it.
+    A looped sample repeats its region forever, so looping suits steady material: we compare the
+    energy of the region's last third to its first third and accept the region when the late energy
+    holds within ``decay_ratio`` of the early energy. A struck note (piano) decays below that, so the
+    caller stores it whole.
     """
     if region.size < _MIN_SUSTAIN_FRAMES:
         return False

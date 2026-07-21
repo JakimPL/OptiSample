@@ -7,9 +7,9 @@ feasibility rule lives here so the two solvers raise the *same* error from the *
 
 The forward DP kernels themselves stay separate: knapsack fills a 1-D table with one decision per item,
 while grouping fills a 2-D table with an extra partition axis (variable-length zones). Their backpointer
-walks differ for the same reason -- fixed per-item hops versus jumps to the previous zone boundary -- so a
-shared "reconstruct" abstraction would need callback plumbing that obscures more than it removes. They are
-documented as siblings, not merged.
+walks follow those shapes -- fixed per-item hops for knapsack, jumps to the previous zone boundary for
+grouping -- so each owns its own reconstruction, and the two are documented as siblings that share only
+this feasibility guard.
 """
 
 from __future__ import annotations
