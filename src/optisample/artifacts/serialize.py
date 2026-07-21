@@ -1,9 +1,17 @@
-"""Serialize an optimized plan and its stored samples to the JSON the dump tree exposes.
+"""Typed documents for the artifact dump tree and the writers that render them to disk.
 
-Pure formatting: coerce numpy/non-finite values to JSON-safe Python, and lay a plan out as one
-document. The two strategies share the whole per-item encoding block and differ only in their leading
-fields (a pitch vs. a zone) and whether a ``method`` is recorded, so :func:`plan_json` builds both from
-one shape -- keeping the ``metrics.json``/``plan.objective`` guarantee reading from a single serializer.
+Every JSON file the dumper emits is modelled as a frozen Pydantic document here, so the rest of the
+subpackage builds and reads structured objects instead of untyped ``dict[str, Any]`` keyed by string.
+The documents serialize through :func:`write_json`, which runs :func:`_json_safe` over ``model_dump``
+output -- coercing numpy scalars to Python and non-finite floats to ``null`` -- so the bytes on disk are
+identical to hand-built JSON (field order follows each model's definition order).
+
+The two allocation strategies share the whole per-item encoding block (:class:`EncodingRecord`) and
+differ only in their leading fields (a pitch vs. a zone) and whether a ``method`` is recorded, so
+:func:`plan_document` builds both from one shape. The metrics builders (:func:`event_records`,
+:func:`note_record`, :func:`metrics_document`) turn the optimizer's own per-event scores into
+:class:`MetricsDocument`, whose objective reproduces ``plan.objective`` because it sums the exact stream
+the optimizer minimized.
 """
 
 from __future__ import annotations
@@ -11,16 +19,176 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from pydantic import BaseModel, ConfigDict, SerializerFunctionWrapHandler, model_serializer
 
 from optisample.dsp.loop import Loop
+from optisample.dsp.surrogate import StoredSample
 from optisample.music import note_name
 from optisample.optimize.operating_points import OperatingPoint
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan, PitchPlan, Zone, ZoneOption
+from optisample.optimize.tasks import EvalContext, PitchTask, score_events
 from optisample.optimize.velocity_map import VelocityVolumeMap
+
+_OPTIONAL_HEAD = ("method", "pitches", "zones")  # plan-head fields present for only one of the two strategies
+
+
+class _Frozen(BaseModel):
+    """Base for every artifact document: immutable and rejecting unknown fields."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+class LoopRecord(_Frozen):
+    """The loop actually stored after re-encoding: a half-open ``[start, end)`` frame range."""
+
+    start: int
+    end: int
+
+
+class AnchorRecord(_Frozen):
+    """One measured velocity anchor of the loudness-matched velocity->volume map."""
+
+    velocity: int
+    loudness_lufs: float
+    volume: int
+
+
+class VelocityMapDocument(_Frozen):
+    """The velocity->volume map: its anchors and the full 0..127 lookup table."""
+
+    reference_volume: int
+    anchors: list[AnchorRecord]
+    volumes: list[int]
+
+
+class BudgetRecord(_Frozen):
+    """The byte accounting for one plan: the budgets it was given and what it spent."""
+
+    module_budget_bytes: int
+    sample_budget_bytes: int
+    used_bytes: int
+    module_bytes: int
+
+
+class EncodingRecord(_Frozen):
+    """The stored-encoding block both strategies share: chosen params, geometry, cost and hull size.
+
+    ``loop`` is the loop *actually stored* after re-encoding (not merely the one the sweep requested).
+    The plan items (:class:`PitchItemRecord`, :class:`ZoneItemRecord`) inherit these fields so the block
+    appears once per item, flattened alongside the item's own leading fields.
+    """
+
+    target_rate: int
+    depth_bits: int
+    trim_s: float | None
+    loop: LoopRecord | None
+    frames: int
+    stored_bytes: int
+    distortion: float
+    hull_size: int
+
+
+class _PitchHead(_Frozen):
+    """The leading fields of an ungrouped item: one kept key and how much it is played."""
+
+    pitch: int
+    note: str
+    weight: float
+    representative_velocity: int
+
+
+class _ZoneHead(_Frozen):
+    """The leading fields of a grouped item: the key span the zone covers and its representative."""
+
+    keys: list[int]
+    pitches: list[int]
+    representative: int
+    representative_velocity: int
+    weight: float
+
+
+# Listing the head base last puts its fields first and EncodingRecord's after them (MRO field order),
+# reproducing the flat ``{head..., encoding...}`` layout the dump tree has always written.
+class PitchItemRecord(EncodingRecord, _PitchHead):
+    """One kept pitch: its identity and the encoding chosen for its sample."""
+
+
+class ZoneItemRecord(EncodingRecord, _ZoneHead):
+    """One pitch zone: the keys it serves and the encoding chosen for its representative sample."""
+
+
+class PlanDocument(_Frozen):
+    """One optimized plan for either strategy: budgets, the velocity map, and the kept items.
+
+    ``method`` is recorded only for the ungrouped strategy; ``pitches`` and ``zones`` are mutually
+    exclusive. The unused optional-head fields are dropped at serialization so each strategy writes
+    exactly the keys it has always written.
+    """
+
+    strategy: str
+    instrument_id: str
+    method: str | None = None
+    objective: float
+    budget: BudgetRecord
+    velocity_map: VelocityMapDocument
+    pitches: list[PitchItemRecord] | None = None
+    zones: list[ZoneItemRecord] | None = None
+
+    @model_serializer(mode="wrap")
+    def _drop_absent_head(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        return {key: value for key, value in data.items() if not (key in _OPTIONAL_HEAD and value is None)}
+
+
+class RepresentativeEventRecord(_Frozen):
+    """The single event chosen as a pitch's audible representative (the A/B render)."""
+
+    velocity: int
+    duration_s: float
+
+
+class EventMetricRecord(_Frozen):
+    """One played dynamic of a pitch: its stored volume and the surrogate fidelity + sub-scores it earned."""
+
+    velocity: int
+    duration_s: float
+    weight: float
+    volume: int
+    fidelity: float
+    breakdown: dict[str, float]
+    diagnostics: dict[str, float]
+
+
+class NoteMetricRecord(_Frozen):
+    """Every scored event of one covered pitch, plus which sample served it and its objective share."""
+
+    pitch: int
+    note: str
+    served_by: str
+    representative: int
+    weight: float
+    mean_distortion: float
+    objective_contribution: float
+    render_source: str
+    render_rate: int
+    representative_event: RepresentativeEventRecord
+    events: list[EventMetricRecord]
+
+
+class MetricsDocument(_Frozen):
+    """Per-note surrogate fidelity for one strategy; ``objective`` reproduces the plan's objective."""
+
+    strategy: str
+    instrument_id: str
+    sample_rate: int
+    objective: float
+    plan_objective: float
+    notes: list[NoteMetricRecord]
 
 
 def _json_safe(value: Any) -> Any:
@@ -37,90 +205,167 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
-def _write_json(path: Path, obj: Any) -> None:
-    path.write_text(json.dumps(_json_safe(obj), indent=2, allow_nan=False) + "\n", encoding="utf-8")
+def write_json(path: Path, document: BaseModel) -> None:
+    """Serialize a document to pretty JSON, coercing numpy/non-finite values to JSON-safe Python."""
+    path.write_text(json.dumps(_json_safe(document.model_dump()), indent=2, allow_nan=False) + "\n", encoding="utf-8")
 
 
-def _write_text(path: Path, text: str) -> None:
+def write_text(path: Path, text: str) -> None:
+    """Write ``text`` verbatim as UTF-8 (the human-readable report and the infeasibility note)."""
     path.write_text(text, encoding="utf-8")
 
 
-def _velocity_map_json(velocity_map: VelocityVolumeMap) -> dict[str, Any]:
+def _velocity_map_document(velocity_map: VelocityVolumeMap) -> VelocityMapDocument:
     reference_volume = max((anchor.volume for anchor in velocity_map.anchors), default=0)
-    return {
-        "reference_volume": reference_volume,
-        "anchors": [
-            {"velocity": anchor.velocity, "loudness_lufs": anchor.loudness_lufs, "volume": anchor.volume}
+    return VelocityMapDocument(
+        reference_volume=reference_volume,
+        anchors=[
+            AnchorRecord(velocity=anchor.velocity, loudness_lufs=anchor.loudness_lufs, volume=anchor.volume)
             for anchor in velocity_map.anchors
         ],
-        "volumes": list(velocity_map.volumes),
-    }
+        volumes=list(velocity_map.volumes),
+    )
 
 
-def _loop_json(loop: Loop | None) -> dict[str, int] | None:
+def _loop_record(loop: Loop | None) -> LoopRecord | None:
     """The loop actually stored (``{start, end}``), or ``None`` when the sample was not looped."""
-    return None if loop is None else {"start": loop.start, "end": loop.end}
+    return None if loop is None else LoopRecord(start=loop.start, end=loop.end)
 
 
-def _budget_json(plan: InstrumentPlan | GroupedInstrumentPlan) -> dict[str, int]:
-    return {
-        "module_budget_bytes": plan.module_budget_bytes,
-        "sample_budget_bytes": plan.sample_budget_bytes,
-        "used_bytes": plan.used_bytes,
-        "module_bytes": plan.module_bytes,
-    }
+def _budget_record(plan: InstrumentPlan | GroupedInstrumentPlan) -> BudgetRecord:
+    return BudgetRecord(
+        module_budget_bytes=plan.module_budget_bytes,
+        sample_budget_bytes=plan.sample_budget_bytes,
+        used_bytes=plan.used_bytes,
+        module_bytes=plan.module_bytes,
+    )
 
 
-def _encoding_json(chosen: OperatingPoint | ZoneOption, hull_size: int, loop: Loop | None) -> dict[str, Any]:
-    """The stored-encoding block both strategies share: chosen params, geometry, cost and hull size.
-
-    ``loop`` is the loop *actually stored* after re-encoding (not merely the one the sweep requested).
-    """
-    return {
-        "target_rate": chosen.params.target_rate,
-        "depth_bits": chosen.params.depth_bits,
-        "trim_s": chosen.params.trim_s,
-        "loop": _loop_json(loop),
-        "frames": chosen.frames,
-        "stored_bytes": chosen.stored_bytes,
-        "distortion": chosen.distortion,
-        "hull_size": hull_size,
-    }
+def _encoding_record(chosen: OperatingPoint | ZoneOption, hull_size: int, loop: Loop | None) -> EncodingRecord:
+    return EncodingRecord(
+        target_rate=chosen.params.target_rate,
+        depth_bits=chosen.params.depth_bits,
+        trim_s=chosen.params.trim_s,
+        loop=_loop_record(loop),
+        frames=chosen.frames,
+        stored_bytes=chosen.stored_bytes,
+        distortion=chosen.distortion,
+        hull_size=hull_size,
+    )
 
 
-def _pitch_item(pitch: PitchPlan, loop: Loop | None) -> dict[str, Any]:
-    return {
-        "pitch": pitch.pitch,
-        "note": note_name(pitch.pitch),
-        "weight": pitch.weight,
-        "representative_velocity": pitch.representative_velocity,
-        **_encoding_json(pitch.chosen, len(pitch.hull), loop),
-    }
+def _pitch_item(pitch: PitchPlan, loop: Loop | None) -> PitchItemRecord:
+    return PitchItemRecord(
+        pitch=pitch.pitch,
+        note=note_name(pitch.pitch),
+        weight=pitch.weight,
+        representative_velocity=pitch.representative_velocity,
+        **_encoding_record(pitch.chosen, len(pitch.hull), loop).model_dump(),
+    )
 
 
-def _zone_item(zone: Zone, loop: Loop | None) -> dict[str, Any]:
-    return {
-        "keys": [zone.pitches[0], zone.pitches[-1]],
-        "pitches": list(zone.pitches),
-        "representative": zone.representative,
-        "representative_velocity": zone.representative_velocity,
-        "weight": zone.weight,
-        **_encoding_json(zone.chosen, len(zone.hull), loop),
-    }
+def _zone_item(zone: Zone, loop: Loop | None) -> ZoneItemRecord:
+    return ZoneItemRecord(
+        keys=[zone.pitches[0], zone.pitches[-1]],
+        pitches=list(zone.pitches),
+        representative=zone.representative,
+        representative_velocity=zone.representative_velocity,
+        weight=zone.weight,
+        **_encoding_record(zone.chosen, len(zone.hull), loop).model_dump(),
+    )
 
 
-def plan_json(plan: InstrumentPlan | GroupedInstrumentPlan, loops: Sequence[Loop | None]) -> dict[str, Any]:
+def plan_document(plan: InstrumentPlan | GroupedInstrumentPlan, loops: Sequence[Loop | None]) -> PlanDocument:
     """One plan document for either strategy; ``loops`` are the per-item *stored* loops, in plan order."""
+    budget = _budget_record(plan)
+    velocity_map = _velocity_map_document(plan.velocity_map)
     if isinstance(plan, GroupedInstrumentPlan):
-        head: dict[str, Any] = {"strategy": "grouped", "instrument_id": plan.instrument_id}
-        items = {"zones": [_zone_item(zone, loop) for zone, loop in zip(plan.zones, loops)]}
-    else:
-        head = {"strategy": "ungrouped", "instrument_id": plan.instrument_id, "method": plan.method}
-        items = {"pitches": [_pitch_item(pitch, loop) for pitch, loop in zip(plan.pitches, loops)]}
-    return {
-        **head,
-        "objective": plan.objective,
-        "budget": _budget_json(plan),
-        "velocity_map": _velocity_map_json(plan.velocity_map),
-        **items,
-    }
+        return PlanDocument(
+            strategy="grouped",
+            instrument_id=plan.instrument_id,
+            objective=plan.objective,
+            budget=budget,
+            velocity_map=velocity_map,
+            zones=[_zone_item(zone, loop) for zone, loop in zip(plan.zones, loops)],
+        )
+    return PlanDocument(
+        strategy="ungrouped",
+        instrument_id=plan.instrument_id,
+        method=plan.method,
+        objective=plan.objective,
+        budget=budget,
+        velocity_map=velocity_map,
+        pitches=[_pitch_item(pitch, loop) for pitch, loop in zip(plan.pitches, loops)],
+    )
+
+
+def event_records(stored: StoredSample, task: PitchTask, ctx: EvalContext) -> tuple[list[EventMetricRecord], float]:
+    """Score every event of one pitch; return per-event records and their weighted-fidelity sum.
+
+    Consumes the same :func:`~optisample.optimize.tasks.score_events` stream the optimizer sums into its
+    objective, so the returned contribution is exactly this pitch's share of ``plan.objective``.
+    """
+    records: list[EventMetricRecord] = []
+    contribution = 0.0
+    for score in score_events(stored, task, ctx):
+        contribution += score.weighted_fidelity
+        records.append(
+            EventMetricRecord(
+                velocity=score.event.velocity,
+                duration_s=score.event.duration_s,
+                weight=score.event.weight,
+                volume=score.volume,
+                fidelity=score.report.fidelity,
+                breakdown=score.report.breakdown,
+                diagnostics=score.report.diagnostics,
+            )
+        )
+    return records, contribution
+
+
+@dataclass(frozen=True)
+class RenderedNote:
+    """The A/B-render outcome and provenance for one note: which sample served it and what it rendered."""
+
+    served_by: str
+    representative: int
+    source: str
+    rate: int
+    event: RepresentativeEventRecord
+
+
+def note_record(
+    task: PitchTask, events: Sequence[EventMetricRecord], contribution: float, rendered: RenderedNote
+) -> NoteMetricRecord:
+    """Assemble one pitch's metric record from its scored events and the render that was written."""
+    return NoteMetricRecord(
+        pitch=task.pitch,
+        note=note_name(task.pitch),
+        served_by=rendered.served_by,
+        representative=rendered.representative,
+        weight=task.weight,
+        mean_distortion=contribution / task.weight if task.weight > 0.0 else 0.0,
+        objective_contribution=contribution,
+        render_source=rendered.source,
+        render_rate=rendered.rate,
+        representative_event=rendered.event,
+        events=list(events),
+    )
+
+
+def metrics_document(
+    strategy: str,
+    instrument_id: str,
+    sample_rate: int,
+    plan_objective: float,
+    notes: Sequence[NoteMetricRecord],
+) -> MetricsDocument:
+    """The per-note metrics document; its ``objective`` sums the notes back to ``plan.objective``."""
+    return MetricsDocument(
+        strategy=strategy,
+        instrument_id=instrument_id,
+        sample_rate=sample_rate,
+        objective=sum(note.objective_contribution for note in notes),
+        plan_objective=plan_objective,
+        notes=list(notes),
+    )

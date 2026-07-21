@@ -1,14 +1,16 @@
-"""Run configuration and the per-instrument context the artifact stages share.
+"""Run configuration, the per-instrument context, and the result DTOs the artifact stages share.
 
 :class:`DumpSettings` is what the CLI hands in -- which strategies to run, whether to render through
-openmpt123, and the config the optimizer + exporter need. :class:`_DumpContext` bundles the
+openmpt123, and the config the optimizer + exporter need. :class:`DumpContext` bundles the
 once-per-instrument inputs (loaded audio, the eval context, the pitch->task lookup) so the unit builder
-and the dumper take one object instead of a long argument list.
+and the dumper take one object instead of a long argument list. :class:`PlanArtifacts` and
+:class:`DumpResult` are what a dump reports back: what each strategy produced and where it landed.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.model import NoteEvent
@@ -34,7 +36,7 @@ class DumpSettings:
 
 
 @dataclass(frozen=True)
-class _DumpContext:
+class DumpContext:
     """Inputs shared across both strategies for one instrument."""
 
     audio: AudioMap
@@ -43,3 +45,28 @@ class _DumpContext:
     ctx: EvalContext
     tasks_by_pitch: dict[int, PitchTask]
     settings: DumpSettings
+
+
+@dataclass(frozen=True)
+class PlanArtifacts:
+    """What one strategy produced under its subdirectory (or why it could not).
+
+    Its directory is ``DumpResult.directory / name``; only the per-strategy outcome is kept here.
+    """
+
+    name: str
+    feasible: bool
+    reason: str | None
+    rendered: bool  # whether an openmpt123 ground-truth render was written
+    objective: float | None
+    used_bytes: int | None
+    elapsed_s: float  # wall-clock for this strategy end to end (optimize + artifact dump)
+
+
+@dataclass(frozen=True)
+class DumpResult:
+    """The full dump for one instrument: where it went and how each strategy fared."""
+
+    instrument_id: str
+    directory: Path
+    plans: tuple[PlanArtifacts, ...]

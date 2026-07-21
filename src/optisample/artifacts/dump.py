@@ -4,10 +4,11 @@ The optimizer's decisions and its objective are otherwise only visible as number
 module writes the *audible and machine-readable* evidence behind them to a directory tree, so a human
 can listen to what was stored, compare it against the real recordings, and read the exact per-note
 scores that drove the allocation. Nothing here changes the optimizer -- it re-runs it and serializes
-the result.
+the result: this module orchestrates and does file I/O, while :mod:`.serialize`/:mod:`.units` build the
+typed documents and re-encoded samples it writes.
 
-Per instrument, each strategy (``ungrouped`` = one sample per key, ``grouped`` = P5 pitch zones) gets
-its own subtree::
+Per instrument, each strategy (``ungrouped`` = one sample per key, ``grouped`` = pitch zones) gets its
+own subtree::
 
     <out>/<instrument>/<strategy>/
       module.it            the exported IT module
@@ -20,22 +21,31 @@ its own subtree::
       metrics.json         per-note composite fidelity + sub-scores; its objective == plan's
 
 The A/B render is the *real engine's* output (``openmpt123`` on a one-note module) when the binary is
-installed, falling back to the numpy surrogate otherwise; ``metrics.json`` always reports the
-surrogate scores, because those are exactly the objective the optimizer minimized (so its total
-reproduces ``plan.objective``). If a strategy is infeasible at the budget it writes ``INFEASIBLE.txt``
-instead of a plan -- useful precisely because grouping can fit where the ungrouped allocation cannot.
+installed, falling back to the numpy surrogate otherwise; ``metrics.json`` always reports the surrogate
+scores, because those are exactly the objective the optimizer minimized (so its total reproduces
+``plan.objective``). If a strategy is infeasible at the budget it writes ``INFEASIBLE.txt`` instead of a
+plan -- useful precisely because grouping can fit where the ungrouped allocation cannot.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
-from typing import Any
 
-from optisample.artifacts.context import DumpSettings, _DumpContext
-from optisample.artifacts.serialize import _write_json, _write_text
-from optisample.artifacts.units import _PlanKind, _Unit, make_kind
+from optisample.artifacts.context import DumpContext, DumpResult, DumpSettings, PlanArtifacts
+from optisample.artifacts.serialize import (
+    NoteMetricRecord,
+    RenderedNote,
+    RepresentativeEventRecord,
+    event_records,
+    metrics_document,
+    note_record,
+    write_json,
+    write_text,
+)
+from optisample.artifacts.units import PlanKind, Unit, make_kind
 from optisample.dsp.surrogate import render
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.io.audio import write_wav
@@ -46,34 +56,23 @@ from optisample.model import InstrumentSpec, Manifest, NoteEvent
 from optisample.music import note_name
 from optisample.optimize.dp import BudgetInfeasibleError
 from optisample.optimize.grouping import optimize_instrument_grouped
-from optisample.optimize.orchestrate import load_instrument_audio, optimize_instrument, prepare_run
+from optisample.optimize.orchestrate import OptimizeSettings, load_instrument_audio, optimize_instrument, prepare_run
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
-from optisample.optimize.tasks import AudioMap, EvalContext, Event, PitchTask, score_events
+from optisample.optimize.tasks import AudioMap, Event, PitchTask
+
+_Optimizer = Callable[[InstrumentSpec, AudioMap, int, OptimizeSettings], InstrumentPlan | GroupedInstrumentPlan]
 
 
 @dataclass(frozen=True)
-class PlanArtifacts:
-    """What one strategy produced under its subdirectory (or why it could not).
-
-    Its directory is ``DumpResult.directory / name``; only the per-strategy outcome is kept here.
-    """
+class _Strategy:
+    """One allocation strategy: its subdirectory name and the optimizer that produces its plan."""
 
     name: str
-    feasible: bool
-    reason: str | None
-    rendered: bool  # whether an openmpt123 ground-truth render was written
-    objective: float | None
-    used_bytes: int | None
-    elapsed_s: float  # wall-clock for this strategy end to end (optimize + artifact dump)
+    optimize: _Optimizer
 
 
-@dataclass(frozen=True)
-class DumpResult:
-    """The full dump for one instrument: where it went and how each strategy fared."""
-
-    instrument_id: str
-    directory: Path
-    plans: tuple[PlanArtifacts, ...]
+_UNGROUPED = _Strategy("ungrouped", optimize_instrument)
+_GROUPED = _Strategy("grouped", optimize_instrument_grouped)
 
 
 def _representative_event(task: PitchTask) -> Event:
@@ -81,33 +80,8 @@ def _representative_event(task: PitchTask) -> Event:
     return max(task.events, key=lambda event: (event.weight, event.duration_s))
 
 
-def _note_metrics(unit: _Unit, task: PitchTask, ctx: EvalContext) -> tuple[list[dict[str, Any]], float]:
-    """Score every event of one pitch from ``unit``; return per-event JSON and the weighted sum.
-
-    It consumes :func:`optisample.optimize.tasks.score_events` -- the exact stream the optimizer sums
-    into its objective -- so the returned contribution is precisely this pitch's share of
-    ``plan.objective`` (``weight * mean distortion``).
-    """
-    events_json: list[dict[str, Any]] = []
-    contribution = 0.0
-    for score in score_events(unit.stored, task, ctx):
-        contribution += score.weighted_fidelity
-        events_json.append(
-            {
-                "velocity": score.event.velocity,
-                "duration_s": score.event.duration_s,
-                "weight": score.event.weight,
-                "volume": score.volume,
-                "fidelity": score.report.fidelity,
-                "breakdown": score.report.breakdown,
-                "diagnostics": score.report.diagnostics,
-            }
-        )
-    return events_json, contribution
-
-
 def _rendered_note(
-    dctx: _DumpContext, kind: _PlanKind, unit: _Unit, task: PitchTask, event: Event
+    dctx: DumpContext, kind: PlanKind, unit: Unit, task: PitchTask, event: Event
 ) -> tuple[Signal, int, str]:
     """Audio the module produces for one note: the real engine when available, else the surrogate."""
     if dctx.settings.render_ground_truth and openmpt123_available():
@@ -119,44 +93,60 @@ def _rendered_note(
     return candidate, dctx.sample_rate, "surrogate"
 
 
-def _dump_one_note(kind: _PlanKind, unit: _Unit, task: PitchTask, out_dir: Path, dctx: _DumpContext) -> dict[str, Any]:
+def _note_record(kind: PlanKind, unit: Unit, task: PitchTask, out_dir: Path, dctx: DumpContext) -> NoteMetricRecord:
     """Write the reference/rendered A/B pair for one pitch and return its metric record."""
-    events_json, contribution = _note_metrics(unit, task, dctx.ctx)
+    events, contribution = event_records(unit.stored, task, dctx.ctx)
     rep = _representative_event(task)
     stem = f"p{task.pitch:03d}_{note_name(task.pitch)}"
     reference = rep.reference[: seconds_to_frames(rep.duration_s, dctx.sample_rate)]
     write_wav(out_dir / "compare" / f"{stem}_ref.wav", reference, dctx.sample_rate)
     rendered, rate, source = _rendered_note(dctx, kind, unit, task, rep)
     write_wav(out_dir / "compare" / f"{stem}_render.wav", rendered, rate)
-    return {
-        "pitch": task.pitch,
-        "note": note_name(task.pitch),
-        "served_by": unit.label,
-        "representative": unit.representative,
-        "weight": task.weight,
-        "mean_distortion": contribution / task.weight if task.weight > 0.0 else 0.0,
-        "objective_contribution": contribution,
-        "render_source": source,
-        "render_rate": rate,
-        "representative_event": {"velocity": rep.velocity, "duration_s": rep.duration_s},
-        "events": events_json,
-    }
+    outcome = RenderedNote(
+        served_by=unit.label,
+        representative=unit.representative,
+        source=source,
+        rate=rate,
+        event=RepresentativeEventRecord(velocity=rep.velocity, duration_s=rep.duration_s),
+    )
+    return note_record(task, events, contribution, outcome)
 
 
-def _dump_notes(kind: _PlanKind, out_dir: Path, dctx: _DumpContext) -> dict[str, Any]:
-    """Score and A/B-render every covered pitch; ``objective`` here reproduces ``plan.objective``."""
-    notes = [_dump_one_note(kind, unit, task, out_dir, dctx) for unit in kind.units for task in unit.tasks]
-    return {
-        "strategy": kind.name,
-        "instrument_id": kind.plan_json["instrument_id"],
-        "sample_rate": dctx.sample_rate,
-        "objective": sum(note["objective_contribution"] for note in notes),
-        "plan_objective": kind.plan_json["objective"],
-        "notes": notes,
-    }
+def _write_plan_docs(kind: PlanKind, out_dir: Path) -> None:
+    """Write the human report and the plan + velocity-map JSON documents."""
+    write_text(out_dir / "report.txt", kind.report_text)
+    write_json(out_dir / "plan.json", kind.plan_document)
+    write_json(out_dir / "velocity_map.json", kind.plan_document.velocity_map)
 
 
-def _dump_plan(kind: _PlanKind, out_dir: Path, dctx: _DumpContext, started_at: float) -> PlanArtifacts:
+def _write_sample_wavs(kind: PlanKind, out_dir: Path) -> None:
+    """Decode every stored sample back to a float WAV under ``samples/`` (bit-identical to module.it)."""
+    for unit in kind.units:
+        write_wav(out_dir / "samples" / f"{unit.label}.wav", unit.stored.pcm, unit.stored.sample_rate)
+
+
+def _write_module_and_render(kind: PlanKind, out_dir: Path, dctx: DumpContext) -> bool:
+    """Write ``module.it`` and, when openmpt123 is available and requested, the ground-truth render."""
+    module = kind.make_module(dctx.material)
+    write_it(out_dir / "module.it", module)
+    if not (dctx.settings.render_ground_truth and openmpt123_available()):
+        return False
+    (out_dir / "render").mkdir(parents=True, exist_ok=True)
+    audio, rate = render_module(module, dctx.settings.render)
+    write_wav(out_dir / "render" / "module.wav", audio, rate)
+    return True
+
+
+def _write_metrics(kind: PlanKind, out_dir: Path, dctx: DumpContext) -> None:
+    """Score and A/B-render every covered pitch; ``metrics.json``'s objective reproduces ``plan.objective``."""
+    notes = [_note_record(kind, unit, task, out_dir, dctx) for unit in kind.units for task in unit.tasks]
+    document = metrics_document(
+        kind.name, kind.plan_document.instrument_id, dctx.sample_rate, kind.plan_document.objective, notes
+    )
+    write_json(out_dir / "metrics.json", document)
+
+
+def _dump_plan(kind: PlanKind, out_dir: Path, dctx: DumpContext, started_at: float) -> PlanArtifacts:
     """Write every artifact for one strategy and return a summary of what landed on disk.
 
     ``started_at`` is the :func:`time.perf_counter` reading taken before the optimize call, so the
@@ -164,49 +154,34 @@ def _dump_plan(kind: _PlanKind, out_dir: Path, dctx: _DumpContext, started_at: f
     """
     (out_dir / "samples").mkdir(parents=True, exist_ok=True)
     (out_dir / "compare").mkdir(parents=True, exist_ok=True)
-    _write_text(out_dir / "report.txt", kind.report_text)
-    _write_json(out_dir / "plan.json", kind.plan_json)
-    _write_json(out_dir / "velocity_map.json", kind.plan_json["velocity_map"])
-    for unit in kind.units:
-        write_wav(out_dir / "samples" / f"{unit.label}.wav", unit.stored.pcm, unit.stored.sample_rate)
-
-    module = kind.make_module(dctx.material)
-    write_it(out_dir / "module.it", module)
-    rendered = False
-    if dctx.settings.render_ground_truth and openmpt123_available():
-        (out_dir / "render").mkdir(parents=True, exist_ok=True)
-        audio, rate = render_module(module, dctx.settings.render)
-        write_wav(out_dir / "render" / "module.wav", audio, rate)
-        rendered = True
-
-    _write_json(out_dir / "metrics.json", _dump_notes(kind, out_dir, dctx))
+    _write_plan_docs(kind, out_dir)
+    _write_sample_wavs(kind, out_dir)
+    rendered = _write_module_and_render(kind, out_dir, dctx)
+    _write_metrics(kind, out_dir, dctx)
     return PlanArtifacts(
         name=kind.name,
         feasible=True,
         reason=None,
         rendered=rendered,
-        objective=kind.plan_json["objective"],
-        used_bytes=kind.plan_json["budget"]["used_bytes"],
+        objective=kind.plan_document.objective,
+        used_bytes=kind.plan_document.budget.used_bytes,
         elapsed_s=perf_counter() - started_at,
     )
 
 
-def _optimize_and_dump(instrument: InstrumentSpec, out_dir: Path, dctx: _DumpContext, grouped: bool) -> PlanArtifacts:
+def _optimize_and_dump(
+    instrument: InstrumentSpec, out_dir: Path, dctx: DumpContext, strategy: _Strategy
+) -> PlanArtifacts:
     """Optimize one strategy and dump it; on an infeasible budget, record why instead of raising."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    name = "grouped" if grouped else "ungrouped"
     started_at = perf_counter()
     try:
-        plan: InstrumentPlan | GroupedInstrumentPlan
-        if grouped:
-            plan = optimize_instrument_grouped(instrument, dctx.audio, dctx.sample_rate, dctx.settings.optimize)
-        else:
-            plan = optimize_instrument(instrument, dctx.audio, dctx.sample_rate, dctx.settings.optimize)
+        plan = strategy.optimize(instrument, dctx.audio, dctx.sample_rate, dctx.settings.optimize)
         kind = make_kind(plan, dctx)
     except BudgetInfeasibleError as exc:
-        _write_text(out_dir / "INFEASIBLE.txt", f"{name} allocation is infeasible at this budget:\n{exc}\n")
+        write_text(out_dir / "INFEASIBLE.txt", f"{strategy.name} allocation is infeasible at this budget:\n{exc}\n")
         return PlanArtifacts(
-            name,
+            strategy.name,
             feasible=False,
             reason=str(exc),
             rendered=False,
@@ -228,7 +203,7 @@ def dump_instrument(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     _, ctx, tasks = prepare_run(instrument, audio, sample_rate, settings.optimize)
-    dctx = _DumpContext(
+    dctx = DumpContext(
         audio=audio,
         sample_rate=sample_rate,
         material=tuple(instrument.material or []),
@@ -236,11 +211,10 @@ def dump_instrument(
         tasks_by_pitch={task.pitch: task for task in tasks},
         settings=settings,
     )
-    plans: list[PlanArtifacts] = []
-    if settings.ungrouped:
-        plans.append(_optimize_and_dump(instrument, out_dir / "ungrouped", dctx, grouped=False))
-    if settings.grouped:
-        plans.append(_optimize_and_dump(instrument, out_dir / "grouped", dctx, grouped=True))
+    strategies = [
+        strategy for strategy, enabled in ((_UNGROUPED, settings.ungrouped), (_GROUPED, settings.grouped)) if enabled
+    ]
+    plans = [_optimize_and_dump(instrument, out_dir / strategy.name, dctx, strategy) for strategy in strategies]
     return DumpResult(instrument_id=instrument.id, directory=out_dir, plans=tuple(plans))
 
 
