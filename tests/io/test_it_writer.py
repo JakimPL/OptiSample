@@ -9,20 +9,21 @@ import soundfile as sf
 
 from optisample.config import load_config
 from optisample.io.it_writer import (
-    NOTE_OFF,
     ITCell,
     ITInstrument,
     ITModule,
     ITPattern,
     ITPlayback,
     ITSample,
-    _instrument_header,
-    _sample_header,
     identity_note_map,
     it_playback,
     write_it,
     write_it_module,
 )
+from optisample.io.it_writer.instruments import _instrument_header
+from optisample.io.it_writer.samples import _sample_header
+
+NOTE_OFF = 255  # IT pattern note value that releases the playing note; verified here as an arbitrary note byte.
 from optisample.metrics.size import FILE_HEADER_BYTES, INSTRUMENT_HEADER_BYTES, SAMPLE_HEADER_BYTES
 
 # ITModule now requires an explicit playback; these format tests do not assert on it (except the

@@ -1,41 +1,6 @@
-from optisample.io.audio import read_wav, write_wav
-from optisample.io.it_writer import (
-    ITCell,
-    ITInstrument,
-    ITModule,
-    ITPattern,
-    ITPlayback,
-    ITSample,
-    identity_note_map,
-    it_playback,
-    write_it,
-    write_it_module,
-)
-from optisample.io.manifest import dump_manifest, load_manifest
-from optisample.io.render import (
-    filter_taps,
-    openmpt123_available,
-    render_it,
-    render_module,
-)
+"""The file/format boundary: `audio` (WAV), `manifest`, `it_format` (declarative IT record layout),
+`it_writer/` (IT binary serializer), `it_read` (round-trip), and `render` (openmpt123 wrapper).
 
-__all__ = [
-    "read_wav",
-    "write_wav",
-    "dump_manifest",
-    "load_manifest",
-    "filter_taps",
-    "openmpt123_available",
-    "render_it",
-    "render_module",
-    "ITCell",
-    "ITInstrument",
-    "ITModule",
-    "ITPattern",
-    "ITPlayback",
-    "ITSample",
-    "identity_note_map",
-    "it_playback",
-    "write_it",
-    "write_it_module",
-]
+No pass-through re-exports: import each type or function from its owning module (per rule 4 in
+``docs/architecture.md``).
+"""
