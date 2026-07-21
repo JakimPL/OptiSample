@@ -4,7 +4,15 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from optisample.dsp.loop import Loop, _autocorrelation, _estimate_period, crossfade_loop, detect_loop
+from optisample.dsp.loop import (
+    _MIN_SUSTAIN_FRAMES,
+    Loop,
+    _autocorrelation,
+    _estimate_period,
+    _is_sustained,
+    crossfade_loop,
+    detect_loop,
+)
 
 SR = 8_000
 FREQ = 200.0
@@ -80,6 +88,12 @@ def test_crossfade_is_a_noop_without_room_before_the_loop() -> None:
 
 def test_autocorrelation_of_silence_is_zero() -> None:
     assert np.array_equal(_autocorrelation(np.zeros(64)), np.zeros(64))
+
+
+def test_is_sustained_rejects_a_region_too_short_to_judge() -> None:
+    # Below the minimum span there are too few frames to compare early- vs late-energy, so it cannot loop.
+    tiny = np.ones(_MIN_SUSTAIN_FRAMES - 1, dtype=np.float64)
+    assert _is_sustained(tiny, decay_ratio=0.5) is False
 
 
 def test_estimate_period_rejects_short_and_degenerate_bands(loop_config) -> None:

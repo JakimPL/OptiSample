@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import pytest
 
-from optisample.music import note_name, semitone_ratio
+from optisample.music import midi_to_freq, note_name, semitone_ratio
 
 
 def test_semitone_ratio_octaves() -> None:
     assert semitone_ratio(0.0) == pytest.approx(1.0)
     assert semitone_ratio(12.0) == pytest.approx(2.0)
     assert semitone_ratio(-12.0) == pytest.approx(0.5)
+
+
+def test_midi_to_freq_a4() -> None:
+    assert midi_to_freq(69) == pytest.approx(440.0)
+    assert midi_to_freq(81) == pytest.approx(880.0)
 
 
 @pytest.mark.parametrize(

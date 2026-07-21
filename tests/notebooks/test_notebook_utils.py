@@ -3,15 +3,24 @@
 from __future__ import annotations
 
 import io
+from pathlib import Path
 
 import numpy as np
 import pytest
 import soundfile as sf
 
 from notebooks.utils import audioio, degrade, loading, views, viz
+from optisample.config import OptiConfig
+from optisample.config.dsp import SpectralConfig
+from optisample.config.metrics import MetricsConfig
+from optisample.config.synth import SynthConfig
 from optisample.dsp.spectral import band_energy
+from optisample.metrics import CompositeFidelity
+from optisample.model import Manifest
 
 SR = 44_100
+
+Demo = tuple[Path, Manifest]
 
 
 def tone(freq: float = 440.0, duration: float = 1.0, amplitude: float = 0.5) -> np.ndarray:
@@ -20,7 +29,7 @@ def tone(freq: float = 440.0, duration: float = 1.0, amplitude: float = 0.5) -> 
 
 
 @pytest.fixture(scope="module")
-def demo(tmp_path_factory, config):
+def demo(tmp_path_factory: pytest.TempPathFactory, config: OptiConfig) -> Demo:
     root = tmp_path_factory.mktemp("demo")
     manifest = loading.load(loading.ensure_demo_manifest(root, config.synth))
     return root, manifest
@@ -29,14 +38,14 @@ def demo(tmp_path_factory, config):
 # --- loading ---------------------------------------------------------------
 
 
-def test_ensure_demo_manifest_is_idempotent(tmp_path, synth_config):
+def test_ensure_demo_manifest_is_idempotent(tmp_path: Path, synth_config: SynthConfig) -> None:
     first = loading.ensure_demo_manifest(tmp_path, synth_config)
     second = loading.ensure_demo_manifest(tmp_path, synth_config)
     assert first == second
     assert first.exists()
 
 
-def test_instrument_and_sample_selection(demo):
+def test_instrument_and_sample_selection(demo: Demo) -> None:
     _, manifest = demo
     ids = loading.instrument_ids(manifest)
     assert ids == ["strings", "piano"]
@@ -48,7 +57,7 @@ def test_instrument_and_sample_selection(demo):
     assert loading.sample_label(loading.get_sample(strings, labels[0])) == labels[0]
 
 
-def test_unknown_lookups_raise(demo):
+def test_unknown_lookups_raise(demo: Demo) -> None:
     _, manifest = demo
     with pytest.raises(KeyError):
         loading.get_instrument(manifest, "nope")
@@ -56,7 +65,7 @@ def test_unknown_lookups_raise(demo):
         loading.get_sample(loading.get_instrument(manifest, "piano"), "p1 v1 c0")
 
 
-def test_load_signal_matches_manifest_sample(demo):
+def test_load_signal_matches_manifest_sample(demo: Demo) -> None:
     _, manifest = demo
     sample = loading.get_instrument(manifest, "strings").samples[0]
     signal, sample_rate = loading.load_signal(sample)
@@ -67,7 +76,7 @@ def test_load_signal_matches_manifest_sample(demo):
 # --- audioio ---------------------------------------------------------------
 
 
-def test_to_wav_bytes_roundtrips_and_normalizes():
+def test_to_wav_bytes_roundtrips_and_normalizes() -> None:
     signal = tone(amplitude=0.05)  # quiet input
     data = audioio.to_wav_bytes(signal, SR)
     assert data[:4] == b"RIFF"
@@ -77,7 +86,7 @@ def test_to_wav_bytes_roundtrips_and_normalizes():
     assert float(np.max(np.abs(back))) == pytest.approx(0.95, abs=0.02)
 
 
-def test_to_wav_bytes_without_normalization_keeps_level():
+def test_to_wav_bytes_without_normalization_keeps_level() -> None:
     signal = tone(amplitude=0.2)
     back, _ = sf.read(io.BytesIO(audioio.to_wav_bytes(signal, SR, normalize=False)), dtype="float64")
     assert float(np.max(np.abs(back))) == pytest.approx(0.2, abs=0.01)
@@ -86,7 +95,7 @@ def test_to_wav_bytes_without_normalization_keeps_level():
 # --- degrade ---------------------------------------------------------------
 
 
-def test_quantize_snaps_to_step_grid():
+def test_quantize_snaps_to_step_grid() -> None:
     signal = tone()
     quantized = degrade.quantize(signal, 8)
     step = 2.0 / (2**8)
@@ -95,25 +104,25 @@ def test_quantize_snaps_to_step_grid():
     assert np.unique(quantized).size <= 2**8
 
 
-def test_lowpass_removes_high_frequency_energy():
+def test_lowpass_removes_high_frequency_energy() -> None:
     signal = tone(freq=8000.0)
     filtered = degrade.lowpass(signal, SR, 3000.0)
     assert band_energy(filtered, SR, 3000.0, SR / 2.0) < 1e-6 * band_energy(signal, SR, 3000.0, SR / 2.0)
 
 
-def test_gain_scales_amplitude():
+def test_gain_scales_amplitude() -> None:
     signal = tone()
     assert np.allclose(degrade.gain(signal, 0.25), 0.25 * signal)
 
 
 @pytest.mark.parametrize("antialias", [True, False])
-def test_resample_roundtrip_preserves_length(antialias):
+def test_resample_roundtrip_preserves_length(antialias: bool) -> None:
     signal = tone()
     out = degrade.resample_roundtrip(signal, SR, 22_050, antialias=antialias)
     assert out.size == signal.size
 
 
-def test_naive_resample_aliases_more_than_antialiased():
+def test_naive_resample_aliases_more_than_antialiased() -> None:
     # A tone above the downsampled Nyquist aliases badly without a filter.
     signal = tone(freq=16_000.0)
     clean = degrade.resample_roundtrip(signal, SR, 22_050, antialias=True)
@@ -123,7 +132,7 @@ def test_naive_resample_aliases_more_than_antialiased():
     assert err_aliased > err_clean
 
 
-def test_degrade_spec_labels_and_dispatch():
+def test_degrade_spec_labels_and_dispatch() -> None:
     signal = tone()
     specs = {
         "8-bit": degrade.DegradeSpec(kind="quantize", bits=8),
@@ -136,7 +145,7 @@ def test_degrade_spec_labels_and_dispatch():
         assert degrade.apply(spec, signal, SR).size == signal.size
 
 
-def test_smoke_specs_cover_the_p1_set():
+def test_smoke_specs_cover_the_p1_set() -> None:
     labels = [spec.label for spec in degrade.smoke_specs()]
     assert labels == ["16-bit", "8-bit", "lowpass 3 kHz", "gain x0.3"]
 
@@ -144,7 +153,7 @@ def test_smoke_specs_cover_the_p1_set():
 # --- views -----------------------------------------------------------------
 
 
-def test_sample_row_has_expected_shape(demo, spectral_config):
+def test_sample_row_has_expected_shape(demo: Demo, spectral_config: SpectralConfig) -> None:
     _, manifest = demo
     sample = loading.get_instrument(manifest, "strings").samples[0]
     signal, sample_rate = loading.load_signal(sample)
@@ -154,7 +163,7 @@ def test_sample_row_has_expected_shape(demo, spectral_config):
     assert float(row["kib_16"]) > float(row["kib_8"]) > 0.0
 
 
-def test_material_rows_weight_is_count_times_duration(demo):
+def test_material_rows_weight_is_count_times_duration(demo: Demo) -> None:
     _, manifest = demo
     rows = views.material_rows(loading.get_instrument(manifest, "strings"))
     assert rows
@@ -162,7 +171,7 @@ def test_material_rows_weight_is_count_times_duration(demo):
         assert row["weight"] == pytest.approx(float(row["count"]) * float(row["dur_s"]))
 
 
-def test_stored_bytes_matches_size_model():
+def test_stored_bytes_matches_size_model() -> None:
     from optisample.metrics import SampleSize
     from optisample.metrics.size import INSTRUMENT_HEADER_BYTES
 
@@ -171,7 +180,7 @@ def test_stored_bytes_matches_size_model():
     )
 
 
-def test_budget_summary_flags_over_budget(demo):
+def test_budget_summary_flags_over_budget(demo: Demo) -> None:
     _, manifest = demo
     strings = loading.get_instrument(manifest, "strings")
     frame_counts = [loading.load_signal(sample)[0].size for sample in strings.samples]
@@ -181,28 +190,28 @@ def test_budget_summary_flags_over_budget(demo):
     assert isinstance(summary["fits_16"], bool)
 
 
-def test_compare_identical_is_transparent(composite):
+def test_compare_identical_is_transparent(composite: CompositeFidelity) -> None:
     signal = tone()
     row = views.compare(signal, signal.copy(), SR, "identical", composite)
     assert float(row["fidelity"]) == pytest.approx(0.0, abs=1e-6)
     assert float(row["snr_db"]) > 100.0
 
 
-def test_compare_ranks_16bit_above_8bit(composite):
+def test_compare_ranks_16bit_above_8bit(composite: CompositeFidelity) -> None:
     signal = tone()
     row16 = views.compare(signal, degrade.quantize(signal, 16), SR, "16-bit", composite)
     row8 = views.compare(signal, degrade.quantize(signal, 8), SR, "8-bit", composite)
     assert float(row16["fidelity"]) < float(row8["fidelity"])
 
 
-def test_compare_isolates_pure_level_change_to_loudness(composite):
+def test_compare_isolates_pure_level_change_to_loudness(composite: CompositeFidelity) -> None:
     signal = tone()
     row = views.compare(signal, degrade.gain(signal, 0.3), SR, "quieter", composite)
     assert float(row["fidelity"]) == pytest.approx(0.0, abs=1e-3)
     assert abs(float(row["loudness_dLU"])) > 5.0
 
 
-def test_compare_specs_labels_align(composite):
+def test_compare_specs_labels_align(composite: CompositeFidelity) -> None:
     signal = tone()
     specs = degrade.smoke_specs()
     rows = views.compare_specs(signal, SR, specs, composite)
@@ -212,7 +221,7 @@ def test_compare_specs_labels_align(composite):
 # --- viz -------------------------------------------------------------------
 
 
-def test_waveform_and_spectrogram_render_to_png(spectral_config, metrics_config):
+def test_waveform_and_spectrogram_render_to_png(spectral_config: SpectralConfig, metrics_config: MetricsConfig) -> None:
     signal = tone()
     figures = (
         viz.waveform_figure(signal, SR),
@@ -225,7 +234,7 @@ def test_waveform_and_spectrogram_render_to_png(spectral_config, metrics_config)
         assert png[:8] == b"\x89PNG\r\n\x1a\n"
 
 
-def test_contribution_bar_totals_match_fidelity(composite, metrics_config):
+def test_contribution_bar_totals_match_fidelity(composite: CompositeFidelity, metrics_config: MetricsConfig) -> None:
     signal = tone()
     weights = metrics_config.weights
     rows = views.compare_specs(signal, SR, degrade.smoke_specs(), composite)

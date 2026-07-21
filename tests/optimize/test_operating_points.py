@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 
 import numpy as np
 import pytest
@@ -121,19 +122,26 @@ def test_sample_operating_points_covers_the_grid(
     assert all(p.stored_bytes > 0 for p in points)
 
 
-def test_lower_convex_hull_drops_point_above_chord() -> None:
-    hull = lower_convex_hull([point(100, 1.0), point(200, 0.5), point(300, 0.45), point(400, 0.1)])
-    assert [p.stored_bytes for p in hull] == [100, 200, 400]  # (300, 0.45) sits above the 200→400 chord
+@dataclass(frozen=True)
+class _HullCase:
+    """A lower-convex-hull scenario: the ``(stored_bytes, distortion)`` points fed in and the bytes kept."""
+
+    name: str
+    points: tuple[tuple[int, float], ...]
+    kept: list[int]
 
 
-def test_lower_convex_hull_drops_dominated_point() -> None:
-    hull = lower_convex_hull([point(100, 1.0), point(200, 0.5), point(300, 0.6)])
-    assert [p.stored_bytes for p in hull] == [100, 200]  # more bytes AND more distortion → dominated
+_HULL_CASES = (
+    _HullCase("above-chord vertex dropped", ((100, 1.0), (200, 0.5), (300, 0.45), (400, 0.1)), [100, 200, 400]),
+    _HullCase("dominated vertex dropped", ((100, 1.0), (200, 0.5), (300, 0.6)), [100, 200]),
+    _HullCase("collinear midpoint dropped", ((0, 3.0), (10, 2.0), (20, 1.0)), [0, 20]),
+)
 
 
-def test_lower_convex_hull_drops_collinear_midpoint() -> None:
-    hull = lower_convex_hull([point(0, 3.0), point(10, 2.0), point(20, 1.0)])
-    assert [p.stored_bytes for p in hull] == [0, 20]  # the redundant middle vertex is removed
+@pytest.mark.parametrize("case", _HULL_CASES, ids=lambda case: case.name)
+def test_lower_convex_hull_keeps_only_frontier_vertices(case: _HullCase) -> None:
+    hull = lower_convex_hull([point(stored_bytes, distortion) for stored_bytes, distortion in case.points])
+    assert [p.stored_bytes for p in hull] == case.kept
 
 
 def test_lower_convex_hull_edge_cases() -> None:

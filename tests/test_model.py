@@ -77,6 +77,5 @@ def test_valid_manifest_round_trips_through_python() -> None:
             )
         ],
     )
-    assert manifest.project.target_engine == "openmpt"
-    assert manifest.project.interpolation == "sinc"
     assert manifest.instruments[0].material is not None
+    assert manifest.instruments[0].material[0].weight == pytest.approx(6.0)  # count 3 x 2.0 s

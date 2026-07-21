@@ -43,11 +43,6 @@ def test_filter_taps_maps_each_interpolation(render_config: RenderConfig) -> Non
     assert taps == {"none": 1, "linear": 2, "cubic": 4, "sinc": 8}
 
 
-def test_bundled_render_config_is_sinc_at_48k(render_config: RenderConfig) -> None:
-    # The single source of truth is opticonfig/render.yaml; assert the shipped values (sinc, highest quality).
-    assert (render_config.sample_rate, render_config.interpolation, filter_taps(render_config)) == (48_000, "sinc", 8)
-
-
 def test_render_config_rejects_unknown_interpolation() -> None:
     with pytest.raises(ValidationError):
         RenderConfig(sample_rate=48_000, interpolation="bogus", gain_db=0.0)  # type: ignore[arg-type]

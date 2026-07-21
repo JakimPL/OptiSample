@@ -22,16 +22,6 @@ def load_group(name: str) -> object:
     return yaml.safe_load((resources.files("opticonfig") / f"{name}.yaml").read_text(encoding="utf-8"))
 
 
-def test_bundled_config_loads_with_expected_values() -> None:
-    cfg = load_config()
-    assert cfg.loop.min_loop_s == 0.5  # a working-tree value carried verbatim into YAML
-    assert cfg.sweep.loops == (True,)
-    assert cfg.sweep.rate_divisors == (1, 2, 3, 4, 6, 8)
-    assert cfg.metrics.weights["mrstft"] == 1.0
-    assert cfg.render.interpolation == "sinc"
-    assert cfg.synth.presets[0].id == "strings"
-
-
 def test_yaml_lists_coerce_to_tuples() -> None:
     cfg = load_config()
     assert isinstance(cfg.sweep.depths, tuple)

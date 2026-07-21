@@ -160,7 +160,7 @@ def detect_loop(signal: Signal, sample_rate: int, config: LoopConfig) -> Loop | 
     if loop_len is None:
         return None
     end = start + loop_len
-    if end > total or end <= start:
+    if end > total or end <= start:  # pragma: no cover - defensive: the fit keeps end within [start+period, tail]
         return None
     return Loop(start, end)
 

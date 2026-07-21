@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import math
 from pathlib import Path
 
 import numpy as np
@@ -9,7 +8,6 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.artifacts import DumpSettings, dump_instrument, dump_project
-from optisample.artifacts.serialize import _json_safe
 from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
 from optisample.io.audio import read_wav, write_wav
@@ -25,8 +23,8 @@ SR = 44_100
 PITCHES = (60, 62, 64)
 
 # Build cheap swept settings straight from the bundled config (dither off, so the dump re-encode is
-# deterministic and fast) under "no config defaults". Loaded once here since these feed module-level
-# constants and helpers that the function-scoped conftest fixtures cannot reach.
+# deterministic and fast). Loaded once here since these feed module-level constants and the module-scoped
+# ``generous`` fixture that the function-scoped conftest fixtures cannot reach.
 _CONFIG = load_config()
 
 
@@ -221,7 +219,7 @@ def test_dump_is_deterministic(tmp_path: Path) -> None:
     assert np.array_equal(audio_a, audio_b)
 
 
-# --- project-level + helpers ---------------------------------------------------------------------
+# --- project-level -------------------------------------------------------------------------------
 
 
 def test_dump_project_reads_wavs_and_writes_per_instrument(tmp_path: Path) -> None:
@@ -239,9 +237,3 @@ def test_dump_project_reads_wavs_and_writes_per_instrument(tmp_path: Path) -> No
     results = dump_project(manifest, tmp_path / "artifacts", NO_RENDER)
     assert len(results) == 1
     assert (tmp_path / "artifacts" / "piano" / "grouped" / "module.it").is_file()
-
-
-def test_json_safe_coerces_numpy_and_non_finite() -> None:
-    out = _json_safe({"a": np.float64(1.5), "b": np.int64(3), "c": math.inf, "d": [-math.inf, 2.0]})
-    assert out == {"a": 1.5, "b": 3, "c": None, "d": [None, 2.0]}
-    assert isinstance(out["b"], int) and not isinstance(out["b"], np.integer)

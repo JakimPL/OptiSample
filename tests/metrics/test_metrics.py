@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 import numpy as np
@@ -50,6 +51,15 @@ class _DummyMetric:
         return 0.0
 
 
+@pytest.fixture(autouse=True)
+def _restore_metric_registry() -> Iterator[None]:
+    """Unregister any metric a test adds, so registry mutation cannot leak across the process-wide state."""
+    before = set(available_metrics())
+    yield
+    for name in set(available_metrics()) - before:
+        unregister_metric(name)
+
+
 def test_registry_exposes_defaults(metrics_config: MetricsConfig) -> None:
     for name in _METRIC_NAMES:
         assert name in available_metrics()
@@ -87,6 +97,15 @@ def test_evaluate_identical_has_zero_fidelity(composite: CompositeFidelity) -> N
     assert report.fidelity == pytest.approx(0.0, abs=1e-6)
     assert report.diagnostics["snr_db"] == np.inf
     assert set(report.breakdown) == set(_METRIC_NAMES)
+
+
+def test_composite_breakdown_and_distance_agree_with_score(composite: CompositeFidelity) -> None:
+    signal = harmonic(220.0)
+    ctx = MetricContext(SR)
+    fidelity, per_metric = composite.score(signal, quantize(signal, 8), ctx)
+    assert composite.breakdown(signal, quantize(signal, 8), ctx) == per_metric  # same raw sub-scores
+    assert composite.distance(signal, quantize(signal, 8), ctx) == pytest.approx(fidelity)
+    assert set(per_metric) == set(_METRIC_NAMES)
 
 
 def test_composite_is_monotone_with_quantization(composite: CompositeFidelity) -> None:
