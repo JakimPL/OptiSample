@@ -10,13 +10,14 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Final
 
 from optisample.dsp.quantize import VALID_DEPTHS
 
-SAMPLE_HEADER_BYTES = 80
-INSTRUMENT_HEADER_BYTES = 554
-FILE_HEADER_BYTES = 192
-_BYTES_PER_KIB = 1024
+SAMPLE_HEADER_BYTES: Final = 80
+INSTRUMENT_HEADER_BYTES: Final = 554
+FILE_HEADER_BYTES: Final = 192
+_BYTES_PER_KIB: Final = 1024
 
 
 def _bytes_per_frame(depth_bits: int, channels: int) -> int:

@@ -31,8 +31,8 @@ def _render_instrument(
             write_wav(outdir / rel, render_sample(preset.archetype, spec, rng, config), rate)
             samples.append(SourceSample(file=rel, pitch=pitch, velocity=velocity, controller=0.0))
     material = [
-        NoteEvent(pitch=pitch, velocity=velocity, duration_s=duration_s, count=count)
-        for pitch, velocity, duration_s, count in preset.material
+        NoteEvent(pitch=event.pitch, velocity=event.velocity, duration_s=event.duration_s, count=event.count)
+        for event in preset.material
     ]
     return InstrumentSpec(id=preset.id, budget_kb=preset.budget_kb, samples=samples, material=material)
 

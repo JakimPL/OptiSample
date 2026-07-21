@@ -7,6 +7,7 @@ so a report can say "lost 9 dB above 4 kHz" or "loop seam jumps 0.3" instead of 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Final
 
 import numpy as np
 
@@ -16,7 +17,7 @@ from optisample.dsp.spectral import band_energy, bandlimit, frame, spectral_flux
 from optisample.metrics.base import Signal
 from optisample.metrics.preprocess import integrated_loudness, match_length
 
-_EPS = 1e-12
+_EPS: Final = 1e-12
 
 
 def snr(reference: Signal, candidate: Signal) -> float:
@@ -60,11 +61,6 @@ def si_sdr(reference: Signal, candidate: Signal) -> float:
 def loudness_delta(reference: Signal, candidate: Signal, sample_rate: int) -> float:
     """Reference minus candidate integrated loudness (LU) — the raw level/velocity gap."""
     return integrated_loudness(reference, sample_rate) - integrated_loudness(candidate, sample_rate)
-
-
-def quantization_snr(original: Signal, quantized: Signal) -> float:
-    """SNR (dB) of a bit-depth reduction; for a full-scale sine ≈ ``6.02 * bits + 1.76``."""
-    return snr(original, quantized)
 
 
 def hf_loss_db(reference: Signal, candidate: Signal, sample_rate: int, cutoff_hz: float) -> float:

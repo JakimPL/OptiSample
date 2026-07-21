@@ -80,13 +80,22 @@ def nearest_velocity(available: Sequence[int], target: int) -> int:
     return min(available, key=lambda velocity: (abs(velocity - target), -velocity))
 
 
-def merge_events(events: Sequence[NoteEvent]) -> list[tuple[int, float, float]]:
-    """Collapse events sharing a (velocity, duration) into ``(velocity, duration, summed weight)``."""
+@dataclass(frozen=True)
+class MergedEvent:
+    """A distinct (velocity, duration) the material plays at a pitch, with its summed usage weight."""
+
+    velocity: int
+    duration_s: float
+    weight: float
+
+
+def merge_events(events: Sequence[NoteEvent]) -> list[MergedEvent]:
+    """Collapse events sharing a (velocity, duration) into one :class:`MergedEvent` with summed weight."""
     weights: dict[tuple[int, float], float] = {}
     for event in events:
         key = (event.velocity, event.duration_s)
         weights[key] = weights.get(key, 0.0) + event.weight
-    return [(velocity, duration, weight) for (velocity, duration), weight in weights.items()]
+    return [MergedEvent(velocity, duration, weight) for (velocity, duration), weight in weights.items()]
 
 
 def _group_events_by_pitch(material: Sequence[NoteEvent]) -> dict[int, list[NoteEvent]]:
@@ -114,8 +123,13 @@ def _build_pitch_task(pitch: int, events: Sequence[NoteEvent], available: Sequen
     """
     representative_velocity = nearest_velocity(available, max(event.velocity for event in events))
     built = tuple(
-        Event(velocity, duration, weight, audio[(pitch, nearest_velocity(available, velocity))])
-        for velocity, duration, weight in merge_events(events)
+        Event(
+            merged.velocity,
+            merged.duration_s,
+            merged.weight,
+            audio[(pitch, nearest_velocity(available, merged.velocity))],
+        )
+        for merged in merge_events(events)
     )
     weight = sum(event.weight for event in built)
     return PitchTask(pitch, weight, representative_velocity, audio[(pitch, representative_velocity)], built)

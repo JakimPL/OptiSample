@@ -13,12 +13,14 @@ error-feedback noise shaping moves noise power out of the low band toward Nyquis
 
 from __future__ import annotations
 
+from typing import Final
+
 import numpy as np
 from numpy.typing import NDArray
 
 Signal = NDArray[np.float64]
 
-VALID_DEPTHS = (8, 16)
+VALID_DEPTHS: Final = (8, 16)
 
 
 def quantization_step(bits: int) -> float:

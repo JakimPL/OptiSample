@@ -4,7 +4,7 @@ Weights and per-metric parameters are loaded from config (:mod:`optisample.confi
 :func:`build_composite` assembles the weighted set once per run from a :class:`MetricsConfig` and
 is threaded through the search rather than rebuilt per comparison. The composite compares
 loudness-matched signals, while the report also surfaces the raw level gap and SNR-style
-diagnostics separately. Weights remain provisional and are calibrated in P7.
+diagnostics separately.
 """
 
 from __future__ import annotations

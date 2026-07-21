@@ -15,12 +15,19 @@ from __future__ import annotations
 import struct
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Final
 
 from optisample.metrics.size import FILE_HEADER_BYTES, INSTRUMENT_HEADER_BYTES, SAMPLE_HEADER_BYTES
 
-KEYBOARD_NOTES = 120  # IT keys C-0..B-9 (0..119); the note map holds one (note, sample) pair each.
-MAX_IT_NOTE = KEYBOARD_NOTES - 1  # highest playable IT key.
-CHANNELS_STORED = 64  # the file header always carries 64 channel pan + 64 channel volume bytes.
+KEYBOARD_NOTES: Final = 120  # IT keys C-0..B-9 (0..119); the note map holds one (note, sample) pair each.
+MAX_IT_NOTE: Final = KEYBOARD_NOTES - 1  # highest playable IT key.
+CHANNELS_STORED: Final = 64  # the file header always carries 64 channel pan + 64 channel volume bytes.
+
+# A single field carries one struct value (an int, or a pre-padded byte block); an array field carries
+# a row per element (the keyboard note map's (play_note, sample) pairs). ``pack`` accepts both in one map.
+FieldValue = int | bytes
+ArrayValue = Sequence[Sequence[int]]
+RecordValues = Mapping[str, FieldValue | ArrayValue]
 
 
 @dataclass(frozen=True)
@@ -58,20 +65,21 @@ class ITRecord:
     fields: tuple[Field, ...]
     arrays: tuple[ArrayField, ...] = ()
 
-    def pack(self, values: Mapping[str, object]) -> bytes:
+    def pack(self, values: RecordValues) -> bytes:
         """Serialize ``values`` into ``size`` bytes; unwritten offsets (reserved regions) stay zero."""
         buf = bytearray(self.size)
         for spec in self.fields:
             struct.pack_into(spec.code, buf, spec.offset, values[spec.name])
         for array in self.arrays:
             stride = struct.calcsize(array.code)
-            rows: Sequence[Sequence[int]] = values[array.name]  # type: ignore[assignment]
+            rows = values[array.name]
+            assert not isinstance(rows, (int, bytes))  # array fields always carry a Sequence of element rows
             for index, row in enumerate(rows):
                 struct.pack_into(array.code, buf, array.offset + index * stride, *row)
         return bytes(buf)
 
 
-FILE_HEADER = ITRecord(
+FILE_HEADER: Final = ITRecord(
     size=FILE_HEADER_BYTES,
     fields=(
         Field("magic", 0, "4s"),  # "IMPM"
@@ -94,7 +102,7 @@ FILE_HEADER = ITRecord(
     ),
 )
 
-SAMPLE_HEADER = ITRecord(
+SAMPLE_HEADER: Final = ITRecord(
     size=SAMPLE_HEADER_BYTES,
     fields=(
         Field("magic", 0, "4s"),  # "IMPS"
@@ -111,7 +119,7 @@ SAMPLE_HEADER = ITRecord(
     ),
 )
 
-INSTRUMENT_HEADER = ITRecord(
+INSTRUMENT_HEADER: Final = ITRecord(
     size=INSTRUMENT_HEADER_BYTES,
     fields=(
         Field("magic", 0, "4s"),  # "IMPI"

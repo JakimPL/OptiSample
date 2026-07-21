@@ -1,14 +1,14 @@
 """Render ``.IT`` modules to audio with ``openmpt123`` -- the ground-truth playback engine.
 
 The optimizer's inner loop uses the fast numpy surrogate (:mod:`optisample.dsp.surrogate`); this
-wrapper drives the *real* tracker so we can calibrate that surrogate against reality (P4) and
-validate exported modules. ``openmpt123`` is an external system binary, not a Python dependency, so
-this module degrades gracefully: :func:`openmpt123_available` reports whether it is installed and the
+wrapper drives the *real* tracker so the surrogate can be calibrated against reality and exported
+modules validated. ``openmpt123`` is an external system binary, not a Python dependency, so this
+module degrades gracefully: :func:`openmpt123_available` reports whether it is installed and the
 render functions raise a clear, actionable error when it is not.
 
 We always render **mono float** at a fixed interpolation so the ground truth is reproducible -- the
-IT format does not store the interpolation filter, it is a player setting (see the plan), and the
-default here is 8-tap sinc/polyphase, OpenMPT's highest-quality mode. Rendering happens in a
+IT format does not store the interpolation filter, it is a player setting, and the default here is
+8-tap sinc/polyphase, OpenMPT's highest-quality mode. Rendering happens in a
 temporary directory (``openmpt123 --render`` writes ``<input>.wav`` next to its input), so the
 caller's files are never touched.
 """
@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Final
 
 import numpy as np
 from numpy.typing import NDArray
@@ -27,7 +28,7 @@ from optisample.config.render import Interpolation, RenderConfig
 from optisample.io.audio import read_wav
 from optisample.io.it_writer import ITModule, write_it
 
-_BINARY = "openmpt123"
+_BINARY: Final = "openmpt123"
 # openmpt123 --filter takes interpolation *taps*; more taps = higher-quality (sinc) interpolation.
 _INTERPOLATION_TAPS: dict[Interpolation, int] = {"none": 1, "linear": 2, "cubic": 4, "sinc": 8}
 

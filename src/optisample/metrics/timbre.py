@@ -8,21 +8,18 @@ alone would not catch.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Final
 
 import numpy as np
 
 from optisample.config.dsp import MelParams, StftParams
-from optisample.dsp.spectral import (
-    mfcc,
-    spectral_centroid,
-    spectral_flatness,
-    spectral_flux,
-    spectral_rolloff,
-)
+from optisample.config.metrics import SpectralWeights
+from optisample.dsp.spectral import mfcc, spectral_centroid, spectral_flatness, spectral_rolloff
 from optisample.metrics.base import MetricContext, Signal, register_metric
+from optisample.metrics.diagnostics import flux_variance
 
-_EPS = 1e-9
-_MCD_CONSTANT = 10.0 / np.log(10.0) * np.sqrt(2.0)
+_EPS: Final = 1e-9
+_MCD_CONSTANT: Final = 10.0 / np.log(10.0) * np.sqrt(2.0)
 
 
 @dataclass(frozen=True)
@@ -54,7 +51,7 @@ class SpectralShape:
     """Weighted brightness/rolloff/flatness deltas plus a flux-variance (static-loop) mismatch."""
 
     params: StftParams
-    weights: tuple[float, float, float, float]
+    weights: SpectralWeights
     rolloff_percent: float
     name: str = "spectral_shape"
 
@@ -68,16 +65,17 @@ class SpectralShape:
             spectral_rolloff(candidate, sample_rate, self.params, self.rolloff_percent),
         )
         flatness = abs(spectral_flatness(reference, self.params) - spectral_flatness(candidate, self.params))
-        flux_variance = _relative_delta(
-            float(np.std(spectral_flux(reference, self.params))),
-            float(np.std(spectral_flux(candidate, self.params))),
+        flux_variance_delta = _relative_delta(
+            flux_variance(reference, self.params),
+            flux_variance(candidate, self.params),
         )
-        return {"centroid": centroid, "rolloff": rolloff, "flatness": flatness, "flux_variance": flux_variance}
+        return {"centroid": centroid, "rolloff": rolloff, "flatness": flatness, "flux_variance": flux_variance_delta}
 
     def distance(self, reference: Signal, candidate: Signal, ctx: MetricContext) -> float:
         parts = self.components(reference, candidate, ctx.sample_rate)
         keys = ("centroid", "rolloff", "flatness", "flux_variance")
-        return float(sum(weight * parts[key] for weight, key in zip(self.weights, keys)))
+        weights = (self.weights.centroid, self.weights.rolloff, self.weights.flatness, self.weights.flux_variance)
+        return float(sum(weight * parts[key] for weight, key in zip(weights, keys)))
 
 
 register_metric(

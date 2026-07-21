@@ -3,11 +3,10 @@
 For one source recording we sweep encoding configurations (stored sample rate x bit depth) and, for
 each, measure ``(stored_bytes, distortion)``. Distortion is the composite fidelity between the source
 and the sample *encoded then rendered back at its own pitch and duration*, so it isolates the
-**encoding** loss (resampling + requantization); repitching and grouping loss are handled in later
-phases.
+**encoding** loss (resampling + requantization); repitching and grouping loss are scored separately.
 
 The lower convex hull of those points is the sample's rate-distortion frontier -- the only
-configurations a Lagrangian budget sweep (P3) can ever select, one per slope ``lambda``. Points that
+configurations a Lagrangian budget sweep can ever select, one per slope ``lambda``. Points that
 lie on or above the chord between two neighbours are dominated and dropped, so the hull is the exact
 menu of "bytes bought, distortion saved" trades the allocator reasons about.
 """
@@ -16,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
-from typing import Protocol, TypeVar
+from typing import Final, Protocol, TypeVar
 
 import numpy as np
 
@@ -26,7 +25,7 @@ from optisample.dsp.surrogate import EncodeContext, EncodingParams, Signal, enco
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.metrics.composite import CompositeFidelity, evaluate
 
-_HULL_EPS = 1e-12
+_HULL_EPS: Final = 1e-12
 
 
 @dataclass(frozen=True, eq=False)

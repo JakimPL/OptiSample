@@ -1,10 +1,9 @@
 """Rendering / playback configuration: openmpt123 render settings and IT global playback.
 
-``RenderConfig`` replaces ``io.render.RenderSettings``' value fields (the ``interpolation`` name is
-mapped to openmpt123 ``--filter`` taps by a free function in ``io/render.py``). ``PlaybackConfig`` holds
-the IT global playback the exporter/calibrator used to hardcode as ``ITPlayback()`` -- ``speed``/``tempo``
-set the row duration, so they affect rendered note timing. ``Interpolation`` is redeclared here to keep
-the config package a dependency leaf.
+``RenderConfig`` carries the openmpt123 render settings (the ``interpolation`` name is mapped to
+``--filter`` taps by a free function in ``io/render.py``). ``PlaybackConfig`` holds the IT global
+playback -- ``speed``/``tempo`` set the row duration, so they affect rendered note timing.
+``Interpolation`` is declared here to keep the config package a dependency leaf.
 """
 
 from __future__ import annotations

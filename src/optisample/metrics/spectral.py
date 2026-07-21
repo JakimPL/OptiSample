@@ -15,6 +15,7 @@ dB below the peak — a single config knob shared with the log-mel and MCD metri
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Final
 
 import numpy as np
 
@@ -22,7 +23,7 @@ from optisample.config.dsp import MelParams, StftParams
 from optisample.dsp.spectral import melspectrogram, stft_magnitude
 from optisample.metrics.base import MetricContext, Signal, register_metric
 
-_TINY = 1e-12
+_TINY: Final = 1e-12
 
 
 def _min_frames(first: Signal, second: Signal) -> int:

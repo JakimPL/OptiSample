@@ -34,22 +34,22 @@ presets:
     velocities: [40, 80, 115]
     sample_dur: 4.5         # >= the longest material note (4.0 s), so a real sustain exists to loop/match
     budget_kb: 128.0
-    material: # (pitch, velocity, duration_s, count)
-      - [60, 80, 2.5, 10]
-      - [55, 80, 3.0, 6]
-      - [67, 115, 1.5, 8]
-      - [48, 40, 4.0, 3]
-      - [72, 115, 1.0, 5]
-      - [60, 40, 2.0, 4]
+    material:
+      - {pitch: 60, velocity: 80, duration_s: 2.5, count: 10}
+      - {pitch: 55, velocity: 80, duration_s: 3.0, count: 6}
+      - {pitch: 67, velocity: 115, duration_s: 1.5, count: 8}
+      - {pitch: 48, velocity: 40, duration_s: 4.0, count: 3}
+      - {pitch: 72, velocity: 115, duration_s: 1.0, count: 5}
+      - {pitch: 60, velocity: 40, duration_s: 2.0, count: 4}
   - id: piano
     archetype: piano
     pitches: [48, 55, 60, 67, 72]
     velocities: [50, 100]
     sample_dur: 1.6
     budget_kb: 96.0
-    material: # (pitch, velocity, duration_s, count)
-      - [60, 100, 0.8, 12]
-      - [48, 50, 1.2, 5]
-      - [67, 100, 0.5, 10]
-      - [55, 50, 0.9, 7]
-      - [72, 100, 0.4, 6]
+    material:
+      - {pitch: 60, velocity: 100, duration_s: 0.8, count: 12}
+      - {pitch: 48, velocity: 50, duration_s: 1.2, count: 5}
+      - {pitch: 67, velocity: 100, duration_s: 0.5, count: 10}
+      - {pitch: 55, velocity: 50, duration_s: 0.9, count: 7}
+      - {pitch: 72, velocity: 100, duration_s: 0.4, count: 6}

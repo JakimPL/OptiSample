@@ -21,7 +21,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, SerializerFunctionWrapHandler, model_serializer
@@ -33,7 +33,7 @@ from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan, Sam
 from optisample.optimize.tasks import EvalContext, PitchTask, score_events
 from optisample.optimize.velocity_map import VelocityVolumeMap
 
-_OPTIONAL_HEAD = ("method", "pitches", "zones")  # plan-head fields present for only one of the two strategies
+_OPTIONAL_HEAD: Final = ("method", "pitches", "zones")  # plan-head fields present for only one of the two strategies
 
 
 class _Frozen(BaseModel):

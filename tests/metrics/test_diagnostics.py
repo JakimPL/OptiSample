@@ -12,7 +12,6 @@ from optisample.metrics.diagnostics import (
     hf_loss_db,
     loop_seam,
     loudness_delta,
-    quantization_snr,
     segmental_snr,
     si_sdr,
     snr,
@@ -35,7 +34,7 @@ def quantize(signal: NDArray[np.float64], bits: int) -> NDArray[np.float64]:
 def test_quantization_snr_matches_theory(bits: int) -> None:
     # Full-scale sine quantized to n bits → SNR ≈ 6.02 n + 1.76 dB.
     signal = sine(997.0, 1.0, amp=1.0)
-    assert quantization_snr(signal, quantize(signal, bits)) == pytest.approx(6.02 * bits + 1.76, abs=1.2)
+    assert snr(signal, quantize(signal, bits)) == pytest.approx(6.02 * bits + 1.76, abs=1.2)
 
 
 def test_snr_identical_is_infinite() -> None:

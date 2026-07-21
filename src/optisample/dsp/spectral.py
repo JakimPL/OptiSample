@@ -7,6 +7,8 @@ explicitly -- the analysis resolution is a tunable loaded from YAML, not a hidde
 
 from __future__ import annotations
 
+from typing import Final
+
 import numpy as np
 from numpy.typing import NDArray
 from scipy.fft import dct
@@ -15,7 +17,7 @@ from optisample.config.dsp import MelParams, StftParams
 
 Signal = NDArray[np.float64]
 
-_LOG_FLOOR = 1e-10
+_LOG_FLOOR: Final = 1e-10
 
 
 def frame(signal: Signal, frame_length: int, hop_length: int) -> Signal:

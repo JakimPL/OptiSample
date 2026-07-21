@@ -6,7 +6,7 @@ per sample to minimize the material-weighted distortion under a hard byte budget
     minimize   sum_j  weight_j * distortion_j(config)
     subject to sum_j  bytes_j(config)  <=  budget
 
-Two solvers, both consuming the P2 operating points:
+Two solvers, both consuming the per-sample rate-distortion operating points:
 
 * :func:`solve_exact` -- a pseudo-polynomial dynamic program over bytes. Optimal over *all*
   candidate configs (not just the hull), at the cost of an ``O(items * configs * budget)`` table.

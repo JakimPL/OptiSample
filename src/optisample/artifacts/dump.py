@@ -33,6 +33,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
+from typing import Final
 
 from optisample.artifacts.context import DumpContext, DumpResult, DumpSettings, PlanArtifacts
 from optisample.artifacts.serialize import (
@@ -71,8 +72,8 @@ class _Strategy:
     optimize: _Optimizer
 
 
-_UNGROUPED = _Strategy("ungrouped", optimize_instrument)
-_GROUPED = _Strategy("grouped", optimize_instrument_grouped)
+_UNGROUPED: Final = _Strategy("ungrouped", optimize_instrument)
+_GROUPED: Final = _Strategy("grouped", optimize_instrument_grouped)
 
 
 def _representative_event(task: PitchTask) -> Event:

@@ -1,9 +1,9 @@
 """DSP-layer configuration: spectral-analysis sizing, loop detection, and quantization.
 
-``StftParams``/``MelParams`` were the ``dsp/spectral.py`` parameter bundles; they now live here so the
-analysis resolution is a tunable, not a signature default. ``LoopConfig`` holds the loop detector's
-band, periodicity gate, placement and seam-crossfade knobs; ``EncodeConfig`` is the derived bundle the
-surrogate encoder needs (loop detection + the normalization peak).
+``StftParams``/``MelParams`` size the spectral analysis, so the resolution is a tunable loaded from
+YAML rather than a signature default. ``LoopConfig`` holds the loop detector's band, periodicity gate,
+placement and seam-crossfade knobs; ``EncodeConfig`` is the derived bundle the surrogate encoder needs
+(loop detection + the normalization peak).
 """
 
 from __future__ import annotations

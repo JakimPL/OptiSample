@@ -1,3 +1,10 @@
+"""Load and dump the manifest YAML: validate it against the model and resolve relative paths.
+
+:func:`load_manifest` reads the YAML, validates it into a :class:`optisample.model.Manifest`, and
+rewrites each sample/material path relative to the manifest's own directory; :func:`dump_manifest`
+writes a manifest back out with unset and ``None`` fields omitted.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

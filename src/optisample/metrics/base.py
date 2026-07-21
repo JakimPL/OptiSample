@@ -55,11 +55,9 @@ def register_metric(name: str, factory: MetricFactory, *, overwrite: bool = Fals
 
 def build_metric(name: str, config: MetricsConfig) -> Metric:
     """Instantiate the metric registered under ``name`` from ``config``."""
-    try:
-        factory = _FACTORIES[name]
-    except KeyError as exc:
-        raise KeyError(f"unknown metric {name!r}; registered: {sorted(_FACTORIES)}") from exc
-    return factory(config)
+    if name not in _FACTORIES:
+        raise KeyError(f"unknown metric {name!r}; registered: {sorted(_FACTORIES)}")
+    return _FACTORIES[name](config)
 
 
 def available_metrics() -> list[str]:

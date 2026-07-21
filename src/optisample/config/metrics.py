@@ -3,7 +3,7 @@
 Nested so each group stays small: the composite is ``weights`` (name -> weight) plus one config per
 component metric, and ``preprocess`` carries the loudness-normalization target, the single
 dynamic-range floor shared by the log-spectral metrics, and the segmental-SNR framing. Weights and
-resolutions are the calibration surface (P7); they are provisional but now live in one YAML file.
+resolutions are the calibration surface and live in one YAML file.
 """
 
 from __future__ import annotations
@@ -31,11 +31,20 @@ class McdConfig(ConfigModel):
     mel: MelParams
 
 
+class SpectralWeights(ConfigModel):
+    """Sub-weights for the four spectral-shape terms, applied to each term's relative delta."""
+
+    centroid: float
+    rolloff: float
+    flatness: float
+    flux_variance: float
+
+
 class SpectralShapeConfig(ConfigModel):
     """Brightness/rolloff/flatness/flux-variance term: analysis sizing, sub-weights, rolloff fraction."""
 
     stft: StftParams
-    weights: tuple[float, float, float, float]
+    weights: SpectralWeights
     rolloff_percent: float
 
 

@@ -46,6 +46,15 @@ class PianoConfig(ConfigModel):  # pylint: disable=too-many-instance-attributes
     attack_s: float
 
 
+class MaterialEvent(ConfigModel):
+    """One material row: a (pitch, velocity, duration, repeat count) the demo song plays."""
+
+    pitch: int
+    velocity: int
+    duration_s: float
+    count: int
+
+
 class PresetConfig(ConfigModel):  # pylint: disable=too-many-instance-attributes
     """One demo instrument: its archetype, recorded (pitch, velocity) grid, durations, budget, material."""
 
@@ -55,7 +64,7 @@ class PresetConfig(ConfigModel):  # pylint: disable=too-many-instance-attributes
     velocities: tuple[int, ...]
     sample_dur: float
     budget_kb: float
-    material: tuple[tuple[int, int, float, int], ...]  # (pitch, velocity, duration_s, count)
+    material: tuple[MaterialEvent, ...]
 
 
 class SynthConfig(ConfigModel):  # pylint: disable=too-many-instance-attributes
