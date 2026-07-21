@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
 import pytest
 from numpy.typing import NDArray
@@ -25,13 +27,8 @@ def sine(freq: float, dur: float, sr: int = SR, amp: float = 1.0) -> NDArray[np.
     return amp * np.sin(2.0 * np.pi * freq * t)
 
 
-def quantize(signal: NDArray[np.float64], bits: int) -> NDArray[np.float64]:
-    step = 2.0 / (2**bits)
-    return np.round(signal / step) * step
-
-
 @pytest.mark.parametrize("bits", [8, 12, 16])
-def test_quantization_snr_matches_theory(bits: int) -> None:
+def test_quantization_snr_matches_theory(bits: int, quantize: Callable[..., NDArray[np.float64]]) -> None:
     # Full-scale sine quantized to n bits → SNR ≈ 6.02 n + 1.76 dB.
     signal = sine(997.0, 1.0, amp=1.0)
     assert snr(signal, quantize(signal, bits)) == pytest.approx(6.02 * bits + 1.76, abs=1.2)
@@ -59,12 +56,16 @@ def test_si_sdr_silent_reference_is_neg_inf() -> None:
 
 def test_segmental_snr_identical_hits_ceiling(metrics_config: MetricsConfig) -> None:
     signal = sine(440.0, 0.5)
-    assert segmental_snr(signal, signal, metrics_config.preprocess.segmental) == pytest.approx(35.0)
+    ceiling = metrics_config.preprocess.segmental.clip_high_db
+    assert segmental_snr(signal, signal, metrics_config.preprocess.segmental) == pytest.approx(ceiling)
 
 
-def test_segmental_snr_degraded_below_ceiling(metrics_config: MetricsConfig) -> None:
+def test_segmental_snr_degraded_below_ceiling(
+    metrics_config: MetricsConfig, quantize: Callable[..., NDArray[np.float64]]
+) -> None:
     signal = sine(440.0, 0.5)
-    assert segmental_snr(signal, quantize(signal, 5), metrics_config.preprocess.segmental) < 35.0
+    ceiling = metrics_config.preprocess.segmental.clip_high_db
+    assert segmental_snr(signal, quantize(signal, 5), metrics_config.preprocess.segmental) < ceiling
 
 
 def test_segmental_snr_silence_is_zero(metrics_config: MetricsConfig) -> None:

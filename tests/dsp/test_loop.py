@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
+from optisample.config.dsp import LoopConfig
 from optisample.dsp.loop import (
     _MIN_SUSTAIN_FRAMES,
     Loop,
@@ -24,11 +25,11 @@ def _sine(n: int, freq: float = FREQ, amp: float = 0.8) -> NDArray[np.float64]:
     return amp * np.sin(2.0 * np.pi * freq * t)
 
 
-def test_estimate_period_recovers_the_fundamental(loop_config) -> None:
+def test_estimate_period_recovers_the_fundamental(loop_config: LoopConfig) -> None:
     assert _estimate_period(_sine(SR), SR, loop_config) == pytest.approx(PERIOD, abs=1)
 
 
-def test_detect_loop_on_a_pure_tone_is_an_integer_number_of_periods(loop_config) -> None:
+def test_detect_loop_on_a_pure_tone_is_an_integer_number_of_periods(loop_config: LoopConfig) -> None:
     loop = detect_loop(_sine(SR), SR, loop_config)
     assert loop is not None
     assert loop.length % PERIOD == 0
@@ -37,22 +38,22 @@ def test_detect_loop_on_a_pure_tone_is_an_integer_number_of_periods(loop_config)
     assert loop.end <= SR
 
 
-def test_detect_loop_declines_on_noise(loop_config) -> None:
+def test_detect_loop_declines_on_noise(loop_config: LoopConfig) -> None:
     rng = np.random.default_rng(0)
     assert detect_loop(rng.standard_normal(SR), SR, loop_config) is None
 
 
-def test_detect_loop_declines_on_a_decaying_tone(loop_config) -> None:
+def test_detect_loop_declines_on_a_decaying_tone(loop_config: LoopConfig) -> None:
     # A struck note is pitched but decays; looping it would make it ring forever at the loop's level.
     decay = np.exp(-np.arange(SR, dtype=np.float64) / (0.15 * SR))
     assert detect_loop(decay * _sine(SR), SR, loop_config) is None
 
 
-def test_detect_loop_declines_on_a_too_short_signal(loop_config) -> None:
+def test_detect_loop_declines_on_a_too_short_signal(loop_config: LoopConfig) -> None:
     assert detect_loop(_sine(4), SR, loop_config) is None
 
 
-def test_looping_a_tone_reproduces_its_continuation(loop_config) -> None:
+def test_looping_a_tone_reproduces_its_continuation(loop_config: LoopConfig) -> None:
     signal = _sine(SR)
     loop = detect_loop(signal, SR, loop_config)
     assert loop is not None
@@ -96,13 +97,13 @@ def test_is_sustained_rejects_a_region_too_short_to_judge() -> None:
     assert _is_sustained(tiny, decay_ratio=0.5) is False
 
 
-def test_estimate_period_rejects_short_and_degenerate_bands(loop_config) -> None:
+def test_estimate_period_rejects_short_and_degenerate_bands(loop_config: LoopConfig) -> None:
     assert _estimate_period(np.zeros(4), SR, loop_config) is None  # too few frames
     assert _estimate_period(_sine(20), 100_000, loop_config) is None  # pitched band collapses (high <= low)
     assert _estimate_period(np.zeros(SR), SR, loop_config) is None  # silence -> no peak above the correlation floor
 
 
-def test_detect_loop_shrinks_to_the_periods_that_fit_a_short_steady_region(loop_config) -> None:
+def test_detect_loop_shrinks_to_the_periods_that_fit_a_short_steady_region(loop_config: LoopConfig) -> None:
     # 400 Hz at 8 kHz -> period 20; a 700-frame tone leaves only ~140 steady frames after the attack,
     # too few for the default loop, so detection takes the whole periods that do fit.
     loop = detect_loop(_sine(700, freq=400.0), SR, loop_config)
@@ -110,6 +111,6 @@ def test_detect_loop_shrinks_to_the_periods_that_fit_a_short_steady_region(loop_
     assert loop.length % 20 == 0 and 3 * 20 <= loop.length < int(0.05 * SR)
 
 
-def test_detect_loop_declines_when_too_few_periods_fit(loop_config) -> None:
+def test_detect_loop_declines_when_too_few_periods_fit(loop_config: LoopConfig) -> None:
     # only ~2 periods fit, below the 3-period minimum
     assert detect_loop(_sine(610, freq=400.0), SR, loop_config) is None

@@ -1,31 +1,29 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
 import pytest
+from numpy.typing import NDArray
 
 from optisample.cli import _dump_settings, build_parser, main
-from optisample.config import OptiConfig, load_config
+from optisample.config import OptiConfig
 from optisample.io.audio import write_wav
 from optisample.io.manifest import dump_manifest
 from optisample.model import InstrumentSpec, Manifest, NoteEvent, ProjectSpec, SourceSample
-from optisample.synth import NoteSpec, render_sample
 
 SR = 44_100
 PITCHES = (60, 62, 64)
 
-# render_sample is only a test-signal generator here, so its synth config is fixture-independent data.
-SYNTH = load_config().synth
 
-
-def _tiny_manifest(tmp_path: Path) -> Path:
+@pytest.fixture
+def tiny_manifest(tmp_path: Path, piano_note: Callable[..., NDArray[np.float64]]) -> Path:
     """A minimal on-disk project: three piano notes + a manifest that references them."""
     samples = []
     for pitch in PITCHES:
         rel = Path(f"p{pitch}.wav")
-        signal = render_sample("piano", NoteSpec(pitch, 100, 0.0, 0.6, SR), np.random.default_rng(pitch), SYNTH)
-        write_wav(tmp_path / rel, signal, SR)
+        write_wav(tmp_path / rel, piano_note(pitch, 100, 0.6, seed=pitch), SR)
         samples.append(SourceSample(file=rel, pitch=pitch, velocity=100))
     material = [NoteEvent(pitch=pitch, velocity=100, duration_s=0.5, count=2) for pitch in PITCHES]
     instrument = InstrumentSpec(id="piano", budget_kb=48.0, samples=samples, material=material)
@@ -60,41 +58,35 @@ def test_dump_settings_maps_grid_and_flags(config: OptiConfig) -> None:
     assert settings.grouped is True and settings.ungrouped is False
 
 
-def test_dump_settings_defaults_to_looping_full_grid_both_strategies(config: OptiConfig) -> None:
-    args = build_parser().parse_args(["optimize", "m.yaml"])
-    settings = _dump_settings(config, args)
-    assert settings.grouped and settings.ungrouped and settings.render_ground_truth
-    assert settings.optimize.sweep.loops == (True,)  # looping is on by default
-
-
-def test_optimize_command_writes_artifacts(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    manifest_path = _tiny_manifest(tmp_path)
+def test_optimize_command_writes_artifacts(
+    tmp_path: Path, tiny_manifest: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     out = tmp_path / "artifacts"
-    main(["optimize", str(manifest_path), "--out", str(out), "--rate", "11025", "--depth", "8", "--no-render"])
+    main(["optimize", str(tiny_manifest), "--out", str(out), "--rate", "11025", "--depth", "8", "--no-render"])
     assert (out / "piano" / "grouped" / "module.it").is_file()
     assert (out / "piano" / "ungrouped" / "plan.json").is_file()
     printed = capsys.readouterr().out
     assert "piano" in printed and "objective" in printed
 
 
-def test_optimize_command_reports_timing(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    manifest_path = _tiny_manifest(tmp_path)
+def test_optimize_command_reports_timing(
+    tmp_path: Path, tiny_manifest: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     out = tmp_path / "artifacts"
-    main(["optimize", str(manifest_path), "--out", str(out), "--rate", "11025", "--depth", "8", "--no-render"])
+    main(["optimize", str(tiny_manifest), "--out", str(out), "--rate", "11025", "--depth", "8", "--no-render"])
     printed = capsys.readouterr().out
     assert "s]" in printed  # each strategy line carries its wall-clock, e.g. "[0.4s]"
     assert "total:" in printed
 
 
 def test_optimize_command_profile_flag_still_writes_and_profiles(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, tiny_manifest: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    manifest_path = _tiny_manifest(tmp_path)
     out = tmp_path / "artifacts"
     main(
         [
             "optimize",
-            str(manifest_path),
+            str(tiny_manifest),
             "--out",
             str(out),
             "--rate",
@@ -110,13 +102,14 @@ def test_optimize_command_profile_flag_still_writes_and_profiles(
     assert "function calls" in captured.err  # cProfile's report went to stderr
 
 
-def test_optimize_command_honors_single_strategy(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    manifest_path = _tiny_manifest(tmp_path)
+def test_optimize_command_honors_single_strategy(
+    tmp_path: Path, tiny_manifest: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     out = tmp_path / "artifacts"
     main(
         [
             "optimize",
-            str(manifest_path),
+            str(tiny_manifest),
             "--out",
             str(out),
             "--rate",

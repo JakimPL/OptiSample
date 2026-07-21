@@ -16,7 +16,7 @@ def _write_bundled_copy(directory: Path) -> None:
         directory.joinpath(f"{name}.yaml").write_text(yaml.safe_dump(load_group(name)), encoding="utf-8")
 
 
-def load_group(name: str) -> object:
+def load_group(name: str) -> dict[str, object]:
     from importlib import resources  # local import keeps the helper self-contained
 
     return yaml.safe_load((resources.files("opticonfig") / f"{name}.yaml").read_text(encoding="utf-8"))

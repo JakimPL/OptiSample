@@ -12,6 +12,7 @@ from collections.abc import Callable
 
 import numpy as np
 import pytest
+from numpy.typing import NDArray
 
 from optisample.config import OptiConfig, load_config
 from optisample.config.dsp import EncodeConfig, LoopConfig, QuantizeConfig, SpectralConfig
@@ -24,6 +25,9 @@ from optisample.io.it_writer import ITPlayback, it_playback
 from optisample.metrics import CompositeFidelity, build_composite
 from optisample.optimize.export import ExportContext
 from optisample.optimize.orchestrate import OptimizeSettings
+from optisample.synth import NoteSpec, render_sample
+
+_NOTE_SR = 44_100
 
 
 @pytest.fixture(scope="session")
@@ -95,7 +99,7 @@ def playback(playback_config: PlaybackConfig) -> ITPlayback:
 
 
 @pytest.fixture
-def export_ctx(config: OptiConfig) -> ExportContext:
+def export_context(config: OptiConfig) -> ExportContext:
     """The IT-exporter context (encode + playback) built from the bundled config, seed 0."""
     return ExportContext(encode=config.encode, playback=config.playback)
 
@@ -149,3 +153,17 @@ def make_encode_ctx(config: OptiConfig) -> Callable[..., EncodeContext]:
         return EncodeContext(root_pitch=root_pitch, config=config.encode, rng=rng)
 
     return _build
+
+
+@pytest.fixture(scope="session")
+def piano_note(config: OptiConfig) -> Callable[..., NDArray[np.float64]]:
+    """Factory: render one piano note (a test-signal generator, fixture-independent test data).
+
+    ``seed`` is explicit so each call site keeps its own recorded-sample identity.
+    """
+
+    def _piano(pitch: int, velocity: int = 100, dur: float = 0.6, *, seed: int) -> NDArray[np.float64]:
+        spec = NoteSpec(pitch, velocity, 0.0, dur, _NOTE_SR)
+        return render_sample("piano", spec, np.random.default_rng(seed), config.synth)
+
+    return _piano

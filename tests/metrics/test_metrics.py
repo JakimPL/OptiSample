@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
 import numpy as np
@@ -37,17 +37,12 @@ def harmonic(f0: float, dur: float = 0.7, n_partials: int = 6, amp: float = 0.8)
     return signal / float(np.max(np.abs(signal))) * amp
 
 
-def quantize(signal: NDArray[np.float64], bits: int) -> NDArray[np.float64]:
-    step = 2.0 / (2**bits)
-    return np.round(signal / step) * step
-
-
 @dataclass(frozen=True)
 class _DummyMetric:
     name: str = "tmp_metric"
 
-    def distance(self, reference: Signal, candidate: Signal, ctx: MetricContext) -> float:
-        del reference, candidate, ctx
+    def distance(self, reference: Signal, candidate: Signal, context: MetricContext) -> float:
+        del reference, candidate, context
         return 0.0
 
 
@@ -86,9 +81,9 @@ def test_register_and_unregister_round_trip(metrics_config: MetricsConfig) -> No
 
 def test_each_metric_zero_for_identical(metrics_config: MetricsConfig) -> None:
     signal = harmonic(220.0)
-    ctx = MetricContext(sample_rate=SR)
+    context = MetricContext(sample_rate=SR)
     for name in _METRIC_NAMES:
-        assert build_metric(name, metrics_config).distance(signal, signal, ctx) == pytest.approx(0.0, abs=1e-6)
+        assert build_metric(name, metrics_config).distance(signal, signal, context) == pytest.approx(0.0, abs=1e-6)
 
 
 def test_evaluate_identical_has_zero_fidelity(composite: CompositeFidelity) -> None:
@@ -99,16 +94,20 @@ def test_evaluate_identical_has_zero_fidelity(composite: CompositeFidelity) -> N
     assert set(report.breakdown) == set(_METRIC_NAMES)
 
 
-def test_composite_breakdown_and_distance_agree_with_score(composite: CompositeFidelity) -> None:
+def test_composite_breakdown_and_distance_agree_with_score(
+    composite: CompositeFidelity, quantize: Callable[..., NDArray[np.float64]]
+) -> None:
     signal = harmonic(220.0)
-    ctx = MetricContext(SR)
-    fidelity, per_metric = composite.score(signal, quantize(signal, 8), ctx)
-    assert composite.breakdown(signal, quantize(signal, 8), ctx) == per_metric  # same raw sub-scores
-    assert composite.distance(signal, quantize(signal, 8), ctx) == pytest.approx(fidelity)
+    context = MetricContext(SR)
+    fidelity, per_metric = composite.score(signal, quantize(signal, 8), context)
+    assert composite.breakdown(signal, quantize(signal, 8), context) == per_metric  # same raw sub-scores
+    assert composite.distance(signal, quantize(signal, 8), context) == pytest.approx(fidelity)
     assert set(per_metric) == set(_METRIC_NAMES)
 
 
-def test_composite_is_monotone_with_quantization(composite: CompositeFidelity) -> None:
+def test_composite_is_monotone_with_quantization(
+    composite: CompositeFidelity, quantize: Callable[..., NDArray[np.float64]]
+) -> None:
     signal = harmonic(220.0)
     coarse = evaluate(signal, quantize(signal, 4), SR, composite).fidelity
     fine = evaluate(signal, quantize(signal, 12), SR, composite).fidelity
@@ -117,10 +116,10 @@ def test_composite_is_monotone_with_quantization(composite: CompositeFidelity) -
 
 def test_mrstft_increases_with_bandlimiting(metrics_config: MetricsConfig) -> None:
     signal = harmonic(220.0)
-    ctx = MetricContext(sample_rate=SR)
+    context = MetricContext(sample_rate=SR)
     metric = build_metric("mrstft", metrics_config)
     lowpassed = bandlimit(signal, SR, 0.0, 800.0)  # strips upper harmonics
-    assert metric.distance(signal, lowpassed, ctx) > metric.distance(signal, signal, ctx)
+    assert metric.distance(signal, lowpassed, context) > metric.distance(signal, signal, context)
 
 
 def test_spectral_shape_flags_static_loop(metrics_config: MetricsConfig) -> None:
@@ -159,9 +158,9 @@ def test_integrated_loudness_of_silence_is_neg_inf() -> None:
 def test_prepare_matches_length_and_loudness(metrics_config: MetricsConfig) -> None:
     loud = harmonic(220.0, dur=1.0)
     soft = 0.05 * harmonic(220.0, dur=1.0)
-    ref, cand, ctx = prepare(loud, soft, SR, metrics_config.preprocess.target_lufs)
+    ref, cand, context = prepare(loud, soft, SR, metrics_config.preprocess.target_lufs)
     assert ref.size == cand.size
-    assert ctx.normalized is True
+    assert context.normalized is True
     assert integrated_loudness(ref, SR) == pytest.approx(integrated_loudness(cand, SR), abs=0.5)
 
 

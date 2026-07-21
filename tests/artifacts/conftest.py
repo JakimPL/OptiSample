@@ -7,6 +7,8 @@ that need a plan or a :class:`DumpContext` without re-running a full dump.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
 import pytest
 from numpy.typing import NDArray
@@ -20,16 +22,10 @@ from optisample.optimize.grouping import optimize_instrument_grouped
 from optisample.optimize.orchestrate import OptimizeSettings, optimize_instrument, prepare_run
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
 from optisample.optimize.tasks import AudioMap
-from optisample.synth import NoteSpec, render_sample
 
 SR = 44_100
 PITCHES = (60, 62, 64)
 _CONFIG = load_config()
-
-
-def _note(pitch: int, velocity: int, dur: float) -> NDArray[np.float64]:
-    spec = NoteSpec(pitch, velocity, 0.0, dur, SR)
-    return render_sample("piano", spec, np.random.default_rng(pitch * 137 + velocity), _CONFIG.synth)
 
 
 @pytest.fixture
@@ -56,8 +52,8 @@ def no_render_settings(tiny_settings: OptimizeSettings) -> DumpSettings:
 
 
 @pytest.fixture
-def demo_audio() -> AudioMap:
-    return {(pitch, 100): _note(pitch, 100, 0.6) for pitch in PITCHES}
+def demo_audio(piano_note: Callable[..., NDArray[np.float64]]) -> AudioMap:
+    return {(pitch, 100): piano_note(pitch, 100, 0.6, seed=pitch * 137 + 100) for pitch in PITCHES}
 
 
 @pytest.fixture
@@ -71,12 +67,12 @@ def demo_instrument() -> InstrumentSpec:
 def dump_context(
     demo_instrument: InstrumentSpec, demo_audio: AudioMap, no_render_settings: DumpSettings
 ) -> DumpContext:
-    _, ctx, tasks = prepare_run(demo_instrument, demo_audio, SR, no_render_settings.optimize)
+    _, context, tasks = prepare_run(demo_instrument, demo_audio, SR, no_render_settings.optimize)
     return DumpContext(
         audio=demo_audio,
         sample_rate=SR,
         material=tuple(demo_instrument.material or []),
-        eval_context=ctx,
+        eval_context=context,
         tasks_by_pitch={task.pitch: task for task in tasks},
         settings=no_render_settings,
     )

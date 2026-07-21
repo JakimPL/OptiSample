@@ -1,4 +1,4 @@
-"""Shared signal generator for the surrogate-codec tests."""
+"""Shared signal generators for the dsp tests."""
 
 from __future__ import annotations
 

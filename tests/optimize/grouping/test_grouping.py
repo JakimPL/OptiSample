@@ -91,8 +91,8 @@ def audio() -> dict[tuple[int, int], NDArray[np.float64]]:
 def options48(
     audio: dict[tuple[int, int], NDArray[np.float64]],
 ) -> tuple[list[PitchTask], dict[tuple[int, int], tuple[ZoneOption, ...]]]:
-    _, ctx, tasks = prepare_run(_instrument(48.0), audio, SR, _settings(GRID))
-    return tasks, build_zone_options(tasks, ctx)
+    _, context, tasks = prepare_run(_instrument(48.0), audio, SR, _settings(GRID))
+    return tasks, build_zone_options(tasks, context)
 
 
 @pytest.fixture(scope="module")

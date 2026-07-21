@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -15,12 +17,13 @@ from optisample.io.render import openmpt123_available
 from optisample.metrics import build_composite
 from optisample.model import InstrumentSpec, Manifest, NoteEvent, ProjectSpec, SourceSample
 from optisample.optimize.orchestrate import OptimizeSettings
-from optisample.synth import NoteSpec, render_sample
 
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
 
 SR = 44_100
 PITCHES = (60, 62, 64)
+
+AudioFactory = Callable[..., dict[tuple[int, int], NDArray[np.float64]]]
 
 # Build cheap swept settings straight from the bundled config (dither off, so the dump re-encode is
 # deterministic and fast). Loaded once here since these feed module-level constants and the module-scoped
@@ -46,17 +49,14 @@ NO_RENDER = DumpSettings(
 )
 
 
-def _note(pitch: int, velocity: int, dur: float) -> NDArray[np.float64]:
-    return render_sample(
-        "piano",
-        NoteSpec(pitch, velocity, 0.0, dur, SR),
-        np.random.default_rng(pitch * 137 + velocity),
-        _CONFIG.synth,
-    )
+@pytest.fixture(scope="session")
+def demo_audio_map(piano_note: Callable[..., NDArray[np.float64]]) -> AudioFactory:
+    """Factory: the demo piano audio grid over ``pitches`` (default the full material set)."""
 
+    def _audio(pitches: tuple[int, ...] = PITCHES) -> dict[tuple[int, int], NDArray[np.float64]]:
+        return {(pitch, 100): piano_note(pitch, 100, 0.6, seed=pitch * 137 + 100) for pitch in pitches}
 
-def _audio(pitches: tuple[int, ...] = PITCHES) -> dict[tuple[int, int], NDArray[np.float64]]:
-    return {(pitch, 100): _note(pitch, 100, 0.6) for pitch in pitches}
+    return _audio
 
 
 def _instrument(budget_kb: float, pitches: tuple[int, ...] = PITCHES) -> InstrumentSpec:
@@ -66,13 +66,13 @@ def _instrument(budget_kb: float, pitches: tuple[int, ...] = PITCHES) -> Instrum
 
 
 @pytest.fixture(scope="module")
-def generous(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def generous(tmp_path_factory: pytest.TempPathFactory, demo_audio_map: AudioFactory) -> Path:
     out = tmp_path_factory.mktemp("generous")
-    dump_instrument(_instrument(48.0), _audio(), SR, out, NO_RENDER)
+    dump_instrument(_instrument(48.0), demo_audio_map(), SR, out, NO_RENDER)
     return out
 
 
-def _load(path: Path) -> dict:
+def _load(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text())
 
 
@@ -149,11 +149,11 @@ def test_no_render_skips_the_render_directory(generous: Path) -> None:
 
 
 @requires_openmpt
-def test_ground_truth_render_produces_real_audio(tmp_path: Path) -> None:
+def test_ground_truth_render_produces_real_audio(tmp_path: Path, demo_audio_map: AudioFactory) -> None:
     out = tmp_path / "gt"
     result = dump_instrument(
         _instrument(48.0, (60, 62)),
-        _audio((60, 62)),
+        demo_audio_map((60, 62)),
         SR,
         out,
         # render_ground_truth defaults True
@@ -163,7 +163,7 @@ def test_ground_truth_render_produces_real_audio(tmp_path: Path) -> None:
     module_wav = out / "grouped" / "render" / "module.wav"
     assert module_wav.is_file()
     audio, rate = read_wav(module_wav)
-    assert rate == 48_000 and float(np.max(np.abs(audio))) > 0.0
+    assert rate == _CONFIG.render.sample_rate and float(np.max(np.abs(audio))) > 0.0
     metrics = _load(out / "grouped" / "metrics.json")
     assert metrics["notes"][0]["render_source"] == "openmpt123"
 
@@ -171,9 +171,11 @@ def test_ground_truth_render_produces_real_audio(tmp_path: Path) -> None:
 # --- feasibility ---------------------------------------------------------------------------------
 
 
-def test_tight_budget_marks_ungrouped_infeasible_but_dumps_grouped(tmp_path: Path) -> None:
+def test_tight_budget_marks_ungrouped_infeasible_but_dumps_grouped(
+    tmp_path: Path, demo_audio_map: AudioFactory
+) -> None:
     out = tmp_path / "tight"
-    result = dump_instrument(_instrument(10.0), _audio(), SR, out, NO_RENDER)
+    result = dump_instrument(_instrument(10.0), demo_audio_map(), SR, out, NO_RENDER)
     by_name = {plan.name: plan for plan in result.plans}
     assert by_name["ungrouped"].feasible is False
     assert (out / "ungrouped" / "INFEASIBLE.txt").is_file()
@@ -182,9 +184,9 @@ def test_tight_budget_marks_ungrouped_infeasible_but_dumps_grouped(tmp_path: Pat
     assert (out / "grouped" / "module.it").is_file()
 
 
-def test_impossible_budget_marks_both_infeasible(tmp_path: Path) -> None:
+def test_impossible_budget_marks_both_infeasible(tmp_path: Path, demo_audio_map: AudioFactory) -> None:
     out = tmp_path / "impossible"
-    result = dump_instrument(_instrument(1.0), _audio(), SR, out, NO_RENDER)
+    result = dump_instrument(_instrument(1.0), demo_audio_map(), SR, out, NO_RENDER)
     assert all(not plan.feasible for plan in result.plans)
     assert all(plan.reason for plan in result.plans)
 
@@ -192,7 +194,7 @@ def test_impossible_budget_marks_both_infeasible(tmp_path: Path) -> None:
 # --- strategy selection + determinism ------------------------------------------------------------
 
 
-def test_strategy_flags_restrict_which_plans_run(tmp_path: Path) -> None:
+def test_strategy_flags_restrict_which_plans_run(tmp_path: Path, demo_audio_map: AudioFactory) -> None:
     out = tmp_path / "grouped-only"
     settings = DumpSettings(
         optimize=_settings(),
@@ -201,15 +203,15 @@ def test_strategy_flags_restrict_which_plans_run(tmp_path: Path) -> None:
         render_ground_truth=False,
         ungrouped=False,
     )
-    result = dump_instrument(_instrument(48.0), _audio(), SR, out, settings)
+    result = dump_instrument(_instrument(48.0), demo_audio_map(), SR, out, settings)
     assert [plan.name for plan in result.plans] == ["grouped"]
     assert not (out / "ungrouped").exists()
 
 
-def test_dump_is_deterministic(tmp_path: Path) -> None:
+def test_dump_is_deterministic(tmp_path: Path, demo_audio_map: AudioFactory) -> None:
     first, second = tmp_path / "a", tmp_path / "b"
-    dump_instrument(_instrument(48.0), _audio(), SR, first, NO_RENDER)
-    dump_instrument(_instrument(48.0), _audio(), SR, second, NO_RENDER)
+    dump_instrument(_instrument(48.0), demo_audio_map(), SR, first, NO_RENDER)
+    dump_instrument(_instrument(48.0), demo_audio_map(), SR, second, NO_RENDER)
     module_a = (first / "grouped" / "module.it").read_bytes()
     module_b = (second / "grouped" / "module.it").read_bytes()
     assert module_a == module_b  # the exported module is byte-identical across runs
@@ -222,13 +224,15 @@ def test_dump_is_deterministic(tmp_path: Path) -> None:
 # --- project-level -------------------------------------------------------------------------------
 
 
-def test_dump_project_reads_wavs_and_writes_per_instrument(tmp_path: Path) -> None:
+def test_dump_project_reads_wavs_and_writes_per_instrument(
+    tmp_path: Path, piano_note: Callable[..., NDArray[np.float64]]
+) -> None:
     data_dir = tmp_path / "wavs"
     data_dir.mkdir()
     samples = []
     for pitch in PITCHES:
         path = data_dir / f"p{pitch}.wav"
-        write_wav(path, _note(pitch, 100, 0.6), SR)
+        write_wav(path, piano_note(pitch, 100, 0.6, seed=pitch * 137 + 100), SR)
         samples.append(SourceSample(file=path, pitch=pitch, velocity=100))
     material = [NoteEvent(pitch=pitch, velocity=100, duration_s=0.5, count=2) for pitch in PITCHES]
     instrument = InstrumentSpec(id="piano", budget_kb=48.0, samples=samples, material=material)

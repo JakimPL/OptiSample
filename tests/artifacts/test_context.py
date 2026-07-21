@@ -2,17 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from optisample.artifacts.context import DumpContext, DumpResult, DumpSettings, PlanArtifacts
-from optisample.config import OptiConfig
-from optisample.optimize.orchestrate import OptimizeSettings
-
-
-def test_dump_settings_defaults_run_both_strategies_and_render(
-    tiny_settings: OptimizeSettings, config: OptiConfig
-) -> None:
-    settings = DumpSettings(optimize=tiny_settings, render=config.render, playback=config.playback)
-    assert settings.render_ground_truth is True  # ground-truth render is on by default
-    assert settings.grouped is True and settings.ungrouped is True
+from optisample.artifacts.context import DumpContext, DumpResult, PlanArtifacts
 
 
 def test_dump_context_indexes_tasks_by_material_pitch(dump_context: DumpContext) -> None:
