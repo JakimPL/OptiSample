@@ -42,12 +42,12 @@ def render_note_openmpt(
     return np.asarray(audio[:frames], dtype=np.float64)
 
 
-def renderer_agreement(stored: StoredSample, probe: NoteProbe, ctx: CalibrationContext) -> RendererAgreement:
+def renderer_agreement(stored: StoredSample, probe: NoteProbe, context: CalibrationContext) -> RendererAgreement:
     """Compare the surrogate and openmpt123 renders of the same note (see :class:`RendererAgreement`)."""
-    playback = it_playback(ctx.playback)
-    surrogate = render_note_surrogate(stored, probe, ctx.render.sample_rate)
-    openmpt = render_note_openmpt(stored, probe, ctx.render, playback)
-    report = evaluate(surrogate, openmpt, ctx.render.sample_rate, ctx.composite)
+    playback = it_playback(context.playback)
+    surrogate = render_note_surrogate(stored, probe, context.render.sample_rate)
+    openmpt = render_note_openmpt(stored, probe, context.render, playback)
+    report = evaluate(surrogate, openmpt, context.render.sample_rate, context.composite)
     return RendererAgreement(
         probe=probe,
         distance=report.fidelity,
@@ -57,19 +57,19 @@ def renderer_agreement(stored: StoredSample, probe: NoteProbe, ctx: CalibrationC
 
 
 def distortion_vs_source(
-    reference: Signal, stored: StoredSample, probe: NoteProbe, ctx: CalibrationContext
+    reference: Signal, stored: StoredSample, probe: NoteProbe, context: CalibrationContext
 ) -> tuple[float, float]:
     """Distortion of ``stored`` against ``reference`` (source at the analysis rate), surrogate then openmpt.
 
-    ``reference`` must already be at ``ctx.render.sample_rate`` (the analysis rate); it is length-matched
+    ``reference`` must already be at ``context.render.sample_rate`` (the analysis rate); it is length-matched
     to each render internally. Returns ``(surrogate_distortion, openmpt_distortion)`` -- the two numbers
     whose *ranking* across encodings should agree.
     """
-    playback = it_playback(ctx.playback)
-    surrogate = render_note_surrogate(stored, probe, ctx.render.sample_rate)
-    openmpt = render_note_openmpt(stored, probe, ctx.render, playback)
-    surrogate_distortion = evaluate(reference, surrogate, ctx.render.sample_rate, ctx.composite).fidelity
-    openmpt_distortion = evaluate(reference, openmpt, ctx.render.sample_rate, ctx.composite).fidelity
+    playback = it_playback(context.playback)
+    surrogate = render_note_surrogate(stored, probe, context.render.sample_rate)
+    openmpt = render_note_openmpt(stored, probe, context.render, playback)
+    surrogate_distortion = evaluate(reference, surrogate, context.render.sample_rate, context.composite).fidelity
+    openmpt_distortion = evaluate(reference, openmpt, context.render.sample_rate, context.composite).fidelity
     return surrogate_distortion, openmpt_distortion
 
 

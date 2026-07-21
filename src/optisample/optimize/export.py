@@ -97,12 +97,12 @@ def encode_plan_units(
     rng = np.random.default_rng(seed)
     for unit in units:
         representative: Signal = audio[(unit.representative, unit.representative_velocity)]
-        encode_ctx = EncodeContext(root_pitch=unit.representative, config=encode_config, rng=rng)
-        yield unit, encode(representative, sample_rate, unit.params, encode_ctx)
+        encode_context = EncodeContext(root_pitch=unit.representative, config=encode_config, rng=rng)
+        yield unit, encode(representative, sample_rate, unit.params, encode_context)
 
 
 def _build_unit_samples(
-    instrument_id: str, units: Sequence[SampleUnit], audio: AudioMap, sample_rate: int, ctx: ExportContext
+    instrument_id: str, units: Sequence[SampleUnit], audio: AudioMap, sample_rate: int, context: ExportContext
 ) -> tuple[tuple[ITSample, ...], dict[int, int]]:
     """Re-encode each unit's representative and map every key it serves to the resulting sample.
 
@@ -111,7 +111,7 @@ def _build_unit_samples(
     """
     samples: list[ITSample] = []
     assignment: dict[int, int] = {}
-    for index, (unit, stored) in enumerate(encode_plan_units(units, audio, sample_rate, ctx.encode, ctx.seed)):
+    for index, (unit, stored) in enumerate(encode_plan_units(units, audio, sample_rate, context.encode, context.seed)):
         samples.append(
             ITSample(
                 name=f"{instrument_id[:_SAMPLE_LABEL_CHARS]} {note_name(unit.representative)}",
@@ -164,7 +164,7 @@ def _assemble_module(
     samples: tuple[ITSample, ...],
     assignment: dict[int, int],
     material: Sequence[NoteEvent],
-    ctx: ExportContext,
+    context: ExportContext,
 ) -> ITModule:
     """Wire pre-built samples into a module: the identity note map plus the material patterns.
 
@@ -172,7 +172,7 @@ def _assemble_module(
     instrument name and pattern wiring are identical for both, so they live here once.
     """
     instrument = ITInstrument(name=plan.instrument_id[:_NAME_MAX_CHARS], note_map=identity_note_map(assignment))
-    playback = it_playback(ctx.playback)
+    playback = it_playback(context.playback)
     patterns, orders = _material_patterns(material, plan.velocity_map, playback)
     return ITModule(
         name=plan.instrument_id[:_NAME_MAX_CHARS],
@@ -189,12 +189,12 @@ def build_module(
     audio: AudioMap,
     sample_rate: int,
     material: Sequence[NoteEvent],
-    ctx: ExportContext,
+    context: ExportContext,
 ) -> ITModule:
     """Assemble a complete :class:`ITModule` from either strategy's plan.
 
     The plan's :meth:`~optisample.optimize.plans.StrategyPlan.sample_units` reports the stored samples --
     one per key (ungrouped) or one per zone (grouped) -- and the build below is identical for both.
     """
-    samples, assignment = _build_unit_samples(plan.instrument_id, plan.sample_units(), audio, sample_rate, ctx)
-    return _assemble_module(plan, samples, assignment, material, ctx)
+    samples, assignment = _build_unit_samples(plan.instrument_id, plan.sample_units(), audio, sample_rate, context)
+    return _assemble_module(plan, samples, assignment, material, context)

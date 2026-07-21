@@ -1,6 +1,6 @@
 """Metric protocol and a small plug-in registry.
 
-A metric is any object exposing ``name`` and ``distance(reference, candidate, ctx) -> float``
+A metric is any object exposing ``name`` and ``distance(reference, candidate, context) -> float``
 where the distance is a non-negative dissimilarity (``0.0`` = identical, larger = worse). The
 registry maps a metric name to a *factory* ``MetricsConfig -> Metric`` (not to a pre-built
 instance): every metric's parameters come from config, so instances can only be built once a
@@ -38,7 +38,7 @@ class Metric(Protocol):
     def name(self) -> str:
         """Registry key / display name (read-only; frozen-dataclass fields satisfy this)."""
 
-    def distance(self, reference: Signal, candidate: Signal, ctx: MetricContext) -> float: ...
+    def distance(self, reference: Signal, candidate: Signal, context: MetricContext) -> float: ...
 
 
 MetricFactory = Callable[["MetricsConfig"], Metric]

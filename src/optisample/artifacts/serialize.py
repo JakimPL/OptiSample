@@ -304,7 +304,7 @@ def plan_document(plan: InstrumentPlan | GroupedInstrumentPlan, loops: Sequence[
     )
 
 
-def event_records(stored: StoredSample, task: PitchTask, ctx: EvalContext) -> tuple[list[EventMetricRecord], float]:
+def event_records(stored: StoredSample, task: PitchTask, context: EvalContext) -> tuple[list[EventMetricRecord], float]:
     """Score every event of one pitch; return per-event records and their weighted-fidelity sum.
 
     Consumes the same :func:`~optisample.optimize.tasks.score_events` stream the optimizer sums into its
@@ -312,7 +312,7 @@ def event_records(stored: StoredSample, task: PitchTask, ctx: EvalContext) -> tu
     """
     records: list[EventMetricRecord] = []
     contribution = 0.0
-    for score in score_events(stored, task, ctx):
+    for score in score_events(stored, task, context):
         contribution += score.weighted_fidelity
         records.append(
             EventMetricRecord(

@@ -16,30 +16,30 @@ from optisample.optimize.operating_points import OperatingPoint, lower_convex_hu
 from optisample.optimize.tasks import EvalContext, PitchTask, score_reconstruction
 
 
-def _evaluate_config(task: PitchTask, ctx: EvalContext, params: EncodingParams) -> OperatingPoint:
+def _evaluate_config(task: PitchTask, context: EvalContext, params: EncodingParams) -> OperatingPoint:
     """Encode the pitch's own representative, then score reconstruction against every event at it."""
-    encode_ctx = EncodeContext(root_pitch=task.pitch, config=ctx.encode, rng=ctx.rng)
-    stored = encode(task.representative, ctx.sample_rate, params, encode_ctx)
-    distortion = score_reconstruction(stored, task, ctx)
+    encode_context = EncodeContext(root_pitch=task.pitch, config=context.encode, rng=context.rng)
+    stored = encode(task.representative, context.sample_rate, params, encode_context)
+    distortion = score_reconstruction(stored, task, context)
     return OperatingPoint(params=params, stored_bytes=stored.stored_bytes, distortion=distortion, frames=stored.frames)
 
 
-def _pitch_points(task: PitchTask, ctx: EvalContext) -> list[OperatingPoint]:
+def _pitch_points(task: PitchTask, context: EvalContext) -> list[OperatingPoint]:
     """Sweep the rate x depth grid for one pitch, trimming storage to its longest note."""
     return [
-        _evaluate_config(task, ctx, params)
-        for params in sweep_param_grid(ctx.sweep, ctx.sample_rate, trim_s=task.max_duration_s)
+        _evaluate_config(task, context, params)
+        for params in sweep_param_grid(context.sweep, context.sample_rate, trim_s=task.max_duration_s)
     ]
 
 
 def build_items(
-    tasks: Sequence[PitchTask], ctx: EvalContext
+    tasks: Sequence[PitchTask], context: EvalContext
 ) -> tuple[tuple[KnapsackItem, ...], dict[int, tuple[OperatingPoint, ...]]]:
     """Turn each pitch task into a knapsack item plus its lower-convex-hull configs."""
     items: list[KnapsackItem] = []
     hulls: dict[int, tuple[OperatingPoint, ...]] = {}
     for task in tasks:
-        points = tuple(_pitch_points(task, ctx))
+        points = tuple(_pitch_points(task, context))
         hulls[task.pitch] = tuple(lower_convex_hull(points))
         items.append(KnapsackItem(key=str(task.pitch), weight=task.weight, points=points))
     return tuple(items), hulls

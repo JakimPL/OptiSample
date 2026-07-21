@@ -31,9 +31,9 @@ class MelCepstralDistortion:
     dynamic_range_db: float
     name: str = "mcd"
 
-    def distance(self, reference: Signal, candidate: Signal, ctx: MetricContext) -> float:
-        ref_mfcc = mfcc(reference, ctx.sample_rate, self.params, self.n_mfcc, self.dynamic_range_db)[:, 1:]
-        cand_mfcc = mfcc(candidate, ctx.sample_rate, self.params, self.n_mfcc, self.dynamic_range_db)[:, 1:]
+    def distance(self, reference: Signal, candidate: Signal, context: MetricContext) -> float:
+        ref_mfcc = mfcc(reference, context.sample_rate, self.params, self.n_mfcc, self.dynamic_range_db)[:, 1:]
+        cand_mfcc = mfcc(candidate, context.sample_rate, self.params, self.n_mfcc, self.dynamic_range_db)[:, 1:]
         frames = int(min(ref_mfcc.shape[0], cand_mfcc.shape[0]))
         if frames == 0:
             return 0.0
@@ -71,8 +71,8 @@ class SpectralShape:
         )
         return {"centroid": centroid, "rolloff": rolloff, "flatness": flatness, "flux_variance": flux_variance_delta}
 
-    def distance(self, reference: Signal, candidate: Signal, ctx: MetricContext) -> float:
-        parts = self.components(reference, candidate, ctx.sample_rate)
+    def distance(self, reference: Signal, candidate: Signal, context: MetricContext) -> float:
+        parts = self.components(reference, candidate, context.sample_rate)
         weighted = (
             self.weights.centroid * parts["centroid"],
             self.weights.rolloff * parts["rolloff"],

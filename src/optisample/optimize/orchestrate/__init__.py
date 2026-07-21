@@ -70,7 +70,7 @@ def prepare_run(
         loudness_by_velocity([(velocity, signal) for (_, velocity), signal in audio.items()], sample_rate),
         settings.velocity,
     )
-    ctx = EvalContext(
+    context = EvalContext(
         sample_rate=sample_rate,
         velocity_map=velocity_map,
         composite=settings.composite,
@@ -78,15 +78,15 @@ def prepare_run(
         sweep=settings.sweep,
         encode=settings.encode,
     )
-    return velocity_map, ctx, build_tasks(instrument, audio)
+    return velocity_map, context, build_tasks(instrument, audio)
 
 
 def optimize_instrument(
     instrument: InstrumentSpec, audio: AudioMap, sample_rate: int, settings: OptimizeSettings
 ) -> InstrumentPlan:
     """Optimize one instrument's byte budget end to end and return a structured plan."""
-    velocity_map, ctx, tasks = prepare_run(instrument, audio, sample_rate, settings)
-    items, hulls = build_items(tasks, ctx)
+    velocity_map, context, tasks = prepare_run(instrument, audio, sample_rate, settings)
+    items, hulls = build_items(tasks, context)
 
     budget = split_budget(instrument.budget_kb)
     allocation, pitches = solve_allocation(tasks, items, hulls, budget.sample_bytes, settings.method)

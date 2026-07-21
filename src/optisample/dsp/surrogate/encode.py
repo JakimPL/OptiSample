@@ -41,7 +41,7 @@ def _loop_or_trim(resampled: Signal, params: EncodingParams, config: LoopConfig)
     return resampled, None
 
 
-def encode(signal: Signal, sample_rate: int, params: EncodingParams, ctx: EncodeContext) -> StoredSample:
+def encode(signal: Signal, sample_rate: int, params: EncodingParams, context: EncodeContext) -> StoredSample:
     """Encode ``signal`` into a :class:`StoredSample`: normalize -> resample -> (loop | trim) -> requantize.
 
     With ``params.loop`` set, storage is trimmed to the attack plus a looped sustain region (if the
@@ -49,17 +49,17 @@ def encode(signal: Signal, sample_rate: int, params: EncodingParams, ctx: Encode
     it is trimmed to ``trim_s`` and a longer note simply ends. A loop request on non-periodic material
     silently falls back to the trimmed sample, so the config is never worse than its non-looped twin.
     """
-    normalized, gain = normalize_peak(signal, ctx.config.target_peak)
+    normalized, gain = normalize_peak(signal, context.config.target_peak)
     resampled = resample_to(normalized, sample_rate, params.target_rate)
-    resampled, loop = _loop_or_trim(resampled, params, ctx.config.loop)
+    resampled, loop = _loop_or_trim(resampled, params, context.config.loop)
     pcm = requantize(
-        resampled, params.depth_bits, dither=params.dither, noise_shaping=params.noise_shaping, rng=ctx.rng
+        resampled, params.depth_bits, dither=params.dither, noise_shaping=params.noise_shaping, rng=context.rng
     )
     return StoredSample(
         pcm=pcm,
         sample_rate=params.target_rate,
         depth_bits=params.depth_bits,
-        root_pitch=ctx.root_pitch,
+        root_pitch=context.root_pitch,
         gain=gain,
         loop=loop,
     )

@@ -166,7 +166,7 @@ class EventScore:
         return self.event.weight * self.report.fidelity
 
 
-def score_events(stored: StoredSample, task: PitchTask, ctx: EvalContext) -> Iterator[EventScore]:
+def score_events(stored: StoredSample, task: PitchTask, context: EvalContext) -> Iterator[EventScore]:
     """Reconstruct each of ``task``'s notes from ``stored`` and score it, one :class:`EventScore` per event.
 
     ``stored`` is rendered at ``task.pitch`` -- a transpose of ``task.pitch - stored.root_pitch``
@@ -175,19 +175,19 @@ def score_events(stored: StoredSample, task: PitchTask, ctx: EvalContext) -> Ite
     the objective and ``metrics.json`` consume.
     """
     for event in task.events:
-        volume = ctx.velocity_map.volume(event.velocity)
-        candidate = render(stored, ctx.sample_rate, pitch=task.pitch, volume=volume, duration_s=event.duration_s)
-        reference = event.reference[: seconds_to_frames(event.duration_s, ctx.sample_rate)]
+        volume = context.velocity_map.volume(event.velocity)
+        candidate = render(stored, context.sample_rate, pitch=task.pitch, volume=volume, duration_s=event.duration_s)
+        reference = event.reference[: seconds_to_frames(event.duration_s, context.sample_rate)]
         yield EventScore(
-            event=event, volume=volume, report=evaluate(reference, candidate, ctx.sample_rate, ctx.composite)
+            event=event, volume=volume, report=evaluate(reference, candidate, context.sample_rate, context.composite)
         )
 
 
-def score_reconstruction(stored: StoredSample, task: PitchTask, ctx: EvalContext) -> float:
+def score_reconstruction(stored: StoredSample, task: PitchTask, context: EvalContext) -> float:
     """Weighted mean distortion of reconstructing ``task``'s notes from ``stored`` (repitched to its key).
 
     The weighted sum of :func:`score_events` normalized per unit of material weight, so it can be
     reweighted by usage at the call site.
     """
-    total = sum(score.weighted_fidelity for score in score_events(stored, task, ctx))
+    total = sum(score.weighted_fidelity for score in score_events(stored, task, context))
     return total / task.weight if task.weight > 0.0 else 0.0

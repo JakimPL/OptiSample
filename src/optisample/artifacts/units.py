@@ -47,7 +47,7 @@ class PlanKind:
     make_module: Callable[[Sequence[NoteEvent]], ITModule]
 
 
-def build_units(plan: StrategyPlan, dctx: DumpContext) -> tuple[Unit, ...]:
+def build_units(plan: StrategyPlan, dump_context: DumpContext) -> tuple[Unit, ...]:
     """Re-encode every stored sample the plan kept, in the exporter's order + seed so the PCM matches.
 
     ``plan.sample_units`` reports the strategy-specific choices -- each unit's representative recording,
@@ -58,17 +58,17 @@ def build_units(plan: StrategyPlan, dctx: DumpContext) -> tuple[Unit, ...]:
     units: list[Unit] = []
     encoded = encode_plan_units(
         plan.sample_units(),
-        dctx.audio,
-        dctx.sample_rate,
-        dctx.settings.optimize.encode,
-        dctx.settings.optimize.seed,
+        dump_context.audio,
+        dump_context.sample_rate,
+        dump_context.settings.optimize.encode,
+        dump_context.settings.optimize.seed,
     )
     for unit, stored in encoded:
         units.append(
             Unit(
                 label=unit.label,
                 stored=stored,
-                tasks=tuple(dctx.tasks_by_pitch[key] for key in unit.keys),
+                tasks=tuple(dump_context.tasks_by_pitch[key] for key in unit.keys),
                 representative=unit.representative,
                 representative_velocity=unit.representative_velocity,
             )
@@ -76,23 +76,23 @@ def build_units(plan: StrategyPlan, dctx: DumpContext) -> tuple[Unit, ...]:
     return tuple(units)
 
 
-def _export_ctx(settings: DumpSettings) -> ExportContext:
+def _export_context(settings: DumpSettings) -> ExportContext:
     """The IT-exporter context (re-encode config + playback + dither seed) built from the dump settings."""
     return ExportContext(encode=settings.optimize.encode, playback=settings.playback, seed=settings.optimize.seed)
 
 
-def make_kind(plan: InstrumentPlan | GroupedInstrumentPlan, dctx: DumpContext) -> PlanKind:
+def make_kind(plan: InstrumentPlan | GroupedInstrumentPlan, dump_context: DumpContext) -> PlanKind:
     """Package a plan (ungrouped or grouped) as the strategy-agnostic pieces the dumper serializes.
 
     ``build_units`` yields units in plan order, so the stored loops line up with the plan's items when
     :func:`plan_document` zips them together. Only the report formatter is strategy-specific.
     """
-    units = build_units(plan, dctx)
-    export_ctx = _export_ctx(dctx.settings)
+    units = build_units(plan, dump_context)
+    export_context = _export_context(dump_context.settings)
     loops = [unit.stored.loop for unit in units]
 
     def make_module(material: Sequence[NoteEvent]) -> ITModule:
-        return build_module(plan, dctx.audio, dctx.sample_rate, list(material), export_ctx)
+        return build_module(plan, dump_context.audio, dump_context.sample_rate, list(material), export_context)
 
     if plan.strategy == "grouped":
         report_text = format_grouping_report(plan)

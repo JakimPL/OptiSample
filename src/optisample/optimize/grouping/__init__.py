@@ -34,8 +34,8 @@ def optimize_instrument_grouped(
     (zones of repitched representatives instead of one sample per key). ``settings.method`` is not
     used -- grouping always solves partition and allocation together with the exact DP.
     """
-    velocity_map, ctx, tasks = prepare_run(instrument, audio, sample_rate, settings)
-    options = build_zone_options(tasks, ctx)
+    velocity_map, context, tasks = prepare_run(instrument, audio, sample_rate, settings)
+    options = build_zone_options(tasks, context)
 
     budget = split_budget(instrument.budget_kb)
     result = solve_grouping(tasks, options, budget.sample_bytes)

@@ -44,12 +44,12 @@ class MultiResolutionStft:
     dynamic_range_db: float
     name: str = "mrstft"
 
-    def distance(self, reference: Signal, candidate: Signal, ctx: MetricContext) -> float:
-        """``ctx`` satisfies the metric protocol yet leaves the result unchanged -- the resolutions are
+    def distance(self, reference: Signal, candidate: Signal, context: MetricContext) -> float:
+        """``context`` satisfies the metric protocol yet leaves the result unchanged -- the resolutions are
         fixed in frames, so the sample rate is irrelevant. ``dynamic_range_db`` floors an amplitude
         ratio, hence the ``/20`` conversion.
         """
-        del ctx
+        del context
         rel_floor = 10.0 ** (-self.dynamic_range_db / 20.0)
         total = 0.0
         for params in self.resolutions:
@@ -74,11 +74,11 @@ class LogMelL1:
     dynamic_range_db: float
     name: str = "logmel_l1"
 
-    def distance(self, reference: Signal, candidate: Signal, ctx: MetricContext) -> float:
+    def distance(self, reference: Signal, candidate: Signal, context: MetricContext) -> float:
         """``dynamic_range_db`` floors mel *power*, hence the ``/10`` conversion (amplitude would use ``/20``)."""
         rel_floor = 10.0 ** (-self.dynamic_range_db / 10.0)
-        ref_mel = melspectrogram(reference, ctx.sample_rate, self.params)
-        cand_mel = melspectrogram(candidate, ctx.sample_rate, self.params)
+        ref_mel = melspectrogram(reference, context.sample_rate, self.params)
+        cand_mel = melspectrogram(candidate, context.sample_rate, self.params)
         frames = _min_frames(ref_mel, cand_mel)
         ref_mel, cand_mel = ref_mel[:frames], cand_mel[:frames]
         peak = float(np.max(ref_mel)) if ref_mel.size else 0.0

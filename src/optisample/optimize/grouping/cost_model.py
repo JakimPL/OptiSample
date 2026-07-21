@@ -38,7 +38,7 @@ def _zone_trim(range_tasks: Sequence[PitchTask], representative: int) -> float:
 
 
 def _evaluate_zone_option(
-    rep_task: PitchTask, range_tasks: Sequence[PitchTask], params: EncodingParams, ctx: EvalContext
+    rep_task: PitchTask, range_tasks: Sequence[PitchTask], params: EncodingParams, context: EvalContext
 ) -> ZoneOption:
     """Store ``rep_task``'s recording with ``params`` and score it reconstructing every key in the zone.
 
@@ -46,13 +46,13 @@ def _evaluate_zone_option(
     one stored sample (repitched to that key), so a distant key that the representative serves poorly
     costs the option here rather than being averaged away.
     """
-    encode_ctx = EncodeContext(root_pitch=rep_task.pitch, config=ctx.encode, rng=ctx.rng)
-    stored = encode(rep_task.representative, ctx.sample_rate, params, encode_ctx)
-    distortion = sum(task.weight * score_reconstruction(stored, task, ctx) for task in range_tasks)
+    encode_context = EncodeContext(root_pitch=rep_task.pitch, config=context.encode, rng=context.rng)
+    stored = encode(rep_task.representative, context.sample_rate, params, encode_context)
+    distortion = sum(task.weight * score_reconstruction(stored, task, context) for task in range_tasks)
     return ZoneOption(rep_task.pitch, params, stored.stored_bytes, distortion, stored.frames)
 
 
-def _zone_options(range_tasks: Sequence[PitchTask], ctx: EvalContext) -> list[ZoneOption]:
+def _zone_options(range_tasks: Sequence[PitchTask], context: EvalContext) -> list[ZoneOption]:
     """Every ``(representative, encoding)`` for one candidate zone, with its cost and total distortion.
 
     Enumerates the outer product of representative (each covered key's own recording, the k-medoids
@@ -61,12 +61,12 @@ def _zone_options(range_tasks: Sequence[PitchTask], ctx: EvalContext) -> list[Zo
     options: list[ZoneOption] = []
     for rep_task in range_tasks:
         trim_s = _zone_trim(range_tasks, rep_task.pitch)
-        for params in sweep_param_grid(ctx.sweep, ctx.sample_rate, trim_s=trim_s):
-            options.append(_evaluate_zone_option(rep_task, range_tasks, params, ctx))
+        for params in sweep_param_grid(context.sweep, context.sample_rate, trim_s=trim_s):
+            options.append(_evaluate_zone_option(rep_task, range_tasks, params, context))
     return options
 
 
-def build_zone_options(tasks: Sequence[PitchTask], ctx: EvalContext) -> _ZoneOptions:
+def build_zone_options(tasks: Sequence[PitchTask], context: EvalContext) -> _ZoneOptions:
     """Score every contiguous pitch range ``[i, j)`` -- the menu the partition+allocation DP chooses from.
 
     This is the expensive step (an encode + reconstruction score per representative, encoding and
@@ -76,7 +76,7 @@ def build_zone_options(tasks: Sequence[PitchTask], ctx: EvalContext) -> _ZoneOpt
     options: _ZoneOptions = {}
     for i in range(count):
         for j in range(i + 1, count + 1):
-            options[(i, j)] = tuple(_zone_options(tasks[i:j], ctx))
+            options[(i, j)] = tuple(_zone_options(tasks[i:j], context))
     return options
 
 

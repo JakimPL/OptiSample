@@ -76,7 +76,7 @@ def dump_context(
         audio=demo_audio,
         sample_rate=SR,
         material=tuple(demo_instrument.material or []),
-        ctx=ctx,
+        eval_context=ctx,
         tasks_by_pitch={task.pitch: task for task in tasks},
         settings=no_render_settings,
     )

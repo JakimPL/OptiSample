@@ -82,26 +82,30 @@ def _representative_event(task: PitchTask) -> Event:
 
 
 def _rendered_note(
-    dctx: DumpContext, kind: PlanKind, unit: Unit, task: PitchTask, event: Event
+    dump_context: DumpContext, kind: PlanKind, unit: Unit, task: PitchTask, event: Event
 ) -> tuple[Signal, int, str]:
     """Audio the module produces for one note: the real engine when available, else the surrogate."""
-    if dctx.settings.render_ground_truth and openmpt123_available():
+    if dump_context.settings.render_ground_truth and openmpt123_available():
         note = NoteEvent(pitch=task.pitch, velocity=event.velocity, duration_s=event.duration_s)
-        audio, rate = render_module(kind.make_module([note]), dctx.settings.render)
+        audio, rate = render_module(kind.make_module([note]), dump_context.settings.render)
         return audio, rate, "openmpt123"
-    volume = dctx.ctx.velocity_map.volume(event.velocity)
-    candidate = render(unit.stored, dctx.sample_rate, pitch=task.pitch, volume=volume, duration_s=event.duration_s)
-    return candidate, dctx.sample_rate, "surrogate"
+    volume = dump_context.eval_context.velocity_map.volume(event.velocity)
+    candidate = render(
+        unit.stored, dump_context.sample_rate, pitch=task.pitch, volume=volume, duration_s=event.duration_s
+    )
+    return candidate, dump_context.sample_rate, "surrogate"
 
 
-def _note_record(kind: PlanKind, unit: Unit, task: PitchTask, out_dir: Path, dctx: DumpContext) -> NoteMetricRecord:
+def _note_record(
+    kind: PlanKind, unit: Unit, task: PitchTask, out_dir: Path, dump_context: DumpContext
+) -> NoteMetricRecord:
     """Write the reference/rendered A/B pair for one pitch and return its metric record."""
-    events, contribution = event_records(unit.stored, task, dctx.ctx)
+    events, contribution = event_records(unit.stored, task, dump_context.eval_context)
     rep = _representative_event(task)
     stem = f"p{task.pitch:03d}_{note_name(task.pitch)}"
-    reference = rep.reference[: seconds_to_frames(rep.duration_s, dctx.sample_rate)]
-    write_wav(out_dir / "compare" / f"{stem}_ref.wav", reference, dctx.sample_rate)
-    rendered, rate, source = _rendered_note(dctx, kind, unit, task, rep)
+    reference = rep.reference[: seconds_to_frames(rep.duration_s, dump_context.sample_rate)]
+    write_wav(out_dir / "compare" / f"{stem}_ref.wav", reference, dump_context.sample_rate)
+    rendered, rate, source = _rendered_note(dump_context, kind, unit, task, rep)
     write_wav(out_dir / "compare" / f"{stem}_render.wav", rendered, rate)
     outcome = RenderedNote(
         served_by=unit.label,
@@ -126,28 +130,28 @@ def _write_sample_wavs(kind: PlanKind, out_dir: Path) -> None:
         write_wav(out_dir / "samples" / f"{unit.label}.wav", unit.stored.pcm, unit.stored.sample_rate)
 
 
-def _write_module_and_render(kind: PlanKind, out_dir: Path, dctx: DumpContext) -> bool:
+def _write_module_and_render(kind: PlanKind, out_dir: Path, dump_context: DumpContext) -> bool:
     """Write ``module.it`` and, when openmpt123 is available and requested, the ground-truth render."""
-    module = kind.make_module(dctx.material)
+    module = kind.make_module(dump_context.material)
     write_it(out_dir / "module.it", module)
-    if not (dctx.settings.render_ground_truth and openmpt123_available()):
+    if not (dump_context.settings.render_ground_truth and openmpt123_available()):
         return False
     (out_dir / "render").mkdir(parents=True, exist_ok=True)
-    audio, rate = render_module(module, dctx.settings.render)
+    audio, rate = render_module(module, dump_context.settings.render)
     write_wav(out_dir / "render" / "module.wav", audio, rate)
     return True
 
 
-def _write_metrics(kind: PlanKind, out_dir: Path, dctx: DumpContext) -> None:
+def _write_metrics(kind: PlanKind, out_dir: Path, dump_context: DumpContext) -> None:
     """Score and A/B-render every covered pitch; ``metrics.json``'s objective reproduces ``plan.objective``."""
-    notes = [_note_record(kind, unit, task, out_dir, dctx) for unit in kind.units for task in unit.tasks]
+    notes = [_note_record(kind, unit, task, out_dir, dump_context) for unit in kind.units for task in unit.tasks]
     document = metrics_document(
-        kind.name, kind.plan_document.instrument_id, dctx.sample_rate, kind.plan_document.objective, notes
+        kind.name, kind.plan_document.instrument_id, dump_context.sample_rate, kind.plan_document.objective, notes
     )
     write_json(out_dir / "metrics.json", document)
 
 
-def _dump_plan(kind: PlanKind, out_dir: Path, dctx: DumpContext, started_at: float) -> PlanArtifacts:
+def _dump_plan(kind: PlanKind, out_dir: Path, dump_context: DumpContext, started_at: float) -> PlanArtifacts:
     """Write every artifact for one strategy and return a summary of what landed on disk.
 
     ``started_at`` is the :func:`time.perf_counter` reading taken before the optimize call, so the
@@ -157,8 +161,8 @@ def _dump_plan(kind: PlanKind, out_dir: Path, dctx: DumpContext, started_at: flo
     (out_dir / "compare").mkdir(parents=True, exist_ok=True)
     _write_plan_docs(kind, out_dir)
     _write_sample_wavs(kind, out_dir)
-    rendered = _write_module_and_render(kind, out_dir, dctx)
-    _write_metrics(kind, out_dir, dctx)
+    rendered = _write_module_and_render(kind, out_dir, dump_context)
+    _write_metrics(kind, out_dir, dump_context)
     return PlanArtifacts(
         name=kind.name,
         reason=None,
@@ -170,14 +174,16 @@ def _dump_plan(kind: PlanKind, out_dir: Path, dctx: DumpContext, started_at: flo
 
 
 def _optimize_and_dump(
-    instrument: InstrumentSpec, out_dir: Path, dctx: DumpContext, strategy: _Strategy
+    instrument: InstrumentSpec, out_dir: Path, dump_context: DumpContext, strategy: _Strategy
 ) -> PlanArtifacts:
     """Optimize one strategy and dump it; on an infeasible budget, record why instead of raising."""
     out_dir.mkdir(parents=True, exist_ok=True)
     started_at = perf_counter()
     try:
-        plan = strategy.optimize(instrument, dctx.audio, dctx.sample_rate, dctx.settings.optimize)
-        kind = make_kind(plan, dctx)
+        plan = strategy.optimize(
+            instrument, dump_context.audio, dump_context.sample_rate, dump_context.settings.optimize
+        )
+        kind = make_kind(plan, dump_context)
     except BudgetInfeasibleError as exc:
         write_text(out_dir / "INFEASIBLE.txt", f"{strategy.name} allocation is infeasible at this budget:\n{exc}\n")
         return PlanArtifacts(
@@ -188,7 +194,7 @@ def _optimize_and_dump(
             used_bytes=None,
             elapsed_s=perf_counter() - started_at,
         )
-    return _dump_plan(kind, out_dir, dctx, started_at)
+    return _dump_plan(kind, out_dir, dump_context, started_at)
 
 
 def dump_instrument(
@@ -201,19 +207,19 @@ def dump_instrument(
     """Optimize one instrument (both strategies) and write every inspection artifact under ``out_dir``."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    _, ctx, tasks = prepare_run(instrument, audio, sample_rate, settings.optimize)
-    dctx = DumpContext(
+    _, context, tasks = prepare_run(instrument, audio, sample_rate, settings.optimize)
+    dump_context = DumpContext(
         audio=audio,
         sample_rate=sample_rate,
         material=tuple(instrument.material or []),
-        ctx=ctx,
+        eval_context=context,
         tasks_by_pitch={task.pitch: task for task in tasks},
         settings=settings,
     )
     strategies = [
         strategy for strategy, enabled in ((_UNGROUPED, settings.ungrouped), (_GROUPED, settings.grouped)) if enabled
     ]
-    plans = [_optimize_and_dump(instrument, out_dir / strategy.name, dctx, strategy) for strategy in strategies]
+    plans = [_optimize_and_dump(instrument, out_dir / strategy.name, dump_context, strategy) for strategy in strategies]
     return DumpResult(instrument_id=instrument.id, directory=out_dir, plans=tuple(plans))
 
 

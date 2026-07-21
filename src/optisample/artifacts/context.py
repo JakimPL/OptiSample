@@ -42,7 +42,7 @@ class DumpContext:
     audio: AudioMap
     sample_rate: int
     material: tuple[NoteEvent, ...]
-    ctx: EvalContext
+    eval_context: EvalContext
     tasks_by_pitch: dict[int, PitchTask]
     settings: DumpSettings
 

@@ -100,8 +100,8 @@ def evaluate_encoding(
     rng: np.random.Generator | None = None,
 ) -> OperatingPoint:
     """Encode ``clip`` with ``params``, render it back at its own pitch, and score the encoding loss."""
-    encode_ctx = EncodeContext(root_pitch=clip.root_pitch, config=encode_config, rng=rng)
-    stored = encode(clip.signal, clip.sample_rate, params, encode_ctx)
+    encode_context = EncodeContext(root_pitch=clip.root_pitch, config=encode_config, rng=rng)
+    stored = encode(clip.signal, clip.sample_rate, params, encode_context)
     candidate = render(stored, clip.sample_rate, pitch=clip.root_pitch, duration_s=clip.duration_s)
     report = evaluate(_reference(clip), candidate, clip.sample_rate, composite)
     return OperatingPoint(
