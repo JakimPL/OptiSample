@@ -11,7 +11,7 @@ in the right place.
 | `music.py` | Pitch primitives: note names, `semitone_ratio`, MIDI/tuning constants. A leaf shared by everyone. | nothing in-package |
 | `model.py` | Manifest DTOs: `Manifest`, `ProjectSpec`, `InstrumentSpec`, `SourceSample`, `NoteEvent`. | pydantic |
 | `config/` | Pydantic **schema** for every tunable parameter; values live in `src/opticonfig/*.yaml`. Loaded once via `load_config`. | pydantic |
-| `dsp/` | Signal primitives (`spectral`, `resample`, `quantize`, `loop`) and the surrogate codec (`surrogate`: `encode`/`render`, `StoredSample`, `EncodingParams`). | `config`, `music`, `metrics.size` |
+| `dsp/` | Signal primitives (`spectral`, `resample`, `quantize`, `loop`, `timebase`) and the surrogate codec — the `surrogate/` subpackage (`params`, `sample`, `encode`, `render`) exposing `encode`/`render`, `StoredSample`, `EncodingParams`, `MAX_VOLUME`. | `config`, `music`, `metrics.size` |
 | `metrics/` | Fidelity measurement (`composite`, `spectral`, `timbre`, `diagnostics`, `preprocess`) and the byte-`size` model. | `config`, `dsp` primitives |
 | `optimize/` | The allocation pipeline (see below). | `dsp`, `metrics`, `model`, `io`, `config`, `music` |
 | `io/` | The file/format boundary: `audio` (WAV), `manifest`, `it_format` (declarative IT record layout), `it_writer` (IT binary), `it_read` (round-trip), `render` (openmpt123 wrapper). | `config`, `metrics.size`, `music`, `dsp.surrogate` (`MAX_VOLUME`) |
