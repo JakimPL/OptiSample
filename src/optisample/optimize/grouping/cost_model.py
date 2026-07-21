@@ -20,7 +20,7 @@ from collections.abc import Sequence
 
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode
 from optisample.music import semitone_ratio
-from optisample.optimize.operating_points import lower_convex_hull, sweep_rates
+from optisample.optimize.operating_points import lower_convex_hull, sweep_param_grid
 from optisample.optimize.plans.grouped import ZoneOption
 from optisample.optimize.tasks import EvalContext, PitchTask, score_reconstruction
 
@@ -58,15 +58,11 @@ def _zone_options(range_tasks: Sequence[PitchTask], ctx: EvalContext) -> list[Zo
     Enumerates the outer product of representative (each covered key's own recording, the k-medoids
     candidates) and encoding (loop x depth x rate); :func:`_evaluate_zone_option` scores each.
     """
-    rates = sweep_rates(ctx.sweep, ctx.sample_rate)
     options: list[ZoneOption] = []
     for rep_task in range_tasks:
         trim_s = _zone_trim(range_tasks, rep_task.pitch)
-        for loop in ctx.sweep.loops:
-            for depth in ctx.sweep.depths:
-                for rate in rates:
-                    params = EncodingParams(rate, depth, trim_s, ctx.sweep.dither, ctx.sweep.noise_shaping, loop)
-                    options.append(_evaluate_zone_option(rep_task, range_tasks, params, ctx))
+        for params in sweep_param_grid(ctx.sweep, ctx.sample_rate, trim_s=trim_s):
+            options.append(_evaluate_zone_option(rep_task, range_tasks, params, ctx))
     return options
 
 

@@ -12,7 +12,7 @@ from collections.abc import Sequence
 
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode
 from optisample.optimize.knapsack import KnapsackItem
-from optisample.optimize.operating_points import OperatingPoint, lower_convex_hull, sweep_rates
+from optisample.optimize.operating_points import OperatingPoint, lower_convex_hull, sweep_param_grid
 from optisample.optimize.tasks import EvalContext, PitchTask, score_reconstruction
 
 
@@ -26,22 +26,10 @@ def _evaluate_config(task: PitchTask, ctx: EvalContext, params: EncodingParams) 
 
 def _pitch_points(task: PitchTask, ctx: EvalContext) -> list[OperatingPoint]:
     """Sweep the rate x depth grid for one pitch, trimming storage to its longest note."""
-    rates = sweep_rates(ctx.sweep, ctx.sample_rate)
-    trim_s = task.max_duration_s
-    points: list[OperatingPoint] = []
-    for loop in ctx.sweep.loops:
-        for depth in ctx.sweep.depths:
-            for rate in rates:
-                params = EncodingParams(
-                    target_rate=rate,
-                    depth_bits=depth,
-                    trim_s=trim_s,
-                    dither=ctx.sweep.dither,
-                    noise_shaping=ctx.sweep.noise_shaping,
-                    loop=loop,
-                )
-                points.append(_evaluate_config(task, ctx, params))
-    return points
+    return [
+        _evaluate_config(task, ctx, params)
+        for params in sweep_param_grid(ctx.sweep, ctx.sample_rate, trim_s=task.max_duration_s)
+    ]
 
 
 def build_items(

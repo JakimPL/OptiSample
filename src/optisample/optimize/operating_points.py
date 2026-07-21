@@ -14,7 +14,7 @@ menu of "bytes bought, distortion saved" trades the allocator reasons about.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Protocol, TypeVar
 
@@ -23,6 +23,7 @@ import numpy as np
 from optisample.config.dsp import EncodeConfig
 from optisample.config.optimize import SweepConfig
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, Signal, encode, render
+from optisample.dsp.timebase import seconds_to_frames
 from optisample.metrics.composite import CompositeFidelity, evaluate
 
 _HULL_EPS = 1e-12
@@ -65,10 +66,30 @@ def sweep_rates(sweep: SweepConfig, sample_rate: int) -> list[int]:
     return default_rates(sample_rate, sweep.rate_divisors, sweep.min_rate)
 
 
+def sweep_param_grid(sweep: SweepConfig, sample_rate: int, *, trim_s: float | None) -> Iterator[EncodingParams]:
+    """Yield every ``(loop, depth, rate)`` encoding configuration in ``sweep``, trimmed to ``trim_s``.
+
+    Iterating loop-major, then depth, then rate fixes the single order in which every cost model
+    enumerates and scores encodings, so the per-sample, per-pitch and per-zone sweeps stay identical.
+    """
+    rates = sweep_rates(sweep, sample_rate)
+    for loop in sweep.loops:
+        for depth in sweep.depths:
+            for rate in rates:
+                yield EncodingParams(
+                    target_rate=rate,
+                    depth_bits=depth,
+                    trim_s=trim_s,
+                    dither=sweep.dither,
+                    noise_shaping=sweep.noise_shaping,
+                    loop=loop,
+                )
+
+
 def _reference(clip: SourceClip) -> Signal:
     if clip.duration_s is None:
         return clip.signal
-    return np.asarray(clip.signal[: max(0, int(round(clip.duration_s * clip.sample_rate)))], dtype=np.float64)
+    return np.asarray(clip.signal[: seconds_to_frames(clip.duration_s, clip.sample_rate)], dtype=np.float64)
 
 
 def evaluate_encoding(
@@ -98,23 +119,10 @@ def sample_operating_points(
     rng: np.random.Generator | None = None,
 ) -> list[OperatingPoint]:
     """Evaluate every ``(rate, depth)`` in ``sweep`` for ``clip`` (trimmed to its material duration)."""
-    rates = sweep_rates(sweep, clip.sample_rate)
-    points: list[OperatingPoint] = []
-    for loop in sweep.loops:
-        for depth in sweep.depths:
-            for rate in rates:
-                params = EncodingParams(
-                    target_rate=rate,
-                    depth_bits=depth,
-                    trim_s=clip.duration_s,
-                    dither=sweep.dither,
-                    noise_shaping=sweep.noise_shaping,
-                    loop=loop,
-                )
-                points.append(
-                    evaluate_encoding(clip, params, composite=composite, encode_config=encode_config, rng=rng)
-                )
-    return points
+    return [
+        evaluate_encoding(clip, params, composite=composite, encode_config=encode_config, rng=rng)
+        for params in sweep_param_grid(sweep, clip.sample_rate, trim_s=clip.duration_s)
+    ]
 
 
 class RDPoint(Protocol):

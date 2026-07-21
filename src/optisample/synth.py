@@ -28,7 +28,7 @@ from optisample.config.synth import PresetConfig, SynthConfig
 from optisample.io.audio import write_wav
 from optisample.io.manifest import dump_manifest
 from optisample.model import InstrumentSpec, Manifest, NoteEvent, ProjectSpec, SourceSample
-from optisample.music import A4_FREQ_HZ, MIDI_A4, semitone_ratio
+from optisample.music import A4_FREQ_HZ, MIDI_MAX_VELOCITY, midi_to_freq
 
 Archetype = Literal["sustained", "piano"]
 
@@ -46,15 +46,10 @@ class NoteSpec:
     @property
     def vel(self) -> float:
         """Normalized velocity in [0, 1]."""
-        return self.velocity / 127.0
+        return self.velocity / MIDI_MAX_VELOCITY
 
     def time_axis(self) -> NDArray[np.float64]:
         return np.arange(int(self.duration_s * self.sample_rate), dtype=np.float64) / self.sample_rate
-
-
-def midi_to_freq(pitch: int) -> float:
-    """MIDI note number → fundamental frequency in Hz (A4/69 = 440 Hz)."""
-    return A4_FREQ_HZ * semitone_ratio(pitch - MIDI_A4)
 
 
 def _n_partials(fundamental: float, sample_rate: int, requested: int, nyquist_fraction: float) -> int:
@@ -65,7 +60,7 @@ def _n_partials(fundamental: float, sample_rate: int, requested: int, nyquist_fr
 
 def _velocity_peak(velocity: int, floor: float, scale: float) -> float:
     """Map velocity → target peak amplitude (monotonic, stays below full scale)."""
-    return floor + scale * (velocity / 127.0)
+    return floor + scale * (velocity / MIDI_MAX_VELOCITY)
 
 
 def _normalize_peak(signal: NDArray[np.float64], peak: float) -> NDArray[np.float64]:

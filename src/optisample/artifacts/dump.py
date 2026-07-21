@@ -37,6 +37,7 @@ from optisample.artifacts.context import DumpSettings, _DumpContext
 from optisample.artifacts.serialize import _write_json, _write_text
 from optisample.artifacts.units import _PlanKind, _Unit, make_kind
 from optisample.dsp.surrogate import render
+from optisample.dsp.timebase import seconds_to_frames
 from optisample.io.audio import write_wav
 from optisample.io.it_writer import write_it
 from optisample.io.render import openmpt123_available, render_module
@@ -123,7 +124,7 @@ def _dump_one_note(kind: _PlanKind, unit: _Unit, task: PitchTask, out_dir: Path,
     events_json, contribution = _note_metrics(unit, task, dctx.ctx)
     rep = _representative_event(task)
     stem = f"p{task.pitch:03d}_{note_name(task.pitch)}"
-    reference = rep.reference[: max(0, int(round(rep.duration_s * dctx.sample_rate)))]
+    reference = rep.reference[: seconds_to_frames(rep.duration_s, dctx.sample_rate)]
     write_wav(out_dir / "compare" / f"{stem}_ref.wav", reference, dctx.sample_rate)
     rendered, rate, source = _rendered_note(dctx, kind, unit, task, rep)
     write_wav(out_dir / "compare" / f"{stem}_render.wav", rendered, rate)

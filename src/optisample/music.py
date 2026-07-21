@@ -7,11 +7,14 @@ nothing else in the package, so anything may import from it without risking a cy
 
 from __future__ import annotations
 
-SEMITONES_PER_OCTAVE = 12  # equal temperament: an octave is 12 semitones and doubles the frequency.
-MIDI_A4 = 69  # MIDI note number of A4, the tuning reference.
-A4_FREQ_HZ = 440.0  # frequency of A4 in hertz.
+from typing import Final
 
-NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+SEMITONES_PER_OCTAVE: Final = 12  # equal temperament: an octave is 12 semitones and doubles the frequency.
+MIDI_A4: Final = 69  # MIDI note number of A4, the tuning reference.
+A4_FREQ_HZ: Final = 440.0  # frequency of A4 in hertz.
+MIDI_MAX_VELOCITY: Final = 127  # MIDI velocity spans 0..127.
+
+NOTE_NAMES: Final = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
 
 
 def note_name(pitch: int) -> str:
@@ -22,3 +25,8 @@ def note_name(pitch: int) -> str:
 def semitone_ratio(semitones: float) -> float:
     """Playback speed / frequency ratio for a pitch shift of ``semitones`` (12 semitones = 2x)."""
     return float(2.0 ** (semitones / SEMITONES_PER_OCTAVE))
+
+
+def midi_to_freq(pitch: int) -> float:
+    """MIDI note number -> fundamental frequency in Hz (A4/69 = 440 Hz)."""
+    return A4_FREQ_HZ * semitone_ratio(pitch - MIDI_A4)

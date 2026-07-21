@@ -5,8 +5,10 @@ from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-MidiNote = Annotated[int, Field(ge=0, le=127)]
-MidiVelocity = Annotated[int, Field(ge=0, le=127)]
+from optisample.music import MIDI_MAX_VELOCITY
+
+MidiNote = Annotated[int, Field(ge=0, le=MIDI_MAX_VELOCITY)]
+MidiVelocity = Annotated[int, Field(ge=0, le=MIDI_MAX_VELOCITY)]
 PositiveFloat = Annotated[float, Field(gt=0.0)]
 
 Engine = Literal["openmpt"]

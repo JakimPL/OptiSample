@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Final
 
 import numpy as np
 from numpy.typing import NDArray
@@ -22,8 +23,9 @@ from optisample.config.optimize import VelocityConfig
 from optisample.dsp.surrogate import MAX_VOLUME
 from optisample.metrics.base import Signal
 from optisample.metrics.preprocess import db_to_gain, integrated_loudness
+from optisample.music import MIDI_MAX_VELOCITY
 
-_MIDI_VELOCITIES = 128
+_MIDI_VELOCITIES: Final = MIDI_MAX_VELOCITY + 1
 
 
 @dataclass(frozen=True)
@@ -45,7 +47,7 @@ class VelocityVolumeMap:
     def volume(self, velocity: int) -> int:
         """Note volume for ``velocity`` (0..127)."""
         if not 0 <= velocity < _MIDI_VELOCITIES:
-            raise ValueError(f"velocity must be in [0, 127], got {velocity}")
+            raise ValueError(f"velocity must be in [0, {MIDI_MAX_VELOCITY}], got {velocity}")
         return self.volumes[velocity]
 
 

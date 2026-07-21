@@ -28,6 +28,7 @@ import numpy as np
 from optisample.config.dsp import EncodeConfig
 from optisample.config.optimize import SweepConfig
 from optisample.dsp.surrogate import StoredSample, render
+from optisample.dsp.timebase import seconds_to_frames
 from optisample.metrics.base import Signal
 from optisample.metrics.composite import CompositeFidelity, QualityReport, evaluate
 from optisample.model import InstrumentSpec, NoteEvent
@@ -162,7 +163,7 @@ def score_events(stored: StoredSample, task: PitchTask, ctx: EvalContext) -> Ite
     for event in task.events:
         volume = ctx.velocity_map.volume(event.velocity)
         candidate = render(stored, ctx.sample_rate, pitch=task.pitch, volume=volume, duration_s=event.duration_s)
-        reference = event.reference[: max(0, int(round(event.duration_s * ctx.sample_rate)))]
+        reference = event.reference[: seconds_to_frames(event.duration_s, ctx.sample_rate)]
         yield EventScore(
             event=event, volume=volume, report=evaluate(reference, candidate, ctx.sample_rate, ctx.composite)
         )
