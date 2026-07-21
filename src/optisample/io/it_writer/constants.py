@@ -19,7 +19,8 @@ _IMPM: Final = b"IMPM"
 _IMPS: Final = b"IMPS"
 _IMPI: Final = b"IMPI"
 
-_NAME_BYTES: Final = 26  # every IT name field (song, instrument, sample) is 26 ASCII bytes, null-padded.
+NAME_BYTES: Final = 26  # every IT name field (song, instrument, sample) is 26 ASCII bytes, null-padded.
+IT_C5_NOTE: Final = 60  # MIDI note 60 = IT's C-5 reference key (natural playback rate / pitch-pan centre).
 
 MAX_ROWS: Final = 200  # IT patterns hold 1..200 rows.
 TICKS_PER_ROW_BASE: Final = 2.5  # one tick lasts 2.5 / tempo seconds; a row lasts `speed` ticks.
@@ -30,7 +31,7 @@ _CWT: Final = 0x0214  # "created with" IT 2.14 -> selects the 554-byte instrumen
 _CMWT: Final = 0x0214  # "compatible with"; >= 0x0200 is required for the instrument format.
 _FLAG_USE_INSTRUMENTS: Final = 0x04
 _FLAG_LINEAR_SLIDES: Final = 0x08
-_PPC_C5: Final = 60  # pitch-pan centre at C-5.
+_PPC_C5: Final = IT_C5_NOTE  # pitch-pan centre at C-5.
 
 _SMP_FLAG_DATA: Final = 0x01  # sample data present.
 _SMP_FLAG_16BIT: Final = 0x02  # 16-bit (else 8-bit).

@@ -9,16 +9,24 @@ header, one budget block and one set of rules instead of drifting copies.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from typing import Final
+
 from optisample.metrics.size import FILE_HEADER_BYTES, INSTRUMENT_HEADER_BYTES, bytes_to_kib
 from optisample.music import note_name
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
 from optisample.optimize.plans.budget import BudgetedPlanMixin
 
-RULE_WIDTH = 70
-SECTION_RULE = "=" * RULE_WIDTH
-SUBSECTION_RULE = "-" * RULE_WIDTH
+RULE_WIDTH: Final = 70
+SECTION_RULE: Final = "=" * RULE_WIDTH
+SUBSECTION_RULE: Final = "-" * RULE_WIDTH
 
-_CURVE_ROWS = 6
+_CURVE_ROWS: Final = 6
+
+
+def _format_allocation_table(title: str, header: str, rows: Iterable[str]) -> str:
+    """A titled, ruled allocation table: heading, subsection rule, column header, then the data rows."""
+    return "\n".join((title, SUBSECTION_RULE, header, *rows))
 
 
 def format_budget_block(plan: BudgetedPlanMixin) -> list[str]:
@@ -51,20 +59,19 @@ def _ungrouped_header(plan: InstrumentPlan) -> str:
 
 
 def _format_pitches(plan: InstrumentPlan) -> str:
-    lines = [
-        "Per-pitch allocation",
-        SUBSECTION_RULE,
+    header = (
         f"{'pitch':>5}  {'note':>4}  {'weight(s)':>9}  {'rep.vel':>7}  "
-        f"{'rate(Hz)':>8}  {'depth':>5}  {'size(KiB)':>9}  {'distortion':>10}  {'hull':>4}",
-    ]
+        f"{'rate(Hz)':>8}  {'depth':>5}  {'size(KiB)':>9}  {'distortion':>10}  {'hull':>4}"
+    )
+    rows = []
     for pitch in plan.pitches:
         point = pitch.chosen
-        lines.append(
+        rows.append(
             f"{pitch.pitch:>5}  {note_name(pitch.pitch):>4}  {pitch.weight:>9.1f}  "
             f"{pitch.representative_velocity:>7}  {point.params.target_rate:>8}  {point.params.depth_bits:>5}  "
             f"{bytes_to_kib(point.stored_bytes):>9.1f}  {point.distortion:>10.4f}  {len(pitch.hull):>4}"
         )
-    return "\n".join(lines)
+    return _format_allocation_table("Per-pitch allocation", header, rows)
 
 
 def _format_velocity_map(plan: InstrumentPlan) -> str:
@@ -110,22 +117,21 @@ def _grouped_header(plan: GroupedInstrumentPlan) -> str:
 
 
 def _format_zones(plan: GroupedInstrumentPlan) -> str:
-    lines = [
-        "Zones (one stored sample each, repitched across the zone's keys)",
-        SUBSECTION_RULE,
+    header = (
         f"{'keys':>11}  {'rep':>4}  {'rep.vel':>7}  {'rate(Hz)':>8}  "
-        f"{'depth':>5}  {'size(KiB)':>9}  {'distortion':>10}  {'options':>7}",
-    ]
+        f"{'depth':>5}  {'size(KiB)':>9}  {'distortion':>10}  {'options':>7}"
+    )
+    rows = []
     for zone in plan.zones:
         option = zone.chosen
         keys = f"{zone.pitches[0]}-{zone.pitches[-1]}" if len(zone.pitches) > 1 else str(zone.pitches[0])
         span = f"{keys} ({len(zone.pitches)})"
-        lines.append(
+        rows.append(
             f"{span:>11}  {zone.representative:>4}  {zone.representative_velocity:>7}  "
             f"{option.params.target_rate:>8}  {option.params.depth_bits:>5}  "
             f"{bytes_to_kib(option.stored_bytes):>9.1f}  {option.distortion:>10.4f}  {len(zone.hull):>7}"
         )
-    return "\n".join(lines)
+    return _format_allocation_table("Zones (one stored sample each, repitched across the zone's keys)", header, rows)
 
 
 def format_grouping_report(plan: GroupedInstrumentPlan) -> str:

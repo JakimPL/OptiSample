@@ -19,10 +19,10 @@ from optisample.io.it_writer.constants import (
     _FLAG_LINEAR_SLIDES,
     _FLAG_USE_INSTRUMENTS,
     _IMPM,
-    _NAME_BYTES,
     CHANNEL_VOLUME_FULL,
     MAX_GLOBAL_VOLUME,
     MAX_MIX_VOLUME,
+    NAME_BYTES,
     OFFSET_TABLE_ENTRY_BYTES,
     ORDER_TERMINATOR,
     PAN_CENTER,
@@ -72,7 +72,7 @@ def _file_header(module: ITModule, counts: SectionCounts) -> bytes:
     return FILE_HEADER.pack(
         {
             "magic": _IMPM,
-            "name": _ascii(module.name, _NAME_BYTES),
+            "name": _ascii(module.name, NAME_BYTES),
             "highlight": 0,
             "order_count": counts.orders,
             "instrument_count": counts.instruments,

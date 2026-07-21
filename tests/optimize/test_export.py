@@ -15,7 +15,7 @@ from optisample.dsp.surrogate import EncodingParams
 from optisample.io.it_writer import NOTE_CUT, ITModule, write_it, write_it_module
 from optisample.io.render import openmpt123_available, render_module
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
-from optisample.optimize.export import ExportContext, build_grouped_it_module, build_it_module, c5speed_for_pitch
+from optisample.optimize.export import ExportContext, build_module, c5speed_for_pitch
 from optisample.optimize.grouping import optimize_instrument_grouped
 from optisample.optimize.orchestrate import OptimizeSettings, optimize_instrument
 from optisample.optimize.plans import BudgetBreakdown, GroupedInstrumentPlan, InstrumentPlan, Zone, ZoneOption
@@ -70,7 +70,7 @@ def build(
         audio = demo_audio()
         settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depths=(16, 8)))
         plan = optimize_instrument(demo_instrument(), audio, SR, settings)
-        module = build_it_module(plan, audio, SR, material if material is not None else demo_material(), export_ctx)
+        module = build_module(plan, audio, SR, material if material is not None else demo_material(), export_ctx)
         return plan, module
 
     return _build
@@ -153,7 +153,7 @@ def test_pitch_out_of_it_range_raises(
     )
     plan = optimize_instrument(inst, audio, SR, optimize_settings(sweep=sweep(rates=(44_100, 11_025), depths=(16, 8))))
     with pytest.raises(ValueError, match="outside the IT key range"):
-        build_it_module(plan, audio, SR, inst.material or [], export_ctx)
+        build_module(plan, audio, SR, inst.material or [], export_ctx)
 
 
 def test_written_file_round_trips_through_xmodits(
@@ -189,7 +189,7 @@ def grouped_build(
         audio = demo_audio()
         settings = optimize_settings(sweep=sweep(rates=(11_025,), depths=(8,), dither=False))
         plan = optimize_instrument_grouped(demo_instrument(budget_kb), audio, SR, settings)
-        module = build_grouped_it_module(plan, audio, SR, demo_material(), export_ctx)
+        module = build_module(plan, audio, SR, demo_material(), export_ctx)
         return plan, module
 
     return _grouped_build
@@ -245,7 +245,7 @@ def test_grouped_pitch_out_of_it_range_raises(export_ctx: ExportContext) -> None
         objective=0.0,
     )
     with pytest.raises(ValueError, match="outside the IT key range"):
-        build_grouped_it_module(plan, {(120, 100): note(60, 100)}, SR, [], export_ctx)
+        build_module(plan, {(120, 100): note(60, 100)}, SR, [], export_ctx)
 
 
 def test_grouped_round_trips_through_xmodits(
@@ -297,7 +297,7 @@ def looped_build(
         inst = InstrumentSpec(id="pad", budget_kb=64.0, samples=samples, material=material)
         settings = optimize_settings(sweep=sweep(rates=(22_050,), depths=(16,), dither=False, loops=(True,)))
         plan = optimize_instrument(inst, audio, SR, settings)
-        return plan, build_it_module(plan, audio, SR, material, export_ctx)
+        return plan, build_module(plan, audio, SR, material, export_ctx)
 
     return _looped_build
 

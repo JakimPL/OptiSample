@@ -29,8 +29,7 @@ from pydantic import BaseModel, ConfigDict, SerializerFunctionWrapHandler, model
 from optisample.dsp.loop import Loop
 from optisample.dsp.surrogate import StoredSample
 from optisample.music import note_name
-from optisample.optimize.operating_points import OperatingPoint
-from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan, PitchPlan, Zone, ZoneOption
+from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan, SampleUnit, StrategyPlan
 from optisample.optimize.tasks import EvalContext, PitchTask, score_events
 from optisample.optimize.velocity_map import VelocityVolumeMap
 
@@ -232,7 +231,7 @@ def _loop_record(loop: Loop | None) -> LoopRecord | None:
     return None if loop is None else LoopRecord(start=loop.start, end=loop.end)
 
 
-def _budget_record(plan: InstrumentPlan | GroupedInstrumentPlan) -> BudgetRecord:
+def _budget_record(plan: StrategyPlan) -> BudgetRecord:
     return BudgetRecord(
         module_budget_bytes=plan.module_budget_bytes,
         sample_budget_bytes=plan.sample_budget_bytes,
@@ -241,52 +240,58 @@ def _budget_record(plan: InstrumentPlan | GroupedInstrumentPlan) -> BudgetRecord
     )
 
 
-def _encoding_record(chosen: OperatingPoint | ZoneOption, hull_size: int, loop: Loop | None) -> EncodingRecord:
+def _encoding_record(unit: SampleUnit, loop: Loop | None) -> EncodingRecord:
     return EncodingRecord(
-        target_rate=chosen.params.target_rate,
-        depth_bits=chosen.params.depth_bits,
-        trim_s=chosen.params.trim_s,
+        target_rate=unit.params.target_rate,
+        depth_bits=unit.params.depth_bits,
+        trim_s=unit.params.trim_s,
         loop=_loop_record(loop),
-        frames=chosen.frames,
-        stored_bytes=chosen.stored_bytes,
-        distortion=chosen.distortion,
-        hull_size=hull_size,
+        frames=unit.frames,
+        stored_bytes=unit.stored_bytes,
+        distortion=unit.distortion,
+        hull_size=unit.hull_size,
     )
 
 
-def _pitch_item(pitch: PitchPlan, loop: Loop | None) -> PitchItemRecord:
+def _pitch_item(unit: SampleUnit, loop: Loop | None) -> PitchItemRecord:
     return PitchItemRecord(
-        pitch=pitch.pitch,
-        note=note_name(pitch.pitch),
-        weight=pitch.weight,
-        representative_velocity=pitch.representative_velocity,
-        **_encoding_record(pitch.chosen, len(pitch.hull), loop).model_dump(),
+        pitch=unit.representative,
+        note=note_name(unit.representative),
+        weight=unit.weight,
+        representative_velocity=unit.representative_velocity,
+        **_encoding_record(unit, loop).model_dump(),
     )
 
 
-def _zone_item(zone: Zone, loop: Loop | None) -> ZoneItemRecord:
+def _zone_item(unit: SampleUnit, loop: Loop | None) -> ZoneItemRecord:
     return ZoneItemRecord(
-        keys=[zone.pitches[0], zone.pitches[-1]],
-        pitches=list(zone.pitches),
-        representative=zone.representative,
-        representative_velocity=zone.representative_velocity,
-        weight=zone.weight,
-        **_encoding_record(zone.chosen, len(zone.hull), loop).model_dump(),
+        keys=[unit.keys[0], unit.keys[-1]],
+        pitches=list(unit.keys),
+        representative=unit.representative,
+        representative_velocity=unit.representative_velocity,
+        weight=unit.weight,
+        **_encoding_record(unit, loop).model_dump(),
     )
 
 
 def plan_document(plan: InstrumentPlan | GroupedInstrumentPlan, loops: Sequence[Loop | None]) -> PlanDocument:
-    """One plan document for either strategy; ``loops`` are the per-item *stored* loops, in plan order."""
+    """One plan document for either strategy; ``loops`` are the per-item *stored* loops, in plan order.
+
+    The plan's :meth:`~optisample.optimize.plans.StrategyPlan.sample_units` supplies the shared encoding
+    block for every item; only the leading fields (a pitch vs. a zone, and whether a ``method`` is
+    recorded) differ, selected by narrowing on the plan's strategy.
+    """
+    units = plan.sample_units()
     budget = _budget_record(plan)
     velocity_map = _velocity_map_document(plan.velocity_map)
-    if isinstance(plan, GroupedInstrumentPlan):
+    if plan.strategy == "grouped":
         return PlanDocument(
             strategy="grouped",
             instrument_id=plan.instrument_id,
             objective=plan.objective,
             budget=budget,
             velocity_map=velocity_map,
-            zones=[_zone_item(zone, loop) for zone, loop in zip(plan.zones, loops)],
+            zones=[_zone_item(unit, loop) for unit, loop in zip(units, loops)],
         )
     return PlanDocument(
         strategy="ungrouped",
@@ -295,7 +300,7 @@ def plan_document(plan: InstrumentPlan | GroupedInstrumentPlan, loops: Sequence[
         objective=plan.objective,
         budget=budget,
         velocity_map=velocity_map,
-        pitches=[_pitch_item(pitch, loop) for pitch, loop in zip(plan.pitches, loops)],
+        pitches=[_pitch_item(unit, loop) for unit, loop in zip(units, loops)],
     )
 
 

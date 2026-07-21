@@ -20,14 +20,23 @@ The implementation is split by record: :mod:`~optisample.io.it_writer.constants`
 :mod:`~optisample.io.it_writer.patterns`, and :mod:`~optisample.io.it_writer.module` (body assembly).
 """
 
-from optisample.io.it_writer.constants import MAX_ROWS, NOTE_CUT, TICKS_PER_ROW_BASE, require_it_note
+from optisample.io.it_writer.constants import (
+    IT_C5_NOTE,
+    MAX_ROWS,
+    NAME_BYTES,
+    NOTE_CUT,
+    TICKS_PER_ROW_BASE,
+    require_it_note,
+)
 from optisample.io.it_writer.instruments import ITInstrument, identity_note_map
 from optisample.io.it_writer.module import ITModule, write_it, write_it_module
 from optisample.io.it_writer.patterns import ITCell, ITPattern, ITPlayback, it_playback
 from optisample.io.it_writer.samples import ITSample
 
 __all__ = [
+    "IT_C5_NOTE",
     "MAX_ROWS",
+    "NAME_BYTES",
     "NOTE_CUT",
     "TICKS_PER_ROW_BASE",
     "require_it_note",

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from optisample.dsp.surrogate import EncodingParams
+from optisample.music import note_name
 from optisample.optimize.plans.budget import BudgetBreakdown, BudgetedPlanMixin
+from optisample.optimize.plans.strategy import SampleUnit
 from optisample.optimize.velocity_map import VelocityVolumeMap
 
 
@@ -56,6 +59,7 @@ class GroupedInstrumentPlan(BudgetedPlanMixin):
     zones: tuple[Zone, ...]
     total_bytes: int
     objective: float
+    strategy: Literal["grouped"] = "grouped"
 
     @property
     def used_bytes(self) -> int:
@@ -69,3 +73,21 @@ class GroupedInstrumentPlan(BudgetedPlanMixin):
     @property
     def total_weight(self) -> float:
         return sum(zone.weight for zone in self.zones)
+
+    def sample_units(self) -> tuple[SampleUnit, ...]:
+        """One stored sample per zone, every key the zone covers routed to its repitched representative."""
+        return tuple(
+            SampleUnit(
+                label=f"zone{index:02d}_rep{zone.representative:03d}_{note_name(zone.representative)}",
+                representative=zone.representative,
+                representative_velocity=zone.representative_velocity,
+                keys=zone.pitches,
+                params=zone.chosen.params,
+                frames=zone.chosen.frames,
+                stored_bytes=zone.chosen.stored_bytes,
+                distortion=zone.chosen.distortion,
+                hull_size=len(zone.hull),
+                weight=zone.weight,
+            )
+            for index, zone in enumerate(self.zones)
+        )

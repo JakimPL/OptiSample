@@ -23,6 +23,7 @@ Detection has three parts:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Final
 
 import numpy as np
 from numpy.typing import NDArray
@@ -30,6 +31,10 @@ from numpy.typing import NDArray
 from optisample.config.dsp import LoopConfig
 
 Signal = NDArray[np.float64]
+
+_MIN_STEADY_FRAMES: Final = 8  # a steady region shorter than this cannot be analysed for a period.
+_MIN_SUSTAIN_FRAMES: Final = 6  # below this the decay check has too few frames to judge sustain.
+_ENERGY_THIRDS: Final = 3  # the sustain check compares the region's first third against its last third.
 
 
 @dataclass(frozen=True)
@@ -60,11 +65,11 @@ def _estimate_period(signal: Signal, sample_rate: int, config: LoopConfig) -> in
     """Fundamental period in frames from the strongest autocorrelation peak in the pitched band.
 
     Searches lags from ``sample_rate / max_hz`` (the shortest period the band admits) to
-    ``sample_rate / min_hz`` (the longest). Returns ``None`` when the signal spans fewer than 8 frames,
-    the band holds no lag at this rate, or the strongest peak stays below ``config.min_correlation`` --
-    each the mark of material too aperiodic to loop.
+    ``sample_rate / min_hz`` (the longest). Returns ``None`` when the signal spans fewer than
+    ``_MIN_STEADY_FRAMES``, the band holds no lag at this rate, or the strongest peak stays below
+    ``config.min_correlation`` -- each the mark of material too aperiodic to loop.
     """
-    if signal.size < 8:
+    if signal.size < _MIN_STEADY_FRAMES:
         return None
     corr = _autocorrelation(signal)
     low = max(1, int(sample_rate / config.max_hz))
@@ -84,9 +89,9 @@ def _is_sustained(region: Signal, decay_ratio: float) -> bool:
     it ring at a constant level instead of dying away -- wrong. We compare the energy of the region's
     last third to its first third; a sustain stays roughly level, a decay drops well below it.
     """
-    if region.size < 6:
+    if region.size < _MIN_SUSTAIN_FRAMES:
         return False
-    third = region.size // 3
+    third = region.size // _ENERGY_THIRDS
     early = float(np.sqrt(np.mean(region[:third] ** 2)))
     late = float(np.sqrt(np.mean(region[-third:] ** 2)))
     return early > 0.0 and late / early >= decay_ratio
@@ -101,6 +106,27 @@ def _snap_ascending_zero(signal: Signal, index: int, radius: int) -> int:
         if signal[candidate - 1] <= 0.0 < signal[candidate] and abs(candidate - index) < best_distance:
             best, best_distance = candidate, abs(candidate - index)
     return best
+
+
+def _steady_region(signal: Signal, sample_rate: int, config: LoopConfig) -> tuple[int, int]:
+    """The ``[attack, tail)`` frame window to analyse: past the onset transient, before the release."""
+    attack = int(config.attack_skip_s * sample_rate)
+    tail = signal.size - int(config.tail_skip_s * sample_rate)
+    return attack, tail
+
+
+def _loop_length(period: int, sample_rate: int, config: LoopConfig) -> int:
+    """The wanted loop length: whole periods covering at least ``min_periods`` and ``min_loop_s`` worth."""
+    wanted = max(config.min_periods * period, int(round(config.min_loop_s * sample_rate)))
+    return max(config.min_periods, int(round(wanted / period))) * period
+
+
+def _fit_loop_to_region(start: int, loop_len: int, tail: int, period: int, config: LoopConfig) -> int | None:
+    """Shrink ``loop_len`` to the whole periods that fit before ``tail``; ``None`` if too few remain."""
+    if start + loop_len <= tail:
+        return loop_len
+    fitted = ((tail - start) // period) * period
+    return fitted if fitted >= config.min_periods * period else None
 
 
 def detect_loop(signal: Signal, sample_rate: int, config: LoopConfig) -> Loop | None:
@@ -119,9 +145,8 @@ def detect_loop(signal: Signal, sample_rate: int, config: LoopConfig) -> Loop | 
     reliable period, or leaves room for fewer than ``min_periods`` whole periods.
     """
     total = signal.size
-    attack = int(config.attack_skip_s * sample_rate)
-    tail = total - int(config.tail_skip_s * sample_rate)
-    if tail - attack < 8:
+    attack, tail = _steady_region(signal, sample_rate, config)
+    if tail - attack < _MIN_STEADY_FRAMES:
         return None
     if not _is_sustained(signal[attack:tail], config.sustain_decay_ratio):
         return None
@@ -130,14 +155,10 @@ def detect_loop(signal: Signal, sample_rate: int, config: LoopConfig) -> Loop | 
     if period is None:
         return None
 
-    wanted = max(config.min_periods * period, int(round(config.min_loop_s * sample_rate)))
-    loop_len = max(config.min_periods, int(round(wanted / period))) * period
-
     start = _snap_ascending_zero(signal, attack, radius=period)
-    if start + loop_len > tail:
-        loop_len = ((tail - start) // period) * period
-        if loop_len < config.min_periods * period:
-            return None
+    loop_len = _fit_loop_to_region(start, _loop_length(period, sample_rate, config), tail, period, config)
+    if loop_len is None:
+        return None
     end = start + loop_len
     if end > total or end <= start:
         return None

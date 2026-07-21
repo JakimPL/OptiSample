@@ -32,8 +32,8 @@ from optisample.metrics.composite import CompositeFidelity
 from optisample.model import InstrumentSpec
 from optisample.optimize.knapsack import rd_curve
 from optisample.optimize.orchestrate.cost_model import build_items
-from optisample.optimize.orchestrate.solve import Method, solve_allocation
-from optisample.optimize.plans import InstrumentPlan, split_budget
+from optisample.optimize.orchestrate.solve import solve_allocation
+from optisample.optimize.plans import InstrumentPlan, Method, split_budget
 from optisample.optimize.tasks import AudioMap, EvalContext, PitchTask, build_tasks
 from optisample.optimize.velocity_map import VelocityVolumeMap, derive_velocity_map, loudness_by_velocity
 

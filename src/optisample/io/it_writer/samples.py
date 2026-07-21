@@ -14,10 +14,10 @@ from optisample.io.it_writer.constants import (
     _IMPS,
     _INT8_SCALE,
     _INT16_SCALE,
-    _NAME_BYTES,
     _SMP_FLAG_16BIT,
     _SMP_FLAG_DATA,
     _SMP_FLAG_LOOP,
+    NAME_BYTES,
     _ascii,
 )
 
@@ -74,7 +74,7 @@ def _sample_header(sample: ITSample, data_offset: int) -> bytes:
             "global_volume": min(sample.global_volume, MAX_VOLUME),
             "flags": flags,
             "default_volume": min(sample.default_volume, MAX_VOLUME),
-            "name": _ascii(sample.name, _NAME_BYTES),
+            "name": _ascii(sample.name, NAME_BYTES),
             "convert": _CVT_SIGNED,
             "length": sample.frames,
             "loop_begin": loop_begin,

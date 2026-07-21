@@ -9,14 +9,11 @@ sweep -- and attaches the chosen option back onto each pitch as a
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Literal
 
 from optisample.optimize.knapsack import Allocation, KnapsackItem, solve_exact, solve_lagrangian
 from optisample.optimize.operating_points import OperatingPoint
-from optisample.optimize.plans import PitchPlan
+from optisample.optimize.plans import Method, PitchPlan
 from optisample.optimize.tasks import PitchTask
-
-Method = Literal["exact", "lagrangian"]
 
 
 def _pitch_plans(

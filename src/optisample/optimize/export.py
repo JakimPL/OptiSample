@@ -5,27 +5,31 @@ the solver kept, we re-encode its representative recording with the chosen param
 the byte count matches the plan exactly) and route the keys it serves to it through the note map. A key
 ``p`` plays its sample at its natural rate when
 
-    C5Speed = stored_rate * 2**((60 - p) / 12)   (60 = C-5, IT's reference key).
+    C5Speed = stored_rate * 2**((IT_C5_NOTE - p) / 12)   (IT_C5_NOTE = C-5, IT's reference key).
 
 The material becomes a sequence of patterns: each event triggers its pitch with the velocity->volume
 map applied to the volume column, held for the event's duration, then cut. The two strategies differ
-only in the *unit list*: ungrouped stores one sample per key (an identity note map), grouped stores one
-repitched sample per zone (every covered key routed to it). Both feed the same build loop and pattern
-assembly below.
+only in the units a plan reports (:meth:`~optisample.optimize.plans.StrategyPlan.sample_units`):
+ungrouped stores one sample per key (an identity note map), grouped stores one repitched sample per zone
+(every covered key routed to it). Both feed the same build loop and pattern assembly below, so this
+module reads the plan through :class:`~optisample.optimize.plans.StrategyPlan` and never branches on it.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Final
 
 import numpy as np
 
 from optisample.config.dsp import EncodeConfig
 from optisample.config.render import PlaybackConfig
-from optisample.dsp.surrogate import EncodeContext, EncodingParams, StoredSample, encode
+from optisample.dsp.surrogate import EncodeContext, StoredSample, encode
 from optisample.io.it_writer import (
+    IT_C5_NOTE,
     MAX_ROWS,
+    NAME_BYTES,
     NOTE_CUT,
     TICKS_PER_ROW_BASE,
     ITCell,
@@ -41,11 +45,12 @@ from optisample.io.it_writer import (
 from optisample.metrics.base import Signal
 from optisample.model import NoteEvent
 from optisample.music import note_name, semitone_ratio
-from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
+from optisample.optimize.plans import SampleUnit, StrategyPlan
 from optisample.optimize.tasks import AudioMap
 from optisample.optimize.velocity_map import VelocityVolumeMap
 
-_C5_KEY = 60  # IT reference key C-5; a sample plays at C5Speed when triggered here.
+_NAME_MAX_CHARS: Final = NAME_BYTES - 1  # leave the final byte of every 26-B name field as a null terminator.
+_SAMPLE_LABEL_CHARS: Final = 18  # instrument-id chars kept before the " <note>" suffix in a sample name.
 
 
 @dataclass(frozen=True)
@@ -60,25 +65,9 @@ class ExportContext:
     seed: int = 0
 
 
-@dataclass(frozen=True)
-class _SampleUnit:
-    """One stored sample to build and every key that triggers it.
-
-    ``representative`` is the pitch the recording is rooted at: it is re-encoded here and its ``C5Speed``
-    is tuned so that key plays natural. ``keys`` is a single key for the ungrouped strategy and a whole
-    zone for grouping, where the tracker repitches the shared sample by ``key - representative`` semitones
-    -- exactly the transpose the surrogate scored.
-    """
-
-    representative: int
-    representative_velocity: int
-    params: EncodingParams
-    keys: tuple[int, ...]
-
-
 def c5speed_for_pitch(stored_rate: int, pitch: int) -> int:
     """C5Speed that makes key ``pitch`` play the sample (stored at ``stored_rate``) at its natural rate."""
-    return int(round(stored_rate * semitone_ratio(_C5_KEY - pitch)))
+    return int(round(stored_rate * semitone_ratio(IT_C5_NOTE - pitch)))
 
 
 def _it_loop(stored: StoredSample) -> tuple[int, int] | None:
@@ -86,34 +75,8 @@ def _it_loop(stored: StoredSample) -> tuple[int, int] | None:
     return None if stored.loop is None else (stored.loop.start, stored.loop.end)
 
 
-def _plan_units(plan: InstrumentPlan) -> tuple[_SampleUnit, ...]:
-    """Ungrouped: one unit per kept pitch, each key owning its own sample (an identity note map)."""
-    return tuple(
-        _SampleUnit(
-            representative=pitch_plan.pitch,
-            representative_velocity=pitch_plan.representative_velocity,
-            params=pitch_plan.chosen.params,
-            keys=(pitch_plan.pitch,),
-        )
-        for pitch_plan in plan.pitches
-    )
-
-
-def _zone_units(plan: GroupedInstrumentPlan) -> tuple[_SampleUnit, ...]:
-    """Grouped: one unit per zone, every key the zone covers routed to its representative's sample."""
-    return tuple(
-        _SampleUnit(
-            representative=zone.representative,
-            representative_velocity=zone.representative_velocity,
-            params=zone.chosen.params,
-            keys=zone.pitches,
-        )
-        for zone in plan.zones
-    )
-
-
 def _build_unit_samples(
-    instrument_id: str, units: Sequence[_SampleUnit], audio: AudioMap, sample_rate: int, ctx: ExportContext
+    instrument_id: str, units: Sequence[SampleUnit], audio: AudioMap, sample_rate: int, ctx: ExportContext
 ) -> tuple[tuple[ITSample, ...], dict[int, int]]:
     """Re-encode each unit's representative and map every key it serves to the resulting sample.
 
@@ -129,7 +92,7 @@ def _build_unit_samples(
         stored = encode(representative, sample_rate, unit.params, encode_ctx)
         samples.append(
             ITSample(
-                name=f"{instrument_id[:18]} {note_name(unit.representative)}",
+                name=f"{instrument_id[:_SAMPLE_LABEL_CHARS]} {note_name(unit.representative)}",
                 pcm=stored.pcm,
                 depth_bits=stored.depth_bits,
                 c5speed=c5speed_for_pitch(stored.sample_rate, unit.representative),
@@ -175,7 +138,7 @@ def _material_patterns(
 
 
 def _assemble_module(
-    plan: InstrumentPlan | GroupedInstrumentPlan,
+    plan: StrategyPlan,
     samples: tuple[ITSample, ...],
     assignment: dict[int, int],
     material: Sequence[NoteEvent],
@@ -186,11 +149,11 @@ def _assemble_module(
     Everything strategy-specific is already resolved into ``samples``/``assignment``; the module name,
     instrument name and pattern wiring are identical for both, so they live here once.
     """
-    instrument = ITInstrument(name=plan.instrument_id[:25], note_map=identity_note_map(assignment))
+    instrument = ITInstrument(name=plan.instrument_id[:_NAME_MAX_CHARS], note_map=identity_note_map(assignment))
     playback = it_playback(ctx.playback)
     patterns, orders = _material_patterns(material, plan.velocity_map, playback)
     return ITModule(
-        name=plan.instrument_id[:25],
+        name=plan.instrument_id[:_NAME_MAX_CHARS],
         samples=samples,
         instruments=(instrument,),
         patterns=patterns,
@@ -199,30 +162,17 @@ def _assemble_module(
     )
 
 
-def build_it_module(
-    plan: InstrumentPlan, audio: AudioMap, sample_rate: int, material: Sequence[NoteEvent], ctx: ExportContext
-) -> ITModule:
-    """Assemble a complete :class:`ITModule` from an ungrouped plan (one sample per kept key)."""
-    samples, assignment = _build_unit_samples(plan.instrument_id, _plan_units(plan), audio, sample_rate, ctx)
-    return _assemble_module(plan, samples, assignment, material, ctx)
-
-
-def build_grouped_it_module(
-    plan: GroupedInstrumentPlan, audio: AudioMap, sample_rate: int, material: Sequence[NoteEvent], ctx: ExportContext
-) -> ITModule:
-    """Assemble a complete :class:`ITModule` from a grouped plan (one repitched sample per zone)."""
-    samples, assignment = _build_unit_samples(plan.instrument_id, _zone_units(plan), audio, sample_rate, ctx)
-    return _assemble_module(plan, samples, assignment, material, ctx)
-
-
 def build_module(
-    plan: InstrumentPlan | GroupedInstrumentPlan,
+    plan: StrategyPlan,
     audio: AudioMap,
     sample_rate: int,
     material: Sequence[NoteEvent],
     ctx: ExportContext,
 ) -> ITModule:
-    """Assemble the IT module for either strategy, dispatching on the plan type."""
-    if isinstance(plan, GroupedInstrumentPlan):
-        return build_grouped_it_module(plan, audio, sample_rate, material, ctx)
-    return build_it_module(plan, audio, sample_rate, material, ctx)
+    """Assemble a complete :class:`ITModule` from either strategy's plan.
+
+    The plan's :meth:`~optisample.optimize.plans.StrategyPlan.sample_units` reports the stored samples --
+    one per key (ungrouped) or one per zone (grouped) -- and the build below is identical for both.
+    """
+    samples, assignment = _build_unit_samples(plan.instrument_id, plan.sample_units(), audio, sample_rate, ctx)
+    return _assemble_module(plan, samples, assignment, material, ctx)

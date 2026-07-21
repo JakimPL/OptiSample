@@ -1,11 +1,12 @@
 """Re-encode a plan's stored samples and package each strategy for the dumper.
 
 A :class:`Unit` is one stored sample plus the pitch tasks it serves; the same seeded re-encode the
-exporter runs is replayed here so the decoded WAVs match ``module.it`` byte for byte. The two strategies
-differ only in which recording is a unit's representative and which keys it covers -- captured as
-``_UnitSpec``s first, then encoded through one shared RNG loop. :func:`make_kind` wraps a plan as a
-:class:`PlanKind` (its units, report text, plan document and a module builder) so the dumper serializes
-either strategy through one interface.
+exporter runs is replayed here so the decoded WAVs match ``module.it`` byte for byte. The plan reports
+its stored samples as :class:`~optisample.optimize.plans.SampleUnit`s (which recording is each unit's
+representative and which keys it covers), so this module encodes either strategy through one shared RNG
+loop without knowing which produced the plan. :func:`make_kind` wraps a plan as a :class:`PlanKind` (its
+units, report text, plan document and a module builder) so the dumper serializes either strategy through
+one interface.
 """
 
 from __future__ import annotations
@@ -17,13 +18,11 @@ import numpy as np
 
 from optisample.artifacts.context import DumpContext, DumpSettings
 from optisample.artifacts.serialize import PlanDocument, plan_document
-from optisample.dsp.surrogate import EncodeContext, EncodingParams, StoredSample, encode
+from optisample.dsp.surrogate import EncodeContext, StoredSample, encode
 from optisample.io.it_writer import ITModule
-from optisample.metrics.base import Signal
 from optisample.model import NoteEvent
-from optisample.music import note_name
 from optisample.optimize.export import ExportContext, build_module
-from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
+from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan, StrategyPlan
 from optisample.optimize.report import format_grouping_report, format_report
 from optisample.optimize.tasks import PitchTask
 
@@ -50,73 +49,27 @@ class PlanKind:
     make_module: Callable[[Sequence[NoteEvent]], ITModule]
 
 
-@dataclass(frozen=True)
-class _UnitSpec:
-    """What to re-encode for one unit, before the shared loop turns it into a :class:`Unit`."""
-
-    label: str
-    signal: Signal
-    params: EncodingParams
-    tasks: tuple[PitchTask, ...]
-    representative: int
-    representative_velocity: int
-
-
-def _ungrouped_specs(plan: InstrumentPlan, dctx: DumpContext) -> list[_UnitSpec]:
-    """One spec per kept pitch, taking the recording from the pitch's own task."""
-    specs: list[_UnitSpec] = []
-    for pitch in plan.pitches:
-        task = dctx.tasks_by_pitch[pitch.pitch]
-        specs.append(
-            _UnitSpec(
-                label=f"p{pitch.pitch:03d}_{note_name(pitch.pitch)}",
-                signal=task.representative,
-                params=pitch.chosen.params,
-                tasks=(task,),
-                representative=pitch.pitch,
-                representative_velocity=pitch.representative_velocity,
-            )
-        )
-    return specs
-
-
-def _grouped_specs(plan: GroupedInstrumentPlan, dctx: DumpContext) -> list[_UnitSpec]:
-    """One spec per zone, taking the recording from the zone representative and serving all its keys."""
-    specs: list[_UnitSpec] = []
-    for index, zone in enumerate(plan.zones):
-        specs.append(
-            _UnitSpec(
-                label=f"zone{index:02d}_rep{zone.representative:03d}_{note_name(zone.representative)}",
-                signal=dctx.audio[(zone.representative, zone.representative_velocity)],
-                params=zone.chosen.params,
-                tasks=tuple(dctx.tasks_by_pitch[pitch] for pitch in zone.pitches),
-                representative=zone.representative,
-                representative_velocity=zone.representative_velocity,
-            )
-        )
-    return specs
-
-
-def build_units(plan: InstrumentPlan | GroupedInstrumentPlan, dctx: DumpContext) -> tuple[Unit, ...]:
+def build_units(plan: StrategyPlan, dctx: DumpContext) -> tuple[Unit, ...]:
     """Re-encode every stored sample the plan kept, in the exporter's order + seed so the PCM matches.
 
-    The strategy-specific part is choosing each unit's recording and root pitch (the ``_UnitSpec``s);
-    encoding them through one seeded RNG is shared, which is what keeps the byte layout reproducing
-    ``module.it`` exactly. A unit's representative pitch is always its encode root.
+    ``plan.sample_units`` reports the strategy-specific choices -- each unit's representative recording,
+    root pitch and the keys it covers -- and encoding them through one seeded RNG is what keeps the byte
+    layout reproducing ``module.it`` exactly. A unit's representative pitch is always its encode root and
+    its recording is the loudest velocity actually played there.
     """
-    specs = _grouped_specs(plan, dctx) if isinstance(plan, GroupedInstrumentPlan) else _ungrouped_specs(plan, dctx)
     rng = np.random.default_rng(dctx.settings.optimize.seed)
     units: list[Unit] = []
-    for spec in specs:
-        encode_ctx = EncodeContext(root_pitch=spec.representative, config=dctx.settings.optimize.encode, rng=rng)
-        stored = encode(spec.signal, dctx.sample_rate, spec.params, encode_ctx)
+    for unit in plan.sample_units():
+        signal = dctx.audio[(unit.representative, unit.representative_velocity)]
+        encode_ctx = EncodeContext(root_pitch=unit.representative, config=dctx.settings.optimize.encode, rng=rng)
+        stored = encode(signal, dctx.sample_rate, unit.params, encode_ctx)
         units.append(
             Unit(
-                label=spec.label,
+                label=unit.label,
                 stored=stored,
-                tasks=spec.tasks,
-                representative=spec.representative,
-                representative_velocity=spec.representative_velocity,
+                tasks=tuple(dctx.tasks_by_pitch[key] for key in unit.keys),
+                representative=unit.representative,
+                representative_velocity=unit.representative_velocity,
             )
         )
     return tuple(units)
@@ -131,7 +84,7 @@ def make_kind(plan: InstrumentPlan | GroupedInstrumentPlan, dctx: DumpContext) -
     """Package a plan (ungrouped or grouped) as the strategy-agnostic pieces the dumper serializes.
 
     ``build_units`` yields units in plan order, so the stored loops line up with the plan's items when
-    :func:`plan_document` zips them together.
+    :func:`plan_document` zips them together. Only the report formatter is strategy-specific.
     """
     units = build_units(plan, dctx)
     export_ctx = _export_ctx(dctx.settings)
@@ -140,6 +93,8 @@ def make_kind(plan: InstrumentPlan | GroupedInstrumentPlan, dctx: DumpContext) -
     def make_module(material: Sequence[NoteEvent]) -> ITModule:
         return build_module(plan, dctx.audio, dctx.sample_rate, list(material), export_ctx)
 
-    if isinstance(plan, GroupedInstrumentPlan):
-        return PlanKind("grouped", units, format_grouping_report(plan), plan_document(plan, loops), make_module)
-    return PlanKind("ungrouped", units, format_report(plan), plan_document(plan, loops), make_module)
+    if plan.strategy == "grouped":
+        report_text = format_grouping_report(plan)
+    else:
+        report_text = format_report(plan)
+    return PlanKind(plan.strategy, units, report_text, plan_document(plan, loops), make_module)

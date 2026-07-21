@@ -8,9 +8,9 @@ from dataclasses import dataclass
 from optisample.io.it_format import INSTRUMENT_HEADER, KEYBOARD_NOTES
 from optisample.io.it_writer.constants import (
     _IMPI,
-    _NAME_BYTES,
     _PPC_C5,
     MAX_GLOBAL_VOLUME,
+    NAME_BYTES,
     _ascii,
     require_it_note,
 )
@@ -52,7 +52,7 @@ def _instrument_header(instrument: ITInstrument) -> bytes:
             "pitch_pan_center": _PPC_C5,
             "global_volume": min(instrument.global_volume, MAX_GLOBAL_VOLUME),
             "default_pan": instrument.default_pan & 0xFF,
-            "name": _ascii(instrument.name, _NAME_BYTES),
+            "name": _ascii(instrument.name, NAME_BYTES),
             "note_map": tuple(
                 (play_note & 0xFF, sample_number & 0xFF) for play_note, sample_number in instrument.note_map
             ),
