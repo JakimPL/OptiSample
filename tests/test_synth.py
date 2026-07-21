@@ -9,7 +9,8 @@ from optisample.cli import main
 from optisample.config.synth import SynthConfig
 from optisample.io.audio import read_wav
 from optisample.io.manifest import load_manifest
-from optisample.synth import Archetype, NoteSpec, generate_demo, midi_to_freq, render_sample
+from optisample.music import midi_to_freq
+from optisample.synth import Archetype, NoteSpec, generate_demo, render_sample
 
 QUICK_RATE = 8_000
 
