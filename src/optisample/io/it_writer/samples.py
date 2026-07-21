@@ -30,8 +30,8 @@ class ITSample:
     pcm: NDArray[np.floating]
     depth_bits: int = 16
     c5speed: int = 44_100
-    global_volume: int = 64
-    default_volume: int = 64
+    global_volume: int = MAX_VOLUME
+    default_volume: int = MAX_VOLUME
     loop: tuple[int, int] | None = None  # forward loop over half-open frame range [begin, end)
 
     @property

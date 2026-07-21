@@ -17,7 +17,7 @@ module reads the plan through :class:`~optisample.optimize.plans.StrategyPlan` a
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Final
 
@@ -70,9 +70,34 @@ def c5speed_for_pitch(stored_rate: int, pitch: int) -> int:
     return int(round(stored_rate * semitone_ratio(IT_C5_NOTE - pitch)))
 
 
+def row_seconds(playback: ITPlayback) -> float:
+    """Seconds one pattern row lasts at ``playback``'s speed/tempo (``speed`` ticks, each 2.5/tempo seconds)."""
+    return playback.speed * TICKS_PER_ROW_BASE / playback.tempo
+
+
 def _it_loop(stored: StoredSample) -> tuple[int, int] | None:
     """The stored sample's loop as the ``(begin, end)`` frame pair the IT writer expects (or ``None``)."""
     return None if stored.loop is None else (stored.loop.start, stored.loop.end)
+
+
+def encode_plan_units(
+    units: Sequence[SampleUnit],
+    audio: AudioMap,
+    sample_rate: int,
+    encode_config: EncodeConfig,
+    seed: int,
+) -> Iterator[tuple[SampleUnit, StoredSample]]:
+    """Re-encode each unit's representative recording in plan order from one seeded RNG.
+
+    The exporter and the artifact dumper share this loop so the decoded PCM stays byte-identical between
+    ``module.it`` and the inspection WAVs. One RNG advances once per unit in iteration order, so every
+    stored sample's dither is reproducible from ``seed``.
+    """
+    rng = np.random.default_rng(seed)
+    for unit in units:
+        representative: Signal = audio[(unit.representative, unit.representative_velocity)]
+        encode_ctx = EncodeContext(root_pitch=unit.representative, config=encode_config, rng=rng)
+        yield unit, encode(representative, sample_rate, unit.params, encode_ctx)
 
 
 def _build_unit_samples(
@@ -83,13 +108,9 @@ def _build_unit_samples(
     Units are encoded in order from one seeded RNG, so the byte layout reproduces the plan exactly;
     the returned assignment is 1-based, matching how the IT note map numbers samples.
     """
-    rng = np.random.default_rng(ctx.seed)
     samples: list[ITSample] = []
     assignment: dict[int, int] = {}
-    for index, unit in enumerate(units):
-        representative: Signal = audio[(unit.representative, unit.representative_velocity)]
-        encode_ctx = EncodeContext(root_pitch=unit.representative, config=ctx.encode, rng=rng)
-        stored = encode(representative, sample_rate, unit.params, encode_ctx)
+    for index, (unit, stored) in enumerate(encode_plan_units(units, audio, sample_rate, ctx.encode, ctx.seed)):
         samples.append(
             ITSample(
                 name=f"{instrument_id[:_SAMPLE_LABEL_CHARS]} {note_name(unit.representative)}",
@@ -105,9 +126,9 @@ def _build_unit_samples(
     return tuple(samples), assignment
 
 
-def _event_rows(duration_s: float, row_seconds: float) -> int:
+def _event_rows(duration_s: float, seconds_per_row: float) -> int:
     """A note's length in pattern rows: at least one row, capped so the note plus its cut fit a pattern."""
-    return min(max(1, int(round(duration_s / row_seconds))), MAX_ROWS - 2)
+    return min(max(1, int(round(duration_s / seconds_per_row))), MAX_ROWS - 2)
 
 
 def _material_patterns(
@@ -120,12 +141,12 @@ def _material_patterns(
     one. Notes fill rows back to back; when the next note would overflow ``MAX_ROWS`` the current pattern
     is flushed and a fresh one begins, so a long piece spans several patterns played in order.
     """
-    row_seconds = playback.speed * TICKS_PER_ROW_BASE / playback.tempo
+    seconds_per_row = row_seconds(playback)
     patterns: list[ITPattern] = []
     cells: list[tuple[int, int, ITCell]] = []
     cursor = 0
     for event in material:
-        rows = _event_rows(event.duration_s, row_seconds)
+        rows = _event_rows(event.duration_s, seconds_per_row)
         if cells and cursor + rows + 1 > MAX_ROWS:
             patterns.append(ITPattern(rows=cursor, cells=tuple(cells)))
             cells, cursor = [], 0

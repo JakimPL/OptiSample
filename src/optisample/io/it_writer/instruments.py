@@ -11,6 +11,8 @@ from optisample.io.it_writer.constants import (
     _PPC_C5,
     MAX_GLOBAL_VOLUME,
     NAME_BYTES,
+    NOTE_ACTION_CUT,
+    PAN_CENTER,
     _ascii,
     require_it_note,
 )
@@ -22,9 +24,9 @@ class ITInstrument:
 
     name: str
     note_map: tuple[tuple[int, int], ...]
-    global_volume: int = 128
-    default_pan: int = 32
-    new_note_action: int = 0  # 0=cut, 1=continue, 2=off, 3=fade.
+    global_volume: int = MAX_GLOBAL_VOLUME
+    default_pan: int = PAN_CENTER
+    new_note_action: int = NOTE_ACTION_CUT
 
 
 def identity_note_map(assignments: Mapping[int, int]) -> tuple[tuple[int, int], ...]:

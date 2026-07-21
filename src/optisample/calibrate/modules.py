@@ -13,7 +13,6 @@ from optisample.calibrate.context import NoteProbe
 from optisample.dsp.surrogate import StoredSample
 from optisample.io.it_writer import (
     MAX_ROWS,
-    TICKS_PER_ROW_BASE,
     ITCell,
     ITInstrument,
     ITModule,
@@ -22,7 +21,7 @@ from optisample.io.it_writer import (
     ITSample,
     identity_note_map,
 )
-from optisample.optimize.export import c5speed_for_pitch
+from optisample.optimize.export import c5speed_for_pitch, row_seconds
 
 _ROW_MARGIN: Final = 2  # extra rows so the pattern outlasts the requested duration after row rounding
 
@@ -36,8 +35,8 @@ def single_note_module(
     then transposes exactly as the surrogate does. The note is held (no cut) and the pattern is sized to
     outlast ``probe.duration_s`` -- callers trim the render to the duration they asked for.
     """
-    row_seconds = playback.speed * TICKS_PER_ROW_BASE / playback.tempo
-    rows = min(MAX_ROWS, int(probe.duration_s / row_seconds) + _ROW_MARGIN)
+    seconds_per_row = row_seconds(playback)
+    rows = min(MAX_ROWS, int(probe.duration_s / seconds_per_row) + _ROW_MARGIN)
     sample = ITSample(
         name=name,
         pcm=stored.pcm,

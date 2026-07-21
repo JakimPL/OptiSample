@@ -43,6 +43,7 @@ MAX_MIX_VOLUME: Final = 128  # file-header mix-volume ceiling.
 PANNING_SEPARATION: Final = 128  # full stereo separation in the file header.
 PAN_CENTER: Final = 32  # centred channel pan (IT pan spans 0..64).
 CHANNEL_VOLUME_FULL: Final = MAX_VOLUME  # every stored channel plays at full volume (0..64).
+NOTE_ACTION_CUT: Final = 0  # new-note action: cut the previous note (IT: 0=cut, 1=continue, 2=off, 3=fade).
 
 _MASK_NOTE: Final = 0x01
 _MASK_INSTRUMENT: Final = 0x02

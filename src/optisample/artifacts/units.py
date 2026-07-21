@@ -14,14 +14,12 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-import numpy as np
-
 from optisample.artifacts.context import DumpContext, DumpSettings
 from optisample.artifacts.serialize import PlanDocument, plan_document
-from optisample.dsp.surrogate import EncodeContext, StoredSample, encode
+from optisample.dsp.surrogate import StoredSample
 from optisample.io.it_writer import ITModule
 from optisample.model import NoteEvent
-from optisample.optimize.export import ExportContext, build_module
+from optisample.optimize.export import ExportContext, build_module, encode_plan_units
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan, StrategyPlan
 from optisample.optimize.report import format_grouping_report, format_report
 from optisample.optimize.tasks import PitchTask
@@ -57,12 +55,15 @@ def build_units(plan: StrategyPlan, dctx: DumpContext) -> tuple[Unit, ...]:
     layout reproducing ``module.it`` exactly. A unit's representative pitch is always its encode root and
     its recording is the loudest velocity actually played there.
     """
-    rng = np.random.default_rng(dctx.settings.optimize.seed)
     units: list[Unit] = []
-    for unit in plan.sample_units():
-        signal = dctx.audio[(unit.representative, unit.representative_velocity)]
-        encode_ctx = EncodeContext(root_pitch=unit.representative, config=dctx.settings.optimize.encode, rng=rng)
-        stored = encode(signal, dctx.sample_rate, unit.params, encode_ctx)
+    encoded = encode_plan_units(
+        plan.sample_units(),
+        dctx.audio,
+        dctx.sample_rate,
+        dctx.settings.optimize.encode,
+        dctx.settings.optimize.seed,
+    )
+    for unit, stored in encoded:
         units.append(
             Unit(
                 label=unit.label,
