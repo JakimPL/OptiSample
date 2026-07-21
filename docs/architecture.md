@@ -16,7 +16,7 @@ in the right place.
 | `optimize/` | The allocation pipeline (see below). | `dsp`, `metrics`, `model`, `io`, `config`, `music` |
 | `io/` | The file/format boundary: `audio` (WAV), `manifest`, `it_format` (declarative IT record layout), the `it_writer/` subpackage (IT binary serializer — `constants`, `samples`, `instruments`, `patterns`, `module`), `it_read` (round-trip), `render` (openmpt123 wrapper). | `config`, `metrics.size`, `music`, `dsp.surrogate` (`MAX_VOLUME`) |
 | `synth/` | Synthetic demo-audio generation: the `archetypes` module (pure archetype synthesis) and `generate` (render a preset grid to WAVs + a `manifest.yaml`). | `config`, `music`, `io`, `model` |
-| `calibrate.py` | Surrogate-vs-openmpt calibration diagnostics. | `optimize`, `io`, `metrics` |
+| `calibrate/` | Surrogate-vs-openmpt calibration diagnostics: `context` (probe/result/context value objects), `modules` (the minimal one-note IT module for openmpt), `agreement` (render both ways, compare, rank-correlate). | `optimize`, `io`, `metrics`, `dsp`, `config` |
 | `artifacts/` | Inspection-artifact dumper (module + report + plan + per-note A/B WAVs + metrics). | `optimize`, `io`, `metrics` |
 | `cli.py`, `__main__.py` | Entry point: load config once, build settings, thread them down. | everything |
 
