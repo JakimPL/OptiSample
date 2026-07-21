@@ -161,7 +161,6 @@ def _dump_plan(kind: PlanKind, out_dir: Path, dctx: DumpContext, started_at: flo
     _write_metrics(kind, out_dir, dctx)
     return PlanArtifacts(
         name=kind.name,
-        feasible=True,
         reason=None,
         rendered=rendered,
         objective=kind.plan_document.objective,
@@ -183,7 +182,6 @@ def _optimize_and_dump(
         write_text(out_dir / "INFEASIBLE.txt", f"{strategy.name} allocation is infeasible at this budget:\n{exc}\n")
         return PlanArtifacts(
             strategy.name,
-            feasible=False,
             reason=str(exc),
             rendered=False,
             objective=None,

@@ -122,22 +122,29 @@ def _hulls(items: tuple[KnapsackItem, ...]) -> list[tuple[OperatingPoint, ...]]:
     return [tuple(lower_convex_hull(item.points)) for item in items]
 
 
-def _hull_upgrades(
-    items: tuple[KnapsackItem, ...], hulls: list[tuple[OperatingPoint, ...]]
-) -> list[tuple[float, int, int]]:
-    """Every single-step hull upgrade as ``(slope, item, step)``, steepest distortion-per-byte first.
+@dataclass(frozen=True)
+class _HullUpgrade:
+    """One cheapest-first hull step: item ``item_index`` moves to its next vertex for ``slope`` savings."""
+
+    slope: float  # material-weighted distortion saved per extra byte spent on this step
+    item_index: int
+    step: int
+
+
+def _hull_upgrades(items: tuple[KnapsackItem, ...], hulls: list[tuple[OperatingPoint, ...]]) -> list[_HullUpgrade]:
+    """Every single-step hull upgrade, steepest distortion-per-byte first.
 
     Each hull is ordered cheapest-first, so stepping vertex ``k`` -> ``k+1`` spends ``delta_bytes`` more
     to save ``weight * delta_distortion`` distortion. Sorting by that slope descending is exactly the
     order the Lagrangian sweep applies upgrades: the best saving per byte is always bought next.
     """
-    upgrades: list[tuple[float, int, int]] = []
+    upgrades: list[_HullUpgrade] = []
     for item_pos, (item, hull) in enumerate(zip(items, hulls)):
         for step in range(len(hull) - 1):
             delta_bytes = hull[step + 1].stored_bytes - hull[step].stored_bytes
             delta_distortion = hull[step].distortion - hull[step + 1].distortion
-            upgrades.append((item.weight * delta_distortion / delta_bytes, item_pos, step))
-    upgrades.sort(key=lambda upgrade: upgrade[0], reverse=True)
+            upgrades.append(_HullUpgrade(item.weight * delta_distortion / delta_bytes, item_pos, step))
+    upgrades.sort(key=lambda upgrade: upgrade.slope, reverse=True)
     return upgrades
 
 
@@ -151,12 +158,16 @@ def _lagrangian_curve(
     objective = sum(item.weight * hull[0].distortion for item, hull in zip(items, hulls))
 
     curve = [RDCurvePoint(lam=np.inf, total_bytes=total_bytes, objective=objective, indices=tuple(index))]
-    for lam, item_pos, step in _hull_upgrades(items, hulls):
-        hull = hulls[item_pos]
-        total_bytes += hull[step + 1].stored_bytes - hull[step].stored_bytes
-        objective -= items[item_pos].weight * (hull[step].distortion - hull[step + 1].distortion)
-        index[item_pos] += 1
-        curve.append(RDCurvePoint(lam=lam, total_bytes=total_bytes, objective=objective, indices=tuple(index)))
+    for upgrade in _hull_upgrades(items, hulls):
+        hull = hulls[upgrade.item_index]
+        total_bytes += hull[upgrade.step + 1].stored_bytes - hull[upgrade.step].stored_bytes
+        objective -= items[upgrade.item_index].weight * (
+            hull[upgrade.step].distortion - hull[upgrade.step + 1].distortion
+        )
+        index[upgrade.item_index] += 1
+        curve.append(
+            RDCurvePoint(lam=upgrade.slope, total_bytes=total_bytes, objective=objective, indices=tuple(index))
+        )
     return curve, hulls
 
 

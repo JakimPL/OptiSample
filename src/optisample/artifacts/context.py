@@ -55,12 +55,16 @@ class PlanArtifacts:
     """
 
     name: str
-    feasible: bool
     reason: str | None
     rendered: bool  # whether an openmpt123 ground-truth render was written
     objective: float | None
     used_bytes: int | None
     elapsed_s: float  # wall-clock for this strategy end to end (optimize + artifact dump)
+
+    @property
+    def feasible(self) -> bool:
+        """Whether the strategy fit the budget; an infeasible run carries its ``reason`` instead of a plan."""
+        return self.reason is None
 
 
 @dataclass(frozen=True)

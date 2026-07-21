@@ -51,6 +51,7 @@ from optisample.optimize.velocity_map import VelocityVolumeMap
 
 _NAME_MAX_CHARS: Final = NAME_BYTES - 1  # leave the final byte of every 26-B name field as a null terminator.
 _SAMPLE_LABEL_CHARS: Final = 18  # instrument-id chars kept before the " <note>" suffix in a sample name.
+DEFAULT_SEED: Final = 0  # default dither seed; re-encoding a plan with it reproduces the exact budgeted bytes.
 
 
 @dataclass(frozen=True)
@@ -62,7 +63,7 @@ class ExportContext:
 
     encode: EncodeConfig
     playback: PlaybackConfig
-    seed: int = 0
+    seed: int = DEFAULT_SEED
 
 
 def c5speed_for_pitch(stored_rate: int, pitch: int) -> int:

@@ -24,7 +24,6 @@ def test_dump_context_indexes_tasks_by_material_pitch(dump_context: DumpContext)
 def test_plan_artifacts_and_result_carry_the_outcome() -> None:
     artifact = PlanArtifacts(
         name="ungrouped",
-        feasible=True,
         reason=None,
         rendered=False,
         objective=1.25,

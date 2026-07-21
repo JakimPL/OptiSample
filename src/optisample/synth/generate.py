@@ -8,6 +8,7 @@ consumes. Deterministic for a given seed.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Final
 
 import numpy as np
 
@@ -16,6 +17,8 @@ from optisample.io.audio import write_wav
 from optisample.io.manifest import dump_manifest
 from optisample.model import InstrumentSpec, Manifest, NoteEvent, ProjectSpec, SourceSample
 from optisample.synth.archetypes import NoteSpec, render_sample
+
+DEFAULT_SEED: Final = 0  # default RNG seed for reproducible demo generation.
 
 
 def _render_instrument(
@@ -37,7 +40,9 @@ def _render_instrument(
     return InstrumentSpec(id=preset.id, budget_kb=preset.budget_kb, samples=samples, material=material)
 
 
-def generate_demo(outdir: Path | str, config: SynthConfig, *, sample_rate: int | None = None, seed: int = 0) -> Path:
+def generate_demo(
+    outdir: Path | str, config: SynthConfig, *, sample_rate: int | None = None, seed: int = DEFAULT_SEED
+) -> Path:
     """Render every preset instrument in ``config`` to ``outdir`` and write a ``manifest.yaml``.
 
     ``sample_rate`` overrides the render rate for a quick low-rate run; ``None`` uses

@@ -6,6 +6,7 @@ import pstats
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import Final
 
 from optisample.artifacts import DumpSettings, dump_project
 from optisample.config import OptiConfig, load_config
@@ -14,6 +15,8 @@ from optisample.io.manifest import load_manifest
 from optisample.metrics import build_composite
 from optisample.optimize.orchestrate import OptimizeSettings
 from optisample.synth import generate_demo
+
+DEFAULT_SEED: Final = 0  # default RNG seed for both subcommands when --seed is not given.
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
     synth = sub.add_parser("synth", parents=[common], help="Generate a synthetic demo dataset + manifest")
     synth.add_argument("outdir", type=Path, help="Directory to write samples and manifest.yaml into")
     synth.add_argument("--sample-rate", type=int, default=None, help="Render sample rate (Hz); defaults to the config")
-    synth.add_argument("--seed", type=int, default=0, help="RNG seed for reproducible output")
+    synth.add_argument("--seed", type=int, default=DEFAULT_SEED, help="RNG seed for reproducible output")
 
     optimize = sub.add_parser("optimize", parents=[common], help="Optimize a manifest and dump inspectable artifacts")
     optimize.add_argument("manifest", type=Path, help="Path to manifest.yaml")
@@ -35,7 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
     optimize.add_argument("--rate", type=int, action="append", dest="rates", help="Sample rate to sweep (repeatable)")
     optimize.add_argument("--depth", type=int, action="append", dest="depths", help="Bit depth to sweep (repeatable)")
     optimize.add_argument("--no-loop", action="store_true", help="Disable looping (store full-length samples)")
-    optimize.add_argument("--seed", type=int, default=0, help="RNG seed for reproducible encoding")
+    optimize.add_argument("--seed", type=int, default=DEFAULT_SEED, help="RNG seed for reproducible encoding")
     optimize.add_argument(
         "--profile", action="store_true", help="Run under cProfile and print the hottest functions to stderr"
     )

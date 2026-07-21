@@ -12,6 +12,7 @@ the same budget (an approximate one can, and does).
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 import numpy as np
 from numpy.typing import NDArray
@@ -20,6 +21,15 @@ from optisample.optimize.dp import require_feasible
 from optisample.optimize.grouping.cost_model import _Range, _ZoneOptions, zone_hull
 from optisample.optimize.plans.grouped import GroupingResult, Zone, ZoneOption
 from optisample.optimize.tasks import PitchTask
+
+
+@dataclass(frozen=True)
+class _Segment:
+    """One recovered zone: the half-open pitch-index range ``[start, stop)`` and its chosen option."""
+
+    start: int
+    stop: int
+    option: ZoneOption
 
 
 def _cheapest_partition_bytes(options: _ZoneOptions, count: int) -> int:
@@ -58,14 +68,14 @@ def _forward_dp(
 
 def _reconstruct(
     options: _ZoneOptions, from_i: list[NDArray[np.int64]], from_opt: list[NDArray[np.int64]], count: int, total: int
-) -> list[tuple[int, int, ZoneOption]]:
+) -> list[_Segment]:
     """Walk the DP backpointers from ``(count, total)`` back to ``(0, 0)`` to recover the zones."""
-    segments: list[tuple[int, int, ZoneOption]] = []
+    segments: list[_Segment] = []
     j, budget = count, total
     while j > 0:
         i = int(from_i[j][budget])
         option = options[(i, j)][int(from_opt[j][budget])]
-        segments.append((i, j, option))
+        segments.append(_Segment(start=i, stop=j, option=option))
         budget -= option.stored_bytes
         j = i
     segments.reverse()
@@ -98,5 +108,8 @@ def solve_grouping(tasks: Sequence[PitchTask], options: _ZoneOptions, budget_byt
     reachable = np.flatnonzero(np.isfinite(dp[count]))
     best_bytes = int(reachable[int(np.argmin(dp[count][reachable]))])
     segments = _reconstruct(options, from_i, from_opt, count, best_bytes)
-    zones = tuple(_build_zone(tasks, (i, j), option, options[(i, j)]) for i, j, option in segments)
+    zones = tuple(
+        _build_zone(tasks, (segment.start, segment.stop), segment.option, options[(segment.start, segment.stop)])
+        for segment in segments
+    )
     return GroupingResult(zones=zones, total_bytes=best_bytes, objective=float(dp[count][best_bytes]))

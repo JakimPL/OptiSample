@@ -20,6 +20,7 @@ The work splits across the subpackage:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Final
 
 import numpy as np
 
@@ -37,6 +38,8 @@ from optisample.optimize.plans import InstrumentPlan, Method, split_budget
 from optisample.optimize.tasks import AudioMap, EvalContext, PitchTask, build_tasks
 from optisample.optimize.velocity_map import VelocityVolumeMap, derive_velocity_map, loudness_by_velocity
 
+DEFAULT_SEED: Final = 0  # default dither-RNG seed; a code default, not a tuning knob.
+
 
 @dataclass(frozen=True)
 class OptimizeSettings:
@@ -52,7 +55,7 @@ class OptimizeSettings:
     composite: CompositeFidelity
     velocity: VelocityConfig
     method: Method
-    seed: int = 0
+    seed: int = DEFAULT_SEED
 
 
 def prepare_run(

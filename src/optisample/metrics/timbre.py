@@ -73,9 +73,14 @@ class SpectralShape:
 
     def distance(self, reference: Signal, candidate: Signal, ctx: MetricContext) -> float:
         parts = self.components(reference, candidate, ctx.sample_rate)
-        keys = ("centroid", "rolloff", "flatness", "flux_variance")
-        weights = (self.weights.centroid, self.weights.rolloff, self.weights.flatness, self.weights.flux_variance)
-        return float(sum(weight * parts[key] for weight, key in zip(weights, keys)))
+        weighted = (
+            self.weights.centroid * parts["centroid"],
+            self.weights.rolloff * parts["rolloff"],
+            self.weights.flatness * parts["flatness"],
+            self.weights.flux_variance * parts["flux_variance"],
+        )
+        # sum(), not a ``+`` chain: CPython's compensated float summation fixes the exact score.
+        return float(sum(weighted))
 
 
 register_metric(

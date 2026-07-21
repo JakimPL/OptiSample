@@ -73,20 +73,6 @@ class QualityReport:
     diagnostics: dict[str, float]
 
 
-def _diagnostics(
-    raw: tuple[Signal, Signal], norm: tuple[Signal, Signal], sample_rate: int, segmental: SegmentalSnrConfig
-) -> dict[str, float]:
-    """Level/SNR diagnostics surfaced next to the composite: raw signals for level, normalized for SNR."""
-    raw_ref, raw_cand = raw
-    norm_ref, norm_cand = norm
-    return {
-        "loudness_delta_lu": loudness_delta(raw_ref, raw_cand, sample_rate),
-        "si_sdr_db": si_sdr(raw_ref, raw_cand),
-        "snr_db": snr(norm_ref, norm_cand),
-        "segmental_snr_db": segmental_snr(norm_ref, norm_cand, segmental),
-    }
-
-
 def evaluate(
     reference: Signal,
     candidate: Signal,
@@ -95,9 +81,18 @@ def evaluate(
     *,
     normalize: bool = True,
 ) -> QualityReport:
-    """Compare two signals: composite fidelity (loudness-matched) + interpretable diagnostics."""
+    """Compare two signals: composite fidelity (loudness-matched) + interpretable diagnostics.
+
+    The level diagnostics read the raw (length-matched) signals; the SNR diagnostics read the
+    loudness-normalized pair, so each is measured on the signals it is meaningful for.
+    """
     raw_ref, raw_cand = match_length(reference, candidate)
     norm_ref, norm_cand, ctx = prepare(reference, candidate, sample_rate, composite.target_lufs, normalize=normalize)
     fidelity, breakdown = composite.score(norm_ref, norm_cand, ctx)
-    diagnostics = _diagnostics((raw_ref, raw_cand), (norm_ref, norm_cand), sample_rate, composite.segmental)
+    diagnostics = {
+        "loudness_delta_lu": loudness_delta(raw_ref, raw_cand, sample_rate),
+        "si_sdr_db": si_sdr(raw_ref, raw_cand),
+        "snr_db": snr(norm_ref, norm_cand),
+        "segmental_snr_db": segmental_snr(norm_ref, norm_cand, composite.segmental),
+    }
     return QualityReport(fidelity=fidelity, breakdown=breakdown, diagnostics=diagnostics)
