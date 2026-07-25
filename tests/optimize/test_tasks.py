@@ -13,7 +13,8 @@ from numpy.typing import NDArray
 from optisample.config.optimize import SweepConfig
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, StoredSample, encode
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
-from optisample.optimize.orchestrate import OptimizeSettings, prepare_run
+from optisample.optimize.orchestrate import prepare_run
+from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.tasks import (
     AudioMap,
     EvalContext,

@@ -21,7 +21,7 @@ from optisample.config import OptiConfig, load_config
 from optisample.config.optimize import SweepConfig
 from optisample.io.manifest import load_manifest
 from optisample.metrics import build_composite
-from optisample.optimize.orchestrate import OptimizeSettings
+from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.synth import generate_demo
 
 DEFAULT_SEED: Final = 0  # default RNG seed for both subcommands when --seed is not given.

@@ -14,7 +14,7 @@ from pathlib import Path
 
 from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.model import NoteEvent
-from optisample.optimize.orchestrate import OptimizeSettings
+from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.tasks import AudioMap, EvalContext, PitchTask
 
 

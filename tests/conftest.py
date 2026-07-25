@@ -24,7 +24,7 @@ from optisample.dsp.surrogate import EncodeContext
 from optisample.io.it_writer import ITPlayback, it_playback
 from optisample.metrics import CompositeFidelity, build_composite
 from optisample.optimize.export import ExportContext
-from optisample.optimize.orchestrate import OptimizeSettings
+from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.synth import NoteSpec, render_sample
 
 _NOTE_SR = 44_100

@@ -12,12 +12,9 @@ from optisample.config.optimize import SweepConfig
 from optisample.io.audio import write_wav
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.dp import BudgetInfeasibleError
-from optisample.optimize.orchestrate import (
-    OptimizeSettings,
-    load_instrument_audio,
-    optimize_instrument,
-    run_instrument,
-)
+from optisample.optimize.orchestrate import optimize_instrument, run_instrument
+from optisample.optimize.orchestrate.audio import load_instrument_audio
+from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import InstrumentPlan
 from optisample.synth import NoteSpec, render_sample
 

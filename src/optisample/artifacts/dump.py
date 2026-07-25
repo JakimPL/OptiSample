@@ -57,7 +57,9 @@ from optisample.model import InstrumentSpec, Manifest, NoteEvent
 from optisample.music import note_name
 from optisample.optimize.dp import BudgetInfeasibleError
 from optisample.optimize.grouping import optimize_instrument_grouped
-from optisample.optimize.orchestrate import OptimizeSettings, load_instrument_audio, optimize_instrument, prepare_run
+from optisample.optimize.orchestrate import optimize_instrument, prepare_run
+from optisample.optimize.orchestrate.audio import load_instrument_audio
+from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
 from optisample.optimize.tasks import AudioMap, Event, PitchTask
 

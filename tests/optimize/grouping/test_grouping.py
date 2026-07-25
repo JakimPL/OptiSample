@@ -19,7 +19,8 @@ from optisample.optimize.grouping import (
     zone_hull,
 )
 from optisample.optimize.grouping.cost_model import _zone_trim
-from optisample.optimize.orchestrate import OptimizeSettings, optimize_instrument, prepare_run
+from optisample.optimize.orchestrate import optimize_instrument, prepare_run
+from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import GroupedInstrumentPlan, ZoneOption
 from optisample.optimize.tasks import Event, PitchTask
 from optisample.synth import NoteSpec, render_sample

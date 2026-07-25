@@ -19,7 +19,8 @@ from optisample.config.optimize import SweepConfig
 from optisample.metrics import build_composite
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.grouping import optimize_instrument_grouped
-from optisample.optimize.orchestrate import OptimizeSettings, optimize_instrument, prepare_run
+from optisample.optimize.orchestrate import optimize_instrument, prepare_run
+from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
 from optisample.optimize.tasks import AudioMap
 

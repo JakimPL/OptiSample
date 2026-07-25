@@ -9,6 +9,8 @@ recording cannot cover across a key's dynamics.
 
 The work splits across the subpackage:
 
+* :mod:`.settings` bundles the config one run consumes;
+* :mod:`.audio` reads the recordings from disk into one signal per key;
 * :mod:`.cost_model` sweeps each pitch's rate x depth encoding grid into one knapsack item plus its
   lower-convex-hull configs;
 * :mod:`.solve` runs the MCKP allocation under the byte budget and attaches the chosen config to each
@@ -19,43 +21,17 @@ The work splits across the subpackage:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Final
-
 import numpy as np
 
-from optisample.config.dsp import EncodeConfig
-from optisample.config.optimize import SweepConfig, VelocityConfig
-from optisample.dsp.resample import resample_to
-from optisample.io.audio import read_wav
-from optisample.metrics.base import Signal
-from optisample.metrics.composite import CompositeFidelity
 from optisample.model import InstrumentSpec
 from optisample.optimize.knapsack import rd_curve
+from optisample.optimize.orchestrate.audio import load_instrument_audio
 from optisample.optimize.orchestrate.cost_model import build_items
+from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.orchestrate.solve import solve_allocation
-from optisample.optimize.plans import InstrumentPlan, Method, split_budget
+from optisample.optimize.plans import InstrumentPlan, split_budget
 from optisample.optimize.tasks import AudioMap, EvalContext, PitchTask, build_tasks
 from optisample.optimize.velocity_map import VelocityVolumeMap, derive_velocity_map, loudness_by_velocity
-
-DEFAULT_SEED: Final = 0  # default dither-RNG seed; a code default, not a tuning knob.
-
-
-@dataclass(frozen=True)
-class OptimizeSettings:
-    """Knobs for one optimization run (bundled to keep the call site small).
-
-    Carries the config the run needs -- the encoding sweep grid, the encode config, the prebuilt
-    composite fidelity, the velocity-map shaping and the solver method -- all sourced from config at
-    the entry point. ``seed`` drives the dither RNG (not a tuning knob, so it keeps a code default).
-    """
-
-    sweep: SweepConfig
-    encode: EncodeConfig
-    composite: CompositeFidelity
-    velocity: VelocityConfig
-    method: Method
-    seed: int = DEFAULT_SEED
 
 
 def prepare_run(
@@ -102,22 +78,6 @@ def optimize_instrument(
     )
 
 
-def load_instrument_audio(instrument: InstrumentSpec) -> tuple[dict[tuple[int, int], Signal], int]:
-    """Read every recording of ``instrument`` into ``(pitch, velocity) -> signal`` at a common rate."""
-    audio: dict[tuple[int, int], Signal] = {}
-    sample_rate = 0
-    for sample in instrument.samples:
-        data, rate = read_wav(sample.file)
-        if data.ndim > 1:
-            data = np.mean(data, axis=1)
-        if sample_rate == 0:
-            sample_rate = rate
-        elif rate != sample_rate:
-            data = resample_to(data, rate, sample_rate)
-        audio[(sample.pitch, sample.velocity)] = np.asarray(data, dtype=np.float64)
-    return audio, sample_rate
-
-
 def run_instrument(instrument: InstrumentSpec, settings: OptimizeSettings) -> InstrumentPlan:
     """Load an instrument's recordings from disk and optimize it."""
     audio, sample_rate = load_instrument_audio(instrument)
@@ -125,8 +85,6 @@ def run_instrument(instrument: InstrumentSpec, settings: OptimizeSettings) -> In
 
 
 __all__ = [
-    "OptimizeSettings",
-    "load_instrument_audio",
     "optimize_instrument",
     "prepare_run",
     "run_instrument",

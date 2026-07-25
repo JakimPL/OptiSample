@@ -16,7 +16,7 @@ from optisample.io.audio import read_wav, write_wav
 from optisample.io.render import openmpt123_available
 from optisample.metrics import build_composite
 from optisample.model import InstrumentSpec, Manifest, NoteEvent, ProjectSpec, SourceSample
-from optisample.optimize.orchestrate import OptimizeSettings
+from optisample.optimize.orchestrate.settings import OptimizeSettings
 
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
 

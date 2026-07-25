@@ -16,7 +16,8 @@ from optisample.io.render import openmpt123_available, render_module
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.export import ExportContext, build_module, c5speed_for_pitch
 from optisample.optimize.grouping import optimize_instrument_grouped
-from optisample.optimize.orchestrate import OptimizeSettings, optimize_instrument
+from optisample.optimize.orchestrate import optimize_instrument
+from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import BudgetBreakdown, GroupedInstrumentPlan, InstrumentPlan, Zone, ZoneOption
 from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
 

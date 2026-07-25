@@ -20,7 +20,9 @@ from __future__ import annotations
 from optisample.model import InstrumentSpec
 from optisample.optimize.grouping.cost_model import build_zone_options, zone_hull
 from optisample.optimize.grouping.solve import solve_grouping
-from optisample.optimize.orchestrate import OptimizeSettings, load_instrument_audio, prepare_run
+from optisample.optimize.orchestrate import prepare_run
+from optisample.optimize.orchestrate.audio import load_instrument_audio
+from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import GroupedInstrumentPlan, split_budget
 from optisample.optimize.tasks import AudioMap
 
