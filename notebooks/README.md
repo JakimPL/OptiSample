@@ -15,8 +15,9 @@ uv run marimo run  notebooks/explore.py     # read-only app
 ```
 
 On first run, `explore.py` generates a synthetic demo project under `notebooks/_demo/`
-(git-ignored) and loads its manifest. Point the *manifest.yaml* field at your own project to
-inspect real recordings instead.
+(git-ignored) — one `.notes.json` + samples directory per preset — and loads them into a combined
+manifest. Point the *demo directory* field at your own directory of `.notes.json` files to inspect
+real recordings instead.
 
 ## `explore.py` — sample & metric inspector
 

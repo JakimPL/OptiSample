@@ -32,5 +32,5 @@ def tone() -> Callable[..., NDArray[np.float64]]:
 @pytest.fixture(scope="module")
 def demo(tmp_path_factory: pytest.TempPathFactory, config: OptiConfig) -> Demo:
     root = tmp_path_factory.mktemp("demo")
-    manifest = loading.load(loading.ensure_demo_manifest(root, config.synth))
+    manifest = loading.load(loading.ensure_demo(root, config.synth))
     return root, manifest

@@ -54,15 +54,17 @@ def _(mo):
 @app.cell
 def _(config, loading, mo, root):
     _demo_dir = root / "notebooks" / "_demo"
-    _default_manifest = loading.ensure_demo_manifest(_demo_dir, config.synth)
-    manifest_path_input = mo.ui.text(value=str(_default_manifest), label="manifest.yaml", full_width=True)
-    mo.md(f"**Manifest** (defaults to a freshly generated synthetic demo)\n\n{manifest_path_input}")
-    return (manifest_path_input,)
+    _default_demo = loading.ensure_demo(_demo_dir, config.synth)
+    demo_dir_input = mo.ui.text(
+        value=str(_default_demo), label="demo directory (.notes.json + samples)", full_width=True
+    )
+    mo.md(f"**Demo directory** (defaults to a freshly generated synthetic dataset)\n\n{demo_dir_input}")
+    return (demo_dir_input,)
 
 
 @app.cell
-def _(loading, manifest_path_input, mo):
-    manifest = loading.load(manifest_path_input.value)
+def _(demo_dir_input, loading, mo):
+    manifest = loading.load(demo_dir_input.value)
     mo.md(f"Loaded **{manifest.project.name}** — instruments: `{'`, `'.join(loading.instrument_ids(manifest))}`")
     return (manifest,)
 

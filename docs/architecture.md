@@ -9,13 +9,13 @@ in the right place.
 | Module / subpackage | Owns | Depends on |
 |---|---|---|
 | `music.py` | Pitch primitives: note names, `semitone_ratio`, MIDI/tuning constants. A leaf shared by everyone. | nothing in-package |
-| `model.py` | Manifest DTOs: `Manifest`, `ProjectSpec`, `InstrumentSpec`, `SourceSample`, `NoteEvent`. | pydantic |
+| `model.py` | Manifest DTOs: `Manifest`, `ProjectSpec`, `InstrumentSpec`, `SourceSample`, `NoteEvent`. Samples and events carry per-CC `cc_averages`; samples a pre-roll `lead_in_s`, instruments `pre_roll_s`/`post_roll_s` provenance. | pydantic |
 | `config/` | Pydantic **schema** for every tunable parameter; values live in `src/opticonfig/*.yaml`. Loaded once via `load_config`. | pydantic |
 | `dsp/` | Signal primitives (`spectral`, `resample`, `quantize`, `loop`, `timebase`) and the surrogate codec — the `surrogate/` subpackage (`params`, `sample`, `encode`, `render`) exposing `encode`/`render`, `StoredSample`, `EncodingParams`, `MAX_VOLUME`. | `config`, `music`, `metrics.size` |
 | `metrics/` | Fidelity measurement (`composite`, `spectral`, `timbre`, `diagnostics`, `preprocess`) and the byte-`size` model. | `config`, `dsp` primitives |
 | `optimize/` | The allocation pipeline (see below). | `dsp`, `metrics`, `model`, `io`, `config`, `music` |
-| `io/` | The file/format boundary: `audio` (WAV), `manifest`, `it_format` (declarative IT record layout), the `it_writer/` subpackage (IT binary serializer — `constants`, `samples`, `instruments`, `patterns`, `module`), `it_read` (round-trip), `render` (openmpt123 wrapper). | `config`, `metrics.size`, `music`, `dsp.surrogate` (`MAX_VOLUME`) |
-| `synth/` | Synthetic demo-audio generation: the `archetypes` module (pure archetype synthesis) and `generate` (render a preset grid to WAVs + a `manifest.yaml`). | `config`, `music`, `io`, `model` |
+| `io/` | The file/format boundary: `audio` (WAV), `note_extractor` (read a NoteExtractor `.notes.json` + samples dir into the model via `load_notes`/`IngestSettings`, plus a minimal `dump_notes` writer for the demo), `it_format` (declarative IT record layout), the `it_writer/` subpackage (IT binary serializer — `constants`, `samples`, `instruments`, `patterns`, `module`), `it_read` (round-trip), `render` (openmpt123 wrapper). | `config`, `metrics.size`, `music`, `dsp.surrogate` (`MAX_VOLUME`) |
+| `synth/` | Synthetic demo-audio generation: the `archetypes` module (pure archetype synthesis) and `generate` (count-expand each preset's material song into per-note WAVs + a `.notes.json`, one pair per preset). | `config`, `music`, `io`, `model` |
 | `calibrate/` | Surrogate-vs-openmpt calibration diagnostics: `context` (probe/result/context value objects), `modules` (the minimal one-note IT module for openmpt), `agreement` (render both ways, compare, rank-correlate). | `optimize`, `io`, `metrics`, `dsp`, `config` |
 | `artifacts/` | Inspection-artifact dumper (module + report + plan + per-note A/B WAVs + metrics): `serialize` (frozen Pydantic documents + JSON/text writers), `units` (re-encode a plan's samples into the pieces the dumper serializes), `context` (run settings, per-instrument context, result DTOs), `dump` (orchestration + file I/O). | `optimize`, `io`, `metrics`, `dsp`, `model`, `music`, `config` |
 | `cli.py`, `__main__.py` | Entry point: load config once, build settings, thread them down. | everything |
@@ -27,7 +27,7 @@ in the right place.
 - `velocity_map.py` — the loudness-matched velocity→volume map.
 - `knapsack.py` — the MCKP byte-budget DP (exact + Lagrangian).
 - `grouping/` — pitch-zone grouping as a subpackage: `cost_model` (zone-option enumeration), `solve` (exact partition + allocation DP), and the `__init__` orchestration + `GroupedInstrumentPlan`.
-- `orchestrate/` — the ungrouped end-to-end pipeline as a subpackage: `cost_model` (per-pitch rate-distortion sweep → knapsack items), `solve` (MCKP allocation + per-pitch plans), and the `__init__` orchestration plus the shared `OptimizeSettings`/`prepare_run`/`load_instrument_audio` that pitch-zone grouping reuses.
+- `orchestrate/` — the ungrouped end-to-end pipeline as a subpackage: `cost_model` (per-pitch rate-distortion sweep → knapsack items), `solve` (MCKP allocation + per-pitch plans), `settings` (`OptimizeSettings`), `audio` (`load_instrument_audio` — the recorded grid → one signal per key, deduping `(pitch, velocity)` and trimming each `lead_in_s`), and the `__init__` orchestration (`prepare_run`) that pitch-zone grouping reuses.
 - `export.py` — plan → `ITModule` bridge.
 - `dp.py` — the budget-feasibility guard shared by both byte-indexed allocation DPs (`BudgetInfeasibleError`, `require_feasible`), so the knapsack and grouping solvers reject an unaffordable budget with the same error.
 - `plans/` — plan value objects, grouped as a subpackage rather than one bag-of-classes module: `strategy` (the `StrategyPlan` protocol + normalized `SampleUnit` that export/artifacts read so they never branch on the plan type), `budget`, `ungrouped`, `grouped`.

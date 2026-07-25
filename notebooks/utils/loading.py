@@ -1,7 +1,7 @@
-"""Discover / generate a manifest and pull individual samples out of it.
+"""Discover / generate a NoteExtractor demo and pull individual samples out of it.
 
-Selection helpers are keyed by short human labels (``"p60 v80 c0"``) so a marimo dropdown, whose
-value is a string, can round-trip straight back to the :class:`SourceSample` it names.
+Selection helpers are keyed by short human labels (each sample's render-indexed file stem) so a marimo
+dropdown, whose value is a string, can round-trip straight back to the :class:`SourceSample` it names.
 """
 
 from __future__ import annotations
@@ -13,25 +13,35 @@ from numpy.typing import NDArray
 
 from optisample.config.synth import SynthConfig
 from optisample.io.audio import read_wav
-from optisample.io.manifest import load_manifest
-from optisample.model import InstrumentSpec, Manifest, SourceSample
+from optisample.io.note_extractor import IngestSettings, load_notes
+from optisample.model import InstrumentSpec, Manifest, ProjectSpec, SourceSample
 from optisample.synth import generate_demo
 
 Signal = NDArray[np.float64]
 
+_NOTES_SUFFIX = ".notes.json"
+_DEMO_BUDGET_KB = 128.0  # a .notes.json carries no budget; the inspector uses a fixed placeholder.
 
-def ensure_demo_manifest(root: Path | str, config: SynthConfig, *, seed: int = 0) -> Path:
-    """Return the manifest under ``root``, generating the synthetic demo (from ``config``) if absent."""
+
+def ensure_demo(root: Path | str, config: SynthConfig, *, seed: int = 0) -> Path:
+    """Return the demo directory under ``root``, generating the synthetic dataset (from ``config``) if absent."""
     root = Path(root)
-    manifest_path = root / "manifest.yaml"
-    if manifest_path.exists():
-        return manifest_path
-    return generate_demo(root, config, seed=seed)
+    if not sorted(root.glob(f"*{_NOTES_SUFFIX}")):
+        generate_demo(root, config, seed=seed)
+    return root
 
 
-def load(path: Path | str) -> Manifest:
-    """Load and validate a manifest (relative sample paths resolved against its directory)."""
-    return load_manifest(path)
+def load(demo_dir: Path | str) -> Manifest:
+    """Combine every ``.notes.json`` under a demo directory into one manifest (its samples dir is the sibling)."""
+    demo_dir = Path(demo_dir)
+    project = ProjectSpec(name=demo_dir.name)
+    instruments: list[InstrumentSpec] = []
+    for notes_json in sorted(demo_dir.glob(f"*{_NOTES_SUFFIX}")):
+        instrument_id = notes_json.name[: -len(_NOTES_SUFFIX)]
+        settings = IngestSettings(instrument_id=instrument_id, budget_kb=_DEMO_BUDGET_KB, project=project)
+        manifest = load_notes(notes_json, demo_dir / instrument_id, settings)
+        instruments.append(manifest.instruments[0])
+    return Manifest(project=project, instruments=instruments)
 
 
 def instrument_ids(manifest: Manifest) -> list[str]:
@@ -48,8 +58,8 @@ def get_instrument(manifest: Manifest, instrument_id: str) -> InstrumentSpec:
 
 
 def sample_label(sample: SourceSample) -> str:
-    """Short, unique-per-instrument label: pitch / velocity / controller."""
-    return f"p{sample.pitch} v{sample.velocity} c{sample.controller:g}"
+    """Short, unique-per-instrument label: the sample's render-indexed WAV stem (e.g. ``0007_p60_v100``)."""
+    return sample.file.stem
 
 
 def sample_labels(instrument: InstrumentSpec) -> list[str]:

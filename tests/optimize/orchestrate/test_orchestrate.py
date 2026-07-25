@@ -9,7 +9,7 @@ from numpy.typing import NDArray
 
 from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
-from optisample.io.audio import write_wav
+from optisample.io.audio import read_wav, write_wav
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.dp import BudgetInfeasibleError
 from optisample.optimize.orchestrate import optimize_instrument, run_instrument
@@ -155,6 +155,44 @@ def test_run_instrument_reads_wavs_from_disk(
     plan = run_instrument(inst, optimize_settings(sweep=grid))
     assert plan.used_bytes <= plan.sample_budget_bytes
     assert tuple(p.pitch for p in plan.pitches) == PITCHES
+
+
+def test_load_instrument_audio_keeps_first_sample_per_key(tmp_path: Path) -> None:
+    first = note(60, 100, dur=0.6)
+    second = note(60, 100, dur=0.3)  # same (pitch, velocity), different recording
+    first_path = tmp_path / "0000_p60_v100.wav"
+    second_path = tmp_path / "0001_p60_v100.wav"
+    write_wav(first_path, first, SR)
+    write_wav(second_path, second, SR)
+    inst = InstrumentSpec(
+        id="piano",
+        budget_kb=64.0,
+        samples=[
+            SourceSample(file=first_path, pitch=60, velocity=100),
+            SourceSample(file=second_path, pitch=60, velocity=100),
+        ],
+        material=[NoteEvent(pitch=60, velocity=100, duration_s=0.4, count=1)],
+    )
+    audio, _ = load_instrument_audio(inst)
+    expected, _ = read_wav(first_path)
+    np.testing.assert_array_equal(audio[(60, 100)], expected)  # the earliest listed recording wins the key
+
+
+def test_load_instrument_audio_trims_lead_in_from_the_front(tmp_path: Path) -> None:
+    signal = note(60, 100, dur=0.6)
+    path = tmp_path / "0000_p60_v100.wav"
+    write_wav(path, signal, SR)
+    lead_in_s = 0.05
+    inst = InstrumentSpec(
+        id="piano",
+        budget_kb=64.0,
+        samples=[SourceSample(file=path, pitch=60, velocity=100, lead_in_s=lead_in_s)],
+        material=[NoteEvent(pitch=60, velocity=100, duration_s=0.4, count=1)],
+    )
+    audio, _ = load_instrument_audio(inst)
+    full, _ = read_wav(path)
+    trimmed = round(lead_in_s * SR)
+    np.testing.assert_array_equal(audio[(60, 100)], full[trimmed:])  # frame 0 lands on the note onset
 
 
 def test_load_instrument_audio_downmixes_stereo_and_resamples(tmp_path: Path) -> None:

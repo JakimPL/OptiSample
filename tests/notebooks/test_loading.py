@@ -16,17 +16,17 @@ SR = 44_100
 Demo = tuple[Path, Manifest]
 
 
-def test_ensure_demo_manifest_is_idempotent(tmp_path: Path, synth_config: SynthConfig) -> None:
-    first = loading.ensure_demo_manifest(tmp_path, synth_config)
-    second = loading.ensure_demo_manifest(tmp_path, synth_config)
+def test_ensure_demo_is_idempotent(tmp_path: Path, synth_config: SynthConfig) -> None:
+    first = loading.ensure_demo(tmp_path, synth_config)
+    second = loading.ensure_demo(tmp_path, synth_config)
     assert first == second
-    assert first.exists()
+    assert sorted(first.glob("*.notes.json"))
 
 
 def test_instrument_and_sample_selection(demo: Demo, config: OptiConfig) -> None:
     _, manifest = demo
     ids = loading.instrument_ids(manifest)
-    assert ids == [preset.id for preset in config.synth.presets]
+    assert set(ids) == {preset.id for preset in config.synth.presets}  # on-disk order is alphabetical, not preset order
 
     strings = loading.get_instrument(manifest, "strings")
     labels = loading.sample_labels(strings)
@@ -40,7 +40,7 @@ def test_unknown_lookups_raise(demo: Demo) -> None:
     with pytest.raises(KeyError):
         loading.get_instrument(manifest, "nope")
     with pytest.raises(KeyError):
-        loading.get_sample(loading.get_instrument(manifest, "piano"), "p1 v1 c0")
+        loading.get_sample(loading.get_instrument(manifest, "piano"), "nope")
 
 
 def test_load_signal_matches_manifest_sample(demo: Demo) -> None:

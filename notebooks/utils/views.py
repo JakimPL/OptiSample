@@ -26,6 +26,11 @@ Signal = NDArray[np.float64]
 Row = dict[str, float | int | str | bool]
 
 
+def _cc_summary(cc_averages: dict[int, float]) -> str:
+    """Compact ``cc:value`` listing for a table cell (empty when no controllers are tracked)."""
+    return " ".join(f"{cc}:{value:g}" for cc, value in sorted(cc_averages.items()))
+
+
 def sample_row(sample: SourceSample, signal: Signal, sample_rate: int, spectral: SpectralConfig) -> Row:
     """Descriptors + storage footprint for one sample (a single table row)."""
     data = np.asarray(signal, dtype=np.float64)
@@ -36,7 +41,7 @@ def sample_row(sample: SourceSample, signal: Signal, sample_rate: int, spectral:
         "sample": sample_label(sample),
         "pitch": sample.pitch,
         "velocity": sample.velocity,
-        "controller": sample.controller,
+        "cc": _cc_summary(sample.cc_averages),
         "dur_s": frames / sample_rate if sample_rate else 0.0,
         "frames": frames,
         "peak": peak,
@@ -51,13 +56,13 @@ def sample_row(sample: SourceSample, signal: Signal, sample_rate: int, spectral:
 
 
 def material_rows(instrument: InstrumentSpec) -> list[Row]:
-    """One row per note event the song plays through this instrument (empty if MIDI-sourced)."""
+    """One row per note event the song plays through this instrument."""
     events = instrument.material or []
     return [
         {
             "pitch": event.pitch,
             "velocity": event.velocity,
-            "controller": event.controller,
+            "cc": _cc_summary(event.cc_averages),
             "dur_s": event.duration_s,
             "count": event.count,
             "weight": event.weight,

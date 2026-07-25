@@ -55,14 +55,17 @@ def test_instrument_requires_at_least_one_sample() -> None:
         InstrumentSpec(id="x", budget_kb=1.0, samples=[], material=[NoteEvent(pitch=60, velocity=1, duration_s=1.0)])
 
 
-def test_exactly_one_material_source_required() -> None:
-    event = NoteEvent(pitch=60, velocity=100, duration_s=1.0)
-    # Neither material nor material_midi.
+def test_instrument_requires_material() -> None:
     with pytest.raises(ValidationError):
-        InstrumentSpec(id="x", budget_kb=1.0, samples=[_sample()])
-    # Both provided.
-    with pytest.raises(ValidationError):
-        InstrumentSpec(id="x", budget_kb=1.0, samples=[_sample()], material=[event], material_midi="m.mid")
+        InstrumentSpec(id="x", budget_kb=1.0, samples=[_sample()], material=[])
+
+
+def test_cc_averages_default_empty_and_carry_through() -> None:
+    assert _sample().cc_averages == {}
+    sample = _sample(cc_averages={0: 3.0, 1: 63.875})
+    assert sample.cc_averages == {0: 3.0, 1: 63.875}
+    event = NoteEvent(pitch=60, velocity=100, duration_s=1.0, cc_averages={64: 127.0})
+    assert event.cc_averages == {64: 127.0}
 
 
 def test_valid_manifest_round_trips_through_python() -> None:

@@ -1,9 +1,10 @@
 """Command-line entry point: the ``synth`` and ``optimize`` subcommands.
 
-``synth`` renders the bundled demo dataset and writes its ``manifest.yaml``; ``optimize`` loads a
-manifest, runs the optimizer, and dumps the inspectable artifact tree. Both load an
-:class:`~optisample.config.OptiConfig` (bundled or from ``--config``) and layer the CLI flags on top
-before handing off to the library, so this module holds argument wiring and printing alone.
+``synth`` renders the bundled demo dataset as NoteExtractor-style ``.notes.json`` + samples dirs;
+``optimize`` loads one such ``.notes.json`` + samples directory, runs the optimizer, and dumps the
+inspectable artifact tree. Both load an :class:`~optisample.config.OptiConfig` (bundled or from
+``--config``) and layer the CLI flags on top before handing off to the library, so this module holds
+argument wiring and printing alone.
 """
 
 from __future__ import annotations
@@ -19,13 +20,17 @@ from typing import Final
 from optisample.artifacts import DumpSettings, dump_project
 from optisample.config import OptiConfig, load_config
 from optisample.config.optimize import SweepConfig
-from optisample.io.manifest import load_manifest
+from optisample.io.note_extractor import IngestSettings, load_notes
 from optisample.metrics import build_composite
+from optisample.model import ProjectSpec
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.synth import generate_demo
 
 DEFAULT_SEED: Final = 0  # default RNG seed for both subcommands when --seed is not given.
 _PROFILE_TOP_FUNCTIONS: Final = 20  # functions --profile prints, ranked by cumulative time.
+_MS_PER_S: Final = 1000.0  # convert the --pre-roll-ms / --post-roll-ms flags to seconds.
+_NOTES_SUFFIX: Final = ".notes.json"  # NoteExtractor manifest suffix, stripped to name the instrument.
+_INTERPOLATIONS: Final = ("none", "linear", "cubic", "sinc")  # optisample.model.Interpolation values.
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -34,13 +39,27 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--config", type=Path, default=None, help="Config directory to load (default: bundled)")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    synth = sub.add_parser("synth", parents=[common], help="Generate a synthetic demo dataset + manifest")
-    synth.add_argument("outdir", type=Path, help="Directory to write samples and manifest.yaml into")
+    synth = sub.add_parser("synth", parents=[common], help="Generate a synthetic demo dataset (.notes.json + WAVs)")
+    synth.add_argument("outdir", type=Path, help="Directory to write each preset's samples dir and .notes.json into")
     synth.add_argument("--sample-rate", type=int, default=None, help="Render sample rate (Hz); defaults to the config")
     synth.add_argument("--seed", type=int, default=DEFAULT_SEED, help="RNG seed for reproducible output")
 
-    optimize = sub.add_parser("optimize", parents=[common], help="Optimize a manifest and dump inspectable artifacts")
-    optimize.add_argument("manifest", type=Path, help="Path to manifest.yaml")
+    optimize = sub.add_parser(
+        "optimize", parents=[common], help="Optimize a .notes.json and dump inspectable artifacts"
+    )
+    optimize.add_argument("notes_json", type=Path, help="Path to a NoteExtractor .notes.json manifest")
+    optimize.add_argument(
+        "--samples-dir", type=Path, default=None, help="Per-note WAV directory (default: notes_json's sibling <name>/)"
+    )
+    optimize.add_argument("--budget-kb", type=float, required=True, help="Byte budget for the instrument (KiB)")
+    optimize.add_argument("--instrument-id", default=None, help="Instrument id (default: the .notes.json base name)")
+    optimize.add_argument(
+        "--interpolation", choices=_INTERPOLATIONS, default=None, help="Playback interpolation (default: sinc)"
+    )
+    optimize.add_argument("--pre-roll-ms", type=float, default=0.0, help="Pre-roll padding trimmed as lead-in (ms)")
+    optimize.add_argument(
+        "--post-roll-ms", type=float, default=0.0, help="Post-roll padding recorded for provenance (ms)"
+    )
     optimize.add_argument("--out", type=Path, default=Path("artifacts"), help="Artifact output directory")
     optimize.add_argument("--strategy", choices=("both", "grouped", "ungrouped"), default="both")
     optimize.add_argument("--no-render", action="store_true", help="Skip openmpt123 ground-truth renders")
@@ -86,8 +105,38 @@ def _dump_settings(config: OptiConfig, args: argparse.Namespace) -> DumpSettings
     )
 
 
+def _instrument_base(notes_json: Path) -> str:
+    """The instrument name behind a ``.notes.json`` path (its ``.notes.json`` suffix stripped)."""
+    name = notes_json.name
+    if name.endswith(_NOTES_SUFFIX):
+        return name[: -len(_NOTES_SUFFIX)]
+    return notes_json.stem
+
+
+def _samples_dir(args: argparse.Namespace) -> Path:
+    """The per-note WAV directory: the ``--samples-dir`` override, else the notes file's sibling ``<name>/``."""
+    if args.samples_dir is not None:
+        return Path(args.samples_dir)
+    return Path(args.notes_json.parent / _instrument_base(args.notes_json))
+
+
+def _project(args: argparse.Namespace) -> ProjectSpec:
+    """Build the project settings from the flags; ``--interpolation`` overrides the ``ProjectSpec`` default."""
+    name = _instrument_base(args.notes_json)
+    if args.interpolation is None:
+        return ProjectSpec(name=name)
+    return ProjectSpec(name=name, interpolation=args.interpolation)
+
+
 def _run_optimize(config: OptiConfig, args: argparse.Namespace) -> None:
-    manifest = load_manifest(args.manifest)
+    settings = IngestSettings(
+        instrument_id=args.instrument_id or _instrument_base(args.notes_json),
+        budget_kb=args.budget_kb,
+        project=_project(args),
+        pre_roll_s=args.pre_roll_ms / _MS_PER_S,
+        post_roll_s=args.post_roll_ms / _MS_PER_S,
+    )
+    manifest = load_notes(args.notes_json, _samples_dir(args), settings)
     results = dump_project(manifest, args.out, _dump_settings(config, args))
     total_s = 0.0
     for result in results:
@@ -118,8 +167,9 @@ def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     config = load_config(args.config)
     if args.command == "synth":
-        manifest_path = generate_demo(args.outdir, config.synth, sample_rate=args.sample_rate, seed=args.seed)
-        print(f"Wrote demo dataset and manifest to {manifest_path}")
+        outputs = generate_demo(args.outdir, config.synth, sample_rate=args.sample_rate, seed=args.seed)
+        for notes_json, samples_dir in outputs:
+            print(f"Wrote {notes_json} (samples: {samples_dir})")
     elif args.command == "optimize":
         if args.profile:
             _run_profiled(lambda: _run_optimize(config, args))

@@ -10,33 +10,37 @@ from numpy.typing import NDArray
 from optisample.cli import _dump_settings, build_parser, main
 from optisample.config import OptiConfig
 from optisample.io.audio import write_wav
-from optisample.io.manifest import dump_manifest
-from optisample.model import InstrumentSpec, Manifest, NoteEvent, ProjectSpec, SourceSample
+from optisample.io.note_extractor import NoteRecord, dump_notes
 
 SR = 44_100
 PITCHES = (60, 62, 64)
 
 
 @pytest.fixture
-def tiny_manifest(tmp_path: Path, piano_note: Callable[..., NDArray[np.float64]]) -> Path:
-    """A minimal on-disk project: three piano notes + a manifest that references them."""
-    samples = []
-    for pitch in PITCHES:
-        rel = Path(f"p{pitch}.wav")
-        write_wav(tmp_path / rel, piano_note(pitch, 100, 0.6, seed=pitch), SR)
-        samples.append(SourceSample(file=rel, pitch=pitch, velocity=100))
-    material = [NoteEvent(pitch=pitch, velocity=100, duration_s=0.5, count=2) for pitch in PITCHES]
-    instrument = InstrumentSpec(id="piano", budget_kb=48.0, samples=samples, material=material)
-    manifest_path = tmp_path / "manifest.yaml"
-    dump_manifest(Manifest(project=ProjectSpec(name="demo"), instruments=[instrument]), manifest_path)
-    return manifest_path
+def tiny_notes(tmp_path: Path, piano_note: Callable[..., NDArray[np.float64]]) -> Path:
+    """A minimal on-disk NoteExtractor project: three piano notes + a .notes.json referencing them.
+
+    The WAVs live in the sibling ``piano/`` directory the ``optimize`` command resolves by default, so the
+    instrument id defaults to ``piano`` and its artifacts land under ``<out>/piano/``.
+    """
+    samples_dir = tmp_path / "piano"
+    samples_dir.mkdir()
+    records = []
+    for index, pitch in enumerate(PITCHES):
+        write_wav(samples_dir / f"{index:04d}_p{pitch}_v100.wav", piano_note(pitch, 100, 0.6, seed=pitch), SR)
+        records.append(NoteRecord(index=index, pitch=pitch, velocity=100, duration_s=0.5))
+    notes_json = tmp_path / "piano.notes.json"
+    dump_notes(records, notes_json)
+    return notes_json
 
 
 def test_dump_settings_maps_grid_and_flags(config: OptiConfig) -> None:
     args = build_parser().parse_args(
         [
             "optimize",
-            "m.yaml",
+            "m.notes.json",
+            "--budget-kb",
+            "48",
             "--rate",
             "11025",
             "--depth",
@@ -59,34 +63,62 @@ def test_dump_settings_maps_grid_and_flags(config: OptiConfig) -> None:
 
 
 def test_optimize_command_writes_artifacts(
-    tmp_path: Path, tiny_manifest: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     out = tmp_path / "artifacts"
-    main(["optimize", str(tiny_manifest), "--out", str(out), "--rate", "11025", "--depth", "8", "--no-render"])
+    main(
+        [
+            "optimize",
+            str(tiny_notes),
+            "--budget-kb",
+            "48",
+            "--out",
+            str(out),
+            "--rate",
+            "11025",
+            "--depth",
+            "8",
+            "--no-render",
+        ]
+    )
     assert (out / "piano" / "grouped" / "module.it").is_file()
     assert (out / "piano" / "ungrouped" / "plan.json").is_file()
     printed = capsys.readouterr().out
     assert "piano" in printed and "objective" in printed
 
 
-def test_optimize_command_reports_timing(
-    tmp_path: Path, tiny_manifest: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_optimize_command_reports_timing(tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]) -> None:
     out = tmp_path / "artifacts"
-    main(["optimize", str(tiny_manifest), "--out", str(out), "--rate", "11025", "--depth", "8", "--no-render"])
+    main(
+        [
+            "optimize",
+            str(tiny_notes),
+            "--budget-kb",
+            "48",
+            "--out",
+            str(out),
+            "--rate",
+            "11025",
+            "--depth",
+            "8",
+            "--no-render",
+        ]
+    )
     printed = capsys.readouterr().out
     assert "s]" in printed  # each strategy line carries its wall-clock, e.g. "[0.4s]"
     assert "total:" in printed
 
 
 def test_optimize_command_profile_flag_still_writes_and_profiles(
-    tmp_path: Path, tiny_manifest: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     out = tmp_path / "artifacts"
     main(
         [
             "optimize",
-            str(tiny_manifest),
+            str(tiny_notes),
+            "--budget-kb",
+            "48",
             "--out",
             str(out),
             "--rate",
@@ -103,13 +135,15 @@ def test_optimize_command_profile_flag_still_writes_and_profiles(
 
 
 def test_optimize_command_honors_single_strategy(
-    tmp_path: Path, tiny_manifest: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     out = tmp_path / "artifacts"
     main(
         [
             "optimize",
-            str(tiny_manifest),
+            str(tiny_notes),
+            "--budget-kb",
+            "48",
             "--out",
             str(out),
             "--rate",
@@ -126,7 +160,7 @@ def test_optimize_command_honors_single_strategy(
     assert "ungrouped: objective" in capsys.readouterr().out
 
 
-def test_synth_command_generates_manifest(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_synth_command_generates_notes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     main(["synth", str(tmp_path / "demo"), "--sample-rate", "22050"])
-    assert (tmp_path / "demo" / "manifest.yaml").is_file()
-    assert "manifest" in capsys.readouterr().out.lower()
+    assert sorted((tmp_path / "demo").glob("*.notes.json"))
+    assert "notes.json" in capsys.readouterr().out.lower()

@@ -56,23 +56,29 @@ def index_of_wav(path: Path | str) -> int:
         raise ValueError(f"WAV filename {Path(path).name!r} has no leading integer render index") from error
 
 
-def load_notes(
-    notes_json: Path | str,
-    samples_dir: Path | str,
-    *,
-    instrument_id: str,
-    budget_kb: float,
-    project: ProjectSpec,
-    pre_roll_s: float = 0.0,
-    post_roll_s: float = 0.0,
-) -> Manifest:
+@dataclass(frozen=True)
+class IngestSettings:
+    """The manifest fields a ``.notes.json`` does not carry, supplied by the caller (CLI flags + config).
+
+    ``instrument_id`` names the single instrument, ``budget_kb`` is its byte budget, and ``project`` holds
+    the project-wide fidelity settings. ``pre_roll_s`` / ``post_roll_s`` record the trimmer padding; the
+    pre-roll also sets each sample's ``lead_in_s`` so the loader can align frame 0 with the note onset.
+    """
+
+    instrument_id: str
+    budget_kb: float
+    project: ProjectSpec
+    pre_roll_s: float = 0.0
+    post_roll_s: float = 0.0
+
+
+def load_notes(notes_json: Path | str, samples_dir: Path | str, settings: IngestSettings) -> Manifest:
     """Join a ``.notes.json`` to its samples directory into a single-instrument manifest.
 
     Each note becomes a :class:`~optisample.model.SourceSample` (matched to the WAV whose leading index
     token equals ``render.index``) and a :class:`~optisample.model.NoteEvent` whose ``duration_s`` is the
-    audible span ``release_end_seconds - start_seconds``. ``pre_roll_s`` and ``post_roll_s`` record the
-    trimmer padding; each sample's ``lead_in_s`` is the pre-roll clamped to the note's own start so the
-    loader can align frame 0 with the onset.
+    audible span ``release_end_seconds - start_seconds``. Every field the format omits comes from
+    ``settings`` (see :class:`IngestSettings`).
     """
     notes_json = Path(notes_json)
     samples_dir = Path(samples_dir).resolve()
@@ -93,7 +99,7 @@ def load_notes(
                 pitch=note.pitch,
                 velocity=note.velocity,
                 cc_averages=note.cc_averages,
-                lead_in_s=min(pre_roll_s, note.render.start_seconds),
+                lead_in_s=min(settings.pre_roll_s, note.render.start_seconds),
             )
         )
         material.append(
@@ -106,14 +112,14 @@ def load_notes(
         )
 
     instrument = InstrumentSpec(
-        id=instrument_id,
-        budget_kb=budget_kb,
+        id=settings.instrument_id,
+        budget_kb=settings.budget_kb,
         samples=samples,
         material=material,
-        pre_roll_s=pre_roll_s,
-        post_roll_s=post_roll_s,
+        pre_roll_s=settings.pre_roll_s,
+        post_roll_s=settings.post_roll_s,
     )
-    return Manifest(project=project, instruments=[instrument])
+    return Manifest(project=settings.project, instruments=[instrument])
 
 
 @dataclass(frozen=True)
