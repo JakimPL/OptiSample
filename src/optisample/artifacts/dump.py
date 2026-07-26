@@ -58,22 +58,33 @@ def _representative_event(task: PitchTask) -> Event:
 
 
 def _rendered_note(
-    dump_context: DumpContext, kind: PlanKind, unit: Unit, task: PitchTask, event: Event
+    dump_context: DumpContext,
+    kind: PlanKind,
+    unit: Unit,
+    task: PitchTask,
+    event: Event,
 ) -> tuple[Signal, int, str]:
     """Audio the module produces for one note: the real engine when available, else the surrogate."""
     if dump_context.settings.render_ground_truth and openmpt123_available():
         note = NoteEvent(pitch=task.pitch, velocity=event.velocity, duration_s=event.duration_s)
         audio, rate = render_module(kind.make_module([note]), dump_context.settings.render)
         return audio, rate, "openmpt123"
-    volume = dump_context.eval_context.velocity_map.volume(event.velocity)
     candidate = render(
-        unit.stored, dump_context.sample_rate, pitch=task.pitch, volume=volume, duration_s=event.duration_s
+        unit.stored,
+        dump_context.sample_rate,
+        pitch=task.pitch,
+        volume=event.volume,
+        duration_s=event.duration_s,
     )
     return candidate, dump_context.sample_rate, "surrogate"
 
 
 def _note_record(
-    kind: PlanKind, unit: Unit, task: PitchTask, out_dir: Path, dump_context: DumpContext
+    kind: PlanKind,
+    unit: Unit,
+    task: PitchTask,
+    out_dir: Path,
+    dump_context: DumpContext,
 ) -> NoteMetricRecord:
     """Write the reference/rendered A/B pair for one pitch and return its metric record."""
     events, contribution = event_records(unit.stored, task, dump_context.eval_context)
@@ -117,7 +128,11 @@ def _write_module_and_render(kind: PlanKind, out_dir: Path, dump_context: DumpCo
     return True
 
 
-def _write_metrics(kind: PlanKind, out_dir: Path, dump_context: DumpContext) -> None:
+def _write_metrics(
+    kind: PlanKind,
+    out_dir: Path,
+    dump_context: DumpContext,
+) -> None:
     """Score and A/B-render every covered pitch; ``metrics.json``'s objective reproduces ``plan.objective``."""
     notes = [_note_record(kind, unit, task, out_dir, dump_context) for unit in kind.units for task in unit.tasks]
     document = metrics_document(
@@ -126,7 +141,12 @@ def _write_metrics(kind: PlanKind, out_dir: Path, dump_context: DumpContext) -> 
     write_json(out_dir / "metrics.json", document)
 
 
-def _dump_plan(kind: PlanKind, out_dir: Path, dump_context: DumpContext, started_at: float) -> PlanArtifacts:
+def _dump_plan(
+    kind: PlanKind,
+    out_dir: Path,
+    dump_context: DumpContext,
+    started_at: float,
+) -> PlanArtifacts:
     """Write every artifact for one strategy and return a summary of what landed on disk.
 
     ``started_at`` is the :func:`time.perf_counter` reading taken before the optimize call, so the
@@ -149,14 +169,20 @@ def _dump_plan(kind: PlanKind, out_dir: Path, dump_context: DumpContext, started
 
 
 def _optimize_and_dump(
-    instrument: InstrumentSpec, out_dir: Path, dump_context: DumpContext, strategy: _Strategy
+    instrument: InstrumentSpec,
+    out_dir: Path,
+    dump_context: DumpContext,
+    strategy: _Strategy,
 ) -> PlanArtifacts:
     """Optimize one strategy and dump it; on an infeasible budget, record why instead of raising."""
     out_dir.mkdir(parents=True, exist_ok=True)
     started_at = perf_counter()
     try:
         plan = strategy.optimize(
-            instrument, dump_context.audio, dump_context.sample_rate, dump_context.settings.optimize
+            instrument,
+            dump_context.audio,
+            dump_context.sample_rate,
+            dump_context.settings.optimize,
         )
         kind = make_kind(plan, dump_context)
     except BudgetInfeasibleError as exc:
@@ -169,6 +195,7 @@ def _optimize_and_dump(
             used_bytes=None,
             elapsed_s=perf_counter() - started_at,
         )
+
     return _dump_plan(kind, out_dir, dump_context, started_at)
 
 
@@ -198,13 +225,22 @@ def dump_instrument(
     return DumpResult(instrument_id=instrument.id, directory=out_dir, plans=tuple(plans))
 
 
-def dump_project(manifest: Manifest, out_dir: Path | str, settings: DumpSettings) -> list[DumpResult]:
+def dump_project(
+    manifest: Manifest,
+    out_dir: Path | str,
+    settings: DumpSettings,
+) -> list[DumpResult]:
     """Run :func:`dump_instrument` for every instrument in a loaded manifest under ``out_dir``."""
     out_dir = Path(out_dir)
     results: list[DumpResult] = []
     for instrument in manifest.instruments:
         audio, sample_rate = load_instrument_audio(
-            instrument, settings.optimize.reduce.dedupe, settings.optimize.encode.loop
+            instrument,
+            settings.optimize.reduce.dedupe,
+            settings.optimize.encode.loop,
         )
-        results.append(dump_instrument(instrument, audio, sample_rate, out_dir / instrument.id, settings))
+        results.append(
+            dump_instrument(instrument, audio, sample_rate, out_dir / instrument.id, settings),
+        )
+
     return results

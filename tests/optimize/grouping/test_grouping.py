@@ -102,7 +102,7 @@ def plan48(audio: dict[SampleKey, NDArray[np.float64]]) -> GroupedInstrumentPlan
 def _task(pitch: int, silence: NDArray[np.float64]) -> PitchTask:
     """A one-event task at ``pitch``, the minimum ``_zone_trim`` reads."""
     key = SampleKey(pitch, 100)
-    return PitchTask(pitch, 1.0, key, silence, (key,), (Event(100, 0.5, 1.0, silence),))
+    return PitchTask(pitch, 1.0, key, silence, (key,), (Event(100, 64, 0.5, 1.0, silence),))
 
 
 def test_zone_trim_scales_with_upward_transpose() -> None:

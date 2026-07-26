@@ -5,13 +5,14 @@ import numpy as np
 
 from optisample.config.dsp import EncodeConfig
 from optisample.config.optimize import SweepConfig
-from optisample.config.reduce import Representatives
+from optisample.config.reduce import ReduceConfig, Representatives
 from optisample.dsp.surrogate import StoredSample, render
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.metrics.base import Signal
 from optisample.metrics.composite import CompositeFidelity, QualityReport, evaluate
 from optisample.model import InstrumentSpec, NoteEvent
-from optisample.optimize.reduce.keys import SampleKey
+from optisample.optimize.reduce.events import merge_events
+from optisample.optimize.reduce.keys import SampleKey, nearest_key
 from optisample.optimize.velocity_map import VelocityVolumeMap
 from trackmod.module.storage import Storage
 
@@ -20,9 +21,15 @@ AudioMap = Mapping[SampleKey, Signal]
 
 @dataclass(frozen=True)
 class Event:
-    """A distinct (velocity, duration) the material plays at one pitch, with its ground-truth source."""
+    """A class of notes the material plays at one pitch that score alike, with its ground-truth source.
+
+    ``volume`` is the note volume every member renders at and ``duration_s`` the length they are all
+    scored over, the two things the reconstruction depends on. ``velocity`` labels the class by the
+    loudest note in it, and ``weight`` is their combined playing time.
+    """
 
     velocity: int
+    volume: int
     duration_s: float
     weight: float
     reference: Signal
@@ -60,7 +67,6 @@ class EvalContext:
     """
 
     sample_rate: int
-    velocity_map: VelocityVolumeMap
     composite: CompositeFidelity
     rng: np.random.Generator
     sweep: SweepConfig
@@ -68,39 +74,13 @@ class EvalContext:
     storage: Storage
 
 
-def nearest_key(available: Sequence[SampleKey], velocity: int) -> SampleKey:
-    """Recorded key whose velocity is closest to ``velocity``.
-
-    Ties favour the louder recording, then the lowest CC bucket, so a pitch with several timbral
-    variants at one velocity still resolves to the same reference on every run.
-    """
-    return min(available, key=lambda key: (abs(key.velocity - velocity), -key.velocity, key.cc))
-
-
 @dataclass(frozen=True)
-class MergedEvent:
-    """A distinct (velocity, duration) the material plays at a pitch, with its summed usage weight."""
+class _TaskInputs:
+    """The instrument-wide inputs every pitch task is built from (bundled to stay under the limit)."""
 
-    velocity: int
-    duration_s: float
-    weight: float
-
-
-def merge_events(events: Sequence[NoteEvent]) -> list[MergedEvent]:
-    """Collapse events sharing a (velocity, duration) into one :class:`MergedEvent` with summed weight."""
-    weights: dict[tuple[int, float], float] = {}
-    for event in events:
-        key = (event.velocity, event.duration_s)
-        weights[key] = weights.get(key, 0.0) + event.weight
-
-    return [
-        MergedEvent(
-            velocity,
-            duration,
-            weight,
-        )
-        for (velocity, duration), weight in weights.items()
-    ]
+    audio: AudioMap
+    velocity_map: VelocityVolumeMap
+    reduce: ReduceConfig
 
 
 def _group_events_by_pitch(material: Sequence[NoteEvent]) -> dict[int, list[NoteEvent]]:
@@ -137,51 +117,55 @@ def _build_pitch_task(
     pitch: int,
     events: Sequence[NoteEvent],
     available: Sequence[SampleKey],
-    audio: AudioMap,
-    representatives: Representatives,
+    inputs: _TaskInputs,
 ) -> PitchTask:
-    """Assemble one pitch's task: its representative recording and per-(velocity, duration) references.
+    """Assemble one pitch's task: its representative recording and the note classes scored against it.
 
-    Each distinct ``(velocity, duration)`` the material plays becomes an :class:`Event` referenced by the
-    recording at the nearest available velocity; the representative is the recording nearest the loudest
-    velocity played here (the sample the zone stores when this pitch is chosen representative).
+    The notes played here collapse into the classes that reconstruct alike
+    (:func:`~optisample.optimize.reduce.events.merge_events`), each attached to the recording it is
+    compared against. The representative is the recording nearest the loudest velocity played here --
+    the sample a zone stores when this pitch is chosen to represent it.
     """
     representative_key = nearest_key(available, max(event.velocity for event in events))
-    built = tuple(
+    scored = tuple(
         Event(
             merged.velocity,
+            merged.volume,
             merged.duration_s,
             merged.weight,
-            audio[nearest_key(available, merged.velocity)],
+            inputs.audio[merged.reference_key],
         )
-        for merged in merge_events(events)
+        for merged in merge_events(events, available, inputs.velocity_map, inputs.reduce.events)
     )
-    weight = sum(event.weight for event in built)
     return PitchTask(
         pitch,
-        weight,
+        sum(event.weight for event in scored),
         representative_key,
-        audio[representative_key],
-        _candidate_keys(available, representative_key, representatives),
-        built,
+        inputs.audio[representative_key],
+        _candidate_keys(available, representative_key, inputs.reduce.dedupe.representatives),
+        scored,
     )
 
 
 def build_tasks(
     instrument: InstrumentSpec,
     audio: AudioMap,
-    representatives: Representatives,
+    velocity_map: VelocityVolumeMap,
+    reduce: ReduceConfig,
 ) -> list[PitchTask]:
-    """Group the material by pitch and attach each pitch's representative recording and references.
+    """Group the material by pitch and attach each pitch's representative recording and note classes.
 
     Returned tasks are ordered by pitch -- the order the pitch-zone partitioning DP segments over.
-    ``representatives`` decides how many of a pitch's survivors are offered as candidate samples.
+    ``velocity_map`` fixes the volume each note renders at, which is one of the two things that decide
+    whether two notes score alike; ``reduce`` supplies the rest of the reduction: how far duration
+    bucketing widens a class, and how many of a pitch's survivors are offered as candidate samples.
 
     Raises:
         ValueError: when the material plays a pitch the recorded grid has no sample for.
     """
     by_pitch = _group_events_by_pitch(instrument.material or [])
     keys_at = _keys_by_pitch(audio)
+    inputs = _TaskInputs(audio=audio, velocity_map=velocity_map, reduce=reduce)
 
     tasks: list[PitchTask] = []
     for pitch, events in sorted(by_pitch.items()):
@@ -189,22 +173,21 @@ def build_tasks(
         if not available:
             raise ValueError(f"instrument {instrument.id!r} has no recorded sample for pitch {pitch}")
 
-        tasks.append(_build_pitch_task(pitch, events, available, audio, representatives))
+        tasks.append(_build_pitch_task(pitch, events, available, inputs))
 
     return tasks
 
 
 @dataclass(frozen=True)
 class EventScore:
-    """One event scored: the note, the volume it mapped to, and the fidelity report of its reconstruction."""
+    """One note class scored: the class and the fidelity report its reconstruction earned."""
 
     event: Event
-    volume: int
     report: QualityReport
 
     @property
     def weighted_fidelity(self) -> float:
-        """This event's contribution to the objective: its usage weight times its distortion."""
+        """This class's contribution to the objective: its usage weight times its distortion."""
         return self.event.weight * self.report.fidelity
 
 
@@ -213,26 +196,24 @@ def score_events(
     task: PitchTask,
     context: EvalContext,
 ) -> Iterator[EventScore]:
-    """Reconstruct each of ``task``'s notes from ``stored`` and score it, one :class:`EventScore` per event.
+    """Reconstruct each of ``task``'s note classes from ``stored``, one :class:`EventScore` per class.
 
     ``stored`` is rendered at ``task.pitch`` -- a transpose of ``task.pitch - stored.root_pitch``
-    semitones, zero when ``stored`` is this pitch's own recording -- scaled by each event's mapped volume
-    and fitted to its duration, then compared to that event's source note. This is the shared scorer both
-    the objective and ``metrics.json`` consume.
+    semitones, zero when ``stored`` is this pitch's own recording -- scaled by each class's volume and
+    fitted to its duration, then compared to that class's source note. This is the shared scorer both the
+    objective and ``metrics.json`` consume.
     """
     for event in task.events:
-        volume = context.velocity_map.volume(event.velocity)
         candidate = render(
             stored,
             context.sample_rate,
             pitch=task.pitch,
-            volume=volume,
+            volume=event.volume,
             duration_s=event.duration_s,
         )
         reference = event.reference[: seconds_to_frames(event.duration_s, context.sample_rate)]
         yield EventScore(
             event=event,
-            volume=volume,
             report=evaluate(
                 reference,
                 candidate,

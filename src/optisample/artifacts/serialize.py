@@ -159,7 +159,11 @@ class RepresentativeEventRecord(_Frozen):
 
 
 class EventMetricRecord(_Frozen):
-    """One played dynamic of a pitch: its stored volume and the surrogate fidelity + sub-scores it earned."""
+    """One scored note class of a pitch: its stored volume and the surrogate fidelity + sub-scores it earned.
+
+    ``velocity`` names the loudest note the class covers and ``duration_s`` the length it was scored
+    over; ``weight`` is the playing time of every note the class stands for.
+    """
 
     velocity: int
     duration_s: float
@@ -343,7 +347,7 @@ def event_records(stored: StoredSample, task: PitchTask, context: EvalContext) -
                 velocity=score.event.velocity,
                 duration_s=score.event.duration_s,
                 weight=score.event.weight,
-                volume=score.volume,
+                volume=score.event.volume,
                 fidelity=score.report.fidelity,
                 breakdown=score.report.breakdown,
                 diagnostics=score.report.diagnostics,

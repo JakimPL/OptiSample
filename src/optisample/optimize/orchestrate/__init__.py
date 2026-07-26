@@ -32,14 +32,13 @@ def prepare_run(
     )
     context = EvalContext(
         sample_rate=sample_rate,
-        velocity_map=velocity_map,
         composite=settings.composite,
         rng=np.random.default_rng(settings.seed),
         sweep=settings.sweep,
         encode=settings.encode,
         storage=settings.target.storage,
     )
-    return velocity_map, context, build_tasks(instrument, audio, settings.reduce.dedupe.representatives)
+    return velocity_map, context, build_tasks(instrument, audio, velocity_map, settings.reduce)
 
 
 def optimize_instrument(

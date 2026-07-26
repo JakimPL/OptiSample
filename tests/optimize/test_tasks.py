@@ -11,7 +11,7 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.config.optimize import SweepConfig
-from optisample.config.reduce import Representatives
+from optisample.config.reduce import ReduceConfig, Representatives
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, StoredSample, encode
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.orchestrate import prepare_run
@@ -20,53 +20,17 @@ from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.tasks import (
     AudioMap,
     EvalContext,
-    MergedEvent,
     PitchTask,
     build_tasks,
-    merge_events,
-    nearest_key,
     score_events,
     score_reconstruction,
 )
+from optisample.optimize.velocity_map import VelocityVolumeMap
 
 SR = 44_100
 PITCHES = (60, 62)
 
-
-# --- pure helpers ---------------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("available", "target", "expected"),
-    [
-        ((50, 100), 70, 50),  # closer to the soft recording
-        ((60, 80), 70, 80),  # equidistant → the louder one wins
-        ((100,), 10, 100),  # only one recording to pick
-    ],
-)
-def test_nearest_key_picks_the_closest_recorded_velocity(
-    available: tuple[int, ...], target: int, expected: int
-) -> None:
-    keys = [SampleKey(60, velocity) for velocity in available]
-    assert nearest_key(keys, target) == SampleKey(60, expected)
-
-
-def test_nearest_key_breaks_a_velocity_tie_on_the_lowest_cc_bucket() -> None:
-    dark = SampleKey(60, 100, ((1, 0),))
-    bright = SampleKey(60, 100, ((1, 9),))
-    assert nearest_key([bright, dark], 100) == dark
-
-
-def test_merge_events_collapses_shared_velocity_and_duration() -> None:
-    events = [
-        NoteEvent(pitch=60, velocity=100, duration_s=0.5, count=2),  # weight 1.0
-        NoteEvent(pitch=60, velocity=100, duration_s=0.5, count=3),  # weight 1.5 → merges with the above
-        NoteEvent(pitch=60, velocity=80, duration_s=1.0, count=1),  # weight 1.0, distinct key
-    ]
-    merged = merge_events(events)
-    assert all(isinstance(item, MergedEvent) for item in merged)
-    weights = {(item.velocity, item.duration_s): item.weight for item in merged}
-    assert weights == {(100, 0.5): pytest.approx(2.5), (80, 1.0): pytest.approx(1.0)}
+ReduceFactory = Callable[..., ReduceConfig]
 
 
 # --- task building --------------------------------------------------------------------------------
@@ -79,6 +43,8 @@ def _instrument(material: list[NoteEvent]) -> InstrumentSpec:
 
 def test_build_tasks_orders_by_pitch_and_picks_the_loudest_representative(
     piano_note: Callable[..., NDArray[np.float64]],
+    graded_velocity_map: VelocityVolumeMap,
+    reduce: ReduceFactory,
 ) -> None:
     audio: AudioMap = {
         SampleKey(pitch, 100): piano_note(pitch, 100, dur=0.5, seed=pitch * 137 + 100) for pitch in PITCHES
@@ -88,12 +54,57 @@ def test_build_tasks_orders_by_pitch_and_picks_the_loudest_representative(
         NoteEvent(pitch=60, velocity=100, duration_s=0.5, count=2),
         NoteEvent(pitch=60, velocity=40, duration_s=0.5, count=1),
     ]
-    tasks = build_tasks(_instrument(material), audio, Representatives.NEAREST_LOUDEST)
+    tasks = build_tasks(_instrument(material), audio, graded_velocity_map, reduce())
     assert [task.pitch for task in tasks] == [60, 62]  # ascending, the DP's segmentation order
     by_pitch = {task.pitch: task for task in tasks}
     assert by_pitch[60].representative_key == SampleKey(60, 100)  # nearest the loudest velocity played there
     assert by_pitch[60].weight == pytest.approx(2 * 0.5 + 1 * 0.5)  # summed usage weight of its events
     assert len(by_pitch[60].events) == 2  # two distinct dynamics at pitch 60
+
+
+def test_each_note_class_carries_the_volume_it_renders_at(
+    piano_note: Callable[..., NDArray[np.float64]],
+    graded_velocity_map: VelocityVolumeMap,
+    reduce: ReduceFactory,
+) -> None:
+    audio: AudioMap = {SampleKey(60, 100): piano_note(60, 100, dur=0.5, seed=60 * 137 + 100)}
+    material = [NoteEvent(pitch=60, velocity=40, duration_s=0.5, count=1)]
+    task = build_tasks(_instrument(material), audio, graded_velocity_map, reduce())[0]
+    assert task.events[0].volume == graded_velocity_map.volume(40)  # scoring reads this, not the velocity
+
+
+def test_notes_sharing_a_reference_and_a_volume_are_scored_once(
+    piano_note: Callable[..., NDArray[np.float64]],
+    flat_velocity_map: VelocityVolumeMap,
+    reduce: ReduceFactory,
+) -> None:
+    """Two dynamics the map cannot tell apart reconstruct identically, so they become one scored class."""
+    audio: AudioMap = {SampleKey(60, 100): piano_note(60, 100, dur=0.5, seed=60 * 137 + 100)}
+    material = [
+        NoteEvent(pitch=60, velocity=100, duration_s=0.5, count=2),  # weight 1.0
+        NoteEvent(pitch=60, velocity=40, duration_s=0.5, count=1),  # weight 0.5, same reference and volume
+    ]
+    exact = reduce(events={"duration_bucket_ratio": 1.0})
+    task = build_tasks(_instrument(material), audio, flat_velocity_map, exact)[0]
+    assert len(task.events) == 1
+    assert task.events[0].weight == pytest.approx(1.5)  # the two notes' playing time added up
+    assert task.events[0].velocity == 100  # the class is labelled by the loudest note it covers
+
+
+def test_duration_bucketing_scores_similar_lengths_as_one_class(
+    piano_note: Callable[..., NDArray[np.float64]],
+    graded_velocity_map: VelocityVolumeMap,
+    reduce: ReduceFactory,
+) -> None:
+    audio: AudioMap = {SampleKey(60, 100): piano_note(60, 100, dur=0.5, seed=60 * 137 + 100)}
+    material = [
+        NoteEvent(pitch=60, velocity=100, duration_s=0.52, count=1),
+        NoteEvent(pitch=60, velocity=100, duration_s=0.60, count=1),  # within a 1.25 ratio of the above
+    ]
+    task = build_tasks(_instrument(material), audio, graded_velocity_map, reduce())[0]
+    assert len(task.events) == 1
+    assert task.events[0].duration_s >= 0.60  # scored at least as long as the longest note it covers
+    assert task.events[0].weight == pytest.approx(0.52 + 0.60)  # weight stays the real playing time
 
 
 @pytest.mark.parametrize(
@@ -105,6 +116,8 @@ def test_build_tasks_orders_by_pitch_and_picks_the_loudest_representative(
 )
 def test_candidates_offer_the_survivors_the_policy_allows(
     piano_note: Callable[..., NDArray[np.float64]],
+    graded_velocity_map: VelocityVolumeMap,
+    reduce: ReduceFactory,
     representatives: Representatives,
     expected: tuple[SampleKey, ...],
 ) -> None:
@@ -112,17 +125,20 @@ def test_candidates_offer_the_survivors_the_policy_allows(
         SampleKey(60, velocity): piano_note(60, velocity, dur=0.5, seed=60 * 137 + velocity) for velocity in (40, 100)
     }
     material = [NoteEvent(pitch=60, velocity=100, duration_s=0.5, count=1)]
-    tasks = build_tasks(_instrument(material), audio, representatives)
+    config = reduce(dedupe={"representatives": representatives})
+    tasks = build_tasks(_instrument(material), audio, graded_velocity_map, config)
     assert tasks[0].candidates == expected  # the representative always leads
 
 
 def test_build_tasks_raises_when_a_material_pitch_has_no_recording(
     piano_note: Callable[..., NDArray[np.float64]],
+    graded_velocity_map: VelocityVolumeMap,
+    reduce: ReduceFactory,
 ) -> None:
     audio: AudioMap = {SampleKey(60, 100): piano_note(60, 100, dur=0.5, seed=60 * 137 + 100)}
     material = [NoteEvent(pitch=99, velocity=100, duration_s=0.4, count=1)]  # pitch 99 not recorded
     with pytest.raises(ValueError, match="no recorded sample for pitch 99"):
-        build_tasks(_instrument(material), audio, Representatives.NEAREST_LOUDEST)
+        build_tasks(_instrument(material), audio, graded_velocity_map, reduce())
 
 
 # --- scoring --------------------------------------------------------------------------------------

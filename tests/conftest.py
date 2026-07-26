@@ -29,10 +29,14 @@ from optisample.metrics import CompositeFidelity, build_composite
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.operating_points import SweepContext
 from optisample.optimize.orchestrate.settings import OptimizeSettings
+from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
 from optisample.synth import NoteSpec, render_sample
 from trackmod.module.storage import Storage
+from trackmod.spec.levels import MAX_VOLUME
 
 _NOTE_SR = 44_100
+_MIDI_VELOCITIES = 128
+_ANCHORS = (VelocityAnchor(100, -10.0, MAX_VOLUME),)
 
 
 @pytest.fixture(scope="session")
@@ -165,6 +169,19 @@ def reduce(config: OptiConfig) -> Callable[..., ReduceConfig]:
         return ReduceConfig.model_validate(merged)
 
     return _build
+
+
+@pytest.fixture
+def flat_velocity_map() -> VelocityVolumeMap:
+    """A map sending every velocity to full volume, so a test can look past the loudness axis."""
+    return VelocityVolumeMap(tuple(MAX_VOLUME for _ in range(_MIDI_VELOCITIES)), _ANCHORS)
+
+
+@pytest.fixture
+def graded_velocity_map() -> VelocityVolumeMap:
+    """A map giving every velocity its own volume, so only genuinely equal dynamics share one."""
+    volumes = tuple(min(velocity, MAX_VOLUME) for velocity in range(_MIDI_VELOCITIES))
+    return VelocityVolumeMap(volumes, _ANCHORS)
 
 
 @pytest.fixture

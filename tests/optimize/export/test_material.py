@@ -12,7 +12,7 @@ from optisample.io.tracker.target import ExportTarget
 from optisample.model import NoteEvent
 from optisample.optimize.export.material import event_rows, material_patterns
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
-from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
+from optisample.optimize.velocity_map import VelocityVolumeMap
 from trackmod.core.notes.command import NoteCommand
 from trackmod.core.notes.pitch import Note
 from trackmod.core.patterns.cell import Cell
@@ -20,9 +20,7 @@ from trackmod.module.protocol import TrackerModule
 
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
 
-_FULL_VOLUME = 64
 _CHANNEL = 0
-_MIDI_VELOCITIES = 128
 
 # 2.5 and 3.5 rows: durations that land mid-row, so rounding up to whole rows is unambiguous.
 _TWO_AND_A_HALF_ROWS = 2.5
@@ -37,13 +35,6 @@ def song_cells(module: TrackerModule) -> list[Cell]:
         for row in range(pattern.rows)
         if not (cell := pattern.cell(row, _CHANNEL)).is_empty
     ]
-
-
-@pytest.fixture
-def flat_velocity_map() -> VelocityVolumeMap:
-    """A map sending every velocity to full volume, so a test can look past the loudness axis."""
-    volumes = tuple(_FULL_VOLUME for _ in range(_MIDI_VELOCITIES))
-    return VelocityVolumeMap(volumes, (VelocityAnchor(100, -10.0, _FULL_VOLUME),))
 
 
 def test_pattern_applies_velocity_volume_map_and_releases_each_note(

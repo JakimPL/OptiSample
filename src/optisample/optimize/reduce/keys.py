@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from math import floor
 from typing import Protocol
@@ -88,3 +88,14 @@ def dedupe_group(key: SampleKey, dedupe_key: DedupeKey) -> DedupeGroup:
         velocity=key.velocity if dedupe_key.includes_velocity else None,
         cc=key.cc if dedupe_key.includes_cc else (),
     )
+
+
+def nearest_key(available: Sequence[SampleKey], velocity: int) -> SampleKey:
+    """Recorded key whose velocity is closest to ``velocity``.
+
+    This is the many-to-one lookup that routes a played note to the recording it is scored against: a
+    whole span of velocities resolves to one key, which is what lets those notes be scored once. Ties
+    favour the louder recording, then the lowest CC bucket, so a pitch with several timbral variants at
+    one velocity still resolves to the same reference on every run.
+    """
+    return min(available, key=lambda key: (abs(key.velocity - velocity), -key.velocity, key.cc))
