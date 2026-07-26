@@ -9,6 +9,7 @@ from optisample.config.metrics import MetricsConfig
 from optisample.config.optimize import OptimizeConfig, SweepConfig, VelocityConfig
 from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.config.synth import SynthConfig
+from optisample.config.tracker import TrackerConfig
 
 
 class OptiConfig(ConfigModel):
@@ -23,6 +24,7 @@ class OptiConfig(ConfigModel):
     velocity: VelocityConfig
     render: RenderConfig
     playback: PlaybackConfig
+    tracker: TrackerConfig
     synth: SynthConfig
 
     @property

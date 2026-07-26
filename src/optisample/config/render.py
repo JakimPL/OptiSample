@@ -6,7 +6,7 @@ Interpolation = Literal["none", "linear", "cubic", "sinc"]
 
 
 class RenderConfig(ConfigModel):
-    """How openmpt123 renders an ``.IT`` file: output rate, interpolation filter, output gain (dB)."""
+    """How openmpt123 renders a module file: output rate, interpolation filter, output gain (dB)."""
 
     sample_rate: int
     interpolation: Interpolation
@@ -14,9 +14,7 @@ class RenderConfig(ConfigModel):
 
 
 class PlaybackConfig(ConfigModel):
-    """IT global playback: ticks/row via ``speed``+``tempo``, plus global and mix volume."""
+    """The clock a module starts on: ``speed`` ticks per row at ``tempo``, which both formats share."""
 
     speed: int
     tempo: int
-    global_volume: int
-    mix_volume: int

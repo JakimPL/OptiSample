@@ -11,6 +11,7 @@ from optisample.metrics.base import Signal
 from optisample.metrics.composite import CompositeFidelity, QualityReport, evaluate
 from optisample.model import InstrumentSpec, NoteEvent
 from optisample.optimize.velocity_map import VelocityVolumeMap
+from trackmod.module.storage import Storage
 
 AudioMap = Mapping[tuple[int, int], Signal]
 
@@ -43,7 +44,11 @@ class PitchTask:
 
 @dataclass(frozen=True)
 class EvalContext:
-    """Shared scoring inputs (bundled to stay under the argument limit)."""
+    """Shared scoring inputs (bundled to stay under the argument limit).
+
+    ``storage`` is the target format's cost table, so every operating point the sweep produces is
+    priced in the bytes the written module will actually spend on it.
+    """
 
     sample_rate: int
     velocity_map: VelocityVolumeMap
@@ -51,6 +56,7 @@ class EvalContext:
     rng: np.random.Generator
     sweep: SweepConfig
     encode: EncodeConfig
+    storage: Storage
 
 
 def nearest_velocity(available: Sequence[int], target: int) -> int:

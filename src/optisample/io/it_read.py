@@ -1,14 +1,3 @@
-"""Round-trip reader for ``.IT`` files, used to validate the hand-rolled writer.
-
-``xmodits`` is an independent, Rust-backed sample ripper; decoding a file we wrote with a parser we
-did *not* write is the strongest cheap check that the byte layout is correct. This module is a thin
-wrapper: it dumps every sample to WAV in a temp dir and reads them back as float PCM. It depends on
-the dev-only ``xmodits-py`` and is deliberately **not** re-exported from :mod:`optisample.io`, so a
-runtime install without the validation tooling can still import the package.
-"""
-
-from __future__ import annotations
-
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,6 +28,7 @@ def _parse_name(stem: str) -> tuple[int, str]:
     head, separator, tail = stem.partition(" - ")
     if separator and head.strip().isdigit():
         return int(head), tail
+
     return 0, stem
 
 
@@ -52,5 +42,13 @@ def read_it_samples(path: Path | str) -> list[RippedSample]:
             data, rate = read_wav(wav)
             index, name = _parse_name(wav.stem)
             pcm = np.asarray(data, dtype=np.float64).ravel()
-            ripped.append(RippedSample(index=index, name=name, sample_rate=rate, pcm=pcm))
+            ripped.append(
+                RippedSample(
+                    index=index,
+                    name=name,
+                    sample_rate=rate,
+                    pcm=pcm,
+                )
+            )
+
     return sorted(ripped, key=lambda sample: sample.index)

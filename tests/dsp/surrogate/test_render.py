@@ -6,8 +6,9 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from optisample.dsp.surrogate import MAX_VOLUME, EncodeContext, EncodingParams, encode, render
+from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode, render
 from optisample.metrics.diagnostics import snr
+from trackmod.spec.levels import MAX_VOLUME
 
 SR = 44_100
 

@@ -16,10 +16,8 @@ from optisample.calibrate import (
     render_note_surrogate,
     renderer_agreement,
 )
-from optisample.config.render import RenderConfig
 from optisample.dsp.resample import resample_to
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, StoredSample, encode
-from optisample.io.it_writer import ITPlayback
 from optisample.io.render import openmpt123_available
 
 SAMPLE_RATE = 44_100
@@ -53,12 +51,11 @@ def test_rank_correlation_is_nan_with_fewer_than_two_points() -> None:
 def test_render_note_openmpt_matches_requested_duration(
     make_encode_ctx: Callable[..., EncodeContext],
     recording: Callable[..., NDArray[np.float64]],
-    render_config: RenderConfig,
-    playback: ITPlayback,
+    calibration_context: CalibrationContext,
 ) -> None:
     stored = encode(recording("piano", 60, 1.5), SAMPLE_RATE, EncodingParams(44_100, 16), make_encode_ctx(60))
-    out = render_note_openmpt(stored, NoteProbe(pitch=60, duration_s=1.0), render_config, playback)
-    assert out.size == int(round(1.0 * render_config.sample_rate))
+    out = render_note_openmpt(stored, NoteProbe(pitch=60, duration_s=1.0), calibration_context)
+    assert out.size == int(round(1.0 * calibration_context.render.sample_rate))
 
 
 @requires_openmpt

@@ -57,6 +57,7 @@ def mel_filterbank(sample_rate: int, params: MelParams) -> Signal:
         rising = (fft_freqs - left) / max(center - left, _LOG_FLOOR)
         falling = (right - fft_freqs) / max(right - center, _LOG_FLOOR)
         filters[band - 1] = np.clip(np.minimum(rising, falling), 0.0, None)
+
     return filters
 
 
@@ -141,6 +142,7 @@ def spectral_flux(signal: Signal, params: StftParams) -> Signal:
     magnitude = stft_magnitude(signal, params)
     if magnitude.shape[0] < 2:
         return np.zeros(1, dtype=np.float64)
+
     return np.sqrt(np.sum(np.diff(magnitude, axis=0) ** 2, axis=1)).astype(np.float64)
 
 

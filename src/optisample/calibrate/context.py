@@ -2,8 +2,9 @@ from dataclasses import dataclass
 from typing import Final
 
 from optisample.config.render import PlaybackConfig, RenderConfig
-from optisample.dsp.surrogate import MAX_VOLUME
+from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.composite import CompositeFidelity
+from trackmod.spec.levels import MAX_VOLUME
 
 _DEFAULT_PROBE_DURATION_S: Final = 0.5
 
@@ -28,19 +29,21 @@ class RendererAgreement:
     """
 
     probe: NoteProbe
-    distance: float  # weighted composite distance (loudness-matched); 0 = identical
-    loudness_delta_lu: float  # raw level gap surrogate vs openmpt, reported not penalized
-    breakdown: dict[str, float]  # per-metric raw distances (mrstft, logmel_l1, spectral_shape, mcd, ...)
+    distance: float
+    loudness_delta_lu: float
+    breakdown: dict[str, float]
 
 
 @dataclass(frozen=True)
 class CalibrationContext:
     """Everything the calibrator renders and scores a note with.
 
-    ``render`` is how ``openmpt123`` renders the module, ``playback`` is the IT global playback the
-    module carries, and ``composite`` is the loudness-matched metric the two engines are compared under.
+    ``render`` is how ``openmpt123`` renders the module, ``playback`` is the clock the probe module
+    carries, ``target`` is the tracker format that module is written as, and ``composite`` is the
+    loudness-matched metric the two engines are compared under.
     """
 
     render: RenderConfig
     playback: PlaybackConfig
+    target: ExportTarget
     composite: CompositeFidelity

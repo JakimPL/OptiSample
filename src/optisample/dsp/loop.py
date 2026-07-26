@@ -89,6 +89,7 @@ def _snap_ascending_zero(signal: Signal, index: int, radius: int) -> int:
     for candidate in range(low, high + 1):
         if signal[candidate - 1] <= 0.0 < signal[candidate] and abs(candidate - index) < best_distance:
             best, best_distance = candidate, abs(candidate - index)
+
     return best
 
 

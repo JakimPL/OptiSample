@@ -14,7 +14,7 @@ class ZoneOption:
 
     ``distortion`` is the *usage-weighted, summed* reconstruction distortion over every pitch the
     zone covers (so it is directly comparable to the ungrouped objective), and ``stored_bytes``
-    already includes the one 80-byte sample header the zone costs.
+    already includes the records the target format charges for the one sample the zone stores.
     """
 
     representative: int

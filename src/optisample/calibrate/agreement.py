@@ -7,34 +7,53 @@ from optisample.calibrate.context import (
     RendererAgreement,
 )
 from optisample.calibrate.modules import single_note_module
-from optisample.config.render import RenderConfig
 from optisample.dsp.surrogate import StoredSample, render
-from optisample.io.it_writer import ITPlayback, it_playback
 from optisample.io.render import render_module
 from optisample.metrics.base import Signal
 from optisample.metrics.composite import evaluate
 
 
-def render_note_surrogate(stored: StoredSample, probe: NoteProbe, out_rate: int) -> Signal:
+def render_note_surrogate(
+    stored: StoredSample,
+    probe: NoteProbe,
+    out_rate: int,
+) -> Signal:
     """Render ``probe`` from ``stored`` with the numpy surrogate at ``out_rate``."""
-    return render(stored, out_rate, pitch=probe.pitch, volume=probe.volume, duration_s=probe.duration_s)
+    return render(
+        stored,
+        out_rate,
+        pitch=probe.pitch,
+        volume=probe.volume,
+        duration_s=probe.duration_s,
+    )
 
 
 def render_note_openmpt(
-    stored: StoredSample, probe: NoteProbe, render_config: RenderConfig, playback: ITPlayback
+    stored: StoredSample,
+    probe: NoteProbe,
+    context: CalibrationContext,
 ) -> Signal:
     """Render ``probe`` from ``stored`` with openmpt123, trimmed to ``probe.duration_s``."""
-    audio, rate = render_module(single_note_module(stored, probe, playback), render_config)
-    frames = int(round(probe.duration_s * rate))
+    module = single_note_module(stored, probe, context.playback, context.target)
+    audio, rate = render_module(module, context.render)
+    frames = round(probe.duration_s * rate)
     return np.asarray(audio[:frames], dtype=np.float64)
 
 
-def renderer_agreement(stored: StoredSample, probe: NoteProbe, context: CalibrationContext) -> RendererAgreement:
+def renderer_agreement(
+    stored: StoredSample,
+    probe: NoteProbe,
+    context: CalibrationContext,
+) -> RendererAgreement:
     """Compare the surrogate and openmpt123 renders of the same note (see :class:`RendererAgreement`)."""
-    playback = it_playback(context.playback)
     surrogate = render_note_surrogate(stored, probe, context.render.sample_rate)
-    openmpt = render_note_openmpt(stored, probe, context.render, playback)
-    report = evaluate(surrogate, openmpt, context.render.sample_rate, context.composite)
+    openmpt = render_note_openmpt(stored, probe, context)
+    report = evaluate(
+        surrogate,
+        openmpt,
+        context.render.sample_rate,
+        context.composite,
+    )
     return RendererAgreement(
         probe=probe,
         distance=report.fidelity,
@@ -44,7 +63,10 @@ def renderer_agreement(stored: StoredSample, probe: NoteProbe, context: Calibrat
 
 
 def distortion_vs_source(
-    reference: Signal, stored: StoredSample, probe: NoteProbe, context: CalibrationContext
+    reference: Signal,
+    stored: StoredSample,
+    probe: NoteProbe,
+    context: CalibrationContext,
 ) -> tuple[float, float]:
     """Distortion of ``stored`` against ``reference`` (source at the analysis rate), surrogate then openmpt.
 
@@ -52,20 +74,34 @@ def distortion_vs_source(
     to each render internally. Returns ``(surrogate_distortion, openmpt_distortion)`` -- the two numbers
     whose *ranking* across encodings should agree.
     """
-    playback = it_playback(context.playback)
     surrogate = render_note_surrogate(stored, probe, context.render.sample_rate)
-    openmpt = render_note_openmpt(stored, probe, context.render, playback)
-    surrogate_distortion = evaluate(reference, surrogate, context.render.sample_rate, context.composite).fidelity
-    openmpt_distortion = evaluate(reference, openmpt, context.render.sample_rate, context.composite).fidelity
+    openmpt = render_note_openmpt(stored, probe, context)
+    surrogate_distortion = evaluate(
+        reference,
+        surrogate,
+        context.render.sample_rate,
+        context.composite,
+    ).fidelity
+    openmpt_distortion = evaluate(
+        reference,
+        openmpt,
+        context.render.sample_rate,
+        context.composite,
+    ).fidelity
+
     return surrogate_distortion, openmpt_distortion
 
 
-def rank_correlation(surrogate_distortions: Signal, openmpt_distortions: Signal) -> float:
+def rank_correlation(
+    surrogate_distortions: Signal,
+    openmpt_distortions: Signal,
+) -> float:
     """Spearman rank correlation between the surrogate's and openmpt123's distortions (1 = same order).
 
     Returns ``nan`` when there are fewer than two points to rank.
     """
     if len(surrogate_distortions) < 2:
         return float("nan")
-    correlation, _pvalue = spearmanr(surrogate_distortions, openmpt_distortions)
+
+    correlation, _ = spearmanr(surrogate_distortions, openmpt_distortions)
     return float(correlation)

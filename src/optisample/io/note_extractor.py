@@ -1,18 +1,3 @@
-"""Read NoteExtractor output into the optimizer's in-memory model (and a minimal writer for the demo).
-
-NoteExtractor emits a samples directory of per-note WAVs named ``{index}_p{pitch}_v{velocity}_...wav``
-plus a ``.notes.json`` manifest ``{config, notes[]}``. Each note is one isolated performance of a
-pitch at a velocity, so it maps to both a recorded :class:`~optisample.model.SourceSample` and the
-:class:`~optisample.model.NoteEvent` that plays it; the join key is ``render.index`` matched against
-each WAV filename's leading index token.
-
-:func:`load_notes` parses that pair into a :class:`~optisample.model.Manifest`. :func:`dump_notes`
-writes the consumed subset back out, used by the synth demo and tests to round-trip through the same
-on-disk ingest path (it is not a full NoteExtractor emulation).
-"""
-
-from __future__ import annotations
-
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -21,7 +6,13 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from optisample.model import InstrumentSpec, Manifest, NoteEvent, ProjectSpec, SourceSample
+from optisample.model import (
+    InstrumentSpec,
+    Manifest,
+    NoteEvent,
+    ProjectSpec,
+    SourceSample,
+)
 
 
 class _Render(BaseModel):
@@ -72,7 +63,11 @@ class IngestSettings:
     post_roll_s: float = 0.0
 
 
-def load_notes(notes_json: Path | str, samples_dir: Path | str, settings: IngestSettings) -> Manifest:
+def load_notes(
+    notes_json: Path | str,
+    samples_dir: Path | str,
+    settings: IngestSettings,
+) -> Manifest:
     """Join a ``.notes.json`` to its samples directory into a single-instrument manifest.
 
     Each note becomes a :class:`~optisample.model.SourceSample` (matched to the WAV whose leading index
@@ -133,7 +128,12 @@ class NoteRecord:
     cc_averages: Mapping[int, float] = field(default_factory=dict)
 
 
-def dump_notes(notes: Sequence[NoteRecord], path: Path | str, *, tracked_ccs: Sequence[int] = ()) -> None:
+def dump_notes(
+    notes: Sequence[NoteRecord],
+    path: Path | str,
+    *,
+    tracked_ccs: Sequence[int] = (),
+) -> None:
     """Write the consumed ``.notes.json`` subset for ``notes`` (render window ``[0, duration_s]``)."""
     data = {
         "config": {"tracked_ccs": list(tracked_ccs)},

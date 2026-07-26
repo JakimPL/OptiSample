@@ -12,6 +12,7 @@ from optisample.calibrate import CalibrationContext
 from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.config.synth import SynthConfig
 from optisample.dsp.surrogate import StoredSample
+from optisample.io.tracker.target import ExportTarget
 from optisample.metrics import CompositeFidelity
 from optisample.synth import NoteSpec, render_sample
 
@@ -20,10 +21,13 @@ SAMPLE_RATE = 44_100
 
 @pytest.fixture
 def calibration_context(
-    render_config: RenderConfig, playback_config: PlaybackConfig, composite: CompositeFidelity
+    render_config: RenderConfig,
+    playback_config: PlaybackConfig,
+    target: ExportTarget,
+    composite: CompositeFidelity,
 ) -> CalibrationContext:
-    """The calibration context (openmpt render settings + IT playback + composite) from the bundled config."""
-    return CalibrationContext(render=render_config, playback=playback_config, composite=composite)
+    """The calibration context (render settings, clock, target format, composite) from the bundled config."""
+    return CalibrationContext(render=render_config, playback=playback_config, target=target, composite=composite)
 
 
 @pytest.fixture

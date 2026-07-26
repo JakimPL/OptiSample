@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -7,14 +8,12 @@ import numpy as np
 import pytest
 
 from optisample.config import load_config
-from optisample.config.dsp import EncodeConfig
 from optisample.config.optimize import SweepConfig
 from optisample.dsp.surrogate import EncodingParams
-from optisample.metrics.composite import CompositeFidelity
-from optisample.metrics.size import SampleSize
 from optisample.optimize.operating_points import (
     OperatingPoint,
     SourceClip,
+    SweepContext,
     default_rates,
     evaluate_encoding,
     lower_convex_hull,
@@ -22,6 +21,7 @@ from optisample.optimize.operating_points import (
     sample_operating_points,
 )
 from optisample.synth import NoteSpec, render_sample
+from trackmod.core.samples.depth import BitDepth
 
 SR = 44_100
 
@@ -39,6 +39,11 @@ def point(stored_bytes: int, distortion: float) -> OperatingPoint:
     return OperatingPoint(params=params, stored_bytes=stored_bytes, distortion=distortion, frames=stored_bytes)
 
 
+def seeded(context: SweepContext, seed: int = 0) -> SweepContext:
+    """The same sweep context with a seeded dither RNG, so a sweep reproduces run to run."""
+    return dataclasses.replace(context, rng=np.random.default_rng(seed))
+
+
 # 245 Hz has an exact 180-frame period at 44.1 kHz, so a whole-period loop reproduces it exactly
 # (a non-integer period would make the loop play a slightly detuned pitch -- a real limitation, not a bug).
 def harmonic_tone(freq: float = 245.0, dur: float = 3.0) -> np.ndarray:
@@ -51,24 +56,24 @@ def harmonic_tone(freq: float = 245.0, dur: float = 3.0) -> np.ndarray:
 
 
 def test_looping_a_periodic_clip_saves_bytes_at_similar_quality(
-    sweep: Callable[..., SweepConfig], composite: CompositeFidelity, encode_config: EncodeConfig
+    sweep: Callable[..., SweepConfig], sweep_context: SweepContext
 ) -> None:
     clip = SourceClip(signal=harmonic_tone(dur=3.0), sample_rate=SR, root_pitch=57, duration_s=3.0)
     plain_sweep = sweep(rates=(SR,), depths=(16,), dither=False, loops=(False,))
     loop_sweep = sweep(rates=(SR,), depths=(16,), dither=False, loops=(True,))
-    plain = sample_operating_points(clip, plain_sweep, composite=composite, encode_config=encode_config)[0]
-    looped = sample_operating_points(clip, loop_sweep, composite=composite, encode_config=encode_config)[0]
+    plain = sample_operating_points(clip, plain_sweep, sweep_context)[0]
+    looped = sample_operating_points(clip, loop_sweep, sweep_context)[0]
     assert looped.params.loop is True
     assert looped.stored_bytes < plain.stored_bytes // 2  # dropping the 3 s sustain tail is a big saving
     assert looped.distortion < 0.1  # the whole-period loop reconstructs the exactly-periodic tone
 
 
 def test_looping_is_pareto_optimal_on_the_frontier_when_it_helps(
-    sweep: Callable[..., SweepConfig], composite: CompositeFidelity, encode_config: EncodeConfig
+    sweep: Callable[..., SweepConfig], sweep_context: SweepContext
 ) -> None:
     clip = SourceClip(signal=harmonic_tone(dur=3.0), sample_rate=SR, root_pitch=57, duration_s=3.0)
     grid = sweep(rates=(SR, 11_025), depths=(16, 8), dither=False, loops=(False, True))
-    hull = rd_frontier(clip, grid, composite=composite, encode_config=encode_config)
+    hull = rd_frontier(clip, grid, sweep_context)
     assert any(op.params.loop for op in hull)  # a looped config survives onto the rate-distortion hull
 
 
@@ -79,45 +84,33 @@ def test_default_rates_are_capped_floored_and_sorted(sweep_config: SweepConfig) 
     assert all(rate <= 44_100 for rate in default_rates(44_100, divisors, floor))
 
 
-def test_evaluate_encoding_lossless_beats_aggressive(composite: CompositeFidelity, encode_config: EncodeConfig) -> None:
+def test_evaluate_encoding_lossless_beats_aggressive(sweep_context: SweepContext) -> None:
     clip = SourceClip(signal=bright_piano(), sample_rate=SR, root_pitch=84, duration_s=1.0)
-    params = {"composite": composite, "encode_config": encode_config}
-    lossless = evaluate_encoding(clip, EncodingParams(target_rate=SR, depth_bits=16, dither=False), **params)
-    aggressive = evaluate_encoding(clip, EncodingParams(target_rate=5_512, depth_bits=8), **params)
+    lossless = evaluate_encoding(clip, EncodingParams(target_rate=SR, depth_bits=16, dither=False), sweep_context)
+    aggressive = evaluate_encoding(clip, EncodingParams(target_rate=5_512, depth_bits=8), sweep_context)
     assert lossless.distortion < aggressive.distortion
     assert lossless.stored_bytes > aggressive.stored_bytes
 
 
-def test_evaluate_encoding_without_duration_stores_full_clip(
-    composite: CompositeFidelity, encode_config: EncodeConfig
-) -> None:
+def test_evaluate_encoding_without_duration_stores_full_clip(sweep_context: SweepContext) -> None:
     clip = SourceClip(signal=bright_piano(dur=0.5), sample_rate=SR, root_pitch=84)  # duration_s=None → no trim
-    result = evaluate_encoding(
-        clip,
-        EncodingParams(target_rate=SR, depth_bits=16, dither=False),
-        composite=composite,
-        encode_config=encode_config,
-    )
+    result = evaluate_encoding(clip, EncodingParams(target_rate=SR, depth_bits=16, dither=False), sweep_context)
     assert result.frames == pytest.approx(int(0.5 * SR), abs=2)
     assert result.kib == pytest.approx(result.stored_bytes / 1024.0)
 
 
-def test_evaluate_encoding_bytes_match_size_model(composite: CompositeFidelity, encode_config: EncodeConfig) -> None:
+def test_evaluate_encoding_bytes_match_the_formats_cost_table(sweep_context: SweepContext) -> None:
     clip = SourceClip(signal=bright_piano(), sample_rate=SR, root_pitch=84, duration_s=1.0)
-    result = evaluate_encoding(
-        clip, EncodingParams(target_rate=22_050, depth_bits=16), composite=composite, encode_config=encode_config
-    )
-    assert result.stored_bytes == SampleSize(frames=result.frames, depth_bits=16).total_bytes
+    result = evaluate_encoding(clip, EncodingParams(target_rate=22_050, depth_bits=16), sweep_context)
+    assert result.stored_bytes == sweep_context.storage.sample_bytes(frames=result.frames, depth=BitDepth.SIXTEEN)
 
 
 def test_sample_operating_points_covers_the_grid(
-    sweep: Callable[..., SweepConfig], composite: CompositeFidelity, encode_config: EncodeConfig
+    sweep: Callable[..., SweepConfig], sweep_context: SweepContext
 ) -> None:
     clip = SourceClip(signal=bright_piano(), sample_rate=SR, root_pitch=84, duration_s=1.0)
     grid = sweep(rates=(44_100, 22_050, 11_025), depths=(16, 8))
-    points = sample_operating_points(
-        clip, grid, composite=composite, encode_config=encode_config, rng=np.random.default_rng(0)
-    )
+    points = sample_operating_points(clip, grid, seeded(sweep_context))
     assert len(points) == 3 * 2
     assert all(p.stored_bytes > 0 for p in points)
 
@@ -150,13 +143,9 @@ def test_lower_convex_hull_edge_cases() -> None:
     assert lower_convex_hull([solo]) == [solo]
 
 
-def test_rd_frontier_is_monotone_and_convex(
-    sweep_config: SweepConfig, composite: CompositeFidelity, encode_config: EncodeConfig
-) -> None:
+def test_rd_frontier_is_monotone_and_convex(sweep_config: SweepConfig, sweep_context: SweepContext) -> None:
     clip = SourceClip(signal=bright_piano(), sample_rate=SR, root_pitch=84, duration_s=1.0)
-    hull = rd_frontier(
-        clip, sweep_config, composite=composite, encode_config=encode_config, rng=np.random.default_rng(0)
-    )
+    hull = rd_frontier(clip, sweep_config, seeded(sweep_context))
     stored_bytes = [p.stored_bytes for p in hull]
     distortion = [p.distortion for p in hull]
     assert len(hull) >= 2

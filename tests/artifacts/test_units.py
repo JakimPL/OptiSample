@@ -33,8 +33,17 @@ def test_make_kind_packages_an_ungrouped_plan(ungrouped_plan: InstrumentPlan, du
     assert kind.plan_document.strategy == "ungrouped"
     assert len(kind.units) == len(ungrouped_plan.pitches)
     assert kind.report_text.strip()  # a non-empty human report
-    module = kind.make_module(list(dump_context.material))
-    assert len(module.samples) == len(kind.units)  # one stored sample per unit
+    assert len(kind.module.song.samples) == len(kind.units)  # one stored sample per unit
+    assert kind.plan_document.module.total_bytes == kind.module.size().total
+
+
+def test_make_kind_rebuilds_the_module_over_other_material(
+    ungrouped_plan: InstrumentPlan, dump_context: DumpContext
+) -> None:
+    kind = make_kind(ungrouped_plan, dump_context)
+    one_note = kind.make_module(list(dump_context.material[:1]))
+    assert one_note.song.samples == kind.module.song.samples  # the same stored samples, a shorter song
+    assert one_note.size().patterns < kind.module.size().patterns
 
 
 def test_make_kind_packages_a_grouped_plan(grouped_plan: GroupedInstrumentPlan, dump_context: DumpContext) -> None:

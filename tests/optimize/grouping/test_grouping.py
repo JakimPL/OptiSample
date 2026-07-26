@@ -9,6 +9,7 @@ from numpy.typing import NDArray
 from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
 from optisample.io.audio import write_wav
+from optisample.io.tracker.target import export_target
 from optisample.metrics.composite import build_composite
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.dp import BudgetInfeasibleError
@@ -46,6 +47,7 @@ def _settings(sweep: SweepConfig) -> OptimizeSettings:
         composite=_COMPOSITE,
         velocity=_CONFIG.velocity,
         method=_CONFIG.optimize.method,
+        target=export_target(_CONFIG.tracker),
     )
 
 

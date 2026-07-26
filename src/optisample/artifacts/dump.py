@@ -24,7 +24,6 @@ from optisample.artifacts.units import PlanKind, Unit, make_kind
 from optisample.dsp.surrogate import render
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.io.audio import write_wav
-from optisample.io.it_writer import write_it
 from optisample.io.render import openmpt123_available, render_module
 from optisample.metrics.base import Signal
 from optisample.model import InstrumentSpec, Manifest, NoteEvent
@@ -50,6 +49,7 @@ class _Strategy:
 
 _UNGROUPED: Final = _Strategy("ungrouped", optimize_instrument)
 _GROUPED: Final = _Strategy("grouped", optimize_instrument_grouped)
+_MODULE_STEM: Final = "module"
 
 
 def _representative_event(task: PitchTask) -> Event:
@@ -101,20 +101,19 @@ def _write_plan_docs(kind: PlanKind, out_dir: Path) -> None:
 
 
 def _write_sample_wavs(kind: PlanKind, out_dir: Path) -> None:
-    """Decode every stored sample back to a float WAV under ``samples/`` (bit-identical to module.it)."""
+    """Decode every stored sample back to a float WAV under ``samples/`` (bit-identical to the module)."""
     for unit in kind.units:
         write_wav(out_dir / "samples" / f"{unit.label}.wav", unit.stored.pcm, unit.stored.sample_rate)
 
 
 def _write_module_and_render(kind: PlanKind, out_dir: Path, dump_context: DumpContext) -> bool:
-    """Write ``module.it`` and, when openmpt123 is available and requested, the ground-truth render."""
-    module = kind.make_module(dump_context.material)
-    write_it(out_dir / "module.it", module)
+    """Write the module in its own format and, when openmpt123 is available and asked for, render it."""
+    kind.module.save(out_dir / f"{_MODULE_STEM}{kind.module.extension}")
     if not (dump_context.settings.render_ground_truth and openmpt123_available()):
         return False
     (out_dir / "render").mkdir(parents=True, exist_ok=True)
-    audio, rate = render_module(module, dump_context.settings.render)
-    write_wav(out_dir / "render" / "module.wav", audio, rate)
+    audio, rate = render_module(kind.module, dump_context.settings.render)
+    write_wav(out_dir / "render" / f"{_MODULE_STEM}.wav", audio, rate)
     return True
 
 

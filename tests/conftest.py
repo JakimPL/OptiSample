@@ -21,11 +21,13 @@ from optisample.config.optimize import Method, OptimizeConfig, SweepConfig, Velo
 from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.config.synth import SynthConfig
 from optisample.dsp.surrogate import EncodeContext
-from optisample.io.it_writer import ITPlayback, it_playback
+from optisample.io.tracker.target import ExportTarget, export_target
 from optisample.metrics import CompositeFidelity, build_composite
-from optisample.optimize.export import ExportContext
+from optisample.optimize.export.context import ExportContext
+from optisample.optimize.operating_points import SweepContext
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.synth import NoteSpec, render_sample
+from trackmod.module.storage import Storage
 
 _NOTE_SR = 44_100
 
@@ -93,15 +95,27 @@ def playback_config(config: OptiConfig) -> PlaybackConfig:
 
 
 @pytest.fixture
-def playback(playback_config: PlaybackConfig) -> ITPlayback:
-    """The IT playback value-object built from the bundled config (for constructing ITModules in tests)."""
-    return it_playback(playback_config)
+def target(config: OptiConfig) -> ExportTarget:
+    """The export target built from the bundled tracker config (format, compliance, format settings)."""
+    return export_target(config.tracker)
 
 
 @pytest.fixture
-def export_context(config: OptiConfig) -> ExportContext:
-    """The IT-exporter context (encode + playback) built from the bundled config, seed 0."""
-    return ExportContext(encode=config.encode, playback=config.playback)
+def storage(target: ExportTarget) -> Storage:
+    """The target format's record cost table, which prices every stored sample."""
+    return target.storage
+
+
+@pytest.fixture
+def sweep_context(config: OptiConfig, composite: CompositeFidelity, storage: Storage) -> SweepContext:
+    """The scoring context an encoding sweep runs under, built from the bundled config."""
+    return SweepContext(composite=composite, encode=config.encode, storage=storage)
+
+
+@pytest.fixture
+def export_context(config: OptiConfig, target: ExportTarget) -> ExportContext:
+    """The exporter context (encode + playback + target) built from the bundled config, seed 0."""
+    return ExportContext(encode=config.encode, playback=config.playback, target=target)
 
 
 @pytest.fixture
@@ -120,11 +134,14 @@ def sweep(config: OptiConfig) -> Callable[..., SweepConfig]:
 
 
 @pytest.fixture
-def optimize_settings(config: OptiConfig, composite: CompositeFidelity) -> Callable[..., OptimizeSettings]:
+def optimize_settings(
+    config: OptiConfig, composite: CompositeFidelity, target: ExportTarget
+) -> Callable[..., OptimizeSettings]:
     """Factory: an ``OptimizeSettings`` from the bundled config, overriding the swept grid/method/seed.
 
     ``sweep`` (a ``SweepConfig``, usually built via the ``sweep`` factory) is the only knob the
-    optimize tests vary; ``encode``, ``composite`` and ``velocity`` come from the bundled config.
+    optimize tests vary; ``encode``, ``composite``, ``velocity`` and ``target`` come from the bundled
+    config.
     """
 
     def _build(*, sweep: SweepConfig, method: Method | None = None, seed: int = 0) -> OptimizeSettings:
@@ -134,6 +151,7 @@ def optimize_settings(config: OptiConfig, composite: CompositeFidelity) -> Calla
             composite=composite,
             velocity=config.velocity,
             method=method if method is not None else config.optimize.method,
+            target=target,
             seed=seed,
         )
 

@@ -49,7 +49,8 @@ def _evaluate_zone_option(
     encode_context = EncodeContext(root_pitch=rep_task.pitch, config=context.encode, rng=context.rng)
     stored = encode(rep_task.representative, context.sample_rate, params, encode_context)
     distortion = sum(task.weight * score_reconstruction(stored, task, context) for task in range_tasks)
-    return ZoneOption(rep_task.pitch, params, stored.stored_bytes, distortion, stored.frames)
+    stored_bytes = context.storage.sample_bytes(frames=stored.frames, depth=stored.depth)
+    return ZoneOption(rep_task.pitch, params, stored_bytes, distortion, stored.frames)
 
 
 def _zone_options(range_tasks: Sequence[PitchTask], context: EvalContext) -> list[ZoneOption]:

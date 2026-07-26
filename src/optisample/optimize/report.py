@@ -1,14 +1,15 @@
 from collections.abc import Iterable
 from typing import Final
 
-from optisample.metrics.size import (
-    FILE_HEADER_BYTES,
-    INSTRUMENT_HEADER_BYTES,
-    bytes_to_kib,
-)
+from optisample.metrics.size import bytes_to_kib
 from optisample.music import note_name
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
-from optisample.optimize.plans.budget import BudgetedPlanMixin
+from optisample.optimize.plans.budget import (
+    BudgetedPlanMixin,
+    instrument_overhead,
+    populated_instrument_bytes,
+)
+from trackmod.module.size import SizeReport
 
 RULE_WIDTH: Final = 70
 SECTION_RULE: Final = "=" * RULE_WIDTH
@@ -22,29 +23,37 @@ def _format_allocation_table(title: str, header: str, rows: Iterable[str]) -> st
     return "\n".join((title, SUBSECTION_RULE, header, *rows))
 
 
-def format_budget_block(plan: BudgetedPlanMixin) -> list[str]:
-    """The two-line ``Budget:``/``Used:`` summary shared by the ungrouped and grouped reports."""
-    overhead = FILE_HEADER_BYTES + INSTRUMENT_HEADER_BYTES
+def format_budget_block(plan: BudgetedPlanMixin, size: SizeReport) -> list[str]:
+    """The ``Budget:``/``Used:``/``Written:`` summary shared by the ungrouped and grouped reports.
+
+    The first two lines account for the instrument's own footprint, which is what the solver allocated
+    against; the third states what the module file occupies once the audition material is in it.
+    """
+    storage = plan.budget.storage
     used = plan.used_bytes
     fraction = used / plan.sample_budget_bytes if plan.sample_budget_bytes > 0 else float("nan")
     headroom = plan.sample_budget_bytes - used
     return [
         f"Budget:    {bytes_to_kib(plan.module_budget_bytes):7.1f} KiB module  ->  "
         f"{bytes_to_kib(plan.sample_budget_bytes):7.1f} KiB samples  "
-        f"(overhead {overhead} B: file {FILE_HEADER_BYTES} + instrument {INSTRUMENT_HEADER_BYTES})",
+        f"(overhead {instrument_overhead(storage)} B: file {storage.file} + "
+        f"instrument {populated_instrument_bytes(storage)})",
         f"Used:      {bytes_to_kib(used):7.1f} KiB samples  ({fraction:6.1%} of budget, "
         f"{bytes_to_kib(headroom):.1f} KiB free)  ->  {bytes_to_kib(plan.module_bytes):.1f} KiB module",
+        f"Written:   {bytes_to_kib(size.total):7.1f} KiB module  "
+        f"(records {size.headers} B + samples {size.pcm} B + patterns {size.patterns} B)",
     ]
 
 
-def _format_header(plan: BudgetedPlanMixin, title: str, summary: str) -> str:
+def _format_header(plan: BudgetedPlanMixin, size: SizeReport, title: str, summary: str) -> str:
     """Title, section rule, the shared budget block, then a strategy-specific summary line."""
-    return "\n".join((title, SECTION_RULE, *format_budget_block(plan), summary))
+    return "\n".join((title, SECTION_RULE, *format_budget_block(plan, size), summary))
 
 
-def _ungrouped_header(plan: InstrumentPlan) -> str:
+def _ungrouped_header(plan: InstrumentPlan, size: SizeReport) -> str:
     return _format_header(
         plan,
+        size,
         f"Instrument {plan.instrument_id!r} - budget solver (method: {plan.method})",
         f"Objective: {plan.objective:8.4f}  (sum of weight x distortion over "
         f"{len(plan.pitches)} pitches, {plan.total_weight:.1f} s of material)",
@@ -98,15 +107,16 @@ def _format_curve(plan: InstrumentPlan) -> str:
     return "\n".join(lines)
 
 
-def format_report(plan: InstrumentPlan) -> str:
+def format_report(plan: InstrumentPlan, size: SizeReport) -> str:
     """Render a human-readable summary of an instrument optimization."""
-    sections = (_ungrouped_header(plan), _format_pitches(plan), _format_velocity_map(plan), _format_curve(plan))
+    sections = (_ungrouped_header(plan, size), _format_pitches(plan), _format_velocity_map(plan), _format_curve(plan))
     return "\n\n".join(sections) + "\n"
 
 
-def _grouped_header(plan: GroupedInstrumentPlan) -> str:
+def _grouped_header(plan: GroupedInstrumentPlan, size: SizeReport) -> str:
     return _format_header(
         plan,
+        size,
         f"Instrument {plan.instrument_id!r} - pitch-zone grouping (exact partition + allocation DP)",
         f"Grouping:  {len(plan.zones)} zones cover {len(plan.pitches)} keys  "
         f"(objective {plan.objective:.4f} over {plan.total_weight:.1f} s of material)",
@@ -131,6 +141,6 @@ def _format_zones(plan: GroupedInstrumentPlan) -> str:
     return _format_allocation_table("Zones (one stored sample each, repitched across the zone's keys)", header, rows)
 
 
-def format_grouping_report(plan: GroupedInstrumentPlan) -> str:
+def format_grouping_report(plan: GroupedInstrumentPlan, size: SizeReport) -> str:
     """Render a human-readable summary of a grouped optimization."""
-    return "\n\n".join((_grouped_header(plan), _format_zones(plan))) + "\n"
+    return "\n\n".join((_grouped_header(plan, size), _format_zones(plan))) + "\n"

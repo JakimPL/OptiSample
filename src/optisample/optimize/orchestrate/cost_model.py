@@ -19,7 +19,12 @@ def _evaluate_config(
     encode_context = EncodeContext(root_pitch=task.pitch, config=context.encode, rng=context.rng)
     stored = encode(task.representative, context.sample_rate, params, encode_context)
     distortion = score_reconstruction(stored, task, context)
-    return OperatingPoint(params=params, stored_bytes=stored.stored_bytes, distortion=distortion, frames=stored.frames)
+    return OperatingPoint(
+        params=params,
+        stored_bytes=context.storage.sample_bytes(frames=stored.frames, depth=stored.depth),
+        distortion=distortion,
+        frames=stored.frames,
+    )
 
 
 def _pitch_points(task: PitchTask, context: EvalContext) -> list[OperatingPoint]:
@@ -41,7 +46,11 @@ def build_items(
         points = tuple(_pitch_points(task, context))
         hulls[task.pitch] = tuple(lower_convex_hull(points))
         items.append(
-            KnapsackItem(key=str(task.pitch), weight=task.weight, points=points),
+            KnapsackItem(
+                key=str(task.pitch),
+                weight=task.weight,
+                points=points,
+            ),
         )
 
     return tuple(items), hulls

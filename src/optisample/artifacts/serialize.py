@@ -24,6 +24,7 @@ from optisample.optimize.plans import (
 )
 from optisample.optimize.tasks import EvalContext, PitchTask, score_events
 from optisample.optimize.velocity_map import VelocityVolumeMap
+from trackmod.module.size import SizeReport
 
 _OPTIONAL_HEAD: Final = ("method", "pitches", "zones")
 
@@ -64,6 +65,19 @@ class BudgetRecord(_Frozen):
     sample_budget_bytes: int
     used_bytes: int
     module_bytes: int
+
+
+class ModuleSizeRecord(_Frozen):
+    """What the written module occupies, split by what spends the bytes.
+
+    The budget accounts for the instrument's footprint alone, so these totals also carry the audition
+    material the module plays -- which is why they exceed :attr:`BudgetRecord.module_bytes`.
+    """
+
+    total_bytes: int
+    header_bytes: int
+    pcm_bytes: int
+    pattern_bytes: int
 
 
 class EncodingRecord(_Frozen):
@@ -126,6 +140,7 @@ class PlanDocument(_Frozen):
     method: str | None = None
     objective: float
     budget: BudgetRecord
+    module: ModuleSizeRecord
     velocity_map: VelocityMapDocument
     pitches: list[PitchItemRecord] | None = None
     zones: list[ZoneItemRecord] | None = None
@@ -232,6 +247,15 @@ def _budget_record(plan: StrategyPlan) -> BudgetRecord:
     )
 
 
+def _module_size_record(size: SizeReport) -> ModuleSizeRecord:
+    return ModuleSizeRecord(
+        total_bytes=size.total,
+        header_bytes=size.headers,
+        pcm_bytes=size.pcm,
+        pattern_bytes=size.patterns,
+    )
+
+
 def _encoding_record(unit: SampleUnit, loop: Loop | None) -> EncodingRecord:
     return EncodingRecord(
         target_rate=unit.params.target_rate,
@@ -266,15 +290,21 @@ def _zone_item(unit: SampleUnit, loop: Loop | None) -> ZoneItemRecord:
     )
 
 
-def plan_document(plan: InstrumentPlan | GroupedInstrumentPlan, loops: Sequence[Loop | None]) -> PlanDocument:
+def plan_document(
+    plan: InstrumentPlan | GroupedInstrumentPlan,
+    loops: Sequence[Loop | None],
+    size: SizeReport,
+) -> PlanDocument:
     """One plan document for either strategy; ``loops`` are the per-item *stored* loops, in plan order.
 
     The plan's :meth:`~optisample.optimize.plans.StrategyPlan.sample_units` supplies the shared encoding
     block for every item; only the leading fields (a pitch vs. a zone, and whether a ``method`` is
-    recorded) differ, selected by narrowing on the plan's strategy.
+    recorded) differ, selected by narrowing on the plan's strategy. ``size`` is what the module the plan
+    exports to actually occupies.
     """
     units = plan.sample_units()
     budget = _budget_record(plan)
+    module = _module_size_record(size)
     velocity_map = _velocity_map_document(plan.velocity_map)
     if plan.strategy == "grouped":
         return PlanDocument(
@@ -282,6 +312,7 @@ def plan_document(plan: InstrumentPlan | GroupedInstrumentPlan, loops: Sequence[
             instrument_id=plan.instrument_id,
             objective=plan.objective,
             budget=budget,
+            module=module,
             velocity_map=velocity_map,
             zones=[_zone_item(unit, loop) for unit, loop in zip(units, loops)],
         )
@@ -291,6 +322,7 @@ def plan_document(plan: InstrumentPlan | GroupedInstrumentPlan, loops: Sequence[
         method=plan.method,
         objective=plan.objective,
         budget=budget,
+        module=module,
         velocity_map=velocity_map,
         pitches=[_pitch_item(unit, loop) for unit, loop in zip(units, loops)],
     )

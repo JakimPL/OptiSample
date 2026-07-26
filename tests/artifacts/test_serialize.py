@@ -6,6 +6,9 @@ import numpy as np
 
 from optisample.artifacts.serialize import _json_safe, metrics_document, plan_document
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
+from trackmod.module.size import SizeReport
+
+_SIZE = SizeReport(patterns=120, pcm=9000, headers=800, largest_pattern=90)
 
 
 def test_json_safe_coerces_numpy_and_non_finite() -> None:
@@ -16,10 +19,11 @@ def test_json_safe_coerces_numpy_and_non_finite() -> None:
 
 def test_plan_document_ungrouped_writes_pitches_and_method(ungrouped_plan: InstrumentPlan) -> None:
     units = ungrouped_plan.sample_units()
-    doc = plan_document(ungrouped_plan, [None] * len(units))
+    doc = plan_document(ungrouped_plan, [None] * len(units), _SIZE)
     assert doc.strategy == "ungrouped"
     assert doc.method is not None and doc.pitches is not None and doc.zones is None
     assert doc.budget.used_bytes == ungrouped_plan.used_bytes
+    assert doc.module.total_bytes == _SIZE.total  # what the written module occupies, material included
     dumped = doc.model_dump()
     assert "zones" not in dumped  # the absent optional head is dropped at serialization
     assert "method" in dumped and "pitches" in dumped
@@ -27,7 +31,7 @@ def test_plan_document_ungrouped_writes_pitches_and_method(ungrouped_plan: Instr
 
 def test_plan_document_grouped_writes_zones_and_drops_method(grouped_plan: GroupedInstrumentPlan) -> None:
     units = grouped_plan.sample_units()
-    doc = plan_document(grouped_plan, [None] * len(units))
+    doc = plan_document(grouped_plan, [None] * len(units), _SIZE)
     assert doc.strategy == "grouped"
     assert doc.zones is not None and doc.method is None and doc.pitches is None
     dumped = doc.model_dump()

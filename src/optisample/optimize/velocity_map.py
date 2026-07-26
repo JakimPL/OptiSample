@@ -6,10 +6,10 @@ import numpy as np
 from numpy.typing import NDArray
 
 from optisample.config.optimize import VelocityConfig
-from optisample.dsp.surrogate import MAX_VOLUME
 from optisample.metrics.base import Signal
 from optisample.metrics.preprocess import db_to_gain, integrated_loudness
 from optisample.music import MIDI_MAX_VELOCITY
+from trackmod.spec.levels import MAX_VOLUME
 
 _MIDI_VELOCITIES: Final = MIDI_MAX_VELOCITY + 1
 

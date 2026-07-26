@@ -15,6 +15,7 @@ from optisample.dsp.surrogate import (
 )
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.metrics.composite import CompositeFidelity, evaluate
+from trackmod.module.storage import Storage
 
 _HULL_EPS: Final = 1e-12
 
@@ -27,6 +28,21 @@ class SourceClip:
     sample_rate: int
     root_pitch: int
     duration_s: float | None = None
+
+
+@dataclass(frozen=True)
+class SweepContext:
+    """What scoring one encoding needs beyond the clip itself.
+
+    ``composite`` is the metric the loss is measured with, ``encode`` the codec config the surrogate
+    runs, ``storage`` the target format's cost table that prices the result, and ``rng`` the dither
+    source (left unset, the surrogate falls back to its own fixed seed).
+    """
+
+    composite: CompositeFidelity
+    encode: EncodeConfig
+    storage: Storage
+    rng: np.random.Generator | None = None
 
 
 @dataclass(frozen=True)
@@ -99,19 +115,12 @@ def _reference(clip: SourceClip) -> Signal:
     )
 
 
-def evaluate_encoding(
-    clip: SourceClip,
-    params: EncodingParams,
-    *,
-    composite: CompositeFidelity,
-    encode_config: EncodeConfig,
-    rng: np.random.Generator | None = None,
-) -> OperatingPoint:
+def evaluate_encoding(clip: SourceClip, params: EncodingParams, context: SweepContext) -> OperatingPoint:
     """Encode ``clip`` with ``params``, render it back at its own pitch, and score the encoding loss."""
     encode_context = EncodeContext(
         root_pitch=clip.root_pitch,
-        config=encode_config,
-        rng=rng,
+        config=context.encode,
+        rng=context.rng,
     )
     stored = encode(clip.signal, clip.sample_rate, params, encode_context)
     candidate = render(
@@ -120,32 +129,19 @@ def evaluate_encoding(
         pitch=clip.root_pitch,
         duration_s=clip.duration_s,
     )
-    report = evaluate(_reference(clip), candidate, clip.sample_rate, composite)
+    report = evaluate(_reference(clip), candidate, clip.sample_rate, context.composite)
     return OperatingPoint(
         params=params,
-        stored_bytes=stored.stored_bytes,
+        stored_bytes=context.storage.sample_bytes(frames=stored.frames, depth=stored.depth),
         distortion=report.fidelity,
         frames=stored.frames,
     )
 
 
-def sample_operating_points(
-    clip: SourceClip,
-    sweep: SweepConfig,
-    *,
-    composite: CompositeFidelity,
-    encode_config: EncodeConfig,
-    rng: np.random.Generator | None = None,
-) -> list[OperatingPoint]:
+def sample_operating_points(clip: SourceClip, sweep: SweepConfig, context: SweepContext) -> list[OperatingPoint]:
     """Evaluate every ``(rate, depth)`` in ``sweep`` for ``clip`` (trimmed to its material duration)."""
     return [
-        evaluate_encoding(
-            clip,
-            params,
-            composite=composite,
-            encode_config=encode_config,
-            rng=rng,
-        )
+        evaluate_encoding(clip, params, context)
         for params in sweep_param_grid(
             sweep,
             clip.sample_rate,
@@ -216,20 +212,6 @@ def lower_convex_hull(points: Sequence[_RDPointT]) -> list[_RDPointT]:
     return _hull_pop(_pareto_frontier(points))
 
 
-def rd_frontier(
-    clip: SourceClip,
-    sweep: SweepConfig,
-    *,
-    composite: CompositeFidelity,
-    encode_config: EncodeConfig,
-    rng: np.random.Generator | None = None,
-) -> list[OperatingPoint]:
+def rd_frontier(clip: SourceClip, sweep: SweepConfig, context: SweepContext) -> list[OperatingPoint]:
     """Convenience: sweep ``clip`` over ``sweep`` and return only the rate-distortion hull."""
-    points = sample_operating_points(
-        clip,
-        sweep,
-        composite=composite,
-        encode_config=encode_config,
-        rng=rng,
-    )
-    return lower_convex_hull(points)
+    return lower_convex_hull(sample_operating_points(clip, sweep, context))

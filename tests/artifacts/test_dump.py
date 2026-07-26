@@ -14,6 +14,7 @@ from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
 from optisample.io.audio import read_wav, write_wav
 from optisample.io.render import openmpt123_available
+from optisample.io.tracker.target import export_target
 from optisample.metrics import build_composite
 from optisample.model import InstrumentSpec, Manifest, NoteEvent, ProjectSpec, SourceSample
 from optisample.optimize.orchestrate.settings import OptimizeSettings
@@ -41,6 +42,7 @@ def _settings() -> OptimizeSettings:
         composite=build_composite(_CONFIG.metrics),
         velocity=_CONFIG.velocity,
         method=_CONFIG.optimize.method,
+        target=export_target(_CONFIG.tracker),
     )
 
 

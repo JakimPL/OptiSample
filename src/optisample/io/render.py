@@ -1,20 +1,3 @@
-"""Render ``.IT`` modules to audio with ``openmpt123`` -- the ground-truth playback engine.
-
-The optimizer's inner loop uses the fast numpy surrogate (:mod:`optisample.dsp.surrogate`); this
-wrapper drives the *real* tracker so the surrogate can be calibrated against reality and exported
-modules validated. ``openmpt123`` is an external system binary, not a Python dependency, so this
-module degrades gracefully: :func:`openmpt123_available` reports whether it is installed and the
-render functions raise a clear, actionable error when it is not.
-
-We always render **mono float** at a fixed interpolation so the ground truth is reproducible -- the
-IT format does not store the interpolation filter, it is a player setting, and the default here is
-8-tap sinc/polyphase, OpenMPT's highest-quality mode. Rendering happens in a
-temporary directory (``openmpt123 --render`` writes ``<input>.wav`` next to its input), so the
-caller's files are never touched.
-"""
-
-from __future__ import annotations
-
 import shutil
 import subprocess
 import tempfile
@@ -26,9 +9,10 @@ from numpy.typing import NDArray
 
 from optisample.config.render import Interpolation, RenderConfig
 from optisample.io.audio import read_wav
-from optisample.io.it_writer import ITModule, write_it
+from trackmod.module.protocol import TrackerModule
 
 _BINARY: Final = "openmpt123"
+_MODULE_STEM: Final = "module"
 _INTERPOLATION_TAPS: Final[dict[Interpolation, int]] = {"none": 1, "linear": 2, "cubic": 4, "sinc": 8}
 
 
@@ -48,12 +32,12 @@ def openmpt123_available() -> bool:
 def _require_binary() -> None:
     if not openmpt123_available():
         raise RuntimeError(
-            f"{_BINARY!r} not found on PATH; install it (e.g. `apt install openmpt123`) to render .IT files"
+            f"{_BINARY!r} not found on PATH; install it (e.g. `apt install openmpt123`) to render modules"
         )
 
 
-def _render_in_place(it_path: Path, config: RenderConfig) -> tuple[NDArray[np.float64], int]:
-    """Run ``openmpt123 --render`` on ``it_path`` and read back the ``<it_path>.wav`` it produces."""
+def _render_in_place(module_path: Path, config: RenderConfig) -> tuple[NDArray[np.float64], int]:
+    """Run ``openmpt123 --render`` on ``module_path`` and read back the ``<module_path>.wav`` it produces."""
     command = [
         _BINARY,
         "--render",
@@ -67,17 +51,21 @@ def _render_in_place(it_path: Path, config: RenderConfig) -> tuple[NDArray[np.fl
         str(config.gain_db),
         "--force",
         "--quiet",
-        str(it_path),
+        str(module_path),
     ]
     result = subprocess.run(command, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         raise RuntimeError(f"{_BINARY} render failed (exit {result.returncode}): {result.stderr.strip()}")
-    rendered, rate = read_wav(it_path.with_name(it_path.name + ".wav"))
+
+    rendered, rate = read_wav(module_path.with_name(module_path.name + ".wav"))
     return np.asarray(rendered, dtype=np.float64).ravel(), rate
 
 
-def render_it(path: Path | str, config: RenderConfig) -> tuple[NDArray[np.float64], int]:
-    """Render an existing ``.IT`` file to mono float PCM, returning ``(samples, sample_rate)``.
+def render_file(
+    path: Path | str,
+    config: RenderConfig,
+) -> tuple[NDArray[np.float64], int]:
+    """Render an existing module file to mono float PCM, returning ``(samples, sample_rate)``.
 
     Raises :class:`RuntimeError` if ``openmpt123`` is missing or the render fails.
     """
@@ -89,10 +77,13 @@ def render_it(path: Path | str, config: RenderConfig) -> tuple[NDArray[np.float6
         return _render_in_place(local, config)
 
 
-def render_module(module: ITModule, config: RenderConfig) -> tuple[NDArray[np.float64], int]:
-    """Write ``module`` to a temporary ``.IT`` file and render it (see :func:`render_it`)."""
+def render_module(
+    module: TrackerModule,
+    config: RenderConfig,
+) -> tuple[NDArray[np.float64], int]:
+    """Write ``module`` to a temporary file in its own format and render it (see :func:`render_file`)."""
     _require_binary()
     with tempfile.TemporaryDirectory() as tmp:
-        local = Path(tmp) / "module.it"
-        write_it(local, module)
+        local = Path(tmp) / f"{_MODULE_STEM}{module.extension}"
+        module.save(local)
         return _render_in_place(local, config)

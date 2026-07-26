@@ -15,6 +15,7 @@ def _apply_loop(
     detected = detect_loop(resampled, rate, config)
     if detected is None:
         return resampled, None
+
     fade_len = round(config.crossfade_s * rate)
     faded = crossfade_loop(resampled, detected, fade_len=fade_len)
     return faded[: detected.end], detected
@@ -36,8 +37,10 @@ def _loop_or_trim(
         looped, loop = _apply_loop(resampled, params.target_rate, config)
         if loop is not None:
             return looped, loop
+
     if params.trim_s is not None:
         return resampled[: max(0, round(params.trim_s * params.target_rate))], None
+
     return resampled, None
 
 

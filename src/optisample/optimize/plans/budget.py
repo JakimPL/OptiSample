@@ -1,25 +1,48 @@
 from dataclasses import dataclass
+from typing import Final
 
-from optisample.metrics.size import (
-    FILE_HEADER_BYTES,
-    INSTRUMENT_HEADER_BYTES,
-    kib_to_bytes,
-)
+from optisample.metrics.size import kib_to_bytes
+from trackmod.module.storage import Storage
+
+_POPULATED_INSTRUMENT: Final = 1  # slot count that puts an instrument in its format's full header form
+
+
+def populated_instrument_bytes(storage: Storage) -> int:
+    """What the record of one instrument owning at least one stored sample costs."""
+    return storage.instrument_bytes(samples=_POPULATED_INSTRUMENT)
+
+
+def instrument_overhead(storage: Storage) -> int:
+    """Every byte a module spends before its first stored sample: the file record plus one instrument.
+
+    The audition patterns and the order list are left out: they are material a module happens to play,
+    while the budget measures what carrying the instrument itself costs. What the written file occupies
+    exactly is reported beside the budget, read from the module's own size.
+    """
+    return storage.file + populated_instrument_bytes(storage)
 
 
 @dataclass(frozen=True)
 class BudgetBreakdown:
-    """The byte budget split into the whole module and the part left for sample PCM + headers."""
+    """The byte budget split into the whole module and the part left for stored samples.
 
+    ``storage`` is the format cost table the split was taken against, kept so a plan prices what it
+    stored against the same format its budget was drawn from.
+    """
+
+    storage: Storage
     module_bytes: int
-    sample_bytes: int  # module_bytes minus the file + instrument header overhead
+    sample_bytes: int  # module_bytes minus the file and instrument records
 
 
-def split_budget(budget_kb: float) -> BudgetBreakdown:
-    """Split an instrument's KiB budget into the whole module and the samples part left after headers."""
+def split_budget(budget_kb: float, storage: Storage) -> BudgetBreakdown:
+    """Split an instrument's KiB budget into the whole module and the samples part left after records."""
     module_bytes = kib_to_bytes(budget_kb)
-    sample_bytes = module_bytes - FILE_HEADER_BYTES - INSTRUMENT_HEADER_BYTES
-    return BudgetBreakdown(module_bytes=module_bytes, sample_bytes=sample_bytes)
+    return BudgetBreakdown(
+        storage=storage,
+        module_bytes=module_bytes,
+        sample_bytes=module_bytes - instrument_overhead(storage),
+    )
 
 
 class BudgetedPlanMixin:
@@ -48,4 +71,4 @@ class BudgetedPlanMixin:
 
     @property
     def module_bytes(self) -> int:
-        return self.used_bytes + FILE_HEADER_BYTES + INSTRUMENT_HEADER_BYTES
+        return self.used_bytes + instrument_overhead(self.budget.storage)

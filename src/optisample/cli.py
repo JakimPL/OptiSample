@@ -10,6 +10,7 @@ from optisample.artifacts import DumpSettings, dump_project
 from optisample.config import OptiConfig, load_config
 from optisample.config.optimize import SweepConfig
 from optisample.io.note_extractor import IngestSettings, load_notes
+from optisample.io.tracker.target import export_target
 from optisample.metrics import build_composite
 from optisample.model import ProjectSpec
 from optisample.optimize.orchestrate.settings import OptimizeSettings
@@ -172,6 +173,7 @@ def _optimize_settings(
         composite=build_composite(config.metrics),
         velocity=config.velocity,
         method=config.optimize.method,
+        target=export_target(config.tracker),
         seed=args.seed,
     )
 

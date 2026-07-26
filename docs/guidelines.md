@@ -65,7 +65,7 @@
 1. Use clear names instead of explanatory comments.
 1. Avoid code comments. Comments are acceptable for tensor shapes, third-party API quirks, or non-obvious invariants.
 1. Code comments and docstrings are not for documenting changes nor progress.
-1. Write a module docstring when it explains domain or format intent — the role a module plays in the pipeline, the IT-format facts it encodes, or the contract a codec upholds. Keep it about intent and context; a docstring that merely restates the module's structure is noise.
+1. Don't write module docstrings.
 
 ## Tests
 

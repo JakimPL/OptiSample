@@ -47,6 +47,7 @@ def _forward_dp(
                 cost = option.stored_bytes
                 if cost > budget_bytes:
                     continue
+
                 candidate = dp[i][: size - cost] + option.distortion
                 target = dp[j][cost:]
                 improved = candidate < target

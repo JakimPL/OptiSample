@@ -1,5 +1,3 @@
-# IT global playback (optisample.config.render.PlaybackConfig); speed+tempo set the row duration.
+# The clock every tracker format shares (optisample.config.render.PlaybackConfig); speed+tempo set the row duration.
 speed: 6
 tempo: 125
-global_volume: 128
-mix_volume: 48

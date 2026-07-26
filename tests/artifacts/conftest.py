@@ -16,6 +16,7 @@ from numpy.typing import NDArray
 from optisample.artifacts.context import DumpContext, DumpSettings
 from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
+from optisample.io.tracker.target import export_target
 from optisample.metrics import build_composite
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.grouping import optimize_instrument_grouped
@@ -41,6 +42,7 @@ def tiny_settings() -> OptimizeSettings:
         composite=build_composite(_CONFIG.metrics),
         velocity=_CONFIG.velocity,
         method=_CONFIG.optimize.method,
+        target=export_target(_CONFIG.tracker),
     )
 
 
