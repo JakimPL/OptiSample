@@ -3,6 +3,7 @@ from typing import Final
 
 from optisample.config.dsp import EncodeConfig
 from optisample.config.optimize import SweepConfig, VelocityConfig
+from optisample.config.reduce import ReduceConfig
 from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.composite import CompositeFidelity
 from optisample.optimize.plans import Method
@@ -14,14 +15,15 @@ DEFAULT_SEED: Final = 0
 class OptimizeSettings:
     """Knobs for one optimization run (bundled to keep the call site small).
 
-    Carries the config the run needs -- the encoding sweep grid, the encode config, the prebuilt
-    composite fidelity, the velocity-map shaping and the solver method -- all sourced from config at
-    the entry point. ``target`` is the tracker format the plan will be written as, which is what prices
-    every stored sample the allocation considers. ``seed`` drives the dither RNG (not a tuning knob, so
-    it keeps a code default).
+    Carries the config the run needs -- the encoding sweep grid, the pre-optimization reductions, the
+    encode config, the prebuilt composite fidelity, the velocity-map shaping and the solver method --
+    all sourced from config at the entry point. ``target`` is the tracker format the plan will be
+    written as, which is what prices every stored sample the allocation considers. ``seed`` drives the
+    dither RNG (not a tuning knob, so it keeps a code default).
     """
 
     sweep: SweepConfig
+    reduce: ReduceConfig
     encode: EncodeConfig
     composite: CompositeFidelity
     velocity: VelocityConfig

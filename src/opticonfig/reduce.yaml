@@ -1,0 +1,14 @@
+# Pre-optimization reduction (optisample.config.reduce.ReduceConfig).
+dedupe:
+  key: pitch_velocity              # pitch | pitch_velocity | pitch_velocity_cc
+  cc_quantum: 1.0                  # bucket width turning cc averages into an identity
+  transposition_headroom_semitones: 12 # upward transpose a kept recording must still cover in full
+  representatives: nearest_loudest # nearest_loudest | all (every survivor at the pitch competes)
+events:
+  duration_bucket_ratio: 1.25      # geometric bucket edges notes round up to; 1.0 keeps every duration
+bandwidth:
+  candidates: 3                    # stored (rate, depth) vertices kept per clip; >= grid size keeps all
+  ceiling_hz: 16000.0              # highest output frequency worth storing (capped at the render Nyquist)
+grouping:
+  max_zone_semitones: 12           # widest contiguous pitch zone the partition DP considers
+  memoize: true                    # reuse a scored (representative, encoding, key) across zones

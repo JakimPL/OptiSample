@@ -1,24 +1,25 @@
-"""Shared config fixtures.
-
-The algorithm's parameters live in the bundled ``opticonfig`` YAML (see :mod:`optisample.config`), so
-tests obtain a fully-populated config from here rather than relying on constructor defaults (there are
-none for tunables). ``config`` loads the bundled values once per session; the derived fixtures expose
-each group; the factory fixtures (``sweep``) build tweaked configs for tests that need specific values.
-"""
-
-from __future__ import annotations
-
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 import numpy as np
 import pytest
 from numpy.typing import NDArray
 
 from optisample.config import OptiConfig, load_config
-from optisample.config.dsp import EncodeConfig, LoopConfig, QuantizeConfig, SpectralConfig
+from optisample.config.dsp import (
+    EncodeConfig,
+    LoopConfig,
+    QuantizeConfig,
+    SpectralConfig,
+)
 from optisample.config.metrics import MetricsConfig
-from optisample.config.optimize import Method, OptimizeConfig, SweepConfig, VelocityConfig
+from optisample.config.optimize import (
+    Method,
+    OptimizeConfig,
+    SweepConfig,
+    VelocityConfig,
+)
+from optisample.config.reduce import ReduceConfig
 from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.config.synth import SynthConfig
 from optisample.config.tracker import TrackerFormat
@@ -79,6 +80,11 @@ def sweep_config(config: OptiConfig) -> SweepConfig:
 @pytest.fixture
 def optimize_config(config: OptiConfig) -> OptimizeConfig:
     return config.optimize
+
+
+@pytest.fixture
+def reduce_config(config: OptiConfig) -> ReduceConfig:
+    return config.reduce
 
 
 @pytest.fixture
@@ -146,19 +152,42 @@ def sweep(config: OptiConfig) -> Callable[..., SweepConfig]:
 
 
 @pytest.fixture
+def reduce(config: OptiConfig) -> Callable[..., ReduceConfig]:
+    """Factory: the bundled reduce config with the named sections' fields overridden (re-validated).
+
+    Sections are merged field-by-field (``reduce(dedupe={"key": DedupeKey.PITCH})``), so a test states
+    only the knob it varies and every other value stays the bundled one.
+    """
+
+    def _build(**sections: Mapping[str, object]) -> ReduceConfig:
+        raw: dict[str, dict[str, object]] = config.reduce.model_dump()
+        merged = {name: {**fields, **sections.get(name, {})} for name, fields in raw.items()}
+        return ReduceConfig.model_validate(merged)
+
+    return _build
+
+
+@pytest.fixture
 def optimize_settings(
     config: OptiConfig, composite: CompositeFidelity, target: ExportTarget
 ) -> Callable[..., OptimizeSettings]:
     """Factory: an ``OptimizeSettings`` from the bundled config, overriding the swept grid/method/seed.
 
-    ``sweep`` (a ``SweepConfig``, usually built via the ``sweep`` factory) is the only knob the
-    optimize tests vary; ``encode``, ``composite``, ``velocity`` and ``target`` come from the bundled
-    config.
+    ``sweep`` (a ``SweepConfig``, usually built via the ``sweep`` factory) and ``reduce`` (a
+    ``ReduceConfig``, usually built via the ``reduce`` factory) are the knobs the optimize tests vary;
+    ``encode``, ``composite``, ``velocity`` and ``target`` come from the bundled config.
     """
 
-    def _build(*, sweep: SweepConfig, method: Method | None = None, seed: int = 0) -> OptimizeSettings:
+    def _build(
+        *,
+        sweep: SweepConfig,
+        reduce: ReduceConfig | None = None,
+        method: Method | None = None,
+        seed: int = 0,
+    ) -> OptimizeSettings:
         return OptimizeSettings(
             sweep=sweep,
+            reduce=reduce if reduce is not None else config.reduce,
             encode=config.encode,
             composite=composite,
             velocity=config.velocity,

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -16,7 +14,13 @@ from optisample.io.audio import read_wav, write_wav
 from optisample.io.render import openmpt123_available
 from optisample.io.tracker.target import export_target
 from optisample.metrics import build_composite
-from optisample.model import InstrumentSpec, Manifest, NoteEvent, ProjectSpec, SourceSample
+from optisample.model import (
+    InstrumentSpec,
+    Manifest,
+    NoteEvent,
+    ProjectSpec,
+    SourceSample,
+)
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
@@ -26,9 +30,6 @@ PITCHES = (60, 62, 64)
 
 AudioFactory = Callable[..., dict[tuple[int, int], NDArray[np.float64]]]
 
-# Build cheap swept settings straight from the bundled config (dither off, so the dump re-encode is
-# deterministic and fast). Loaded once here since these feed module-level constants and the module-scoped
-# ``generous`` fixture that the function-scoped conftest fixtures cannot reach.
 _CONFIG = load_config()
 
 
@@ -38,6 +39,7 @@ def _settings() -> OptimizeSettings:
     )
     return OptimizeSettings(
         sweep=grid,
+        reduce=_CONFIG.reduce,
         encode=_CONFIG.encode,
         composite=build_composite(_CONFIG.metrics),
         velocity=_CONFIG.velocity,

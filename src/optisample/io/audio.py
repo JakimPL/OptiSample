@@ -1,8 +1,31 @@
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import soundfile as sf
 from numpy.typing import NDArray
+
+
+@dataclass(frozen=True)
+class WavInfo:
+    """What a WAV's header states about its contents: how many frames it holds, and at what rate."""
+
+    frames: int
+    sample_rate: int
+
+    @property
+    def duration_s(self) -> float:
+        return self.frames / self.sample_rate
+
+
+def probe_wav(path: Path | str) -> WavInfo:
+    """Read a WAV's frame count and rate from its header, leaving the PCM on disk.
+
+    Ranking candidate recordings by length is a per-file question asked of every duplicate in the
+    recorded grid, so the header alone answers it at a fraction of what decoding each file would cost.
+    """
+    info = sf.info(str(path))
+    return WavInfo(frames=int(info.frames), sample_rate=int(info.samplerate))
 
 
 def write_wav(

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from pathlib import Path
 
 import numpy as np
@@ -29,9 +27,6 @@ from optisample.synth import NoteSpec, render_sample
 SR = 44_100
 PITCHES = (60, 62, 64)
 
-# The module-scoped option-build fixtures below need config-derived settings at import/collection time,
-# so the swept grids are built once from the bundled config here (rather than via the function-scoped
-# conftest factories, which module-scoped fixtures cannot request).
 _CONFIG = load_config()
 _COMPOSITE = build_composite(_CONFIG.metrics)
 
@@ -43,6 +38,7 @@ def _grid(**overrides: object) -> SweepConfig:
 def _settings(sweep: SweepConfig) -> OptimizeSettings:
     return OptimizeSettings(
         sweep=sweep,
+        reduce=_CONFIG.reduce,
         encode=_CONFIG.encode,
         composite=_COMPOSITE,
         velocity=_CONFIG.velocity,
@@ -51,11 +47,7 @@ def _settings(sweep: SweepConfig) -> OptimizeSettings:
     )
 
 
-# No dither, so a singleton zone encodes bit-identically to the ungrouped per-pitch sample -- that is
-# what makes "grouping is never worse than ungrouped" an exact (not approximate) invariant to assert.
 GRID = _grid(rates=(44_100, 11_025), depths=(16, 8), dither=False)
-# A single cheap operating point: the composite eval dominates test time, so feasibility/merging tests
-# (which do not care about the exact objective) use this to keep the option-building cheap.
 GRID_TINY = _grid(rates=(11_025,), depths=(8,), dither=False)
 
 

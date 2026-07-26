@@ -1,12 +1,3 @@
-"""Shared demo instrument, audio, dump settings and pre-built plans for the artifact tests.
-
-The dump-tree test builds its own module-scoped ``generous`` dump (run once, asserted many ways); these
-function-scoped fixtures serve the unit-level tests (``test_units``/``test_serialize``/``test_context``)
-that need a plan or a :class:`DumpContext` without re-running a full dump.
-"""
-
-from __future__ import annotations
-
 from collections.abc import Callable
 
 import numpy as np
@@ -38,6 +29,7 @@ def tiny_settings() -> OptimizeSettings:
     )
     return OptimizeSettings(
         sweep=grid,
+        reduce=_CONFIG.reduce,
         encode=_CONFIG.encode,
         composite=build_composite(_CONFIG.metrics),
         velocity=_CONFIG.velocity,
