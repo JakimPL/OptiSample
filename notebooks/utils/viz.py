@@ -1,14 +1,3 @@
-"""Matplotlib figures for the notebook.
-
-Figures are built with :class:`matplotlib.figure.Figure` directly (no global ``pyplot`` state), so
-they render inside marimo and are safe to construct headless in tests. The spectrogram uses the
-*same* dynamic-range floor (``dynamic_range_db`` below the peak) that the log-spectral metrics use —
-so what you see faded to the floor is exactly what those metrics stop penalizing. The STFT sizing,
-the floor, and the composite weights are all passed in from config (:mod:`optisample.config`).
-"""
-
-from __future__ import annotations
-
 import io
 
 import numpy as np

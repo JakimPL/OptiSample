@@ -1,13 +1,3 @@
-"""Turn samples, instruments, and comparisons into plain table rows for the notebook to render.
-
-Everything here returns built-in ``dict``/``list`` values (no plotting, no disk access beyond the
-signals handed in), so it is straightforward to unit-test and the notebook stays a thin display
-layer. The comparison rows mirror the P1 smoke-test columns on purpose: fidelity, the per-metric
-breakdown, and the interpretable diagnostics side by side.
-"""
-
-from __future__ import annotations
-
 from collections.abc import Sequence
 
 import numpy as np
@@ -16,10 +6,22 @@ from numpy.typing import NDArray
 from notebooks.utils.degrade import DegradeSpec, apply
 from notebooks.utils.loading import sample_label
 from optisample.config.dsp import SpectralConfig
-from optisample.dsp.spectral import spectral_centroid, spectral_flatness, spectral_rolloff
-from optisample.metrics import CompositeFidelity, SampleSize, bytes_to_kib, evaluate, integrated_loudness, kib_to_bytes
-from optisample.metrics.size import INSTRUMENT_HEADER_BYTES
+from optisample.dsp.spectral import (
+    spectral_centroid,
+    spectral_flatness,
+    spectral_rolloff,
+)
+from optisample.metrics import (
+    CompositeFidelity,
+    bytes_to_kib,
+    evaluate,
+    integrated_loudness,
+    kib_to_bytes,
+)
 from optisample.model import InstrumentSpec, SourceSample
+from optisample.optimize.plans.budget import populated_instrument_bytes
+from trackmod.core.samples.depth import BitDepth
+from trackmod.module.storage import Storage
 
 Signal = NDArray[np.float64]
 
@@ -31,7 +33,9 @@ def _cc_summary(cc_averages: dict[int, float]) -> str:
     return " ".join(f"{cc}:{value:g}" for cc, value in sorted(cc_averages.items()))
 
 
-def sample_row(sample: SourceSample, signal: Signal, sample_rate: int, spectral: SpectralConfig) -> Row:
+def sample_row(
+    sample: SourceSample, signal: Signal, sample_rate: int, spectral: SpectralConfig, storage: Storage
+) -> Row:
     """Descriptors + storage footprint for one sample (a single table row)."""
     data = np.asarray(signal, dtype=np.float64)
     frames = int(data.size)
@@ -50,8 +54,8 @@ def sample_row(sample: SourceSample, signal: Signal, sample_rate: int, spectral:
         "centroid_hz": spectral_centroid(data, sample_rate, spectral.stft),
         "rolloff_hz": spectral_rolloff(data, sample_rate, spectral.stft, spectral.rolloff_percent),
         "flatness": spectral_flatness(data, spectral.stft),
-        "kib_16": bytes_to_kib(SampleSize(frames, 16).total_bytes),
-        "kib_8": bytes_to_kib(SampleSize(frames, 8).total_bytes),
+        "kib_16": bytes_to_kib(storage.sample_bytes(frames=frames, depth=BitDepth.SIXTEEN)),
+        "kib_8": bytes_to_kib(storage.sample_bytes(frames=frames, depth=BitDepth.EIGHT)),
     }
 
 
@@ -71,16 +75,17 @@ def material_rows(instrument: InstrumentSpec) -> list[Row]:
     ]
 
 
-def stored_bytes(frame_counts: Sequence[int], depth_bits: int) -> int:
-    """Uncompressed bytes for one instrument at ``depth_bits``: its samples + its instrument header."""
-    return sum(SampleSize(int(f), depth_bits).total_bytes for f in frame_counts) + INSTRUMENT_HEADER_BYTES
+def stored_bytes(frame_counts: Sequence[int], depth: BitDepth, storage: Storage) -> int:
+    """Uncompressed bytes for one instrument at ``depth``: its stored samples plus its own record."""
+    per_sample = sum(storage.sample_bytes(frames=int(frames), depth=depth) for frames in frame_counts)
+    return per_sample + populated_instrument_bytes(storage)
 
 
-def budget_summary(instrument: InstrumentSpec, frame_counts: Sequence[int]) -> Row:
+def budget_summary(instrument: InstrumentSpec, frame_counts: Sequence[int], storage: Storage) -> Row:
     """How far full-length 16-/8-bit storage is over (or under) the instrument's byte budget."""
     budget = kib_to_bytes(instrument.budget_kb)
-    bytes_16 = stored_bytes(frame_counts, 16)
-    bytes_8 = stored_bytes(frame_counts, 8)
+    bytes_16 = stored_bytes(frame_counts, BitDepth.SIXTEEN, storage)
+    bytes_8 = stored_bytes(frame_counts, BitDepth.EIGHT, storage)
     return {
         "instrument": instrument.id,
         "n_samples": len(frame_counts),

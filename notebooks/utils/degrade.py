@@ -1,16 +1,3 @@
-"""Encoding-preview degradations, kept deliberately simple.
-
-These reproduce the transforms used in the P1 smoke test — bit-depth reduction, bandlimiting,
-level change, and a down/up resample round-trip — so their effect can be *heard* and *seen* next
-to the metric that is supposed to catch them. They are previews only; P2 replaces them with the
-real encoder (dithered/noise-shaped requantization, proper resampling, trim-to-duration).
-
-Every degradation returns a signal the same length as its input, so the metrics' length-matching
-never has to trim and frame alignment is preserved.
-"""
-
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Literal
 

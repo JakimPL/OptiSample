@@ -26,11 +26,13 @@ def _():
 @app.cell
 def _():
     from optisample.config import load_config
+    from optisample.io.tracker.target import export_target
     from optisample.metrics import build_composite
 
     config = load_config()
     composite = build_composite(config.metrics)
-    return composite, config
+    storage = export_target(config.tracker).storage
+    return composite, config, storage
 
 
 @app.cell
@@ -79,11 +81,11 @@ def _(loading, manifest, mo):
 
 
 @app.cell
-def _(instrument_dropdown, loading, manifest, mo, views):
+def _(instrument_dropdown, loading, manifest, mo, storage, views):
     instrument = loading.get_instrument(manifest, instrument_dropdown.value)
     signals = {loading.sample_label(sample): loading.load_signal(sample) for sample in instrument.samples}
     _frame_counts = [signal.size for signal, _ in signals.values()]
-    _budget = views.budget_summary(instrument, _frame_counts)
+    _budget = views.budget_summary(instrument, _frame_counts, storage)
     mo.vstack(
         [
             mo.md(f"### Instrument: `{instrument.id}`"),
@@ -97,9 +99,9 @@ def _(instrument_dropdown, loading, manifest, mo, views):
 
 
 @app.cell
-def _(config, instrument, loading, mo, signals, views):
+def _(config, instrument, loading, mo, signals, storage, views):
     _rows = [
-        views.sample_row(sample, *signals[loading.sample_label(sample)], config.spectral)
+        views.sample_row(sample, *signals[loading.sample_label(sample)], config.spectral, storage)
         for sample in instrument.samples
     ]
     mo.vstack([mo.md("**Per-sample descriptors & footprint**"), mo.ui.table(_rows, selection=None)])

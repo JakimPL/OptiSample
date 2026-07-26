@@ -1,11 +1,3 @@
-"""Discover / generate a NoteExtractor demo and pull individual samples out of it.
-
-Selection helpers are keyed by short human labels (each sample's render-indexed file stem) so a marimo
-dropdown, whose value is a string, can round-trip straight back to the :class:`SourceSample` it names.
-"""
-
-from __future__ import annotations
-
 from pathlib import Path
 
 import numpy as np
