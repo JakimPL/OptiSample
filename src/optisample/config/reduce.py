@@ -67,10 +67,14 @@ class BandwidthConfig(ConfigModel):
     ``candidates`` is how many rate-distortion vertices survive per clip; a value at or above the full
     grid size keeps every encoding the sweep would have tried. ``ceiling_hz`` is the highest output
     frequency worth carrying, which bounds the stored bandwidth once playback transposition is applied.
+    ``content_floor_db`` and ``content_band_hz`` measure the band a recording itself occupies: how far
+    under its loudest band content still counts, read off a spectrum averaged into bands that wide.
     """
 
     candidates: Annotated[int, Field(ge=1)]
     ceiling_hz: Annotated[float, Field(gt=0.0)]
+    content_floor_db: Annotated[float, Field(gt=0.0)]
+    content_band_hz: Annotated[float, Field(gt=0.0)]
 
 
 class ZoneConfig(ConfigModel):

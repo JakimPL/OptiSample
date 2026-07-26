@@ -16,7 +16,7 @@ def raw(**sections: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "representatives": "nearest_loudest",
         },
         "events": {"duration_bucket_ratio": 1.25},
-        "bandwidth": {"candidates": 3, "ceiling_hz": 16_000.0},
+        "bandwidth": {"candidates": 3, "ceiling_hz": 16_000.0, "content_floor_db": 80.0, "content_band_hz": 200.0},
         "grouping": {"max_zone_semitones": 12, "memoize": True},
     }
     return {name: {**fields, **sections.get(name, {})} for name, fields in base.items()}
@@ -38,6 +38,8 @@ def test_bundled_shape_validates() -> None:
         ("events", {"duration_bucket_ratio": 0.9}),
         ("bandwidth", {"candidates": 0}),
         ("bandwidth", {"ceiling_hz": 0.0}),
+        ("bandwidth", {"content_floor_db": 0.0}),
+        ("bandwidth", {"content_band_hz": 0.0}),
         ("grouping", {"max_zone_semitones": 0}),
     ],
 )

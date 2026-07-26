@@ -5,7 +5,7 @@ import numpy as np
 
 from optisample.config.dsp import EncodeConfig
 from optisample.config.optimize import SweepConfig
-from optisample.config.reduce import ReduceConfig, Representatives
+from optisample.config.reduce import BandwidthConfig, ReduceConfig, Representatives
 from optisample.dsp.surrogate import StoredSample, render
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.metrics.base import Signal
@@ -63,7 +63,9 @@ class EvalContext:
     """Shared scoring inputs (bundled to stay under the argument limit).
 
     ``storage`` is the target format's cost table, so every operating point the sweep produces is
-    priced in the bytes the written module will actually spend on it.
+    priced in the bytes the written module will actually spend on it. ``bandwidth`` and ``byte_target``
+    are what narrows a stored grid before that sweep runs: the reduction's own knobs, and the share of
+    the sample budget one stored sample can expect once the keys split it evenly.
     """
 
     sample_rate: int
@@ -72,6 +74,8 @@ class EvalContext:
     sweep: SweepConfig
     encode: EncodeConfig
     storage: Storage
+    bandwidth: BandwidthConfig
+    byte_target: int
 
 
 @dataclass(frozen=True)

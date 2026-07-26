@@ -159,6 +159,37 @@ def band_energy(
     return float(np.sum(np.abs(spectrum[mask]) ** 2))
 
 
+def content_edge_hz(
+    signal: Signal,
+    sample_rate: int,
+    floor_db: float,
+    band_hz: float,
+) -> float:
+    """Highest frequency still carrying power within ``floor_db`` of the signal's loudest band.
+
+    This is where a recording's spectrum genuinely ends, which is the band a stored copy has to hold.
+    Reading it against the peak keeps it a question of dynamic range: content this far down is masked by
+    what sits above it whatever the absolute level. Power is averaged into ``band_hz``-wide bands first,
+    so the answer tracks the spectral envelope and one loud bin stands only for its own band; a band
+    wider than the spectrum collapses to one, reading the whole signal at once. Silence reports 0 Hz.
+
+    A share-of-energy reading answers a different question, and a misleading one here: a harmonic tone
+    keeps almost all its energy in the first few partials, so any fraction short of the whole reports a
+    frequency far below where the tone still sounds.
+    """
+    power = np.abs(np.fft.rfft(np.asarray(signal, dtype=np.float64))) ** 2
+    if float(np.max(power)) <= 0.0:
+        return 0.0
+
+    width = min(max(1, round(band_hz * signal.size / sample_rate)), power.size)
+    banded_bins = (power.size // width) * width
+    freqs = np.fft.rfftfreq(signal.size, 1.0 / sample_rate)
+    banded = power[:banded_bins].reshape(-1, width).mean(axis=1)
+    centers = freqs[:banded_bins].reshape(-1, width).mean(axis=1)
+    audible = np.nonzero(banded >= float(np.max(banded)) * 10.0 ** (-floor_db / 10.0))[0]
+    return float(centers[audible[-1]])
+
+
 def bandlimit(
     signal: Signal,
     sample_rate: int,

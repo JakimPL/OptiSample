@@ -7,6 +7,7 @@ from optisample.optimize.plans import (
     BudgetBreakdown,
     BudgetedPlanMixin,
     instrument_overhead,
+    per_key_bytes,
     populated_instrument_bytes,
     split_budget,
 )
@@ -23,6 +24,16 @@ def test_split_budget_reserves_the_record_overhead(storage: Storage) -> None:
     assert budget.module_bytes == kib_to_bytes(64.0)
     assert budget.sample_bytes == budget.module_bytes - instrument_overhead(storage)
     assert budget.storage is storage  # a plan prices what it stored against the table it budgeted from
+
+
+def test_an_even_split_gives_each_key_its_share_of_the_sample_budget(storage: Storage) -> None:
+    budget = split_budget(64.0, storage)
+    assert per_key_bytes(budget, 8) == budget.sample_bytes // 8
+
+
+def test_an_instrument_storing_nothing_reports_the_whole_sample_budget(storage: Storage) -> None:
+    budget = split_budget(64.0, storage)
+    assert per_key_bytes(budget, 0) == budget.sample_bytes
 
 
 @dataclass(frozen=True)

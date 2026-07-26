@@ -2,6 +2,7 @@ from optisample.optimize.plans.budget import (
     BudgetBreakdown,
     BudgetedPlanMixin,
     instrument_overhead,
+    per_key_bytes,
     populated_instrument_bytes,
     split_budget,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "Zone",
     "ZoneOption",
     "instrument_overhead",
+    "per_key_bytes",
     "populated_instrument_bytes",
     "split_budget",
 ]

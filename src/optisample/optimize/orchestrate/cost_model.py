@@ -1,13 +1,13 @@
 from collections.abc import Sequence
+from typing import Final
 
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode
 from optisample.optimize.knapsack import KnapsackItem
-from optisample.optimize.operating_points import (
-    OperatingPoint,
-    lower_convex_hull,
-    sweep_param_grid,
-)
+from optisample.optimize.operating_points import OperatingPoint, lower_convex_hull
+from optisample.optimize.reduce.bandwidth import ClipDemand, candidate_params
 from optisample.optimize.tasks import EvalContext, PitchTask, score_reconstruction
+
+_OWN_KEY: Final = 0  # every key here sounds its own recording, so nothing is transposed
 
 
 def _evaluate_config(
@@ -28,10 +28,15 @@ def _evaluate_config(
 
 
 def _pitch_points(task: PitchTask, context: EvalContext) -> list[OperatingPoint]:
-    """Sweep the rate x depth grid for one pitch, trimming storage to its longest note."""
+    """Sweep the shortlisted encodings for one pitch, trimming storage to its longest note.
+
+    The shortlist comes from the bandwidth pre-pass, which prices and scores the whole rate x depth grid
+    from the recording alone and hands back the part of it the budget puts within reach. Every key here
+    plays its own recording, so the pre-pass bounds the stored band by the recording's own content.
+    """
+    demand = ClipDemand(trim_s=task.max_duration_s, delta_semitones=_OWN_KEY)
     return [
-        _evaluate_config(task, context, params)
-        for params in sweep_param_grid(context.sweep, context.sample_rate, trim_s=task.max_duration_s)
+        _evaluate_config(task, context, params) for params in candidate_params(task.representative, demand, context)
     ]
 
 

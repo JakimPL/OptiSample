@@ -22,6 +22,9 @@ def instrument_overhead(storage: Storage) -> int:
     return storage.file + populated_instrument_bytes(storage)
 
 
+_WHOLE_BUDGET: Final = 1  # an instrument storing nothing splits its sample budget no further
+
+
 @dataclass(frozen=True)
 class BudgetBreakdown:
     """The byte budget split into the whole module and the part left for stored samples.
@@ -43,6 +46,17 @@ def split_budget(budget_kb: float, storage: Storage) -> BudgetBreakdown:
         module_bytes=module_bytes,
         sample_bytes=module_bytes - instrument_overhead(storage),
     )
+
+
+def per_key_bytes(budget: BudgetBreakdown, key_count: int) -> int:
+    """The share of the sample budget one stored sample gets when every key spends the same.
+
+    An even split is the byte scale the allocation works around, so it is the reference point the
+    pre-optimization reductions aim at: it says which encodings are in the running before any of them is
+    scored. The allocation itself remains free to spend unevenly. An instrument storing nothing reports
+    the whole sample budget.
+    """
+    return budget.sample_bytes // max(key_count, _WHOLE_BUDGET)
 
 
 class BudgetedPlanMixin:
