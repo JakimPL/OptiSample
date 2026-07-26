@@ -10,11 +10,11 @@ from optisample.dsp.timebase import row_seconds
 from optisample.io.render import openmpt123_available, render_module
 from optisample.io.tracker.target import ExportTarget
 from optisample.model import NoteEvent
-from optisample.music import tracker_key
 from optisample.optimize.export.material import event_rows, material_patterns
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
 from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
 from trackmod.core.notes.command import NoteCommand
+from trackmod.core.notes.pitch import Note
 from trackmod.core.patterns.cell import Cell
 from trackmod.module.protocol import TrackerModule
 
@@ -53,7 +53,11 @@ def test_pattern_applies_velocity_volume_map_and_releases_each_note(
     cells = song_cells(module)
     notes = [cell for cell in cells if cell.note != NoteCommand.CUT]
     releases = [cell for cell in cells if cell.note == NoteCommand.CUT]
-    assert [cell.note for cell in notes] == [tracker_key(60), tracker_key(60), tracker_key(67)]  # material order
+    assert [cell.note for cell in notes] == [
+        Note.from_midi(60),
+        Note.from_midi(60),
+        Note.from_midi(67),
+    ]  # material order
     assert notes[0].volume == plan.velocity_map.volume(100)  # loudest velocity -> full volume
     assert notes[1].volume == plan.velocity_map.volume(50)  # quieter event uses the mapped volume
     assert notes[0].volume > notes[1].volume
@@ -108,9 +112,9 @@ def test_notes_are_laid_end_to_end_each_followed_by_its_release(
         NoteEvent(pitch=67, velocity=100, duration_s=_TWO_AND_A_HALF_ROWS * seconds_per_row),
     ]
     pattern = material_patterns(material, flat_velocity_map, playback_config, target)[0][0]
-    assert pattern.cell(0, _CHANNEL).note == tracker_key(60)
+    assert pattern.cell(0, _CHANNEL).note == Note.from_midi(60)
     assert pattern.cell(4, _CHANNEL).note == NoteCommand.CUT  # 3.5 rows rounds up to 4 held rows
-    assert pattern.cell(5, _CHANNEL).note == tracker_key(67)  # the next note starts right after the release
+    assert pattern.cell(5, _CHANNEL).note == Note.from_midi(67)  # the next note starts right after the release
     assert pattern.cell(8, _CHANNEL).note == NoteCommand.CUT
 
 

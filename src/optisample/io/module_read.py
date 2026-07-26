@@ -11,7 +11,7 @@ from optisample.io.audio import read_wav
 
 @dataclass(frozen=True)
 class RippedSample:
-    """One sample recovered from an ``.IT`` file: its index, name, tagged rate and float PCM."""
+    """One sample recovered from a module file: its index, name, tagged rate and float PCM."""
 
     index: int
     name: str
@@ -32,8 +32,12 @@ def _parse_name(stem: str) -> tuple[int, str]:
     return 0, stem
 
 
-def read_it_samples(path: Path | str) -> list[RippedSample]:
-    """Extract every sample from ``path`` with xmodits and return them as float PCM, ordered by index."""
+def read_module_samples(path: Path | str) -> list[RippedSample]:
+    """Extract every sample from ``path`` with xmodits and return them as float PCM, ordered by index.
+
+    xmodits recognises the module format from the file itself, so this reads whichever format the
+    exporter wrote and gives an account of the stored samples independent of the writer that made them.
+    """
     with tempfile.TemporaryDirectory() as tmp:
         destination = Path(tmp)
         xmodits.dump(str(Path(path)), str(destination), format="wav")

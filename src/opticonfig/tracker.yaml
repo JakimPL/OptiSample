@@ -1,6 +1,7 @@
-# Which tracker format a module is written as (optisample.config.tracker.TrackerConfig).
 format: it
 compliance: canonical
 it:
   global_volume: 128
   mix_volume: 48
+xm:
+  tracker: optisample

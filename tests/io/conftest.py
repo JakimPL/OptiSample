@@ -11,7 +11,6 @@ from optisample.config.render import PlaybackConfig
 from optisample.io.tracker.target import ExportTarget
 from trackmod.core.instruments.instrument import Instrument
 from trackmod.core.instruments.keymap import KeyAssignment, routed_keymap
-from trackmod.core.notes.command import NoteCommand
 from trackmod.core.notes.pitch import Note
 from trackmod.core.patterns.builder import PatternBuilder
 from trackmod.core.patterns.cell import Cell
@@ -28,6 +27,8 @@ _RELEASE_ROW = 12
 _CHANNELS = 1
 _CHANNEL = 0
 
+ProbeModule = Callable[..., TrackerModule]
+
 
 @pytest.fixture
 def tone() -> Callable[..., np.ndarray]:
@@ -41,14 +42,24 @@ def tone() -> Callable[..., np.ndarray]:
 
 
 @pytest.fixture
-def probe_module(playback_config: PlaybackConfig, target: ExportTarget) -> Callable[[Sequence[Sample]], TrackerModule]:
-    """Factory: a one-note module playing ``samples[0]`` at the reference key, then releasing it."""
+def probe_module(playback_config: PlaybackConfig, target: ExportTarget) -> ProbeModule:
+    """Factory: a module playing ``samples[0]`` at the reference key, then releasing it.
 
-    def _module(samples: Sequence[Sample]) -> TrackerModule:
+    Every sample gets a key of its own, counting up from the reference, so a format that stores only
+    the samples its keymap reaches still writes them all.
+    """
+
+    def _module(samples: Sequence[Sample], bind_to: ExportTarget | None = None) -> TrackerModule:
+        bound = bind_to if bind_to is not None else target
         builder = PatternBuilder(rows=PROBE_ROWS, channels=_CHANNELS)
         builder.place(0, _CHANNEL, Cell(note=PROBE_KEY, instrument=0, volume=64))
-        builder.place(_RELEASE_ROW, _CHANNEL, Cell(note=NoteCommand.CUT))
-        keymap = routed_keymap({PROBE_KEY: KeyAssignment(sample=0, note=PROBE_KEY)})
+        builder.place(_RELEASE_ROW, _CHANNEL, bound.release_cell())
+        keymap = routed_keymap(
+            {
+                Note(PROBE_KEY.value + index): KeyAssignment(sample=index, note=Note(PROBE_KEY.value + index))
+                for index in range(len(samples))
+            }
+        )
         song = Song(
             name="probe",
             channels=_CHANNELS,
@@ -58,6 +69,6 @@ def probe_module(playback_config: PlaybackConfig, target: ExportTarget) -> Calla
             samples=tuple(samples),
             playback=Playback(speed=playback_config.speed, tempo=playback_config.tempo),
         )
-        return target.bind(song)
+        return bound.bind(song)
 
     return _module

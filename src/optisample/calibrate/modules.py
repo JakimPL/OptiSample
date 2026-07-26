@@ -5,7 +5,7 @@ from optisample.config.render import PlaybackConfig
 from optisample.dsp.surrogate import StoredSample
 from optisample.dsp.timebase import row_seconds
 from optisample.io.tracker.target import ExportTarget
-from optisample.music import sounded_note, tracker_key
+from optisample.music import sounded_note
 from optisample.optimize.export.material import CHANNELS
 from trackmod.core.instruments.instrument import Instrument
 from trackmod.core.instruments.keymap import KeyAssignment, routed_keymap
@@ -51,7 +51,7 @@ def single_note_module(
     whole pattern, which outlasts ``probe.duration_s`` -- callers trim the render to the duration they
     asked for.
     """
-    key = tracker_key(probe.pitch)
+    key = target.key(probe.pitch)
     seconds_per_row = row_seconds(playback.speed, playback.tempo)
     builder = PatternBuilder(
         rows=_probe_rows(probe, seconds_per_row, target),
@@ -68,7 +68,7 @@ def single_note_module(
                 sample=_SAMPLE,
                 note=sounded_note(
                     key,
-                    tracker_key(stored.root_pitch),
+                    target.key(stored.root_pitch),
                 ),
             )
         },

@@ -1,15 +1,12 @@
 from typing import Final
 
 from trackmod.core.notes.pitch import Note
-from trackmod.spec.pitch import MIDI_OFFSET, NOTE_COUNT, RATE_NOTE
+from trackmod.spec.pitch import RATE_NOTE
 
 SEMITONES_PER_OCTAVE: Final = 12
 MIDI_A4: Final = 69
 A4_FREQ_HZ: Final = 440.0
 MIDI_MAX_VELOCITY: Final = 127
-
-MIN_MIDI_PITCH: Final = MIDI_OFFSET
-MAX_MIDI_PITCH: Final = MIDI_OFFSET + NOTE_COUNT - 1
 
 NOTE_NAMES: Final = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
 
@@ -27,22 +24,6 @@ def semitone_ratio(semitones: float) -> float:
 def midi_to_freq(pitch: int) -> float:
     """MIDI note number -> fundamental frequency in Hz (A4/69 = 440 Hz)."""
     return A4_FREQ_HZ * semitone_ratio(pitch - MIDI_A4)
-
-
-def tracker_key(pitch: int) -> Note:
-    """The tracker key a MIDI note number names.
-
-    Trackers count their keyboards from C-0, one octave below MIDI's own numbering, so MIDI 60 is
-    tracker key 48. Working in the tracker numbering is what lets a module display the octave a player
-    actually sounds and reach every key of the ten-octave keyboard.
-
-    Raises:
-        ValueError: when the MIDI note falls outside the keys a tracker keyboard numbers.
-    """
-    if not MIN_MIDI_PITCH <= pitch <= MAX_MIDI_PITCH:
-        raise ValueError(f"MIDI note {pitch} is outside the tracker key range {MIN_MIDI_PITCH}..{MAX_MIDI_PITCH}")
-
-    return Note.from_midi(pitch)
 
 
 def sounded_note(key: Note, root_key: Note) -> Note:

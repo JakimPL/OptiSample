@@ -1,8 +1,8 @@
 # OptiSample
 
-OptiSample turns an instrument's recorded sample grid into a byte-budgeted Impulse Tracker (`.IT`)
-module: it stores one sample per key, collapses the velocity axis to one representative per pitch, and
-reproduces dynamics through a velocity→volume map.
+OptiSample turns an instrument's recorded sample grid into a byte-budgeted tracker module — Impulse
+Tracker (`.it`) or FastTracker 2 (`.xm`): it stores one sample per key, collapses the velocity axis to
+one representative per pitch, and reproduces dynamics through a velocity→volume map.
 
 ## Requirements
 
@@ -46,8 +46,13 @@ optisample optimize path/to/Piano.notes.json \
 `--samples-dir` defaults to the notes file's sibling `<name>/` directory, and `--instrument-id`
 defaults to the `.notes.json` base name. `--pre-roll-ms` / `--post-roll-ms` mirror the trimmer's
 padding (the pre-roll is trimmed as each sample's lead-in so frame 0 lands on the note onset). Other
-flags: `--strategy {both,grouped,ungrouped}`, `--no-render`, `--rate`/`--depth` (repeatable sweep
-values), `--no-loop`, `--interpolation`, `--seed`.
+flags: `--format {it,xm}`, `--strategy {both,grouped,ungrouped}`, `--no-render`, `--rate`/`--depth`
+(repeatable sweep values), `--no-loop`, `--interpolation`, `--seed`.
+
+`--format` overrides `src/opticonfig/tracker.yaml`, which also sets the compliance level the module is
+graded against and each format's own settings. Impulse Tracker numbers the whole ten-octave keyboard
+(MIDI 12–131); FastTracker 2 stops at MIDI 107, and a higher key is reported before anything is
+written.
 
 Generate a synthetic demo dataset (one `.notes.json` + samples directory per preset) to exercise the
 pipeline without real recordings:

@@ -1,8 +1,8 @@
 # Architecture & Ownership
 
-Optisample turns an instrumental's recorded samples into an Impulse Tracker (`.IT`) module under a hard byte
-budget. This document says which part of the package owns what, so shared logic has one home and new code lands
-in the right place.
+Optisample turns an instrumental's recorded samples into a tracker module — Impulse Tracker (`.it`) or
+FastTracker 2 (`.xm`) — under a hard byte budget. This document says which part of the package owns what, so
+shared logic has one home and new code lands in the right place.
 
 ## Package map (`src/optisample/`)
 
@@ -14,7 +14,7 @@ in the right place.
 | `dsp/` | Signal primitives (`spectral`, `resample`, `quantize`, `loop`, `timebase`) and the surrogate codec — the `surrogate/` subpackage (`params`, `sample`, `encode`, `render`) exposing `encode`/`render`, `StoredSample`, `EncodingParams`. | `config`, `music`, `trackmod` (`BitDepth`, the shared clock, `MAX_VOLUME`) |
 | `metrics/` | Fidelity measurement (`composite`, `spectral`, `timbre`, `diagnostics`, `preprocess`) and the KiB conversions in `size`. | `config`, `dsp` primitives |
 | `optimize/` | The allocation pipeline (see below). | `dsp`, `metrics`, `model`, `io`, `config`, `music` |
-| `io/` | The file/format boundary: `audio` (WAV), `note_extractor` (read a NoteExtractor `.notes.json` + samples dir into the model via `load_notes`/`IngestSettings`, plus a minimal `dump_notes` writer for the demo), the `tracker/` subpackage (`target` — the `trackmod` seam: `ExportTarget` answers what a record costs, how tall a pattern may be, how a note is released, and binds a song to a module), `it_read` (round-trip), `render` (openmpt123 wrapper). | `config`, `music`, `trackmod` |
+| `io/` | The file/format boundary: `audio` (WAV), `note_extractor` (read a NoteExtractor `.notes.json` + samples dir into the model via `load_notes`/`IngestSettings`, plus a minimal `dump_notes` writer for the demo), the `tracker/` subpackage (`target` — the `trackmod` seam: `ExportTarget` answers what a record costs, how tall a pattern may be, which keys the keyboard numbers, how a note is released, and binds a song to a module of the configured format), `module_read` (round-trip through the independent `xmodits` ripper), `render` (openmpt123 wrapper). | `config`, `music`, `trackmod` |
 | `synth/` | Synthetic demo-audio generation: the `archetypes` module (pure archetype synthesis) and `generate` (count-expand each preset's material song into per-note WAVs + a `.notes.json`, one pair per preset). | `config`, `music`, `io`, `model` |
 | `calibrate/` | Surrogate-vs-openmpt calibration diagnostics: `context` (probe/result/context value objects), `modules` (the minimal one-note module for openmpt), `agreement` (render both ways, compare, rank-correlate). | `optimize`, `io`, `metrics`, `dsp`, `config` |
 | `artifacts/` | Inspection-artifact dumper (module + report + plan + per-note A/B WAVs + metrics): `serialize` (frozen Pydantic documents + JSON/text writers), `units` (re-encode a plan's samples into the pieces the dumper serializes), `context` (run settings, per-instrument context, result DTOs), `dump` (orchestration + file I/O). | `optimize`, `io`, `metrics`, `dsp`, `model`, `music`, `config` |
@@ -50,3 +50,6 @@ in the right place.
    demo end-to-end numbers are the regression contract (see `docs/guidelines.md` and the plan's verification).
 6. **External tools sit behind a typed, probed boundary.** `openmpt123` is wrapped in `io/render.py` with a
    runtime `openmpt123_available()` probe; callers degrade gracefully instead of branching on the environment.
+7. **One place branches on the format.** `ExportTarget` is where `TrackerFormat.IT` and `TrackerFormat.XM`
+   part ways; everywhere else asks the target and stays format-agnostic. Adding a format means adding its
+   arms there and its settings to `config/tracker.py`.

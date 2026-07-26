@@ -9,8 +9,9 @@ from typing import Final
 from optisample.artifacts import DumpSettings, dump_project
 from optisample.config import OptiConfig, load_config
 from optisample.config.optimize import SweepConfig
+from optisample.config.tracker import TrackerConfig, TrackerFormat
 from optisample.io.note_extractor import IngestSettings, load_notes
-from optisample.io.tracker.target import export_target
+from optisample.io.tracker.target import ExportTarget, export_target
 from optisample.metrics import build_composite
 from optisample.model import ProjectSpec
 from optisample.optimize.orchestrate.settings import OptimizeSettings
@@ -21,12 +22,13 @@ _PROFILE_TOP_FUNCTIONS: Final = 20
 _MS_PER_S: Final = 1000.0
 _NOTES_SUFFIX: Final = ".notes.json"
 _INTERPOLATIONS: Final = ("none", "linear", "cubic", "sinc")
+_FORMATS: Final = tuple(TrackerFormat)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="optisample",
-        description="Impulse Tracker sample optimizer",
+        description="Tracker module sample optimizer",
     )
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument(
@@ -86,6 +88,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--instrument-id",
         default=None,
         help="Instrument id (default: the .notes.json base name)",
+    )
+    optimize.add_argument(
+        "--format",
+        choices=_FORMATS,
+        default=None,
+        help="Tracker format to write (default: the config's)",
     )
     optimize.add_argument(
         "--interpolation",
@@ -154,11 +162,19 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _export_target(config: OptiConfig, args: argparse.Namespace) -> ExportTarget:
+    """The target the module is written through, with ``--format`` overriding the configured format."""
+    if args.format is None:
+        return export_target(config.tracker)
+
+    return export_target(TrackerConfig.model_validate({**config.tracker.model_dump(), "format": args.format}))
+
+
 def _optimize_settings(
     config: OptiConfig,
     args: argparse.Namespace,
 ) -> OptimizeSettings:
-    """Build the optimization settings from ``config``, applying the sweep/seed CLI overrides."""
+    """Build the optimization settings from ``config``, applying the sweep/format/seed CLI overrides."""
     grid = SweepConfig.model_validate(
         {
             **config.sweep.model_dump(),
@@ -173,7 +189,7 @@ def _optimize_settings(
         composite=build_composite(config.metrics),
         velocity=config.velocity,
         method=config.optimize.method,
-        target=export_target(config.tracker),
+        target=_export_target(config, args),
         seed=args.seed,
     )
 

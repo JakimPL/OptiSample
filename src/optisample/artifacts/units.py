@@ -51,7 +51,7 @@ def build_units(plan: StrategyPlan, dump_context: DumpContext) -> tuple[Unit, ..
 
     ``plan.sample_units`` reports the strategy-specific choices -- each unit's representative recording,
     root pitch and the keys it covers -- and encoding them through one seeded RNG is what keeps the byte
-    layout reproducing ``module.it`` exactly. A unit's representative pitch is always its encode root and
+    layout reproducing the written module exactly. A unit's representative pitch is always its encode root and
     its recording is the loudest velocity actually played there.
     """
     units: list[Unit] = []

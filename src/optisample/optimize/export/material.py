@@ -7,7 +7,6 @@ from optisample.config.render import PlaybackConfig
 from optisample.dsp.timebase import row_seconds
 from optisample.io.tracker.target import ExportTarget
 from optisample.model import NoteEvent
-from optisample.music import tracker_key
 from optisample.optimize.velocity_map import VelocityVolumeMap
 from trackmod.core.notes.pitch import Note
 from trackmod.core.patterns.builder import PatternBuilder
@@ -62,11 +61,12 @@ def _split_into_patterns(
     velocity_map: VelocityVolumeMap,
     *,
     seconds_per_row: float,
-    max_rows: int,
+    target: ExportTarget,
 ) -> list[list[_Placement]]:
     """Place every event end to end, opening a fresh pattern when the next note would overflow one."""
     patterns: list[list[_Placement]] = []
     current: list[_Placement] = []
+    max_rows = target.max_rows
     cursor = 0
     for event in material:
         rows = event_rows(event.duration_s, seconds_per_row, max_rows)
@@ -77,7 +77,7 @@ def _split_into_patterns(
         placement = _Placement(
             row=cursor,
             rows=rows,
-            note=tracker_key(event.pitch),
+            note=target.key(event.pitch),
             volume=velocity_map.volume(event.velocity),
         )
         current.append(placement)
@@ -122,7 +122,7 @@ def material_patterns(
         material,
         velocity_map,
         seconds_per_row=row_seconds(playback.speed, playback.tempo),
-        max_rows=target.max_rows,
+        target=target,
     )
     patterns = tuple(
         _build_pattern(

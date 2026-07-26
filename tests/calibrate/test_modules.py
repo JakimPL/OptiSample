@@ -7,7 +7,6 @@ from optisample.config.render import PlaybackConfig
 from optisample.dsp.surrogate import StoredSample
 from optisample.dsp.timebase import row_seconds
 from optisample.io.tracker.target import ExportTarget
-from optisample.music import tracker_key
 from trackmod.core.notes.pitch import Note
 from trackmod.spec.pitch import RATE_NOTE
 
@@ -22,7 +21,7 @@ def test_single_note_module_wires_one_sample_to_the_probed_key(
     sample = stored(root_pitch=_ROOT_PITCH, rate=22_050)
     probe = NoteProbe(pitch=_PROBE_PITCH, volume=50, duration_s=0.5)
     song = single_note_module(sample, probe, playback_config, target).song
-    key = tracker_key(_PROBE_PITCH)
+    key = Note.from_midi(_PROBE_PITCH)
     assert len(song.samples) == 1
     assert song.samples[0].rate == 22_050  # the sample states the rate it was actually stored at
     assignment = song.instruments[0].assignment(key)

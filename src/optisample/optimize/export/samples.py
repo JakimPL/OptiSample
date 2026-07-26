@@ -5,8 +5,9 @@ import numpy as np
 
 from optisample.config.dsp import EncodeConfig
 from optisample.dsp.surrogate import EncodeContext, StoredSample, encode
+from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.base import Signal
-from optisample.music import note_name, sounded_note, tracker_key
+from optisample.music import note_name, sounded_note
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.plans import SampleUnit
 from optisample.optimize.tasks import AudioMap
@@ -57,10 +58,10 @@ def sample_name(instrument_id: str, unit: SampleUnit) -> str:
     return f"{instrument_id[:_SAMPLE_LABEL_CHARS]} {note_name(unit.representative)}"
 
 
-def _unit_assignments(unit: SampleUnit, sample: int) -> dict[Note, KeyAssignment]:
+def _unit_assignments(unit: SampleUnit, sample: int, target: ExportTarget) -> dict[Note, KeyAssignment]:
     """Route every key the unit serves to ``sample``, transposed from the unit's own recorded pitch."""
-    root_key = tracker_key(unit.representative)
-    keys = (tracker_key(pitch) for pitch in unit.keys)
+    root_key = target.key(unit.representative)
+    keys = (target.key(pitch) for pitch in unit.keys)
     return {key: KeyAssignment(sample=sample, note=sounded_note(key, root_key)) for key in keys}
 
 
@@ -94,6 +95,6 @@ def plan_samples(
                 loop=_stored_loop(stored),
             )
         )
-        assignments.update(_unit_assignments(unit, index))
+        assignments.update(_unit_assignments(unit, index, context.target))
 
     return tuple(samples), routed_keymap(assignments)

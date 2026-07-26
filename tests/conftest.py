@@ -8,6 +8,7 @@ each group; the factory fixtures (``sweep``) build tweaked configs for tests tha
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
 
 import numpy as np
@@ -20,6 +21,7 @@ from optisample.config.metrics import MetricsConfig
 from optisample.config.optimize import Method, OptimizeConfig, SweepConfig, VelocityConfig
 from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.config.synth import SynthConfig
+from optisample.config.tracker import TrackerFormat
 from optisample.dsp.surrogate import EncodeContext
 from optisample.io.tracker.target import ExportTarget, export_target
 from optisample.metrics import CompositeFidelity, build_composite
@@ -98,6 +100,16 @@ def playback_config(config: OptiConfig) -> PlaybackConfig:
 def target(config: OptiConfig) -> ExportTarget:
     """The export target built from the bundled tracker config (format, compliance, format settings)."""
     return export_target(config.tracker)
+
+
+@pytest.fixture
+def retarget(target: ExportTarget) -> Callable[[TrackerFormat], ExportTarget]:
+    """Factory: the bundled export target rewritten to another format, for the cross-format tests."""
+
+    def _retarget(tracker_format: TrackerFormat) -> ExportTarget:
+        return dataclasses.replace(target, format=tracker_format)
+
+    return _retarget
 
 
 @pytest.fixture

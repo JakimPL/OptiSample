@@ -9,6 +9,7 @@ from numpy.typing import NDArray
 
 from optisample.cli import _dump_settings, build_parser, main
 from optisample.config import OptiConfig
+from optisample.config.tracker import TrackerFormat
 from optisample.io.audio import write_wav
 from optisample.io.note_extractor import NoteRecord, dump_notes
 
@@ -58,8 +59,17 @@ def test_dump_settings_maps_grid_and_flags(config: OptiConfig) -> None:
     assert settings.optimize.sweep.depths == (8,)
     assert settings.optimize.sweep.loops == (False,)  # --no-loop disables looping
     assert settings.optimize.seed == 3
+    assert settings.optimize.target.format is config.tracker.format  # unnamed, so the configured format
     assert settings.render_ground_truth is False
     assert settings.grouped is True and settings.ungrouped is False
+
+
+def test_the_format_flag_overrides_the_configured_format(config: OptiConfig) -> None:
+    args = build_parser().parse_args(["optimize", "m.notes.json", "--budget-kb", "48", "--format", "xm"])
+    target = _dump_settings(config, args).optimize.target
+    assert target.format is TrackerFormat.XM
+    assert target.compliance is config.tracker.compliance  # only the format is overridden
+    assert target.it.global_volume == config.tracker.it.global_volume
 
 
 def test_optimize_command_writes_artifacts(
@@ -85,6 +95,30 @@ def test_optimize_command_writes_artifacts(
     assert (out / "piano" / "ungrouped" / "plan.json").is_file()
     printed = capsys.readouterr().out
     assert "piano" in printed and "objective" in printed
+
+
+def test_optimize_command_writes_the_format_it_was_asked_for(tmp_path: Path, tiny_notes: Path) -> None:
+    out = tmp_path / "artifacts"
+    main(
+        [
+            "optimize",
+            str(tiny_notes),
+            "--budget-kb",
+            "48",
+            "--out",
+            str(out),
+            "--format",
+            "xm",
+            "--rate",
+            "11025",
+            "--depth",
+            "8",
+            "--no-render",
+            "--strategy",
+            "ungrouped",
+        ]
+    )
+    assert (out / "piano" / "ungrouped" / "module.xm").is_file()
 
 
 def test_optimize_command_reports_timing(tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]) -> None:

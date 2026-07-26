@@ -13,7 +13,6 @@ from optisample.config.render import RenderConfig
 from optisample.dsp.surrogate import EncodingParams
 from optisample.io.render import openmpt123_available, render_module
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
-from optisample.music import tracker_key
 from optisample.optimize.export import build_module
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.samples import sample_name
@@ -40,7 +39,7 @@ def test_one_sample_per_planned_pitch_each_sounding_its_own_key(
     assert len(song.samples) == len(plan.pitches)
     assert len(song.instruments) == 1
     for index, pitch_plan in enumerate(plan.pitches):
-        assignment = song.instruments[0].assignment(tracker_key(pitch_plan.pitch))
+        assignment = song.instruments[0].assignment(Note.from_midi(pitch_plan.pitch))
         assert assignment is not None
         assert assignment.sample == index
         # a key playing its own recording needs no transposition, so it sounds the reference note
@@ -82,7 +81,7 @@ def test_build_is_deterministic(builder: str, request: pytest.FixtureRequest) ->
     assert module_a.to_bytes() == module_b.to_bytes()
 
 
-def test_a_pitch_no_tracker_keyboard_numbers_raises(
+def test_a_pitch_the_format_does_not_number_raises(
     export_context: ExportContext,
     optimize_settings: Callable[..., OptimizeSettings],
     sweep: Callable[..., SweepConfig],
@@ -97,7 +96,7 @@ def test_a_pitch_no_tracker_keyboard_numbers_raises(
     )
     settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depths=(16, 8)))
     plan = optimize_instrument(instrument, audio, SR, settings)
-    with pytest.raises(ValueError, match="outside the tracker key range"):
+    with pytest.raises(ValueError, match="outside the IT key range"):
         build_module(plan, audio, SR, instrument.material or [], export_context)
 
 
@@ -109,7 +108,7 @@ def test_grouped_module_shares_one_sample_across_a_merged_zone(
     assert len(module.song.samples) == 1  # ... served by a single stored sample
     representative = plan.zones[0].representative
     for pitch in plan.zones[0].pitches:
-        assignment = module.song.instruments[0].assignment(tracker_key(pitch))
+        assignment = module.song.instruments[0].assignment(Note.from_midi(pitch))
         assert assignment is not None
         assert assignment.sample == 0  # every covered key reaches the shared sample
         assert assignment.note == Note(RATE_NOTE + pitch - representative)  # transposed from the representative
@@ -122,7 +121,7 @@ def test_grouped_sample_keeps_the_representatives_stored_rate(
     assert module.song.samples[0].rate == plan.zones[0].chosen.params.target_rate
 
 
-def test_grouped_pitch_no_tracker_keyboard_numbers_raises(
+def test_a_grouped_pitch_the_format_does_not_number_raises(
     export_context: ExportContext, storage: Storage, piano_note: Callable[..., NDArray[np.float64]]
 ) -> None:
     option = ZoneOption(
@@ -149,7 +148,7 @@ def test_grouped_pitch_no_tracker_keyboard_numbers_raises(
         objective=0.0,
     )
     audio = {(_UNREACHABLE_PITCH, 100): piano_note(60, 100, seed=60 * 200 + 100)}
-    with pytest.raises(ValueError, match="outside the tracker key range"):
+    with pytest.raises(ValueError, match="outside the IT key range"):
         build_module(plan, audio, SR, [], export_context)
 
 

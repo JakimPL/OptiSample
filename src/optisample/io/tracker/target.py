@@ -1,7 +1,9 @@
 from dataclasses import dataclass
+from typing import Final
 
 from optisample.config.tracker import TrackerConfig, TrackerFormat
 from trackmod.core.notes.command import NoteCommand
+from trackmod.core.notes.pitch import Note
 from trackmod.core.patterns.cell import Cell
 from trackmod.core.songs.song import Song
 from trackmod.limits.capability import Capability
@@ -13,6 +15,13 @@ from trackmod.trackers.it.limits import it_limits
 from trackmod.trackers.it.module import ITModule
 from trackmod.trackers.it.settings import ITSettings
 from trackmod.trackers.it.spec.storage import IT_STORAGE
+from trackmod.trackers.xm.effects.catalog import XM_EFFECTS
+from trackmod.trackers.xm.limits import xm_limits
+from trackmod.trackers.xm.module import XMModule
+from trackmod.trackers.xm.settings import XMSettings
+from trackmod.trackers.xm.spec.storage import XM_STORAGE
+
+_ON_THE_ROW: Final = 0
 
 
 @dataclass(frozen=True)
@@ -27,12 +36,15 @@ class ExportTarget:
     format: TrackerFormat
     compliance: Compliance
     it: ITSettings
+    xm: XMSettings
 
     def bind(self, song: Song) -> TrackerModule:
         """Hand ``song`` to this format, giving a module that reports its size and writes itself."""
         match self.format:
             case TrackerFormat.IT:
                 return ITModule.from_song(song, compliance=self.compliance, settings=self.it)
+            case TrackerFormat.XM:
+                return XMModule.from_song(song, compliance=self.compliance, settings=self.xm)
 
     @property
     def storage(self) -> Storage:
@@ -40,6 +52,8 @@ class ExportTarget:
         match self.format:
             case TrackerFormat.IT:
                 return IT_STORAGE
+            case TrackerFormat.XM:
+                return XM_STORAGE
 
     @property
     def limits(self) -> Limits:
@@ -47,6 +61,8 @@ class ExportTarget:
         match self.format:
             case TrackerFormat.IT:
                 return it_limits(self.compliance)
+            case TrackerFormat.XM:
+                return xm_limits(self.compliance)
 
     @property
     def min_rows(self) -> int:
@@ -58,11 +74,45 @@ class ExportTarget:
         """The tallest pattern this format accepts, past which material spills into the next one."""
         return self.limits.bound(Capability.PATTERN_ROWS).maximum
 
+    @property
+    def min_pitch(self) -> int:
+        """The lowest MIDI note this format's keyboard reaches."""
+        return Note(self.limits.bound(Capability.NOTE).minimum).midi
+
+    @property
+    def max_pitch(self) -> int:
+        """The highest MIDI note this format's keyboard reaches."""
+        return Note(self.limits.bound(Capability.NOTE).maximum).midi
+
+    def key(self, pitch: int) -> Note:
+        """The key this format's keyboard plays ``pitch`` on.
+
+        Trackers count their keyboards from C-0, one octave below MIDI's own numbering, and each format
+        numbers a different stretch of that keyboard -- Impulse Tracker all ten octaves, FastTracker 2
+        the lowest eight -- so which pitches a module can name is the target's to answer.
+
+        Raises:
+            ValueError: when the MIDI note falls outside the keys this format numbers.
+        """
+        if not self.min_pitch <= pitch <= self.max_pitch:
+            raise ValueError(
+                f"MIDI note {pitch} is outside the {self.format.upper()} key range "
+                f"{self.min_pitch}..{self.max_pitch}"
+            )
+
+        return Note.from_midi(pitch)
+
     def release_cell(self) -> Cell:
-        """The cell that silences a channel, spelled the way this format spells it."""
+        """The cell that silences a channel, spelled the way this format spells it.
+
+        Impulse Tracker keeps a cut in the note column; FastTracker 2 numbers its note column for keys
+        alone and reaches the same silence through the effect that cuts a channel within the row.
+        """
         match self.format:
             case TrackerFormat.IT:
                 return Cell(note=NoteCommand.CUT)
+            case TrackerFormat.XM:
+                return Cell(effect=XM_EFFECTS.note_cut(_ON_THE_ROW))
 
 
 def export_target(config: TrackerConfig) -> ExportTarget:
@@ -71,4 +121,5 @@ def export_target(config: TrackerConfig) -> ExportTarget:
         format=config.format,
         compliance=config.compliance,
         it=ITSettings(global_volume=config.it.global_volume, mix_volume=config.it.mix_volume),
+        xm=XMSettings(tracker=config.xm.tracker),
     )

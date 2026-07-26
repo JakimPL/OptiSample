@@ -9,6 +9,7 @@ class TrackerFormat(StrEnum):
     """A tracker file format a module can be written as."""
 
     IT = "it"
+    XM = "xm"
 
 
 class ITTrackerConfig(ConfigModel):
@@ -16,6 +17,16 @@ class ITTrackerConfig(ConfigModel):
 
     global_volume: int
     mix_volume: int
+
+
+class XMTrackerConfig(ConfigModel):
+    """What FastTracker 2 records about the module beyond the song itself.
+
+    ``tracker`` is the name the file credits as its writer, which a tracker shows when the module is
+    opened.
+    """
+
+    tracker: str
 
 
 class TrackerConfig(ConfigModel):
@@ -28,3 +39,4 @@ class TrackerConfig(ConfigModel):
     format: TrackerFormat
     compliance: Compliance
     it: ITTrackerConfig
+    xm: XMTrackerConfig

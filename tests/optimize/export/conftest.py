@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
 
 import numpy as np
@@ -9,6 +10,8 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.config.optimize import SweepConfig
+from optisample.config.tracker import TrackerFormat
+from optisample.io.tracker.target import ExportTarget
 from optisample.model import NoteEvent
 from optisample.optimize.export import build_module
 from optisample.optimize.export.context import ExportContext
@@ -20,6 +23,21 @@ from tests.optimize.export.demo import PITCHES, SR, VELOCITIES, demo_instrument,
 from trackmod.module.protocol import TrackerModule
 
 _GROUPED_BUDGET_KB = 8.0
+
+
+@pytest.fixture
+def as_format(
+    export_context: ExportContext, retarget: Callable[[TrackerFormat], ExportTarget]
+) -> Callable[[TrackerFormat | None], ExportContext]:
+    """Factory: the bundled exporter context aimed at another format, so one plan writes both ways."""
+
+    def _as_format(tracker_format: TrackerFormat | None) -> ExportContext:
+        if tracker_format is None:
+            return export_context
+
+        return dataclasses.replace(export_context, target=retarget(tracker_format))
+
+    return _as_format
 
 
 @pytest.fixture
@@ -36,16 +54,27 @@ def demo_audio(piano_note: Callable[..., NDArray[np.float64]]) -> dict[tuple[int
 def build(
     optimize_settings: Callable[..., OptimizeSettings],
     sweep: Callable[..., SweepConfig],
-    export_context: ExportContext,
+    as_format: Callable[[TrackerFormat | None], ExportContext],
     demo_audio: dict[tuple[int, int], NDArray[np.float64]],
 ) -> Callable[..., tuple[InstrumentPlan, TrackerModule]]:
-    """Optimize the demo instrument over a 2x2 encoding grid and export it to a module."""
+    """Optimize the demo instrument over a 2x2 encoding grid and export it to a module.
 
-    def _build(material: list[NoteEvent] | None = None) -> tuple[InstrumentPlan, TrackerModule]:
+    ``tracker_format`` writes the same plan as another format, which is how the cross-format tests get
+    two modules that differ only in how they spell the one song.
+    """
+
+    def _build(
+        material: list[NoteEvent] | None = None,
+        tracker_format: TrackerFormat | None = None,
+    ) -> tuple[InstrumentPlan, TrackerModule]:
         settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depths=(16, 8)))
         plan = optimize_instrument(demo_instrument(), demo_audio, SR, settings)
         module = build_module(
-            plan, demo_audio, SR, material if material is not None else demo_material(), export_context
+            plan,
+            demo_audio,
+            SR,
+            material if material is not None else demo_material(),
+            as_format(tracker_format),
         )
         return plan, module
 
