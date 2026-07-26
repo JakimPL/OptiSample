@@ -19,6 +19,7 @@ from optisample.optimize.export.context import ExportContext
 from optisample.optimize.orchestrate import optimize_instrument
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import InstrumentPlan
+from optisample.optimize.reduce.keys import SampleKey
 from tests.optimize.export.demo import SR
 from trackmod.module.protocol import TrackerModule
 
@@ -95,7 +96,7 @@ def test_a_pitch_above_a_formats_keyboard_is_refused_by_that_format(
     piano_note: Callable[..., NDArray[np.float64]],
 ) -> None:
     """The top of the shared keyboard is Impulse Tracker's alone; FastTracker 2 stops two octaves lower."""
-    audio = {(_ABOVE_XM_PITCH, 100): piano_note(_ABOVE_XM_PITCH, 100, seed=1)}
+    audio = {SampleKey(_ABOVE_XM_PITCH, 100): piano_note(_ABOVE_XM_PITCH, 100, seed=1)}
     material = [NoteEvent(pitch=_ABOVE_XM_PITCH, velocity=100, duration_s=0.4)]
     instrument = InstrumentSpec(
         id="top",

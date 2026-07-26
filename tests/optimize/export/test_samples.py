@@ -19,6 +19,7 @@ from optisample.optimize.export.samples import sample_name
 from optisample.optimize.orchestrate import optimize_instrument
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import BudgetBreakdown, GroupedInstrumentPlan, InstrumentPlan, Zone, ZoneOption
+from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
 from tests.optimize.export.demo import SR
 from trackmod.core.notes.pitch import Note
@@ -87,7 +88,7 @@ def test_a_pitch_the_format_does_not_number_raises(
     sweep: Callable[..., SweepConfig],
     piano_note: Callable[..., NDArray[np.float64]],
 ) -> None:
-    audio = {(_UNREACHABLE_PITCH, 100): piano_note(60, 100, seed=60 * 200 + 100)}
+    audio = {SampleKey(_UNREACHABLE_PITCH, 100): piano_note(60, 100, seed=60 * 200 + 100)}
     instrument = InstrumentSpec(
         id="x",
         budget_kb=64.0,
@@ -133,8 +134,7 @@ def test_a_grouped_pitch_the_format_does_not_number_raises(
     )
     zone = Zone(
         pitches=(_UNREACHABLE_PITCH,),
-        representative=_UNREACHABLE_PITCH,
-        representative_velocity=100,
+        representative_key=SampleKey(_UNREACHABLE_PITCH, 100),
         weight=1.0,
         chosen=option,
         hull=(option,),
@@ -147,7 +147,7 @@ def test_a_grouped_pitch_the_format_does_not_number_raises(
         total_bytes=100,
         objective=0.0,
     )
-    audio = {(_UNREACHABLE_PITCH, 100): piano_note(60, 100, seed=60 * 200 + 100)}
+    audio = {SampleKey(_UNREACHABLE_PITCH, 100): piano_note(60, 100, seed=60 * 200 + 100)}
     with pytest.raises(ValueError, match="outside the IT key range"):
         build_module(plan, audio, SR, [], export_context)
 
@@ -173,7 +173,7 @@ def looped_build(
     """Optimize a periodic pad with looping forced on, so the stored sample is attack + a short loop."""
 
     def _looped_build(hold_s: float = 3.0) -> tuple[InstrumentPlan, TrackerModule]:
-        audio = {(60, 100): periodic_tone(dur=3.0)}
+        audio = {SampleKey(60, 100): periodic_tone(dur=3.0)}
         material = [NoteEvent(pitch=60, velocity=100, duration_s=hold_s, count=1)]
         instrument = InstrumentSpec(
             id="pad",

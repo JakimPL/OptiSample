@@ -10,6 +10,7 @@ from optisample.optimize.knapsack import Allocation, RDCurvePoint
 from optisample.optimize.operating_points import OperatingPoint
 from optisample.optimize.plans.budget import BudgetBreakdown, BudgetedPlanMixin
 from optisample.optimize.plans.strategy import Method, SampleUnit
+from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.velocity_map import VelocityVolumeMap
 
 
@@ -19,7 +20,7 @@ class PitchPlan:
 
     pitch: int
     weight: float
-    representative_velocity: int
+    representative_key: SampleKey
     chosen: OperatingPoint
     hull: tuple[OperatingPoint, ...]
 
@@ -54,8 +55,7 @@ class InstrumentPlan(BudgetedPlanMixin):
         return tuple(
             SampleUnit(
                 label=f"p{pitch.pitch:03d}_{note_name(pitch.pitch)}",
-                representative=pitch.pitch,
-                representative_velocity=pitch.representative_velocity,
+                representative_key=pitch.representative_key,
                 keys=(pitch.pitch,),
                 params=pitch.chosen.params,
                 frames=pitch.chosen.frames,

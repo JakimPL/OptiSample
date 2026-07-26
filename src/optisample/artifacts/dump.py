@@ -203,6 +203,8 @@ def dump_project(manifest: Manifest, out_dir: Path | str, settings: DumpSettings
     out_dir = Path(out_dir)
     results: list[DumpResult] = []
     for instrument in manifest.instruments:
-        audio, sample_rate = load_instrument_audio(instrument)
+        audio, sample_rate = load_instrument_audio(
+            instrument, settings.optimize.reduce.dedupe, settings.optimize.encode.loop
+        )
         results.append(dump_instrument(instrument, audio, sample_rate, out_dir / instrument.id, settings))
     return results

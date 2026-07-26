@@ -34,7 +34,7 @@ def encode_plan_units(
     """
     rng = np.random.default_rng(seed)
     for unit in units:
-        representative: Signal = audio[(unit.representative, unit.representative_velocity)]
+        representative: Signal = audio[unit.representative_key]
         encode_context = EncodeContext(
             root_pitch=unit.representative,
             config=encode_config,

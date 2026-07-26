@@ -21,6 +21,7 @@ from optisample.optimize.grouping.cost_model import _zone_trim
 from optisample.optimize.orchestrate import optimize_instrument, prepare_run
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import GroupedInstrumentPlan, ZoneOption
+from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.tasks import Event, PitchTask
 from optisample.synth import NoteSpec, render_sample
 
@@ -60,8 +61,8 @@ def _note(pitch: int, velocity: int, dur: float) -> NDArray[np.float64]:
     )
 
 
-def _audio() -> dict[tuple[int, int], NDArray[np.float64]]:
-    return {(pitch, 100): _note(pitch, 100, 0.6) for pitch in PITCHES}
+def _audio() -> dict[SampleKey, NDArray[np.float64]]:
+    return {SampleKey(pitch, 100): _note(pitch, 100, 0.6) for pitch in PITCHES}
 
 
 def _material() -> list[NoteEvent]:
@@ -78,31 +79,37 @@ def _instrument(budget_kb: float) -> InstrumentSpec:
 
 
 @pytest.fixture(scope="module")
-def audio() -> dict[tuple[int, int], NDArray[np.float64]]:
+def audio() -> dict[SampleKey, NDArray[np.float64]]:
     return _audio()
 
 
 @pytest.fixture(scope="module")
 def options48(
-    audio: dict[tuple[int, int], NDArray[np.float64]],
+    audio: dict[SampleKey, NDArray[np.float64]],
 ) -> tuple[list[PitchTask], dict[tuple[int, int], tuple[ZoneOption, ...]]]:
     _, context, tasks = prepare_run(_instrument(48.0), audio, SR, _settings(GRID))
     return tasks, build_zone_options(tasks, context)
 
 
 @pytest.fixture(scope="module")
-def plan48(audio: dict[tuple[int, int], NDArray[np.float64]]) -> GroupedInstrumentPlan:
+def plan48(audio: dict[SampleKey, NDArray[np.float64]]) -> GroupedInstrumentPlan:
     return optimize_instrument_grouped(_instrument(48.0), audio, SR, _settings(GRID))
 
 
 # --- zone cost model -----------------------------------------------------------------------------
 
 
+def _task(pitch: int, silence: NDArray[np.float64]) -> PitchTask:
+    """A one-event task at ``pitch``, the minimum ``_zone_trim`` reads."""
+    key = SampleKey(pitch, 100)
+    return PitchTask(pitch, 1.0, key, silence, (key,), (Event(100, 0.5, 1.0, silence),))
+
+
 def test_zone_trim_scales_with_upward_transpose() -> None:
     silence = np.zeros(4, dtype=np.float64)
     tasks = [
-        PitchTask(60, 1.0, 100, silence, (Event(100, 0.5, 1.0, silence),)),
-        PitchTask(72, 1.0, 100, silence, (Event(100, 0.5, 1.0, silence),)),
+        _task(60, silence),
+        _task(72, silence),
     ]
     assert _zone_trim(tasks, 60) == pytest.approx(1.0)  # bottom rep must stretch an octave up (2x length)
     assert _zone_trim(tasks, 72) == pytest.approx(0.5)  # top rep plays the low key slower -> its own length
@@ -132,7 +139,7 @@ def test_zone_hull_is_a_monotone_frontier(
 
 
 def test_grouping_is_never_worse_than_ungrouped_at_a_feasible_budget(
-    audio: dict[tuple[int, int], NDArray[np.float64]], plan48: GroupedInstrumentPlan
+    audio: dict[SampleKey, NDArray[np.float64]], plan48: GroupedInstrumentPlan
 ) -> None:
     ungrouped = optimize_instrument(_instrument(48.0), audio, SR, _settings(GRID))
     assert plan48.objective <= ungrouped.objective + 1e-9  # singletons are always in the search space
@@ -151,7 +158,7 @@ def test_zones_partition_all_pitches_and_bytes_add_up(plan48: GroupedInstrumentP
     assert plan48.used_bytes == sum(zone.chosen.stored_bytes for zone in plan48.zones)
 
 
-def test_grouping_is_feasible_where_ungrouped_is_not(audio: dict[tuple[int, int], NDArray[np.float64]]) -> None:
+def test_grouping_is_feasible_where_ungrouped_is_not(audio: dict[SampleKey, NDArray[np.float64]]) -> None:
     settings = _settings(GRID_TINY)
     inst = _instrument(10.0)  # room for one shared sample, not for three separate ones
     with pytest.raises(BudgetInfeasibleError):
@@ -162,7 +169,7 @@ def test_grouping_is_feasible_where_ungrouped_is_not(audio: dict[tuple[int, int]
     assert grouped.used_bytes <= grouped.sample_budget_bytes
 
 
-def test_grouping_raises_when_even_one_merged_zone_overflows(audio: dict[tuple[int, int], NDArray[np.float64]]) -> None:
+def test_grouping_raises_when_even_one_merged_zone_overflows(audio: dict[SampleKey, NDArray[np.float64]]) -> None:
     with pytest.raises(BudgetInfeasibleError):
         optimize_instrument_grouped(_instrument(1.0), audio, SR, _settings(GRID_TINY))
 
@@ -170,7 +177,7 @@ def test_grouping_raises_when_even_one_merged_zone_overflows(audio: dict[tuple[i
 def test_grouping_handles_the_sustained_archetype() -> None:
     pitches = (60, 62, 64)
     audio = {
-        (pitch, 100): render_sample(
+        SampleKey(pitch, 100): render_sample(
             "sustained", NoteSpec(pitch, 100, 0.0, 0.6, SR), np.random.default_rng(pitch), _CONFIG.synth
         )
         for pitch in pitches

@@ -27,7 +27,7 @@ def prepare_run(
     identically (the grouping objective must be comparable to the ungrouped one).
     """
     velocity_map = derive_velocity_map(
-        loudness_by_velocity([(velocity, signal) for (_, velocity), signal in audio.items()], sample_rate),
+        loudness_by_velocity([(key.velocity, signal) for key, signal in audio.items()], sample_rate),
         settings.velocity,
     )
     context = EvalContext(
@@ -39,7 +39,7 @@ def prepare_run(
         encode=settings.encode,
         storage=settings.target.storage,
     )
-    return velocity_map, context, build_tasks(instrument, audio)
+    return velocity_map, context, build_tasks(instrument, audio, settings.reduce.dedupe.representatives)
 
 
 def optimize_instrument(
@@ -68,7 +68,7 @@ def optimize_instrument(
 
 def run_instrument(instrument: InstrumentSpec, settings: OptimizeSettings) -> InstrumentPlan:
     """Load an instrument's recordings from disk and optimize it."""
-    audio, sample_rate = load_instrument_audio(instrument)
+    audio, sample_rate = load_instrument_audio(instrument, settings.reduce.dedupe, settings.encode.loop)
     return optimize_instrument(instrument, audio, sample_rate, settings)
 
 

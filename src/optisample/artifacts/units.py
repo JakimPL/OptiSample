@@ -13,6 +13,7 @@ from optisample.optimize.plans import (
     InstrumentPlan,
     StrategyPlan,
 )
+from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.report import format_grouping_report, format_report
 from optisample.optimize.tasks import PitchTask
 from trackmod.module.protocol import TrackerModule
@@ -25,8 +26,12 @@ class Unit:
     label: str
     stored: StoredSample
     tasks: tuple[PitchTask, ...]
-    representative: int
-    representative_velocity: int
+    representative_key: SampleKey
+
+    @property
+    def representative(self) -> int:
+        """The pitch the stored sample is rooted at, which is its recording's own pitch."""
+        return self.representative_key.pitch
 
 
 @dataclass(frozen=True)
@@ -68,8 +73,7 @@ def build_units(plan: StrategyPlan, dump_context: DumpContext) -> tuple[Unit, ..
                 label=unit.label,
                 stored=stored,
                 tasks=tuple(dump_context.tasks_by_pitch[key] for key in unit.keys),
-                representative=unit.representative,
-                representative_velocity=unit.representative_velocity,
+                representative_key=unit.representative_key,
             )
         )
     return tuple(units)

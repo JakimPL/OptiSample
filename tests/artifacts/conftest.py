@@ -14,6 +14,7 @@ from optisample.optimize.grouping import optimize_instrument_grouped
 from optisample.optimize.orchestrate import optimize_instrument, prepare_run
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
+from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.tasks import AudioMap
 
 SR = 44_100
@@ -48,7 +49,7 @@ def no_render_settings(tiny_settings: OptimizeSettings) -> DumpSettings:
 
 @pytest.fixture
 def demo_audio(piano_note: Callable[..., NDArray[np.float64]]) -> AudioMap:
-    return {(pitch, 100): piano_note(pitch, 100, 0.6, seed=pitch * 137 + 100) for pitch in PITCHES}
+    return {SampleKey(pitch, 100): piano_note(pitch, 100, 0.6, seed=pitch * 137 + 100) for pitch in PITCHES}
 
 
 @pytest.fixture

@@ -13,12 +13,18 @@ from optisample.optimize.dp import BudgetInfeasibleError
 from optisample.optimize.grouping import solve_grouping
 from optisample.optimize.grouping.solve import _cheapest_partition_bytes
 from optisample.optimize.plans import ZoneOption
+from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.tasks import Event, PitchTask
 
 
 def _fake_tasks(pitches: tuple[int, ...]) -> list[PitchTask]:
     silence = np.zeros(4, dtype=np.float64)
-    return [PitchTask(p, 1.0, 100, silence, (Event(100, 1.0, 1.0, silence),)) for p in pitches]
+    return [
+        PitchTask(
+            pitch, 1.0, SampleKey(pitch, 100), silence, (SampleKey(pitch, 100),), (Event(100, 1.0, 1.0, silence),)
+        )
+        for pitch in pitches
+    ]
 
 
 def _fake_options(pitches: tuple[int, ...], seed: int) -> dict[tuple[int, int], tuple[ZoneOption, ...]]:

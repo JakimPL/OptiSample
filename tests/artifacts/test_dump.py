@@ -22,13 +22,14 @@ from optisample.model import (
     SourceSample,
 )
 from optisample.optimize.orchestrate.settings import OptimizeSettings
+from optisample.optimize.reduce.keys import SampleKey
 
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
 
 SR = 44_100
 PITCHES = (60, 62, 64)
 
-AudioFactory = Callable[..., dict[tuple[int, int], NDArray[np.float64]]]
+AudioFactory = Callable[..., dict[SampleKey, NDArray[np.float64]]]
 
 _CONFIG = load_config()
 
@@ -57,8 +58,8 @@ NO_RENDER = DumpSettings(
 def demo_audio_map(piano_note: Callable[..., NDArray[np.float64]]) -> AudioFactory:
     """Factory: the demo piano audio grid over ``pitches`` (default the full material set)."""
 
-    def _audio(pitches: tuple[int, ...] = PITCHES) -> dict[tuple[int, int], NDArray[np.float64]]:
-        return {(pitch, 100): piano_note(pitch, 100, 0.6, seed=pitch * 137 + 100) for pitch in pitches}
+    def _audio(pitches: tuple[int, ...] = PITCHES) -> dict[SampleKey, NDArray[np.float64]]:
+        return {SampleKey(pitch, 100): piano_note(pitch, 100, 0.6, seed=pitch * 137 + 100) for pitch in pitches}
 
     return _audio
 

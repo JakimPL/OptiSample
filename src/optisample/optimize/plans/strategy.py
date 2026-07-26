@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Literal, Protocol
 
 from optisample.dsp.surrogate import EncodingParams
+from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.velocity_map import VelocityVolumeMap
 
 Strategy = Literal["ungrouped", "grouped"]  # which allocation the plan came from.
@@ -26,12 +27,12 @@ class SampleUnit:
     Ungrouped, a unit is a single key playing its own sample; grouped, it is a whole pitch zone routed
     to one repitched representative. The exporter, dumper and serializer all read this normalized view,
     so none of them has to know which strategy built the plan. ``label`` is the unit's stable name (the
-    dumper's per-sample WAV filename and ``served_by`` reference).
+    dumper's per-sample WAV filename and ``served_by`` reference), and ``representative_key`` names the
+    surviving recording in the audio map that the unit re-encodes.
     """
 
     label: str
-    representative: int
-    representative_velocity: int
+    representative_key: SampleKey
     keys: tuple[int, ...]
     params: EncodingParams
     frames: int
@@ -39,6 +40,11 @@ class SampleUnit:
     distortion: float
     hull_size: int
     weight: float
+
+    @property
+    def representative(self) -> int:
+        """The pitch the stored sample is rooted at, which is its recording's own pitch."""
+        return self.representative_key.pitch
 
 
 class StrategyPlan(Protocol):

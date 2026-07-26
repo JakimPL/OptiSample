@@ -29,8 +29,9 @@ OptiSample consumes [NoteExtractor](../NoteExtractor) output directly as its nat
   `render` block (`index`, `start_seconds`, `release_end_seconds`).
 
 Each note becomes both a recorded sample and a played event; the join key is `render.index` matched
-against each WAV filename's leading index token. Deduplication to one recording per `(pitch, velocity)`
-is the optimizer's job.
+against each WAV filename's leading index token. Reducing the grid to one recording per key is the
+optimizer's job: it keeps the shortest recording that still covers the notes that key has to play,
+under the identity `reduce.yaml` names (`pitch`, `pitch_velocity`, or `pitch_velocity_cc`).
 
 ## Usage
 

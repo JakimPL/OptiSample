@@ -5,6 +5,7 @@ from optisample.dsp.surrogate import EncodingParams
 from optisample.music import note_name
 from optisample.optimize.plans.budget import BudgetBreakdown, BudgetedPlanMixin
 from optisample.optimize.plans.strategy import SampleUnit
+from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.velocity_map import VelocityVolumeMap
 
 
@@ -29,11 +30,15 @@ class Zone:
     """A contiguous run of keys served by one stored sample, with the option the solver chose."""
 
     pitches: tuple[int, ...]
-    representative: int
-    representative_velocity: int
+    representative_key: SampleKey
     weight: float  # total material usage (seconds) across the zone's pitches
     chosen: ZoneOption
     hull: tuple[ZoneOption, ...]
+
+    @property
+    def representative(self) -> int:
+        """The pitch every key in the zone is repitched from (the stored recording's own pitch)."""
+        return self.representative_key.pitch
 
 
 @dataclass(frozen=True)
@@ -75,8 +80,7 @@ class GroupedInstrumentPlan(BudgetedPlanMixin):
         return tuple(
             SampleUnit(
                 label=f"zone{index:02d}_rep{zone.representative:03d}_{note_name(zone.representative)}",
-                representative=zone.representative,
-                representative_velocity=zone.representative_velocity,
+                representative_key=zone.representative_key,
                 keys=zone.pitches,
                 params=zone.chosen.params,
                 frames=zone.chosen.frames,

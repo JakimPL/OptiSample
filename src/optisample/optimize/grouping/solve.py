@@ -90,8 +90,7 @@ def _build_zone(
     rep_task = next(task for task in range_tasks if task.pitch == chosen.representative)
     return Zone(
         pitches=tuple(task.pitch for task in range_tasks),
-        representative=chosen.representative,
-        representative_velocity=rep_task.representative_velocity,
+        representative_key=rep_task.representative_key,
         weight=sum(task.weight for task in range_tasks),
         chosen=chosen,
         hull=tuple(zone_hull(zone_options)),

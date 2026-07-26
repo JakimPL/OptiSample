@@ -19,6 +19,7 @@ from optisample.optimize.grouping import optimize_instrument_grouped
 from optisample.optimize.orchestrate import optimize_instrument
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
+from optisample.optimize.reduce.keys import SampleKey
 from tests.optimize.export.demo import PITCHES, SR, VELOCITIES, demo_instrument, demo_material
 from trackmod.module.protocol import TrackerModule
 
@@ -41,10 +42,10 @@ def as_format(
 
 
 @pytest.fixture
-def demo_audio(piano_note: Callable[..., NDArray[np.float64]]) -> dict[tuple[int, int], NDArray[np.float64]]:
+def demo_audio(piano_note: Callable[..., NDArray[np.float64]]) -> dict[SampleKey, NDArray[np.float64]]:
     """The 2x2 demo audio grid (piano notes are fixture-independent test-signal data)."""
     return {
-        (pitch, velocity): piano_note(pitch, velocity, seed=pitch * 200 + velocity)
+        SampleKey(pitch, velocity): piano_note(pitch, velocity, seed=pitch * 200 + velocity)
         for pitch in PITCHES
         for velocity in VELOCITIES
     }
@@ -55,7 +56,7 @@ def build(
     optimize_settings: Callable[..., OptimizeSettings],
     sweep: Callable[..., SweepConfig],
     as_format: Callable[[TrackerFormat | None], ExportContext],
-    demo_audio: dict[tuple[int, int], NDArray[np.float64]],
+    demo_audio: dict[SampleKey, NDArray[np.float64]],
 ) -> Callable[..., tuple[InstrumentPlan, TrackerModule]]:
     """Optimize the demo instrument over a 2x2 encoding grid and export it to a module.
 
@@ -86,7 +87,7 @@ def grouped_build(
     optimize_settings: Callable[..., OptimizeSettings],
     sweep: Callable[..., SweepConfig],
     export_context: ExportContext,
-    demo_audio: dict[tuple[int, int], NDArray[np.float64]],
+    demo_audio: dict[SampleKey, NDArray[np.float64]],
 ) -> Callable[..., tuple[GroupedInstrumentPlan, TrackerModule]]:
     """A tight-budget grouped build: one cheap operating point forces both keys into one shared zone."""
 

@@ -16,6 +16,7 @@ from optisample.optimize.orchestrate import optimize_instrument, run_instrument
 from optisample.optimize.orchestrate.audio import load_instrument_audio
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import InstrumentPlan
+from optisample.optimize.reduce.keys import SampleKey
 from optisample.synth import NoteSpec, render_sample
 
 SR = 44_100
@@ -23,7 +24,10 @@ PITCHES = (60, 67)
 VELOCITIES = (50, 100)
 
 # render_sample is a test-signal generator here; its synth config is fixture-independent test data.
-_SYNTH = load_config().synth
+_CONFIG = load_config()
+_SYNTH = _CONFIG.synth
+_DEDUPE = _CONFIG.reduce.dedupe
+_LOOP = _CONFIG.loop
 
 
 def note(pitch: int, velocity: int, dur: float = 0.5) -> NDArray[np.float64]:
@@ -35,8 +39,8 @@ def note(pitch: int, velocity: int, dur: float = 0.5) -> NDArray[np.float64]:
     )
 
 
-def demo_audio() -> dict[tuple[int, int], NDArray[np.float64]]:
-    return {(p, v): note(p, v, dur=0.6) for p in PITCHES for v in VELOCITIES}
+def demo_audio() -> dict[SampleKey, NDArray[np.float64]]:
+    return {SampleKey(p, v): note(p, v, dur=0.6) for p in PITCHES for v in VELOCITIES}
 
 
 def demo_material() -> list[NoteEvent]:
@@ -92,11 +96,11 @@ def test_exact_and_lagrangian_are_both_feasible(optimize: Callable[..., Instrume
     assert lagrangian.objective >= exact.objective - 1e-9  # exact is optimal
 
 
-def test_representative_velocity_is_the_loudest_used_at_each_pitch(optimize: Callable[..., InstrumentPlan]) -> None:
+def test_representative_key_is_the_loudest_used_at_each_pitch(optimize: Callable[..., InstrumentPlan]) -> None:
     plan = optimize(64.0)
-    reps = {p.pitch: p.representative_velocity for p in plan.pitches}
-    assert reps[60] == 100  # pitch 60 is played at 50 and 100 → store the loud one
-    assert reps[67] == 100
+    reps = {p.pitch: p.representative_key for p in plan.pitches}
+    assert reps[60] == SampleKey(60, 100)  # pitch 60 is played at 50 and 100 → store the loud one
+    assert reps[67] == SampleKey(67, 100)
 
 
 def test_each_pitch_hull_is_a_valid_rd_frontier(optimize: Callable[..., InstrumentPlan], grid: SweepConfig) -> None:
@@ -117,7 +121,7 @@ def test_infeasible_budget_raises(optimize: Callable[..., InstrumentPlan]) -> No
 def test_material_pitch_without_a_recording_raises(
     grid: SweepConfig, optimize_settings: Callable[..., OptimizeSettings]
 ) -> None:
-    audio = {(60, 100): note(60, 100, dur=0.6)}
+    audio = {SampleKey(60, 100): note(60, 100, dur=0.6)}
     inst = InstrumentSpec(
         id="piano",
         budget_kb=64.0,
@@ -157,25 +161,24 @@ def test_run_instrument_reads_wavs_from_disk(
     assert tuple(p.pitch for p in plan.pitches) == PITCHES
 
 
-def test_load_instrument_audio_keeps_first_sample_per_key(tmp_path: Path) -> None:
-    first = note(60, 100, dur=0.6)
-    second = note(60, 100, dur=0.3)  # same (pitch, velocity), different recording
-    first_path = tmp_path / "0000_p60_v100.wav"
-    second_path = tmp_path / "0001_p60_v100.wav"
-    write_wav(first_path, first, SR)
-    write_wav(second_path, second, SR)
+def test_load_instrument_audio_decodes_the_recording_dedup_kept(tmp_path: Path) -> None:
+    long_path = tmp_path / "0000_p60_v100.wav"
+    short_path = tmp_path / "0001_p60_v100.wav"
+    write_wav(long_path, note(60, 100, dur=0.8), SR)
+    write_wav(short_path, note(60, 100, dur=0.6), SR)  # same key, still covers the 0.2 s note
     inst = InstrumentSpec(
         id="piano",
         budget_kb=64.0,
         samples=[
-            SourceSample(file=first_path, pitch=60, velocity=100),
-            SourceSample(file=second_path, pitch=60, velocity=100),
+            SourceSample(file=long_path, pitch=60, velocity=100),
+            SourceSample(file=short_path, pitch=60, velocity=100),
         ],
-        material=[NoteEvent(pitch=60, velocity=100, duration_s=0.4, count=1)],
+        material=[NoteEvent(pitch=60, velocity=100, duration_s=0.2, count=1)],
     )
-    audio, _ = load_instrument_audio(inst)
-    expected, _ = read_wav(first_path)
-    np.testing.assert_array_equal(audio[(60, 100)], expected)  # the earliest listed recording wins the key
+    audio, _ = load_instrument_audio(inst, _DEDUPE, _LOOP)
+    expected, _ = read_wav(short_path)
+    assert list(audio) == [SampleKey(60, 100)]  # both recordings competed for the one key
+    np.testing.assert_array_equal(audio[SampleKey(60, 100)], expected)
 
 
 def test_load_instrument_audio_trims_lead_in_from_the_front(tmp_path: Path) -> None:
@@ -189,10 +192,10 @@ def test_load_instrument_audio_trims_lead_in_from_the_front(tmp_path: Path) -> N
         samples=[SourceSample(file=path, pitch=60, velocity=100, lead_in_s=lead_in_s)],
         material=[NoteEvent(pitch=60, velocity=100, duration_s=0.4, count=1)],
     )
-    audio, _ = load_instrument_audio(inst)
+    audio, _ = load_instrument_audio(inst, _DEDUPE, _LOOP)
     full, _ = read_wav(path)
     trimmed = round(lead_in_s * SR)
-    np.testing.assert_array_equal(audio[(60, 100)], full[trimmed:])  # frame 0 lands on the note onset
+    np.testing.assert_array_equal(audio[SampleKey(60, 100)], full[trimmed:])  # frame 0 lands on the note onset
 
 
 def test_load_instrument_audio_downmixes_stereo_and_resamples(tmp_path: Path) -> None:
@@ -210,8 +213,8 @@ def test_load_instrument_audio_downmixes_stereo_and_resamples(tmp_path: Path) ->
         ],
         material=[NoteEvent(pitch=60, velocity=100, duration_s=0.4, count=1)],
     )
-    audio, sample_rate = load_instrument_audio(inst)
-    assert sample_rate == SR  # first sample's rate wins; the 22 kHz one is resampled up
-    assert audio[(60, 100)].ndim == 1  # stereo downmixed to mono
+    audio, sample_rate = load_instrument_audio(inst, _DEDUPE, _LOOP)
+    assert sample_rate == SR  # the lowest key's rate wins; the 22 kHz one is resampled up
+    assert audio[SampleKey(60, 100)].ndim == 1  # stereo downmixed to mono
     # written as 22.05 kHz, resampled up to 44.1 kHz → twice the frames
-    assert audio[(67, 100)].size == pytest.approx(mono.size * 2, abs=2)
+    assert audio[SampleKey(67, 100)].size == pytest.approx(mono.size * 2, abs=2)

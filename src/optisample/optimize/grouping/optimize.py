@@ -46,5 +46,5 @@ def run_instrument_grouped(
     settings: OptimizeSettings,
 ) -> GroupedInstrumentPlan:
     """Load an instrument's recordings from disk and optimize it with grouping."""
-    audio, sample_rate = load_instrument_audio(instrument)
+    audio, sample_rate = load_instrument_audio(instrument, settings.reduce.dedupe, settings.encode.loop)
     return optimize_instrument_grouped(instrument, audio, sample_rate, settings)

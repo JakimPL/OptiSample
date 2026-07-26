@@ -274,7 +274,7 @@ def _pitch_item(unit: SampleUnit, loop: Loop | None) -> PitchItemRecord:
         pitch=unit.representative,
         note=note_name(unit.representative),
         weight=unit.weight,
-        representative_velocity=unit.representative_velocity,
+        representative_velocity=unit.representative_key.velocity,
         **_encoding_record(unit, loop).model_dump(),
     )
 
@@ -284,7 +284,7 @@ def _zone_item(unit: SampleUnit, loop: Loop | None) -> ZoneItemRecord:
         keys=[unit.keys[0], unit.keys[-1]],
         pitches=list(unit.keys),
         representative=unit.representative,
-        representative_velocity=unit.representative_velocity,
+        representative_velocity=unit.representative_key.velocity,
         weight=unit.weight,
         **_encoding_record(unit, loop).model_dump(),
     )

@@ -12,6 +12,7 @@ from optisample.optimize.plans import (
     ZoneOption,
     split_budget,
 )
+from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.report import format_grouping_report, format_report
 from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
 from trackmod.module.size import SizeReport
@@ -45,7 +46,10 @@ def _ungrouped_plan(
 def test_format_report_has_all_sections(storage: Storage) -> None:
     point = _point()
     plan = _ungrouped_plan(
-        pitches=(PitchPlan(60, 5.0, 100, point, (point,)), PitchPlan(67, 4.0, 100, point, (point,))),
+        pitches=(
+            PitchPlan(60, 5.0, SampleKey(60, 100), point, (point,)),
+            PitchPlan(67, 4.0, SampleKey(67, 100), point, (point,)),
+        ),
         # one curve point that overflows the sample budget and one that fits, to exercise both the
         # "<= budget" marker and its absence.
         curve=(
@@ -72,7 +76,9 @@ def test_report_curve_always_includes_the_final_point(storage: Storage) -> None:
     curve = tuple(
         RDCurvePoint(lam=float(12 - i), total_bytes=1000 + 400 * i, objective=20.0 - i, indices=(0,)) for i in range(12)
     )
-    plan = _ungrouped_plan(pitches=(PitchPlan(60, 5.0, 100, point, (point,)),), curve=curve, storage=storage)
+    plan = _ungrouped_plan(
+        pitches=(PitchPlan(60, 5.0, SampleKey(60, 100), point, (point,)),), curve=curve, storage=storage
+    )
     report = format_report(plan, _SIZE)
     assert f"{bytes_to_kib(curve[-1].total_bytes):7.1f} KiB" in report  # final vertex shown despite the stride
 
@@ -85,8 +91,8 @@ def test_grouping_report_has_the_expected_sections(storage: Storage) -> None:
         budget=split_budget(_MODULE_BYTES / 1024.0, storage),
         velocity_map=VelocityVolumeMap(tuple(64 for _ in range(128)), (VelocityAnchor(100, -10.0, 64),)),
         zones=(
-            Zone((60, 61, 62), 61, 100, 3.0, multi, (multi,)),  # a merged, multi-key zone
-            Zone((67,), 67, 90, 1.0, single, (single,)),  # a lone single-key zone
+            Zone((60, 61, 62), SampleKey(61, 100), 3.0, multi, (multi,)),  # a merged, multi-key zone
+            Zone((67,), SampleKey(67, 90), 1.0, single, (single,)),  # a lone single-key zone
         ),
         total_bytes=9000,
         objective=0.5,

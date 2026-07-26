@@ -22,7 +22,7 @@ def _pitch_plans(
         PitchPlan(
             pitch=task.pitch,
             weight=task.weight,
-            representative_velocity=task.representative_velocity,
+            representative_key=task.representative_key,
             chosen=chosen[str(task.pitch)],
             hull=hulls[task.pitch],
         )

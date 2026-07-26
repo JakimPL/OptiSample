@@ -5,15 +5,17 @@ import numpy as np
 
 from optisample.config.dsp import EncodeConfig
 from optisample.config.optimize import SweepConfig
+from optisample.config.reduce import Representatives
 from optisample.dsp.surrogate import StoredSample, render
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.metrics.base import Signal
 from optisample.metrics.composite import CompositeFidelity, QualityReport, evaluate
 from optisample.model import InstrumentSpec, NoteEvent
+from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.velocity_map import VelocityVolumeMap
 from trackmod.module.storage import Storage
 
-AudioMap = Mapping[tuple[int, int], Signal]
+AudioMap = Mapping[SampleKey, Signal]
 
 
 @dataclass(frozen=True)
@@ -28,12 +30,19 @@ class Event:
 
 @dataclass(frozen=True)
 class PitchTask:
-    """Everything needed to score one pitch's configs: its representative recording and references."""
+    """Everything needed to score one pitch's configs: its representative recording and references.
+
+    ``candidates`` lists the survivors at this pitch that may be stored as its sample, ``representative``
+    being the recording of the first-listed one. Under the default ``nearest_loudest`` policy that is the
+    single recording nearest the loudest velocity played here; ``all`` offers every survivor, so a
+    timbral variant can compete for the slot.
+    """
 
     pitch: int
     weight: float
-    representative_velocity: int
+    representative_key: SampleKey
     representative: Signal
+    candidates: tuple[SampleKey, ...]
     events: tuple[Event, ...]
 
     @property
@@ -59,9 +68,13 @@ class EvalContext:
     storage: Storage
 
 
-def nearest_velocity(available: Sequence[int], target: int) -> int:
-    """Recorded velocity closest to ``target`` (ties favour the louder recording)."""
-    return min(available, key=lambda velocity: (abs(velocity - target), -velocity))
+def nearest_key(available: Sequence[SampleKey], velocity: int) -> SampleKey:
+    """Recorded key whose velocity is closest to ``velocity``.
+
+    Ties favour the louder recording, then the lowest CC bucket, so a pitch with several timbral
+    variants at one velocity still resolves to the same reference on every run.
+    """
+    return min(available, key=lambda key: (abs(key.velocity - velocity), -key.velocity, key.cc))
 
 
 @dataclass(frozen=True)
@@ -99,20 +112,33 @@ def _group_events_by_pitch(material: Sequence[NoteEvent]) -> dict[int, list[Note
     return by_pitch
 
 
-def _recorded_velocities(audio: AudioMap) -> dict[int, list[int]]:
-    """The velocities actually recorded at each pitch (``audio``'s keys, grouped by pitch)."""
-    velocities_at: dict[int, list[int]] = {}
-    for pitch, velocity in audio:
-        velocities_at.setdefault(pitch, []).append(velocity)
+def _keys_by_pitch(audio: AudioMap) -> dict[int, list[SampleKey]]:
+    """The identities that survived dedup at each pitch (``audio``'s keys, grouped by pitch)."""
+    keys_at: dict[int, list[SampleKey]] = {}
+    for key in audio:
+        keys_at.setdefault(key.pitch, []).append(key)
 
-    return velocities_at
+    return keys_at
+
+
+def _candidate_keys(
+    available: Sequence[SampleKey],
+    representative_key: SampleKey,
+    representatives: Representatives,
+) -> tuple[SampleKey, ...]:
+    """The survivors at a pitch that may be stored as its sample, the representative always first."""
+    if representatives is Representatives.NEAREST_LOUDEST:
+        return (representative_key,)
+
+    return (representative_key, *(key for key in available if key != representative_key))
 
 
 def _build_pitch_task(
     pitch: int,
     events: Sequence[NoteEvent],
-    available: Sequence[int],
+    available: Sequence[SampleKey],
     audio: AudioMap,
+    representatives: Representatives,
 ) -> PitchTask:
     """Assemble one pitch's task: its representative recording and per-(velocity, duration) references.
 
@@ -120,13 +146,13 @@ def _build_pitch_task(
     recording at the nearest available velocity; the representative is the recording nearest the loudest
     velocity played here (the sample the zone stores when this pitch is chosen representative).
     """
-    representative_velocity = nearest_velocity(available, max(event.velocity for event in events))
+    representative_key = nearest_key(available, max(event.velocity for event in events))
     built = tuple(
         Event(
             merged.velocity,
             merged.duration_s,
             merged.weight,
-            audio[(pitch, nearest_velocity(available, merged.velocity))],
+            audio[nearest_key(available, merged.velocity)],
         )
         for merged in merge_events(events)
     )
@@ -134,8 +160,9 @@ def _build_pitch_task(
     return PitchTask(
         pitch,
         weight,
-        representative_velocity,
-        audio[(pitch, representative_velocity)],
+        representative_key,
+        audio[representative_key],
+        _candidate_keys(available, representative_key, representatives),
         built,
     )
 
@@ -143,21 +170,26 @@ def _build_pitch_task(
 def build_tasks(
     instrument: InstrumentSpec,
     audio: AudioMap,
+    representatives: Representatives,
 ) -> list[PitchTask]:
     """Group the material by pitch and attach each pitch's representative recording and references.
 
     Returned tasks are ordered by pitch -- the order the pitch-zone partitioning DP segments over.
+    ``representatives`` decides how many of a pitch's survivors are offered as candidate samples.
+
+    Raises:
+        ValueError: when the material plays a pitch the recorded grid has no sample for.
     """
     by_pitch = _group_events_by_pitch(instrument.material or [])
-    velocities_at = _recorded_velocities(audio)
+    keys_at = _keys_by_pitch(audio)
 
     tasks: list[PitchTask] = []
     for pitch, events in sorted(by_pitch.items()):
-        available = sorted(velocities_at.get(pitch, []))
+        available = sorted(keys_at.get(pitch, []))
         if not available:
             raise ValueError(f"instrument {instrument.id!r} has no recorded sample for pitch {pitch}")
 
-        tasks.append(_build_pitch_task(pitch, events, available, audio))
+        tasks.append(_build_pitch_task(pitch, events, available, audio, representatives))
 
     return tasks
 
