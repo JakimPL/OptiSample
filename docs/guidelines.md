@@ -49,7 +49,6 @@
 1. Bare `except` and `except Exception` are forbidden.
 1. Error handling blocks should cover only the code that is subject to a failure, unless there is a valid reason.
 
-
 ## Models
 
 1. Prefer Pydantic models for validated or serialized data.
