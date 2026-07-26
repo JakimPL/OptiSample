@@ -1,13 +1,3 @@
-"""Rendering / playback configuration: openmpt123 render settings and IT global playback.
-
-``RenderConfig`` carries the openmpt123 render settings (the ``interpolation`` name is mapped to
-``--filter`` taps by a free function in ``io/render.py``). ``PlaybackConfig`` holds the IT global
-playback -- ``speed``/``tempo`` set the row duration, so they affect rendered note timing.
-``Interpolation`` is declared here to keep the config package a dependency leaf.
-"""
-
-from __future__ import annotations
-
 from typing import Literal
 
 from optisample.config.base import ConfigModel

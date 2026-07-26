@@ -1,13 +1,3 @@
-"""Render a note back from a :class:`~optisample.dsp.surrogate.sample.StoredSample`.
-
-Rendering reads a stored sample back at a target pitch (a resample by ``2**(semitones / 12)``, the way
-a tracker repitches), scales by the note volume (``0..64``, linear per IT), and fits the note to a
-requested duration. When the sample carries a loop and the note is held past the stored length, the
-loop region repeats to sustain it; otherwise the note is zero-padded and simply ends.
-"""
-
-from __future__ import annotations
-
 import numpy as np
 
 from optisample.dsp.loop import Loop
@@ -20,11 +10,17 @@ def _fit_length(signal: Signal, length: int) -> Signal:
     """Truncate or zero-pad ``signal`` to exactly ``length`` samples."""
     if length <= 0:
         return np.zeros(0, dtype=np.float64)
+
     if signal.size == length:
         return signal
+
     if signal.size > length:
         return np.asarray(signal[:length], dtype=np.float64)
-    return np.asarray(np.pad(signal, (0, length - signal.size)), dtype=np.float64)
+
+    return np.asarray(
+        np.pad(signal, (0, length - signal.size)),
+        dtype=np.float64,
+    )
 
 
 def _effective_rate(stored: StoredSample, pitch: int | None) -> float:
@@ -46,17 +42,23 @@ def _repitch(stored: StoredSample, out_rate: int, pitch: int | None) -> tuple[Si
     """
     effective_rate = _effective_rate(stored, pitch)
     scale = out_rate / effective_rate if effective_rate > 0.0 else 0.0
-    played = resample_num(stored.pcm, int(round(stored.frames * scale)))
+    played = resample_num(stored.pcm, round(stored.frames * scale))
     return played, scale
 
 
-def _sustain_with_loop(played: Signal, loop: Loop, scale: float, target: int) -> Signal:
+def _sustain_with_loop(
+    played: Signal,
+    loop: Loop,
+    scale: float,
+    target: int,
+) -> Signal:
     """Extend ``played`` to ``target`` frames by repeating its loop region (mapped to the output rate)."""
-    start = max(0, min(int(round(loop.start * scale)), played.size))
-    end = max(start + 1, min(int(round(loop.end * scale)), played.size))
+    start = max(0, min(round(loop.start * scale), played.size))
+    end = max(start + 1, min(round(loop.end * scale), played.size))
     segment = played[start:end]
     if segment.size == 0 or target <= end:
         return played
+
     repeats = int(np.ceil((target - end) / segment.size))
     tail = np.tile(segment, repeats)[: target - end]
     return np.concatenate([played[:end], tail])
@@ -79,10 +81,12 @@ def render(
     """
     played, scale = _repitch(stored, out_rate, pitch)
     if duration_s is not None and stored.loop is not None:
-        target = int(round(duration_s * out_rate))
+        target = round(duration_s * out_rate)
         if target > played.size:
             played = _sustain_with_loop(played, stored.loop, scale, target)
+
     rendered = played * (volume / MAX_VOLUME)
     if duration_s is not None:
-        rendered = _fit_length(rendered, int(round(duration_s * out_rate)))
+        rendered = _fit_length(rendered, round(duration_s * out_rate))
+
     return np.asarray(rendered, dtype=np.float64)

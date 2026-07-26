@@ -1,12 +1,3 @@
-"""Pitch and tuning primitives shared across the package.
-
-Note naming, the equal-tempered semitone ratio, and the MIDI tuning reference live here so every
-module that reasons about pitch draws on one definition. This is a leaf module -- it depends on
-nothing else in the package, so anything may import from it without risking a cycle.
-"""
-
-from __future__ import annotations
-
 from typing import Final
 
 SEMITONES_PER_OCTAVE: Final = 12

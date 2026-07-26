@@ -1,12 +1,3 @@
-"""The ingest data model: the validated manifest an optimization run consumes.
-
-A :class:`Manifest` pairs project-wide fidelity settings with one :class:`InstrumentSpec` per
-instrument -- its recorded :class:`SourceSample` grid, the :class:`NoteEvent` material that uses it,
-and a byte budget. Every model forbids unknown keys so a mistyped manifest fails loudly at load.
-"""
-
-from __future__ import annotations
-
 from pathlib import Path
 from typing import Annotated, Final, Literal
 

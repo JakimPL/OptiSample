@@ -1,18 +1,11 @@
-"""Human-readable reports for both allocation strategies.
-
-The optimizers in :mod:`optisample.optimize.orchestrate` (one sample per key) and
-:mod:`optisample.optimize.grouping` (pitch zones) return structured plans; this module turns either
-plan into the fixed-width text summary the CLI and the inspection dump print. Reporting lives apart
-from the solvers so the algorithm modules stay purely computational, and so the two reports share one
-header, one budget block and one set of rules from a single source.
-"""
-
-from __future__ import annotations
-
 from collections.abc import Iterable
 from typing import Final
 
-from optisample.metrics.size import FILE_HEADER_BYTES, INSTRUMENT_HEADER_BYTES, bytes_to_kib
+from optisample.metrics.size import (
+    FILE_HEADER_BYTES,
+    INSTRUMENT_HEADER_BYTES,
+    bytes_to_kib,
+)
 from optisample.music import note_name
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
 from optisample.optimize.plans.budget import BudgetedPlanMixin
@@ -71,6 +64,7 @@ def _format_pitches(plan: InstrumentPlan) -> str:
             f"{pitch.representative_velocity:>7}  {point.params.target_rate:>8}  {point.params.depth_bits:>5}  "
             f"{bytes_to_kib(point.stored_bytes):>9.1f}  {point.distortion:>10.4f}  {len(pitch.hull):>4}"
         )
+
     return _format_allocation_table("Per-pitch allocation", header, rows)
 
 
@@ -83,6 +77,7 @@ def _format_velocity_map(plan: InstrumentPlan) -> str:
         lines.append(
             f"  vel {anchor.velocity:>3}  ->  vol {anchor.volume:>2}   ({anchor.loudness_lufs:6.1f} LUFS){marker}"
         )
+
     lines.append("  (full 0-127 map interpolated between these anchors)")
     return "\n".join(lines)
 
@@ -94,10 +89,12 @@ def _format_curve(plan: InstrumentPlan) -> str:
     shown = list(range(0, len(curve), step))
     if shown and shown[-1] != len(curve) - 1:
         shown.append(len(curve) - 1)
+
     for position in shown:
         point = curve[position]
         fits = "" if point.total_bytes > plan.sample_budget_bytes else "  <= budget"
         lines.append(f"  {bytes_to_kib(point.total_bytes):7.1f} KiB  ->  objective {point.objective:8.4f}{fits}")
+
     return "\n".join(lines)
 
 

@@ -1,41 +1,15 @@
-"""Dump inspectable artifacts for an optimized instrument, for offline quality analysis.
-
-The optimizer's decisions and its objective are otherwise only visible as numbers in a report; this
-module writes the *audible and machine-readable* evidence behind them to a directory tree, so a human
-can listen to what was stored, compare it against the real recordings, and read the exact per-note
-scores that drove the allocation. Nothing here changes the optimizer -- it re-runs it and serializes
-the result: this module orchestrates and does file I/O, while :mod:`.serialize`/:mod:`.units` build the
-typed documents and re-encoded samples it writes.
-
-Per instrument, each strategy (``ungrouped`` = one sample per key, ``grouped`` = pitch zones) gets its
-own subtree::
-
-    <out>/<instrument>/<strategy>/
-      module.it            the exported IT module
-      report.txt           the human-readable optimizer report
-      plan.json            zones/pitches, chosen params, bytes, objective, note map
-      velocity_map.json    the velocity->volume map (a conversion-time artifact, not in the IT)
-      samples/             each stored sample decoded back to float WAV (bit-identical to module.it)
-      render/module.wav    openmpt123 render of the whole module (ground truth), if available
-      compare/             per-pitch reference-vs-rendered WAV pairs (A/B by ear)
-      metrics.json         per-note composite fidelity + sub-scores; its objective == plan's
-
-The A/B render is the *real engine's* output (``openmpt123`` on a one-note module) when the binary is
-installed, falling back to the numpy surrogate otherwise; ``metrics.json`` always reports the surrogate
-scores, because those are exactly the objective the optimizer minimized (so its total reproduces
-``plan.objective``). If a strategy is infeasible at the budget it writes ``INFEASIBLE.txt`` instead of a
-plan -- useful precisely because grouping can fit where the ungrouped allocation cannot.
-"""
-
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
 from typing import Final
 
-from optisample.artifacts.context import DumpContext, DumpResult, DumpSettings, PlanArtifacts
+from optisample.artifacts.context import (
+    DumpContext,
+    DumpResult,
+    DumpSettings,
+    PlanArtifacts,
+)
 from optisample.artifacts.serialize import (
     NoteMetricRecord,
     RenderedNote,

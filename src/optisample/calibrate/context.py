@@ -1,12 +1,3 @@
-"""Value objects the calibrator passes between rendering and scoring.
-
-A :class:`NoteProbe` says which note to render; a :class:`CalibrationContext` bundles the ``openmpt123``
-render settings, the IT playback the module carries, and the loudness-matched composite metric; a
-:class:`RendererAgreement` carries the per-note comparison result.
-"""
-
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Final
 

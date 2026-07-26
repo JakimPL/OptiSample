@@ -1,12 +1,3 @@
-"""Encode a recording into a :class:`~optisample.dsp.surrogate.sample.StoredSample`.
-
-Encoding composes the byte-reducing transforms into one stored sample: peak-normalize (store hot),
-resample to a lower rate, bound the stored length by looping *or* trimming, and requantize to
-8/16-bit with dither/noise shaping.
-"""
-
-from __future__ import annotations
-
 from optisample.config.dsp import LoopConfig
 from optisample.dsp.loop import Loop, crossfade_loop, detect_loop
 from optisample.dsp.quantize import normalize_peak, requantize
@@ -15,17 +6,25 @@ from optisample.dsp.surrogate.params import EncodeContext, EncodingParams
 from optisample.dsp.surrogate.sample import Signal, StoredSample
 
 
-def _apply_loop(resampled: Signal, rate: int, config: LoopConfig) -> tuple[Signal, Loop | None]:
+def _apply_loop(
+    resampled: Signal,
+    rate: int,
+    config: LoopConfig,
+) -> tuple[Signal, Loop | None]:
     """Detect a loop, crossfade its seam, and trim storage to attack + loop (or leave the signal be)."""
     detected = detect_loop(resampled, rate, config)
     if detected is None:
         return resampled, None
-    fade_len = int(round(config.crossfade_s * rate))
+    fade_len = round(config.crossfade_s * rate)
     faded = crossfade_loop(resampled, detected, fade_len=fade_len)
     return faded[: detected.end], detected
 
 
-def _loop_or_trim(resampled: Signal, params: EncodingParams, config: LoopConfig) -> tuple[Signal, Loop | None]:
+def _loop_or_trim(
+    resampled: Signal,
+    params: EncodingParams,
+    config: LoopConfig,
+) -> tuple[Signal, Loop | None]:
     """Bound stored length by looping *or* trimming, whichever the config selects.
 
     A detected loop already trims storage to ``[0, loop.end)`` (attack + one loop region), so it sets
@@ -38,11 +37,16 @@ def _loop_or_trim(resampled: Signal, params: EncodingParams, config: LoopConfig)
         if loop is not None:
             return looped, loop
     if params.trim_s is not None:
-        return resampled[: max(0, int(round(params.trim_s * params.target_rate)))], None
+        return resampled[: max(0, round(params.trim_s * params.target_rate))], None
     return resampled, None
 
 
-def encode(signal: Signal, sample_rate: int, params: EncodingParams, context: EncodeContext) -> StoredSample:
+def encode(
+    signal: Signal,
+    sample_rate: int,
+    params: EncodingParams,
+    context: EncodeContext,
+) -> StoredSample:
     """Encode ``signal`` into a :class:`StoredSample`: normalize -> resample -> (loop | trim) -> requantize.
 
     With ``params.loop`` set, storage is trimmed to the attack plus a looped sustain region (when the
@@ -54,7 +58,11 @@ def encode(signal: Signal, sample_rate: int, params: EncodingParams, context: En
     resampled = resample_to(normalized, sample_rate, params.target_rate)
     resampled, loop = _loop_or_trim(resampled, params, context.config.loop)
     pcm = requantize(
-        resampled, params.depth_bits, dither=params.dither, noise_shaping=params.noise_shaping, rng=context.rng
+        resampled,
+        params.depth_bits,
+        dither=params.dither,
+        noise_shaping=params.noise_shaping,
+        rng=context.rng,
     )
     return StoredSample(
         pcm=pcm,

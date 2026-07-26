@@ -1,14 +1,3 @@
-"""Run configuration, the per-instrument context, and the result DTOs the artifact stages share.
-
-:class:`DumpSettings` is what the CLI hands in -- which strategies to run, whether to render through
-openmpt123, and the config the optimizer + exporter need. :class:`DumpContext` bundles the
-once-per-instrument inputs (loaded audio, the eval context, the pitch->task lookup) so the unit builder
-and the dumper take one object instead of a long argument list. :class:`PlanArtifacts` and
-:class:`DumpResult` are what a dump reports back: what each strategy produced and where it landed.
-"""
-
-from __future__ import annotations
-
 from dataclasses import dataclass
 from pathlib import Path
 

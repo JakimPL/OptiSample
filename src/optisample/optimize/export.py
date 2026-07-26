@@ -1,22 +1,4 @@
-"""Turn an optimized plan into a playable :class:`ITModule`.
-
-This is the bridge from the optimizer's decisions to the hand-rolled IT writer. For each stored sample
-the solver kept, we re-encode its representative recording with the chosen params (deterministically, so
-the byte count matches the plan exactly) and route the keys it serves to it through the note map. A key
-``p`` plays its sample at its natural rate when
-
-    C5Speed = stored_rate * 2**((IT_C5_NOTE - p) / 12)   (IT_C5_NOTE = C-5, IT's reference key).
-
-The material becomes a sequence of patterns: each event triggers its pitch with the velocity->volume
-map applied to the volume column, held for the event's duration, then cut. The two strategies differ
-only in the units a plan reports (:meth:`~optisample.optimize.plans.StrategyPlan.sample_units`):
-ungrouped stores one sample per key (an identity note map), grouped stores one repitched sample per zone
-(every covered key routed to it). Both feed the same build loop and pattern assembly below, so this
-module reads either plan through the one :class:`~optisample.optimize.plans.StrategyPlan` interface.
-"""
-
-from __future__ import annotations
-
+import math
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Final
@@ -51,7 +33,7 @@ from optisample.optimize.velocity_map import VelocityVolumeMap
 
 _NAME_MAX_CHARS: Final = NAME_BYTES - 1  # leave the final byte of every 26-B name field as a null terminator.
 _SAMPLE_LABEL_CHARS: Final = 18  # instrument-id chars kept before the " <note>" suffix in a sample name.
-DEFAULT_SEED: Final = 0  # default dither seed; re-encoding a plan with it reproduces the exact budgeted bytes.
+DEFAULT_SEED: Final = 137
 
 
 @dataclass(frozen=True)
@@ -68,7 +50,7 @@ class ExportContext:
 
 def c5speed_for_pitch(stored_rate: int, pitch: int) -> int:
     """C5Speed that makes key ``pitch`` play the sample (stored at ``stored_rate``) at its natural rate."""
-    return int(round(stored_rate * semitone_ratio(IT_C5_NOTE - pitch)))
+    return round(stored_rate * semitone_ratio(IT_C5_NOTE - pitch))
 
 
 def row_seconds(playback: ITPlayback) -> float:
@@ -97,12 +79,25 @@ def encode_plan_units(
     rng = np.random.default_rng(seed)
     for unit in units:
         representative: Signal = audio[(unit.representative, unit.representative_velocity)]
-        encode_context = EncodeContext(root_pitch=unit.representative, config=encode_config, rng=rng)
-        yield unit, encode(representative, sample_rate, unit.params, encode_context)
+        encode_context = EncodeContext(
+            root_pitch=unit.representative,
+            config=encode_config,
+            rng=rng,
+        )
+        yield unit, encode(
+            representative,
+            sample_rate,
+            unit.params,
+            encode_context,
+        )
 
 
 def _build_unit_samples(
-    instrument_id: str, units: Sequence[SampleUnit], audio: AudioMap, sample_rate: int, context: ExportContext
+    instrument_id: str,
+    units: Sequence[SampleUnit],
+    audio: AudioMap,
+    sample_rate: int,
+    context: ExportContext,
 ) -> tuple[tuple[ITSample, ...], dict[int, int]]:
     """Re-encode each unit's representative and map every key it serves to the resulting sample.
 
@@ -111,7 +106,15 @@ def _build_unit_samples(
     """
     samples: list[ITSample] = []
     assignment: dict[int, int] = {}
-    for index, (unit, stored) in enumerate(encode_plan_units(units, audio, sample_rate, context.encode, context.seed)):
+    for index, (unit, stored) in enumerate(
+        encode_plan_units(
+            units,
+            audio,
+            sample_rate,
+            context.encode,
+            context.seed,
+        )
+    ):
         samples.append(
             ITSample(
                 name=f"{instrument_id[:_SAMPLE_LABEL_CHARS]} {note_name(unit.representative)}",
@@ -124,16 +127,19 @@ def _build_unit_samples(
         for key in unit.keys:
             require_it_note(key)
             assignment[key] = index + 1  # sample numbers are 1-based in the note map
+
     return tuple(samples), assignment
 
 
 def _event_rows(duration_s: float, seconds_per_row: float) -> int:
     """A note's length in pattern rows: at least one row, capped so the note plus its cut fit a pattern."""
-    return min(max(1, int(round(duration_s / seconds_per_row))), MAX_ROWS - 2)
+    return min(max(1, math.ceil(duration_s / seconds_per_row)), MAX_ROWS - 2)
 
 
 def _material_patterns(
-    material: Sequence[NoteEvent], velocity_map: VelocityVolumeMap, playback: ITPlayback
+    material: Sequence[NoteEvent],
+    velocity_map: VelocityVolumeMap,
+    playback: ITPlayback,
 ) -> tuple[tuple[ITPattern, ...], tuple[int, ...]]:
     """Lay the material events into one or more patterns, applying the velocity->volume map.
 
@@ -151,10 +157,12 @@ def _material_patterns(
         if cells and cursor + rows + 1 > MAX_ROWS:
             patterns.append(ITPattern(rows=cursor, cells=tuple(cells)))
             cells, cursor = [], 0
+
         volume = velocity_map.volume(event.velocity)
         cells.append((cursor, 0, ITCell(note=event.pitch, instrument=1, volume=volume)))
         cells.append((cursor + rows, 0, ITCell(note=NOTE_CUT)))
         cursor += rows + 1
+
     patterns.append(ITPattern(rows=max(cursor, 1), cells=tuple(cells)))
     return tuple(patterns), tuple(range(len(patterns)))
 
@@ -171,7 +179,10 @@ def _assemble_module(
     Everything strategy-specific is already resolved into ``samples``/``assignment``; the module name,
     instrument name and pattern wiring are identical for both, so they live here once.
     """
-    instrument = ITInstrument(name=plan.instrument_id[:_NAME_MAX_CHARS], note_map=identity_note_map(assignment))
+    instrument = ITInstrument(
+        name=plan.instrument_id[:_NAME_MAX_CHARS],
+        note_map=identity_note_map(assignment),
+    )
     playback = it_playback(context.playback)
     patterns, orders = _material_patterns(material, plan.velocity_map, playback)
     return ITModule(
@@ -196,5 +207,17 @@ def build_module(
     The plan's :meth:`~optisample.optimize.plans.StrategyPlan.sample_units` reports the stored samples --
     one per key (ungrouped) or one per zone (grouped) -- and the build below is identical for both.
     """
-    samples, assignment = _build_unit_samples(plan.instrument_id, plan.sample_units(), audio, sample_rate, context)
-    return _assemble_module(plan, samples, assignment, material, context)
+    samples, assignment = _build_unit_samples(
+        plan.instrument_id,
+        plan.sample_units(),
+        audio,
+        sample_rate,
+        context,
+    )
+    return _assemble_module(
+        plan,
+        samples,
+        assignment,
+        material,
+        context,
+    )

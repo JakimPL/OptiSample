@@ -1,11 +1,3 @@
-"""Interpretable diagnostics that explain *why* a candidate differs, and can veto search moves.
-
-These report in natural, signed units (dB, LUFS, sample amplitude), so a report can say
-"lost 9 dB above 4 kHz" or "loop seam jumps 0.3" — one concrete, interpretable figure per diagnostic.
-"""
-
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Final
 
@@ -30,7 +22,11 @@ def snr(reference: Signal, candidate: Signal) -> float:
     return 10.0 * float(np.log10((signal_power + _EPS) / noise_power))
 
 
-def segmental_snr(reference: Signal, candidate: Signal, config: SegmentalSnrConfig) -> float:
+def segmental_snr(
+    reference: Signal,
+    candidate: Signal,
+    config: SegmentalSnrConfig,
+) -> float:
     """Mean per-frame SNR (dB), clipped to the config's dB range and ignoring silent frames."""
     reference, candidate = match_length(reference, candidate)
     ref_frames = frame(reference, config.frame_length, config.hop_length)
@@ -63,7 +59,12 @@ def loudness_delta(reference: Signal, candidate: Signal, sample_rate: int) -> fl
     return integrated_loudness(reference, sample_rate) - integrated_loudness(candidate, sample_rate)
 
 
-def hf_loss_db(reference: Signal, candidate: Signal, sample_rate: int, cutoff_hz: float) -> float:
+def hf_loss_db(
+    reference: Signal,
+    candidate: Signal,
+    sample_rate: int,
+    cutoff_hz: float,
+) -> float:
     """Energy lost above ``cutoff_hz`` in dB (positive = candidate is duller than reference)."""
     nyquist = sample_rate / 2.0
     ref_energy = band_energy(reference, sample_rate, cutoff_hz, nyquist)
@@ -71,10 +72,19 @@ def hf_loss_db(reference: Signal, candidate: Signal, sample_rate: int, cutoff_hz
     return 10.0 * float(np.log10((ref_energy + _EPS) / (cand_energy + _EPS)))
 
 
-def band_snr(reference: Signal, candidate: Signal, sample_rate: int, f_low: float, f_high: float) -> float:
+def band_snr(
+    reference: Signal,
+    candidate: Signal,
+    sample_rate: int,
+    f_low: float,
+    f_high: float,
+) -> float:
     """SNR (dB) restricted to ``[f_low, f_high)`` — a low value flags aliasing folded into that band."""
     reference, candidate = match_length(reference, candidate)
-    return snr(bandlimit(reference, sample_rate, f_low, f_high), bandlimit(candidate, sample_rate, f_low, f_high))
+    return snr(
+        bandlimit(reference, sample_rate, f_low, f_high),
+        bandlimit(candidate, sample_rate, f_low, f_high),
+    )
 
 
 @dataclass(frozen=True)

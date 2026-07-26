@@ -1,17 +1,3 @@
-"""Derive the velocity->volume map: a conversion-time artifact, not stored in the IT file.
-
-IT has no velocity layers -- one stored sample serves every dynamic of a key, and loudness comes
-from the note volume (``0..64``, *linear* in amplitude). So the map answers: to make MIDI velocity
-``v`` play back as loud as the recording at ``v``, what note volume do we write into the pattern?
-
-We measure each recording's integrated loudness (BS.1770 / LUFS), anchor the loudest velocity at
-full volume (64), and set the rest by the amplitude ratio ``10**((L_v - L_ref)/20)``. Because that
-ratio is exponential in a linear-in-dB loudness curve, the map is inherently non-linear. The sparse
-per-velocity anchors are interpolated (in dB, with flat extrapolation) across the full 0..127 range.
-"""
-
-from __future__ import annotations
-
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final
@@ -48,6 +34,7 @@ class VelocityVolumeMap:
         """Note volume for ``velocity`` (0..127)."""
         if not 0 <= velocity < _MIDI_VELOCITIES:
             raise ValueError(f"velocity must be in [0, {MIDI_MAX_VELOCITY}], got {velocity}")
+
         return self.volumes[velocity]
 
 
@@ -56,10 +43,12 @@ def loudness_by_velocity(clips: Sequence[tuple[int, Signal]], sample_rate: int) 
     grouped: dict[int, list[float]] = {}
     for velocity, signal in clips:
         grouped.setdefault(velocity, []).append(integrated_loudness(signal, sample_rate))
+
     result: dict[int, float] = {}
     for velocity, values in grouped.items():
         finite = [value for value in values if np.isfinite(value)]
         result[velocity] = float(np.mean(finite)) if finite else -np.inf
+
     return result
 
 
@@ -74,7 +63,11 @@ def _reference_loudness(measured: NDArray[np.float64]) -> float:
     return float(np.max(measured[np.isfinite(measured)]))
 
 
-def _clamp_to_floor(measured: NDArray[np.float64], reference: float, floor_lu: float) -> NDArray[np.float64]:
+def _clamp_to_floor(
+    measured: NDArray[np.float64],
+    reference: float,
+    floor_lu: float,
+) -> NDArray[np.float64]:
     """Raise every anchor to at least ``reference - floor_lu`` so silence maps to a defined quietest level.
 
     Silent velocities measure ``-inf``; the floor lifts them (and any near-silent ones) to a bounded
@@ -83,7 +76,10 @@ def _clamp_to_floor(measured: NDArray[np.float64], reference: float, floor_lu: f
     return np.maximum(measured, reference - floor_lu)
 
 
-def _interpolate_over_velocities(velocities: NDArray[np.float64], loudness: NDArray[np.float64]) -> NDArray[np.float64]:
+def _interpolate_over_velocities(
+    velocities: NDArray[np.float64],
+    loudness: NDArray[np.float64],
+) -> NDArray[np.float64]:
     """Loudness for every MIDI velocity 0..127, linearly interpolated in dB between the sparse anchors.
 
     ``np.interp`` extrapolates flat beyond the measured anchors (holding the nearest endpoint), so
@@ -94,7 +90,11 @@ def _interpolate_over_velocities(velocities: NDArray[np.float64], loudness: NDAr
     return np.interp(grid, velocities, loudness)
 
 
-def _gains_to_volumes(loudness: NDArray[np.float64], reference: float, max_volume: int) -> tuple[int, ...]:
+def _gains_to_volumes(
+    loudness: NDArray[np.float64],
+    reference: float,
+    max_volume: int,
+) -> tuple[int, ...]:
     """Turn per-velocity loudness (dB) into IT note volumes matched to the reference's amplitude.
 
     Note volume is linear in amplitude, so a velocity ``d`` dB below the reference (``d = loudness -
@@ -106,7 +106,10 @@ def _gains_to_volumes(loudness: NDArray[np.float64], reference: float, max_volum
 
 
 def derive_velocity_map(
-    loudness: Mapping[int, float], config: VelocityConfig, *, max_volume: int = MAX_VOLUME
+    loudness: Mapping[int, float],
+    config: VelocityConfig,
+    *,
+    max_volume: int = MAX_VOLUME,
 ) -> VelocityVolumeMap:
     """Build a loudness-matched velocity->volume map from per-velocity loudness measurements.
 
@@ -116,6 +119,7 @@ def derive_velocity_map(
     """
     if not loudness:
         raise ValueError("need at least one velocity measurement")
+
     anchors_in = sorted(loudness.items())
     velocities = np.array([velocity for velocity, _ in anchors_in], dtype=np.float64)
     measured = np.array([loud for _, loud in anchors_in], dtype=np.float64)

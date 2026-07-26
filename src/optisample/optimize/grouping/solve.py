@@ -1,16 +1,3 @@
-"""The exact partition + allocation DP over the zone-cost menu.
-
-A byte-indexed Bellman DP over the ordered pitches chooses the zone boundaries *and* each zone's
-``(representative, encoding)`` at once: ``dp[j][b]`` = least distortion covering the first ``j``
-pitches in exactly ``b`` bytes. This is the multiple-choice knapsack of
-:mod:`optisample.optimize.knapsack` with an extra partition axis, and like ``solve_exact`` it is exact
--- no Lagrangian duality gap. That matters: forcing every zone to a single pitch recovers the
-ungrouped allocation exactly, so an *exact* solver can never return a grouping worse than ungrouped at
-the same budget (an approximate one can, and does).
-"""
-
-from __future__ import annotations
-
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -39,11 +26,14 @@ def _cheapest_partition_bytes(options: _ZoneOptions, count: int) -> int:
         for i in range(j):
             cheapest = min(option.stored_bytes for option in options[(i, j)])
             dp[j] = min(dp[j], dp[i] + cheapest)
+
     return int(dp[count])
 
 
 def _forward_dp(
-    options: _ZoneOptions, count: int, budget_bytes: int
+    options: _ZoneOptions,
+    count: int,
+    budget_bytes: int,
 ) -> tuple[list[NDArray[np.float64]], list[NDArray[np.int64]], list[NDArray[np.int64]]]:
     """Fill ``dp[j][b]`` = least distortion covering the first ``j`` pitches in exactly ``b`` bytes."""
     size = budget_bytes + 1
@@ -63,11 +53,16 @@ def _forward_dp(
                 target[improved] = candidate[improved]
                 from_i[j][cost:][improved] = i
                 from_opt[j][cost:][improved] = index
+
     return dp, from_i, from_opt
 
 
 def _reconstruct(
-    options: _ZoneOptions, from_i: list[NDArray[np.int64]], from_opt: list[NDArray[np.int64]], count: int, total: int
+    options: _ZoneOptions,
+    from_i: list[NDArray[np.int64]],
+    from_opt: list[NDArray[np.int64]],
+    count: int,
+    total: int,
 ) -> list[_Segment]:
     """Walk the DP backpointers from ``(count, total)`` back to ``(0, 0)`` to recover the zones."""
     segments: list[_Segment] = []
@@ -78,12 +73,16 @@ def _reconstruct(
         segments.append(_Segment(start=i, stop=j, option=option))
         budget -= option.stored_bytes
         j = i
+
     segments.reverse()
     return segments
 
 
 def _build_zone(
-    tasks: Sequence[PitchTask], span: _Range, chosen: ZoneOption, zone_options: Sequence[ZoneOption]
+    tasks: Sequence[PitchTask],
+    span: _Range,
+    chosen: ZoneOption,
+    zone_options: Sequence[ZoneOption],
 ) -> Zone:
     """Attach the covered keys, the representative's stored velocity and the RD hull to a chosen zone."""
     range_tasks = tasks[span[0] : span[1]]
@@ -98,7 +97,11 @@ def _build_zone(
     )
 
 
-def solve_grouping(tasks: Sequence[PitchTask], options: _ZoneOptions, budget_bytes: int) -> GroupingResult:
+def solve_grouping(
+    tasks: Sequence[PitchTask],
+    options: _ZoneOptions,
+    budget_bytes: int,
+) -> GroupingResult:
     """Exact partition + allocation: least-distortion set of zones whose bytes fit ``budget_bytes``."""
     count = len(tasks)
     if count == 0:
@@ -109,7 +112,16 @@ def solve_grouping(tasks: Sequence[PitchTask], options: _ZoneOptions, budget_byt
     best_bytes = int(reachable[int(np.argmin(dp[count][reachable]))])
     segments = _reconstruct(options, from_i, from_opt, count, best_bytes)
     zones = tuple(
-        _build_zone(tasks, (segment.start, segment.stop), segment.option, options[(segment.start, segment.stop)])
+        _build_zone(
+            tasks,
+            (segment.start, segment.stop),
+            segment.option,
+            options[(segment.start, segment.stop)],
+        )
         for segment in segments
     )
-    return GroupingResult(zones=zones, total_bytes=best_bytes, objective=float(dp[count][best_bytes]))
+    return GroupingResult(
+        zones=zones,
+        total_bytes=best_bytes,
+        objective=float(dp[count][best_bytes]),
+    )

@@ -25,7 +25,7 @@ class PitchPlan:
 
 
 @dataclass(frozen=True)
-class InstrumentPlan(BudgetedPlanMixin):  # pylint: disable=too-many-instance-attributes
+class InstrumentPlan(BudgetedPlanMixin):
     """The full result for one instrument: the map, per-pitch choices, and the allocation."""
 
     instrument_id: str

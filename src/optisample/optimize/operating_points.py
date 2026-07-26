@@ -1,18 +1,3 @@
-"""Per-sample rate-distortion operating points and their lower convex hull.
-
-For one source recording we sweep encoding configurations (stored sample rate x bit depth) and, for
-each, measure ``(stored_bytes, distortion)``. Distortion is the composite fidelity between the source
-and the sample *encoded then rendered back at its own pitch and duration*, so it isolates the
-**encoding** loss (resampling + requantization); repitching and grouping loss are scored separately.
-
-The lower convex hull of those points is the sample's rate-distortion frontier -- the only
-configurations a Lagrangian budget sweep can ever select, one per slope ``lambda``. Points that
-lie on or above the chord between two neighbours are dominated and dropped, so the hull is the exact
-menu of "bytes bought, distortion saved" trades the allocator reasons about.
-"""
-
-from __future__ import annotations
-
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Final, Protocol, TypeVar
@@ -21,7 +6,13 @@ import numpy as np
 
 from optisample.config.dsp import EncodeConfig
 from optisample.config.optimize import SweepConfig
-from optisample.dsp.surrogate import EncodeContext, EncodingParams, Signal, encode, render
+from optisample.dsp.surrogate import (
+    EncodeContext,
+    EncodingParams,
+    Signal,
+    encode,
+    render,
+)
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.metrics.composite import CompositeFidelity, evaluate
 
@@ -52,9 +43,13 @@ class OperatingPoint:
         return self.stored_bytes / 1024.0
 
 
-def default_rates(sample_rate: int, divisors: Sequence[int], min_rate: int) -> list[int]:
+def default_rates(
+    sample_rate: int,
+    divisors: Sequence[int],
+    min_rate: int,
+) -> list[int]:
     """Candidate stored rates: ``sample_rate`` divided by ``divisors``, floored at ``min_rate``, deduped."""
-    rates = {min(sample_rate, max(min_rate, int(round(sample_rate / divisor)))) for divisor in divisors}
+    rates = {min(sample_rate, max(min_rate, round(sample_rate / divisor))) for divisor in divisors}
     return sorted(rates, reverse=True)
 
 
@@ -62,10 +57,20 @@ def sweep_rates(sweep: SweepConfig, sample_rate: int) -> list[int]:
     """Stored rates to try: the explicit ``sweep.rates`` override, else derived from ``sample_rate``."""
     if sweep.rates is not None:
         return list(sweep.rates)
-    return default_rates(sample_rate, sweep.rate_divisors, sweep.min_rate)
+
+    return default_rates(
+        sample_rate,
+        sweep.rate_divisors,
+        sweep.min_rate,
+    )
 
 
-def sweep_param_grid(sweep: SweepConfig, sample_rate: int, *, trim_s: float | None) -> Iterator[EncodingParams]:
+def sweep_param_grid(
+    sweep: SweepConfig,
+    sample_rate: int,
+    *,
+    trim_s: float | None,
+) -> Iterator[EncodingParams]:
     """Yield every ``(loop, depth, rate)`` encoding configuration in ``sweep``, trimmed to ``trim_s``.
 
     Iterating loop-major, then depth, then rate fixes the single order in which every cost model
@@ -88,7 +93,10 @@ def sweep_param_grid(sweep: SweepConfig, sample_rate: int, *, trim_s: float | No
 def _reference(clip: SourceClip) -> Signal:
     if clip.duration_s is None:
         return clip.signal
-    return np.asarray(clip.signal[: seconds_to_frames(clip.duration_s, clip.sample_rate)], dtype=np.float64)
+    return np.asarray(
+        clip.signal[: seconds_to_frames(clip.duration_s, clip.sample_rate)],
+        dtype=np.float64,
+    )
 
 
 def evaluate_encoding(
@@ -100,12 +108,24 @@ def evaluate_encoding(
     rng: np.random.Generator | None = None,
 ) -> OperatingPoint:
     """Encode ``clip`` with ``params``, render it back at its own pitch, and score the encoding loss."""
-    encode_context = EncodeContext(root_pitch=clip.root_pitch, config=encode_config, rng=rng)
+    encode_context = EncodeContext(
+        root_pitch=clip.root_pitch,
+        config=encode_config,
+        rng=rng,
+    )
     stored = encode(clip.signal, clip.sample_rate, params, encode_context)
-    candidate = render(stored, clip.sample_rate, pitch=clip.root_pitch, duration_s=clip.duration_s)
+    candidate = render(
+        stored,
+        clip.sample_rate,
+        pitch=clip.root_pitch,
+        duration_s=clip.duration_s,
+    )
     report = evaluate(_reference(clip), candidate, clip.sample_rate, composite)
     return OperatingPoint(
-        params=params, stored_bytes=stored.stored_bytes, distortion=report.fidelity, frames=stored.frames
+        params=params,
+        stored_bytes=stored.stored_bytes,
+        distortion=report.fidelity,
+        frames=stored.frames,
     )
 
 
@@ -119,8 +139,18 @@ def sample_operating_points(
 ) -> list[OperatingPoint]:
     """Evaluate every ``(rate, depth)`` in ``sweep`` for ``clip`` (trimmed to its material duration)."""
     return [
-        evaluate_encoding(clip, params, composite=composite, encode_config=encode_config, rng=rng)
-        for params in sweep_param_grid(sweep, clip.sample_rate, trim_s=clip.duration_s)
+        evaluate_encoding(
+            clip,
+            params,
+            composite=composite,
+            encode_config=encode_config,
+            rng=rng,
+        )
+        for params in sweep_param_grid(
+            sweep,
+            clip.sample_rate,
+            trim_s=clip.duration_s,
+        )
     ]
 
 
@@ -155,6 +185,7 @@ def _pareto_frontier(points: Sequence[_RDPointT]) -> list[_RDPointT]:
         if point.distortion < best - _HULL_EPS and (not frontier or point.stored_bytes > frontier[-1].stored_bytes):
             frontier.append(point)
             best = point.distortion
+
     return frontier
 
 
@@ -169,7 +200,9 @@ def _hull_pop(frontier: Sequence[_RDPointT]) -> list[_RDPointT]:
     for point in frontier:
         while len(hull) >= 2 and _slope(hull[-2], hull[-1]) >= _slope(hull[-1], point) - _HULL_EPS:
             hull.pop()
+
         hull.append(point)
+
     return hull
 
 
@@ -192,5 +225,11 @@ def rd_frontier(
     rng: np.random.Generator | None = None,
 ) -> list[OperatingPoint]:
     """Convenience: sweep ``clip`` over ``sweep`` and return only the rate-distortion hull."""
-    points = sample_operating_points(clip, sweep, composite=composite, encode_config=encode_config, rng=rng)
+    points = sample_operating_points(
+        clip,
+        sweep,
+        composite=composite,
+        encode_config=encode_config,
+        rng=rng,
+    )
     return lower_convex_hull(points)

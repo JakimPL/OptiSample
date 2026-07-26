@@ -1,21 +1,3 @@
-"""Typed documents for the artifact dump tree and the writers that render them to disk.
-
-Every JSON file the dumper emits is modelled as a frozen Pydantic document here, so the rest of the
-subpackage builds and reads structured objects with named, typed fields.
-The documents serialize through :func:`write_json`, which runs :func:`_json_safe` over ``model_dump``
-output -- coercing numpy scalars to Python and non-finite floats to ``null`` -- so the bytes on disk are
-identical to hand-built JSON (field order follows each model's definition order).
-
-The two allocation strategies share the whole per-item encoding block (:class:`EncodingRecord`) and
-differ only in their leading fields (a pitch vs. a zone) and whether a ``method`` is recorded, so
-:func:`plan_document` builds both from one shape. The metrics builders (:func:`event_records`,
-:func:`note_record`, :func:`metrics_document`) turn the optimizer's own per-event scores into
-:class:`MetricsDocument`, whose objective reproduces ``plan.objective`` because it sums the exact stream
-the optimizer minimized.
-"""
-
-from __future__ import annotations
-
 import json
 import math
 from collections.abc import Sequence
@@ -24,12 +6,22 @@ from pathlib import Path
 from typing import Any, Final
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, SerializerFunctionWrapHandler, model_serializer
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+)
 
 from optisample.dsp.loop import Loop
 from optisample.dsp.surrogate import StoredSample
 from optisample.music import note_name
-from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan, SampleUnit, StrategyPlan
+from optisample.optimize.plans import (
+    GroupedInstrumentPlan,
+    InstrumentPlan,
+    SampleUnit,
+    StrategyPlan,
+)
 from optisample.optimize.tasks import EvalContext, PitchTask, score_events
 from optisample.optimize.velocity_map import VelocityVolumeMap
 

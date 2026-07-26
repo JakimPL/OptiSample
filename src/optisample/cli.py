@@ -1,14 +1,3 @@
-"""Command-line entry point: the ``synth`` and ``optimize`` subcommands.
-
-``synth`` renders the bundled demo dataset as NoteExtractor-style ``.notes.json`` + samples dirs;
-``optimize`` loads one such ``.notes.json`` + samples directory, runs the optimizer, and dumps the
-inspectable artifact tree. Both load an :class:`~optisample.config.OptiConfig` (bundled or from
-``--config``) and layer the CLI flags on top before handing off to the library, so this module holds
-argument wiring and printing alone.
-"""
-
-from __future__ import annotations
-
 import argparse
 import cProfile
 import pstats
@@ -34,46 +23,140 @@ _INTERPOLATIONS: Final = ("none", "linear", "cubic", "sinc")
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="optisample", description="Impulse Tracker sample optimizer")
+    parser = argparse.ArgumentParser(
+        prog="optisample",
+        description="Impulse Tracker sample optimizer",
+    )
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--config", type=Path, default=None, help="Config directory to load (default: bundled)")
+    common.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="Config directory to load (default: bundled)",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    synth = sub.add_parser("synth", parents=[common], help="Generate a synthetic demo dataset (.notes.json + WAVs)")
-    synth.add_argument("outdir", type=Path, help="Directory to write each preset's samples dir and .notes.json into")
-    synth.add_argument("--sample-rate", type=int, default=None, help="Render sample rate (Hz); defaults to the config")
-    synth.add_argument("--seed", type=int, default=DEFAULT_SEED, help="RNG seed for reproducible output")
+    synth = sub.add_parser(
+        "synth",
+        parents=[common],
+        help="Generate a synthetic demo dataset (.notes.json + WAVs)",
+    )
+    synth.add_argument(
+        "outdir",
+        type=Path,
+        help="Directory to write each preset's samples dir and .notes.json into",
+    )
+    synth.add_argument(
+        "--sample-rate",
+        type=int,
+        default=None,
+        help="Render sample rate (Hz); defaults to the config",
+    )
+    synth.add_argument(
+        "--seed",
+        type=int,
+        default=DEFAULT_SEED,
+        help="RNG seed for reproducible output",
+    )
 
     optimize = sub.add_parser(
-        "optimize", parents=[common], help="Optimize a .notes.json and dump inspectable artifacts"
+        "optimize",
+        parents=[common],
+        help="Optimize a .notes.json and dump inspectable artifacts",
     )
-    optimize.add_argument("notes_json", type=Path, help="Path to a NoteExtractor .notes.json manifest")
     optimize.add_argument(
-        "--samples-dir", type=Path, default=None, help="Per-note WAV directory (default: notes_json's sibling <name>/)"
+        "notes_json",
+        type=Path,
+        help="Path to a NoteExtractor .notes.json manifest",
     )
-    optimize.add_argument("--budget-kb", type=float, required=True, help="Byte budget for the instrument (KiB)")
-    optimize.add_argument("--instrument-id", default=None, help="Instrument id (default: the .notes.json base name)")
     optimize.add_argument(
-        "--interpolation", choices=_INTERPOLATIONS, default=None, help="Playback interpolation (default: sinc)"
+        "--samples-dir",
+        type=Path,
+        default=None,
+        help="Per-note WAV directory (default: notes_json's sibling <name>/)",
     )
-    optimize.add_argument("--pre-roll-ms", type=float, default=0.0, help="Pre-roll padding trimmed as lead-in (ms)")
     optimize.add_argument(
-        "--post-roll-ms", type=float, default=0.0, help="Post-roll padding recorded for provenance (ms)"
+        "--budget-kb",
+        type=float,
+        required=True,
+        help="Byte budget for the instrument (KiB)",
     )
-    optimize.add_argument("--out", type=Path, default=Path("artifacts"), help="Artifact output directory")
-    optimize.add_argument("--strategy", choices=("both", "grouped", "ungrouped"), default="both")
-    optimize.add_argument("--no-render", action="store_true", help="Skip openmpt123 ground-truth renders")
-    optimize.add_argument("--rate", type=int, action="append", dest="rates", help="Sample rate to sweep (repeatable)")
-    optimize.add_argument("--depth", type=int, action="append", dest="depths", help="Bit depth to sweep (repeatable)")
-    optimize.add_argument("--no-loop", action="store_true", help="Disable looping (store full-length samples)")
-    optimize.add_argument("--seed", type=int, default=DEFAULT_SEED, help="RNG seed for reproducible encoding")
     optimize.add_argument(
-        "--profile", action="store_true", help="Run under cProfile and print the hottest functions to stderr"
+        "--instrument-id",
+        default=None,
+        help="Instrument id (default: the .notes.json base name)",
+    )
+    optimize.add_argument(
+        "--interpolation",
+        choices=_INTERPOLATIONS,
+        default=None,
+        help="Playback interpolation (default: sinc)",
+    )
+    optimize.add_argument(
+        "--pre-roll-ms",
+        type=float,
+        default=0.0,
+        help="Pre-roll padding trimmed as lead-in (ms)",
+    )
+    optimize.add_argument(
+        "--post-roll-ms",
+        type=float,
+        default=0.0,
+        help="Post-roll padding recorded for provenance (ms)",
+    )
+    optimize.add_argument(
+        "--out",
+        type=Path,
+        default=Path("artifacts"),
+        help="Artifact output directory",
+    )
+    optimize.add_argument(
+        "--strategy",
+        choices=("both", "grouped", "ungrouped"),
+        default="both",
+    )
+    optimize.add_argument(
+        "--no-render",
+        action="store_true",
+        help="Skip openmpt123 ground-truth renders",
+    )
+    optimize.add_argument(
+        "--rate",
+        type=int,
+        action="append",
+        dest="rates",
+        help="Sample rate to sweep (repeatable)",
+    )
+    optimize.add_argument(
+        "--depth",
+        type=int,
+        action="append",
+        dest="depths",
+        help="Bit depth to sweep (repeatable)",
+    )
+    optimize.add_argument(
+        "--no-loop",
+        action="store_true",
+        help="Disable looping (store full-length samples)",
+    )
+    optimize.add_argument(
+        "--seed",
+        type=int,
+        default=DEFAULT_SEED,
+        help="RNG seed for reproducible encoding",
+    )
+    optimize.add_argument(
+        "--profile",
+        action="store_true",
+        help="Run under cProfile and print the hottest functions to stderr",
     )
     return parser
 
 
-def _optimize_settings(config: OptiConfig, args: argparse.Namespace) -> OptimizeSettings:
+def _optimize_settings(
+    config: OptiConfig,
+    args: argparse.Namespace,
+) -> OptimizeSettings:
     """Build the optimization settings from ``config``, applying the sweep/seed CLI overrides."""
     grid = SweepConfig.model_validate(
         {
@@ -93,7 +176,10 @@ def _optimize_settings(config: OptiConfig, args: argparse.Namespace) -> Optimize
     )
 
 
-def _dump_settings(config: OptiConfig, args: argparse.Namespace) -> DumpSettings:
+def _dump_settings(
+    config: OptiConfig,
+    args: argparse.Namespace,
+) -> DumpSettings:
     """Assemble the artifact-dump settings from ``config`` and the CLI flags."""
     return DumpSettings(
         optimize=_optimize_settings(config, args),
@@ -110,6 +196,7 @@ def _instrument_base(notes_json: Path) -> str:
     name = notes_json.name
     if name.endswith(_NOTES_SUFFIX):
         return name[: -len(_NOTES_SUFFIX)]
+
     return notes_json.stem
 
 
@@ -117,6 +204,7 @@ def _samples_dir(args: argparse.Namespace) -> Path:
     """The per-note WAV directory: the ``--samples-dir`` override, else the notes file's sibling ``<name>/``."""
     if args.samples_dir is not None:
         return Path(args.samples_dir)
+
     return Path(args.notes_json.parent / _instrument_base(args.notes_json))
 
 
@@ -125,6 +213,7 @@ def _project(args: argparse.Namespace) -> ProjectSpec:
     name = _instrument_base(args.notes_json)
     if args.interpolation is None:
         return ProjectSpec(name=name)
+
     return ProjectSpec(name=name, interpolation=args.interpolation)
 
 
@@ -147,12 +236,18 @@ def _run_optimize(config: OptiConfig, args: argparse.Namespace) -> None:
             if not plan.feasible:
                 print(f"  {plan.name:>9}: infeasible ({plan.reason})  {timing}")
                 continue
+
             rendered = "rendered" if plan.rendered else "no render"
             print(f"  {plan.name:>9}: objective {plan.objective:.4f}, {plan.used_bytes} B used, {rendered}  {timing}")
+
     print(f"total: {total_s:.1f}s")
 
 
-def _run_profiled(run: Callable[[], None], *, top: int = _PROFILE_TOP_FUNCTIONS) -> None:
+def _run_profiled(
+    run: Callable[[], None],
+    *,
+    top: int = _PROFILE_TOP_FUNCTIONS,
+) -> None:
     """Run ``run`` under cProfile and print the ``top`` functions by cumulative time to stderr."""
     profiler = cProfile.Profile()
     profiler.enable()
@@ -167,7 +262,12 @@ def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     config = load_config(args.config)
     if args.command == "synth":
-        outputs = generate_demo(args.outdir, config.synth, sample_rate=args.sample_rate, seed=args.seed)
+        outputs = generate_demo(
+            args.outdir,
+            config.synth,
+            sample_rate=args.sample_rate,
+            seed=args.seed,
+        )
         for notes_json, samples_dir in outputs:
             print(f"Wrote {notes_json} (samples: {samples_dir})")
     elif args.command == "optimize":

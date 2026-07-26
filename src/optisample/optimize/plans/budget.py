@@ -1,16 +1,10 @@
-"""The byte-budget value object and the budget arithmetic every instrument plan shares.
-
-An instrument's KiB budget covers the *whole* IT module; the sample PCM only gets what is left after
-the file and instrument headers. That split, and the "how much of it did we spend" math, are identical
-for the ungrouped and grouped plans -- so they live here once, as :func:`split_budget` and
-:class:`BudgetedPlanMixin`, rather than being copied into each plan.
-"""
-
-from __future__ import annotations
-
 from dataclasses import dataclass
 
-from optisample.metrics.size import FILE_HEADER_BYTES, INSTRUMENT_HEADER_BYTES, kib_to_bytes
+from optisample.metrics.size import (
+    FILE_HEADER_BYTES,
+    INSTRUMENT_HEADER_BYTES,
+    kib_to_bytes,
+)
 
 
 @dataclass(frozen=True)

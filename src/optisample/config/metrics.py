@@ -1,13 +1,3 @@
-"""Fidelity-metric configuration: composite weights and every metric's internal parameters.
-
-Nested so each group stays small: the composite is ``weights`` (name -> weight) plus one config per
-component metric, and ``preprocess`` carries the loudness-normalization target, the single
-dynamic-range floor shared by the log-spectral metrics, and the segmental-SNR framing. Weights and
-resolutions are the calibration surface and live in one YAML file.
-"""
-
-from __future__ import annotations
-
 from optisample.config.base import ConfigModel
 from optisample.config.dsp import MelParams, StftParams
 

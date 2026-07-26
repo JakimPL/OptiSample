@@ -1,11 +1,3 @@
-"""Read an instrument's recordings from disk into the one signal per key the optimizer scores against.
-
-IT stores a single sample per key, so this is where the recorded grid collapses to one representative
-per ``(pitch, velocity)`` and each WAV is normalized onto a common rate, mono, onset-aligned timebase.
-"""
-
-from __future__ import annotations
-
 import numpy as np
 
 from optisample.dsp.resample import resample_to
@@ -14,7 +6,9 @@ from optisample.metrics.base import Signal
 from optisample.model import InstrumentSpec
 
 
-def load_instrument_audio(instrument: InstrumentSpec) -> tuple[dict[tuple[int, int], Signal], int]:
+def load_instrument_audio(
+    instrument: InstrumentSpec,
+) -> tuple[dict[tuple[int, int], Signal], int]:
     """Read one recording per ``(pitch, velocity)`` into a ``(pitch, velocity) -> signal`` map at a common rate.
 
     IT stores a single sample per key, so each ``(pitch, velocity)`` collapses to one representative: the
@@ -28,6 +22,7 @@ def load_instrument_audio(instrument: InstrumentSpec) -> tuple[dict[tuple[int, i
         key = (sample.pitch, sample.velocity)
         if key in audio:
             continue
+
         data, rate = read_wav(sample.file)
         lead_in_frames = round(sample.lead_in_s * rate)
         if lead_in_frames > 0:
@@ -39,4 +34,5 @@ def load_instrument_audio(instrument: InstrumentSpec) -> tuple[dict[tuple[int, i
         elif rate != sample_rate:
             data = resample_to(data, rate, sample_rate)
         audio[key] = np.asarray(data, dtype=np.float64)
+
     return audio, sample_rate

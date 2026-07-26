@@ -1,7 +1,3 @@
-"""Plan value objects for the pitch-zone grouping strategy: one stored sample per zone of keys."""
-
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Literal
 

@@ -1,24 +1,3 @@
-"""Budget allocation as a Multiple-Choice Knapsack Problem (MCKP).
-
-With grouping fixed, each stored sample must take exactly one encoding configuration; we choose one
-per sample to minimize the material-weighted distortion under a hard byte budget::
-
-    minimize   sum_j  weight_j * distortion_j(config)
-    subject to sum_j  bytes_j(config)  <=  budget
-
-Two solvers, both consuming the per-sample rate-distortion operating points:
-
-* :func:`solve_exact` -- a pseudo-polynomial dynamic program over bytes. Optimal over *all*
-  candidate configs (not just the hull), at the cost of an ``O(items * configs * budget)`` table.
-* :func:`solve_lagrangian` / :func:`rd_curve` -- the rate-distortion Lagrangian sweep (Shoham &
-  Gersho 1988; Ortega-Ramchandran 1998). Each sample keeps only its lower-convex-hull configs;
-  sweeping the slope ``lambda`` from steep to shallow greedily upgrades whichever sample buys the
-  most distortion-per-byte next, tracing the *whole* budget->quality curve in one pass. It is exact
-  at the curve's breakpoints and near-optimal between them (the classic Lagrangian duality gap).
-"""
-
-from __future__ import annotations
-
 from dataclasses import dataclass
 
 import numpy as np
@@ -85,18 +64,23 @@ def _forward_dp(
             cost = point.stored_bytes
             if cost > budget_bytes:
                 continue
+
             candidate = dp[: size - cost] + item.weight * point.distortion
             target = new_dp[cost:]
             improved = candidate < target
             target[improved] = candidate[improved]
             choice[cost:][improved] = index
+
         dp = new_dp
         choices.append(choice)
+
     return dp, choices
 
 
 def _reconstruct(
-    items: tuple[KnapsackItem, ...], choices: list[NDArray[np.int64]], total_bytes: int
+    items: tuple[KnapsackItem, ...],
+    choices: list[NDArray[np.int64]],
+    total_bytes: int,
 ) -> tuple[Selection, ...]:
     """Walk the DP backpointers from ``total_bytes`` to recover one selection per item."""
     selections: list[Selection] = []
@@ -106,6 +90,7 @@ def _reconstruct(
         point = item.points[index]
         selections.append(Selection(key=item.key, weight=item.weight, point=point))
         budget -= point.stored_bytes
+
     selections.reverse()
     return tuple(selections)
 
@@ -136,7 +121,10 @@ class _HullUpgrade:
     step: int
 
 
-def _hull_upgrades(items: tuple[KnapsackItem, ...], hulls: list[tuple[OperatingPoint, ...]]) -> list[_HullUpgrade]:
+def _hull_upgrades(
+    items: tuple[KnapsackItem, ...],
+    hulls: list[tuple[OperatingPoint, ...]],
+) -> list[_HullUpgrade]:
     """Every single-step hull upgrade, steepest distortion-per-byte first.
 
     Each hull is ordered cheapest-first, so stepping vertex ``k`` -> ``k+1`` spends ``delta_bytes`` more
@@ -162,7 +150,14 @@ def _lagrangian_curve(
     total_bytes = sum(hull[0].stored_bytes for hull in hulls)
     objective = sum(item.weight * hull[0].distortion for item, hull in zip(items, hulls))
 
-    curve = [RDCurvePoint(lam=np.inf, total_bytes=total_bytes, objective=objective, indices=tuple(index))]
+    curve = [
+        RDCurvePoint(
+            lam=np.inf,
+            total_bytes=total_bytes,
+            objective=objective,
+            indices=tuple(index),
+        )
+    ]
     for upgrade in _hull_upgrades(items, hulls):
         hull = hulls[upgrade.item_index]
         total_bytes += hull[upgrade.step + 1].stored_bytes - hull[upgrade.step].stored_bytes
@@ -171,7 +166,12 @@ def _lagrangian_curve(
         )
         index[upgrade.item_index] += 1
         curve.append(
-            RDCurvePoint(lam=upgrade.slope, total_bytes=total_bytes, objective=objective, indices=tuple(index))
+            RDCurvePoint(
+                lam=upgrade.slope,
+                total_bytes=total_bytes,
+                objective=objective,
+                indices=tuple(index),
+            )
         )
     return curve, hulls
 
@@ -179,11 +179,21 @@ def _lagrangian_curve(
 def rd_curve(items: tuple[KnapsackItem, ...]) -> list[RDCurvePoint]:
     """The full achievable budget->quality curve (ascending bytes, descending objective)."""
     if not items:
-        return [RDCurvePoint(lam=np.inf, total_bytes=0, objective=0.0, indices=())]
+        return [
+            RDCurvePoint(
+                lam=np.inf,
+                total_bytes=0,
+                objective=0.0,
+                indices=(),
+            )
+        ]
     return _lagrangian_curve(items)[0]
 
 
-def solve_lagrangian(items: tuple[KnapsackItem, ...], budget_bytes: int) -> Allocation:
+def solve_lagrangian(
+    items: tuple[KnapsackItem, ...],
+    budget_bytes: int,
+) -> Allocation:
     """Near-optimal MCKP via the Lagrangian sweep: the richest hull point that fits ``budget_bytes``.
 
     The curve's first point is the all-cheapest allocation (checked for feasibility), and byte cost
@@ -191,6 +201,7 @@ def solve_lagrangian(items: tuple[KnapsackItem, ...], budget_bytes: int) -> Allo
     """
     if not items:
         return Allocation(selections=(), total_bytes=0, objective=0.0)
+
     curve, hulls = _lagrangian_curve(items)
     require_feasible(curve[0].total_bytes, budget_bytes)
     feasible = [point for point in curve if point.total_bytes <= budget_bytes]
@@ -199,4 +210,8 @@ def solve_lagrangian(items: tuple[KnapsackItem, ...], budget_bytes: int) -> Allo
         Selection(key=item.key, weight=item.weight, point=hull[vertex])
         for item, hull, vertex in zip(items, hulls, best.indices)
     )
-    return Allocation(selections=selections, total_bytes=best.total_bytes, objective=best.objective)
+    return Allocation(
+        selections=selections,
+        total_bytes=best.total_bytes,
+        objective=best.objective,
+    )

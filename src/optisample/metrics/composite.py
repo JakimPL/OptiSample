@@ -1,14 +1,3 @@
-"""Weighted composite fidelity + a one-call quality report.
-
-Weights and per-metric parameters are loaded from config (:mod:`optisample.config.metrics`);
-:func:`build_composite` assembles the weighted set once per run from a :class:`MetricsConfig` and
-is threaded through the search rather than rebuilt per comparison. The composite compares
-loudness-matched signals, while the report also surfaces the raw level gap and SNR-style
-diagnostics separately.
-"""
-
-from __future__ import annotations
-
 from dataclasses import dataclass
 
 from optisample.config.metrics import MetricsConfig, SegmentalSnrConfig
@@ -36,7 +25,12 @@ class CompositeFidelity:
     segmental: SegmentalSnrConfig
     name: str = "composite"
 
-    def score(self, reference: Signal, candidate: Signal, context: MetricContext) -> tuple[float, dict[str, float]]:
+    def score(
+        self,
+        reference: Signal,
+        candidate: Signal,
+        context: MetricContext,
+    ) -> tuple[float, dict[str, float]]:
         """Weighted fidelity and the raw per-metric breakdown, from a single pass over the components.
 
         Equivalent to :meth:`distance` paired with :meth:`breakdown`, but evaluates each metric only
@@ -60,7 +54,9 @@ def build_composite(config: MetricsConfig) -> CompositeFidelity:
     """Assemble the weighted composite from config: one registry-built metric per weight entry."""
     components = tuple(WeightedMetric(build_metric(name, config), weight) for name, weight in config.weights.items())
     return CompositeFidelity(
-        components=components, target_lufs=config.preprocess.target_lufs, segmental=config.preprocess.segmental
+        components=components,
+        target_lufs=config.preprocess.target_lufs,
+        segmental=config.preprocess.segmental,
     )
 
 
@@ -88,13 +84,25 @@ def evaluate(
     """
     raw_ref, raw_cand = match_length(reference, candidate)
     norm_ref, norm_cand, context = prepare(
-        reference, candidate, sample_rate, composite.target_lufs, normalize=normalize
+        reference,
+        candidate,
+        sample_rate,
+        composite.target_lufs,
+        normalize=normalize,
     )
     fidelity, breakdown = composite.score(norm_ref, norm_cand, context)
     diagnostics = {
         "loudness_delta_lu": loudness_delta(raw_ref, raw_cand, sample_rate),
         "si_sdr_db": si_sdr(raw_ref, raw_cand),
         "snr_db": snr(norm_ref, norm_cand),
-        "segmental_snr_db": segmental_snr(norm_ref, norm_cand, composite.segmental),
+        "segmental_snr_db": segmental_snr(
+            norm_ref,
+            norm_cand,
+            composite.segmental,
+        ),
     }
-    return QualityReport(fidelity=fidelity, breakdown=breakdown, diagnostics=diagnostics)
+    return QualityReport(
+        fidelity=fidelity,
+        breakdown=breakdown,
+        diagnostics=diagnostics,
+    )

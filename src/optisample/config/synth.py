@@ -1,12 +1,3 @@
-"""Synthetic-dataset configuration: archetype synthesis parameters and instrument presets.
-
-The synthetic generator is how the pipeline is exercised without real recordings, so its shape is a
-tunable too: the ``sustained`` and ``piano`` archetype coefficients (partials, vibrato/evolution,
-spectral rolloff, decay) and the ``presets`` (pitches, velocities, sample duration, budget, material).
-"""
-
-from __future__ import annotations
-
 from typing import Literal
 
 from optisample.config.base import ConfigModel
@@ -14,7 +5,7 @@ from optisample.config.base import ConfigModel
 Archetype = Literal["sustained", "piano"]
 
 
-class SustainedConfig(ConfigModel):  # pylint: disable=too-many-instance-attributes
+class SustainedConfig(ConfigModel):
     """Strings/pad archetype: partial count, vibrato, slow spectral evolution, spectral rolloff, A/R."""
 
     n_partials: int
@@ -30,7 +21,7 @@ class SustainedConfig(ConfigModel):  # pylint: disable=too-many-instance-attribu
     release_s: float
 
 
-class PianoConfig(ConfigModel):  # pylint: disable=too-many-instance-attributes
+class PianoConfig(ConfigModel):
     """Decaying-one-shot archetype: partial count, per-partial decay, inharmonicity, rolloff, attack."""
 
     n_partials: int
@@ -55,7 +46,7 @@ class MaterialEvent(ConfigModel):
     count: int
 
 
-class PresetConfig(ConfigModel):  # pylint: disable=too-many-instance-attributes
+class PresetConfig(ConfigModel):
     """One demo instrument: its archetype, recorded (pitch, velocity) grid, durations, budget, material."""
 
     id: str
@@ -67,7 +58,7 @@ class PresetConfig(ConfigModel):  # pylint: disable=too-many-instance-attributes
     material: tuple[MaterialEvent, ...]
 
 
-class SynthConfig(ConfigModel):  # pylint: disable=too-many-instance-attributes
+class SynthConfig(ConfigModel):
     """The synthetic generator: render rate, anti-alias/velocity mapping, archetypes, and presets."""
 
     sample_rate: int

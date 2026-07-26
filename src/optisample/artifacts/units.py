@@ -1,16 +1,3 @@
-"""Re-encode a plan's stored samples and package each strategy for the dumper.
-
-A :class:`Unit` is one stored sample plus the pitch tasks it serves; the same seeded re-encode the
-exporter runs is replayed here so the decoded WAVs match ``module.it`` byte for byte. The plan reports
-its stored samples as :class:`~optisample.optimize.plans.SampleUnit`s (which recording is each unit's
-representative and which keys it covers), so this module encodes either strategy through one shared RNG
-loop without knowing which produced the plan. :func:`make_kind` wraps a plan as a :class:`PlanKind` (its
-units, report text, plan document and a module builder) so the dumper serializes either strategy through
-one interface.
-"""
-
-from __future__ import annotations
-
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
@@ -20,7 +7,11 @@ from optisample.dsp.surrogate import StoredSample
 from optisample.io.it_writer import ITModule
 from optisample.model import NoteEvent
 from optisample.optimize.export import ExportContext, build_module, encode_plan_units
-from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan, StrategyPlan
+from optisample.optimize.plans import (
+    GroupedInstrumentPlan,
+    InstrumentPlan,
+    StrategyPlan,
+)
 from optisample.optimize.report import format_grouping_report, format_report
 from optisample.optimize.tasks import PitchTask
 

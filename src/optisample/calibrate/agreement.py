@@ -1,25 +1,11 @@
-"""Render one note two ways -- numpy surrogate and ``openmpt123`` -- and measure how well they agree.
-
-The optimizer minimizes distortion under the fast surrogate (:mod:`optisample.dsp.surrogate`); these
-functions confirm that doing so tracks reality. :func:`renderer_agreement` scores how closely the two
-engines match on the same stored sample, and :func:`distortion_vs_source` + :func:`rank_correlation`
-check that the surrogate ranks operating points the way ``openmpt123`` does -- the property that lets the
-budget solver pick the winners ground truth would pick.
-
-Every comparison runs through the loudness-normalized composite, so IT's gain staging (which attenuates
-the absolute level heavily) surfaces as a reported ``loudness_delta_lu`` while the timbre terms score
-spectral fidelity on level-matched signals.
-Repitching (playing a stored sample at a non-root key) is a genuine part of the calibration: the
-surrogate resamples in numpy while ``openmpt123`` uses its configured interpolation filter, and that is
-where the two engines diverge most.
-"""
-
-from __future__ import annotations
-
 import numpy as np
 from scipy.stats import spearmanr
 
-from optisample.calibrate.context import CalibrationContext, NoteProbe, RendererAgreement
+from optisample.calibrate.context import (
+    CalibrationContext,
+    NoteProbe,
+    RendererAgreement,
+)
 from optisample.calibrate.modules import single_note_module
 from optisample.config.render import RenderConfig
 from optisample.dsp.surrogate import StoredSample, render

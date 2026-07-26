@@ -1,18 +1,3 @@
-"""Spectral fidelity metrics: multi-resolution STFT and log-mel L1.
-
-The multi-resolution STFT distance is the workhorse — it captures quantization noise,
-bandlimiting/HF loss and coarse envelope shape at once, while level is handled upstream by the
-normalize-before-compare harness.
-
-The log terms clamp magnitudes to a fixed dynamic range below the *reference peak* before the
-logarithm, keeping the score stable in near-silent bins. The floor lets a transparent 16-bit
-requantization (whose −90 dB noise fills otherwise-empty HF bins) rank as near-perfect while
-audible noise (e.g. 8-bit at ~−49 dB) still counts against the score. The floor depth is
-``dynamic_range_db`` dB below the peak — a single config knob shared with the log-mel and MCD metrics.
-"""
-
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Final
 
@@ -43,7 +28,12 @@ class MultiResolutionStft:
     dynamic_range_db: float
     name: str = "mrstft"
 
-    def distance(self, reference: Signal, candidate: Signal, context: MetricContext) -> float:
+    def distance(
+        self,
+        reference: Signal,
+        candidate: Signal,
+        context: MetricContext,
+    ) -> float:
         """``context`` satisfies the metric protocol yet leaves the result unchanged -- the resolutions are
         fixed in frames, so the sample rate is irrelevant. ``dynamic_range_db`` floors an amplitude
         ratio, hence the ``/20`` conversion.
@@ -62,6 +52,7 @@ class MultiResolutionStft:
                 np.mean(np.abs(_floored_log(ref_mag, peak, rel_floor) - _floored_log(cand_mag, peak, rel_floor)))
             )
             total += convergence + log_l1
+
         return total / len(self.resolutions)
 
 
@@ -73,7 +64,12 @@ class LogMelL1:
     dynamic_range_db: float
     name: str = "logmel_l1"
 
-    def distance(self, reference: Signal, candidate: Signal, context: MetricContext) -> float:
+    def distance(
+        self,
+        reference: Signal,
+        candidate: Signal,
+        context: MetricContext,
+    ) -> float:
         """``dynamic_range_db`` floors mel *power*, hence the ``/10`` conversion (amplitude would use ``/20``)."""
         rel_floor = 10.0 ** (-self.dynamic_range_db / 10.0)
         ref_mel = melspectrogram(reference, context.sample_rate, self.params)
@@ -89,10 +85,14 @@ class LogMelL1:
 register_metric(
     "mrstft",
     lambda config: MultiResolutionStft(
-        resolutions=config.mrstft.resolutions, dynamic_range_db=config.preprocess.dynamic_range_db
+        resolutions=config.mrstft.resolutions,
+        dynamic_range_db=config.preprocess.dynamic_range_db,
     ),
 )
 register_metric(
     "logmel_l1",
-    lambda config: LogMelL1(params=config.logmel.mel, dynamic_range_db=config.preprocess.dynamic_range_db),
+    lambda config: LogMelL1(
+        params=config.logmel.mel,
+        dynamic_range_db=config.preprocess.dynamic_range_db,
+    ),
 )

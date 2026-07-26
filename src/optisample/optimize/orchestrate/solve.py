@@ -1,23 +1,20 @@
-"""MCKP allocation for the ungrouped optimizer: pick one encoding per pitch under the byte budget.
-
-The cost model reduces each pitch to a knapsack item (its lower-convex-hull ``(bytes, distortion)``
-options); this module runs the multiple-choice knapsack -- the exact DP or the faster Lagrangian
-sweep -- and attaches the chosen option back onto each pitch as a
-:class:`~optisample.optimize.plans.PitchPlan`.
-"""
-
-from __future__ import annotations
-
 from collections.abc import Mapping, Sequence
 
-from optisample.optimize.knapsack import Allocation, KnapsackItem, solve_exact, solve_lagrangian
+from optisample.optimize.knapsack import (
+    Allocation,
+    KnapsackItem,
+    solve_exact,
+    solve_lagrangian,
+)
 from optisample.optimize.operating_points import OperatingPoint
 from optisample.optimize.plans import Method, PitchPlan
 from optisample.optimize.tasks import PitchTask
 
 
 def _pitch_plans(
-    tasks: Sequence[PitchTask], allocation: Allocation, hulls: Mapping[int, tuple[OperatingPoint, ...]]
+    tasks: Sequence[PitchTask],
+    allocation: Allocation,
+    hulls: Mapping[int, tuple[OperatingPoint, ...]],
 ) -> tuple[PitchPlan, ...]:
     """Attach the solver's chosen config to each pitch task."""
     chosen = {selection.key: selection.point for selection in allocation.selections}

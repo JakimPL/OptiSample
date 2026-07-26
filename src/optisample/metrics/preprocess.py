@@ -1,12 +1,3 @@
-"""Align + loudness-normalize signals before spectral comparison.
-
-Volume scaling must not be mistaken for timbre error, so the composite compares loudness-matched
-signals; the raw loudness gap is reported separately (see :mod:`optisample.metrics.diagnostics`)
-as the level/velocity axis.
-"""
-
-from __future__ import annotations
-
 from typing import Final, cast, overload
 
 import numpy as np
@@ -46,11 +37,16 @@ def integrated_loudness(signal: Signal, sample_rate: int) -> float:
     return -np.inf if rms <= 0.0 else 20.0 * float(np.log10(rms))
 
 
-def loudness_normalize(signal: Signal, sample_rate: int, target_lufs: float) -> Signal:
+def loudness_normalize(
+    signal: Signal,
+    sample_rate: int,
+    target_lufs: float,
+) -> Signal:
     """Scale ``signal`` to ``target_lufs`` (no-op for silence)."""
     loudness = integrated_loudness(signal, sample_rate)
     if not np.isfinite(loudness):
         return np.asarray(signal, dtype=np.float64)
+
     gain = db_to_gain(target_lufs - loudness)
     return np.asarray(signal * gain, dtype=np.float64)
 
@@ -68,4 +64,12 @@ def prepare(
     if normalize:
         reference = loudness_normalize(reference, sample_rate, target_lufs)
         candidate = loudness_normalize(candidate, sample_rate, target_lufs)
-    return reference, candidate, MetricContext(sample_rate=sample_rate, normalized=normalize)
+
+    return (
+        reference,
+        candidate,
+        MetricContext(
+            sample_rate=sample_rate,
+            normalized=normalize,
+        ),
+    )

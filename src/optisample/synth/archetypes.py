@@ -1,23 +1,3 @@
-"""Deterministic archetype synthesis: turn a note request into a mono waveform.
-
-Two archetypes are produced, matching the POC targets:
-
-* ``sustained`` (strings/pad-like): slow attack, an evolving sustain with slight vibrato,
-  release. The sustain *evolves* over time on purpose, so a too-short loop is measurably
-  static later on.
-* ``piano`` (decaying one-shot): fast attack, per-partial exponential decay (high partials
-  decay faster → the tone darkens as it rings), mild inharmonicity.
-
-For both, higher velocity is rendered *louder and brighter* — so emulating velocity by
-volume alone is genuinely lossy, which is exactly the trade-off the optimizer must weigh.
-
-Every archetype coefficient lives in :class:`~optisample.config.synth.SynthConfig` (the
-``opticonfig/synth.yaml`` values); the render functions take it explicitly. This module is pure
-synthesis — WAV/manifest serialization lives in :mod:`optisample.synth.generate`.
-"""
-
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Final, Literal, assert_never
 
@@ -29,7 +9,7 @@ from optisample.music import A4_FREQ_HZ, MIDI_MAX_VELOCITY, midi_to_freq
 
 Archetype = Literal["sustained", "piano"]
 
-_MIN_PARTIALS: Final = 1  # always keep the fundamental, even when Nyquist caps the rest
+_MIN_PARTIALS: Final = 1
 
 
 @dataclass(frozen=True)
@@ -52,7 +32,12 @@ class NoteSpec:
         return np.arange(int(self.duration_s * self.sample_rate), dtype=np.float64) / self.sample_rate
 
 
-def _n_partials(fundamental: float, sample_rate: int, requested: int, nyquist_fraction: float) -> int:
+def _n_partials(
+    fundamental: float,
+    sample_rate: int,
+    requested: int,
+    nyquist_fraction: float,
+) -> int:
     """Cap the partial count so the highest partial stays below Nyquist (no reference aliasing)."""
     ceiling = int(nyquist_fraction * sample_rate / fundamental)
     return max(_MIN_PARTIALS, min(requested, ceiling))
@@ -63,15 +48,23 @@ def _velocity_peak(velocity: int, floor: float, scale: float) -> float:
     return floor + scale * (velocity / MIDI_MAX_VELOCITY)
 
 
-def _normalize_peak(signal: NDArray[np.float64], peak: float) -> NDArray[np.float64]:
+def _normalize_peak(
+    signal: NDArray[np.float64],
+    peak: float,
+) -> NDArray[np.float64]:
     """Scale ``signal`` so its largest magnitude equals ``peak`` (silence passes through unchanged)."""
     largest = float(np.max(np.abs(signal)))
     if largest == 0.0:
         return signal
+
     return np.asarray(signal / largest * peak, dtype=np.float64)
 
 
-def _attack_release(time_axis: NDArray[np.float64], attack_s: float, release_s: float) -> NDArray[np.float64]:
+def _attack_release(
+    time_axis: NDArray[np.float64],
+    attack_s: float,
+    release_s: float,
+) -> NDArray[np.float64]:
     """Linear attack/release envelope over ``time_axis`` (unity across the sustain in between)."""
     attack = np.minimum(1.0, time_axis / attack_s)
     total = float(time_axis[-1]) if time_axis.size else 0.0
@@ -79,7 +72,11 @@ def _attack_release(time_axis: NDArray[np.float64], attack_s: float, release_s: 
     return np.asarray(attack * release, dtype=np.float64)
 
 
-def render_sustained(spec: NoteSpec, rng: np.random.Generator, config: SynthConfig) -> NDArray[np.float64]:
+def render_sustained(
+    spec: NoteSpec,
+    rng: np.random.Generator,
+    config: SynthConfig,
+) -> NDArray[np.float64]:
     """Synthesize a sustained tone: vibrato-modulated partials rolled off by velocity and controller.
 
     Partials at or above ``evolution_min_partial`` get a slow independent wax/wane, so the sustain
@@ -95,6 +92,7 @@ def render_sustained(spec: NoteSpec, rng: np.random.Generator, config: SynthConf
     rolloff = (archetype_config.rolloff_base + archetype_config.rolloff_vel * spec.normalized_velocity) * (
         1.0 + archetype_config.rolloff_controller * spec.controller
     )
+
     signal = np.zeros_like(time_axis)
     for partial in range(1, partials + 1):
         phase = 2.0 * np.pi * np.cumsum(partial * fundamental * vibrato) / spec.sample_rate + rng.uniform(
@@ -106,7 +104,12 @@ def render_sustained(spec: NoteSpec, rng: np.random.Generator, config: SynthConf
 
     signal *= _attack_release(time_axis, attack_s=archetype_config.attack_s, release_s=archetype_config.release_s)
     return _normalize_peak(
-        signal, _velocity_peak(spec.velocity, config.velocity_peak_floor, config.velocity_peak_scale)
+        signal,
+        _velocity_peak(
+            spec.velocity,
+            config.velocity_peak_floor,
+            config.velocity_peak_scale,
+        ),
     )
 
 
@@ -119,7 +122,12 @@ def render_piano(spec: NoteSpec, rng: np.random.Generator, config: SynthConfig) 
     """
     archetype_config = config.piano
     fundamental = midi_to_freq(spec.pitch)
-    partials = _n_partials(fundamental, spec.sample_rate, archetype_config.n_partials, config.nyquist_fraction)
+    partials = _n_partials(
+        fundamental,
+        spec.sample_rate,
+        archetype_config.n_partials,
+        config.nyquist_fraction,
+    )
     time_axis = spec.time_axis()
 
     base_tau = float(
@@ -141,7 +149,12 @@ def render_piano(spec: NoteSpec, rng: np.random.Generator, config: SynthConfig) 
 
     signal *= np.minimum(1.0, time_axis / archetype_config.attack_s)
     return _normalize_peak(
-        signal, _velocity_peak(spec.velocity, config.velocity_peak_floor, config.velocity_peak_scale)
+        signal,
+        _velocity_peak(
+            spec.velocity,
+            config.velocity_peak_floor,
+            config.velocity_peak_scale,
+        ),
     )
 
 

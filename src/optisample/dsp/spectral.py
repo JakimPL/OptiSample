@@ -1,12 +1,3 @@
-"""Spectral analysis primitives shared by the metrics.
-
-Kept dependency-light (numpy + scipy) and fully typed. STFT/mel parameters are the frozen
-``StftParams``/``MelParams`` config objects (:mod:`optisample.config.dsp`), which callers must pass
-explicitly -- the analysis resolution is a tunable loaded from YAML, not a hidden signature default.
-"""
-
-from __future__ import annotations
-
 from typing import Final
 
 import numpy as np
@@ -43,12 +34,16 @@ def stft_magnitude(signal: Signal, params: StftParams) -> Signal:
 
 def _hz_to_mel(hertz: NDArray[np.float64] | float) -> NDArray[np.float64]:
     return np.asarray(
-        _MEL_SCALE * np.log10(1.0 + np.asarray(hertz, dtype=np.float64) / _MEL_BREAK_HZ), dtype=np.float64
+        _MEL_SCALE * np.log10(1.0 + np.asarray(hertz, dtype=np.float64) / _MEL_BREAK_HZ),
+        dtype=np.float64,
     )
 
 
 def _mel_to_hz(mel: NDArray[np.float64]) -> NDArray[np.float64]:
-    return np.asarray(_MEL_BREAK_HZ * (10.0 ** (mel / _MEL_SCALE) - 1.0), dtype=np.float64)
+    return np.asarray(
+        _MEL_BREAK_HZ * (10.0 ** (mel / _MEL_SCALE) - 1.0),
+        dtype=np.float64,
+    )
 
 
 def mel_filterbank(sample_rate: int, params: MelParams) -> Signal:
@@ -65,14 +60,24 @@ def mel_filterbank(sample_rate: int, params: MelParams) -> Signal:
     return filters
 
 
-def melspectrogram(signal: Signal, sample_rate: int, params: MelParams) -> Signal:
+def melspectrogram(
+    signal: Signal,
+    sample_rate: int,
+    params: MelParams,
+) -> Signal:
     """Mel power spectrogram ``(n_frames, n_mels)``."""
     power = stft_magnitude(signal, params.stft()) ** 2
     filters = mel_filterbank(sample_rate, params)
     return np.asarray(power @ filters.T, dtype=np.float64)
 
 
-def mfcc(signal: Signal, sample_rate: int, params: MelParams, n_mfcc: int, top_db: float) -> Signal:
+def mfcc(
+    signal: Signal,
+    sample_rate: int,
+    params: MelParams,
+    n_mfcc: int,
+    top_db: float,
+) -> Signal:
     """Mel-frequency cepstral coefficients ``(n_frames, n_mfcc)`` (DCT-II of log-mel energies).
 
     The log-mel is floored ``top_db`` dB below its peak so near-silent bins (and any noise
@@ -85,13 +90,21 @@ def mfcc(signal: Signal, sample_rate: int, params: MelParams, n_mfcc: int, top_d
     return np.asarray(coeffs[:, :n_mfcc], dtype=np.float64)
 
 
-def _magnitude_and_freqs(signal: Signal, sample_rate: int, params: StftParams) -> tuple[Signal, Signal]:
+def _magnitude_and_freqs(
+    signal: Signal,
+    sample_rate: int,
+    params: StftParams,
+) -> tuple[Signal, Signal]:
     magnitude = stft_magnitude(signal, params)
     freqs = np.fft.rfftfreq(params.n_fft, 1.0 / sample_rate)
     return magnitude, np.asarray(freqs, dtype=np.float64)
 
 
-def spectral_centroid(signal: Signal, sample_rate: int, params: StftParams) -> float:
+def spectral_centroid(
+    signal: Signal,
+    sample_rate: int,
+    params: StftParams,
+) -> float:
     """Energy-weighted mean frequency (Hz), averaged over frames — a brightness proxy."""
     magnitude, freqs = _magnitude_and_freqs(signal, sample_rate, params)
     total = np.sum(magnitude, axis=1)
@@ -99,7 +112,12 @@ def spectral_centroid(signal: Signal, sample_rate: int, params: StftParams) -> f
     return float(np.mean(centroid))
 
 
-def spectral_rolloff(signal: Signal, sample_rate: int, params: StftParams, roll_percent: float) -> float:
+def spectral_rolloff(
+    signal: Signal,
+    sample_rate: int,
+    params: StftParams,
+    roll_percent: float,
+) -> float:
     """Frequency (Hz) below which ``roll_percent`` of the energy lies, averaged over frames."""
     magnitude, freqs = _magnitude_and_freqs(signal, sample_rate, params)
     cumulative = np.cumsum(magnitude, axis=1)
@@ -126,7 +144,12 @@ def spectral_flux(signal: Signal, params: StftParams) -> Signal:
     return np.sqrt(np.sum(np.diff(magnitude, axis=0) ** 2, axis=1)).astype(np.float64)
 
 
-def band_energy(signal: Signal, sample_rate: int, f_low: float, f_high: float) -> float:
+def band_energy(
+    signal: Signal,
+    sample_rate: int,
+    f_low: float,
+    f_high: float,
+) -> float:
     """Total spectral energy in ``[f_low, f_high)`` (whole-signal FFT, Parseval-proportional)."""
     spectrum = np.fft.rfft(np.asarray(signal, dtype=np.float64))
     freqs = np.fft.rfftfreq(signal.size, 1.0 / sample_rate)
@@ -134,7 +157,12 @@ def band_energy(signal: Signal, sample_rate: int, f_low: float, f_high: float) -
     return float(np.sum(np.abs(spectrum[mask]) ** 2))
 
 
-def bandlimit(signal: Signal, sample_rate: int, f_low: float, f_high: float) -> Signal:
+def bandlimit(
+    signal: Signal,
+    sample_rate: int,
+    f_low: float,
+    f_high: float,
+) -> Signal:
     """Zero every frequency outside ``[f_low, f_high)`` and return the time-domain signal."""
     length = signal.size
     spectrum = np.fft.rfft(np.asarray(signal, dtype=np.float64))

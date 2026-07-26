@@ -1,13 +1,3 @@
-"""Optimization configuration: the encoding sweep grid, the solver method, velocity-map shaping.
-
-``SweepConfig`` holds the swept encoding axes plus the rate-derivation knobs (``rate_divisors``/
-``min_rate``): ``loops``/``depths`` are the axes, and ``rates`` is an optional explicit override
-(``null`` -> derive from each clip's rate). ``Method`` is declared here (rather than imported from
-``optimize.orchestrate``) so the config package stays a dependency leaf.
-"""
-
-from __future__ import annotations
-
 from typing import Literal
 
 from optisample.config.base import ConfigModel

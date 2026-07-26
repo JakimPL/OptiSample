@@ -1,22 +1,20 @@
-"""Per-pitch rate-distortion cost model for the ungrouped optimizer.
-
-For each pitch the material uses, sweep the encoding grid (rate x depth x loop), scoring the stored
-sample's reconstruction distortion against every event played at that pitch, and reduce the swept
-points to one knapsack item plus its lower convex hull -- the (bytes, distortion) trade-offs the
-allocator chooses from.
-"""
-
-from __future__ import annotations
-
 from collections.abc import Sequence
 
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode
 from optisample.optimize.knapsack import KnapsackItem
-from optisample.optimize.operating_points import OperatingPoint, lower_convex_hull, sweep_param_grid
+from optisample.optimize.operating_points import (
+    OperatingPoint,
+    lower_convex_hull,
+    sweep_param_grid,
+)
 from optisample.optimize.tasks import EvalContext, PitchTask, score_reconstruction
 
 
-def _evaluate_config(task: PitchTask, context: EvalContext, params: EncodingParams) -> OperatingPoint:
+def _evaluate_config(
+    task: PitchTask,
+    context: EvalContext,
+    params: EncodingParams,
+) -> OperatingPoint:
     """Encode the pitch's own representative, then score reconstruction against every event at it."""
     encode_context = EncodeContext(root_pitch=task.pitch, config=context.encode, rng=context.rng)
     stored = encode(task.representative, context.sample_rate, params, encode_context)
@@ -33,7 +31,8 @@ def _pitch_points(task: PitchTask, context: EvalContext) -> list[OperatingPoint]
 
 
 def build_items(
-    tasks: Sequence[PitchTask], context: EvalContext
+    tasks: Sequence[PitchTask],
+    context: EvalContext,
 ) -> tuple[tuple[KnapsackItem, ...], dict[int, tuple[OperatingPoint, ...]]]:
     """Turn each pitch task into a knapsack item plus its lower-convex-hull configs."""
     items: list[KnapsackItem] = []
@@ -41,5 +40,8 @@ def build_items(
     for task in tasks:
         points = tuple(_pitch_points(task, context))
         hulls[task.pitch] = tuple(lower_convex_hull(points))
-        items.append(KnapsackItem(key=str(task.pitch), weight=task.weight, points=points))
+        items.append(
+            KnapsackItem(key=str(task.pitch), weight=task.weight, points=points),
+        )
+
     return tuple(items), hulls

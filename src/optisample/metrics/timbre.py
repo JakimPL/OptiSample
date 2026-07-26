@@ -1,12 +1,3 @@
-"""Timbre metrics: mel-cepstral distortion and a spectral-shape composite.
-
-The spectral-shape metric folds in a flux-variance mismatch term: a too-short loop is
-spectrally *static* compared with an evolving real sustain, which brightness/rolloff deltas
-alone would not catch.
-"""
-
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Final
 
@@ -14,7 +5,12 @@ import numpy as np
 
 from optisample.config.dsp import MelParams, StftParams
 from optisample.config.metrics import SpectralWeights
-from optisample.dsp.spectral import mfcc, spectral_centroid, spectral_flatness, spectral_rolloff
+from optisample.dsp.spectral import (
+    mfcc,
+    spectral_centroid,
+    spectral_flatness,
+    spectral_rolloff,
+)
 from optisample.metrics.base import MetricContext, Signal, register_metric
 from optisample.metrics.diagnostics import flux_variance
 
@@ -37,6 +33,7 @@ class MelCepstralDistortion:
         frames = int(min(ref_mfcc.shape[0], cand_mfcc.shape[0]))
         if frames == 0:
             return 0.0
+
         diff = ref_mfcc[:frames] - cand_mfcc[:frames]
         per_frame = _MCD_CONSTANT * np.sqrt(np.sum(diff**2, axis=1))
         return float(np.mean(per_frame))
@@ -55,7 +52,12 @@ class SpectralShape:
     rolloff_percent: float
     name: str = "spectral_shape"
 
-    def components(self, reference: Signal, candidate: Signal, sample_rate: int) -> dict[str, float]:
+    def components(
+        self,
+        reference: Signal,
+        candidate: Signal,
+        sample_rate: int,
+    ) -> dict[str, float]:
         centroid = _relative_delta(
             spectral_centroid(reference, sample_rate, self.params),
             spectral_centroid(candidate, sample_rate, self.params),
@@ -71,7 +73,12 @@ class SpectralShape:
         )
         return {"centroid": centroid, "rolloff": rolloff, "flatness": flatness, "flux_variance": flux_variance_delta}
 
-    def distance(self, reference: Signal, candidate: Signal, context: MetricContext) -> float:
+    def distance(
+        self,
+        reference: Signal,
+        candidate: Signal,
+        context: MetricContext,
+    ) -> float:
         parts = self.components(reference, candidate, context.sample_rate)
         weighted = (
             self.weights.centroid * parts["centroid"],
@@ -86,7 +93,9 @@ class SpectralShape:
 register_metric(
     "mcd",
     lambda config: MelCepstralDistortion(
-        n_mfcc=config.mcd.n_mfcc, params=config.mcd.mel, dynamic_range_db=config.preprocess.dynamic_range_db
+        n_mfcc=config.mcd.n_mfcc,
+        params=config.mcd.mel,
+        dynamic_range_db=config.preprocess.dynamic_range_db,
     ),
 )
 register_metric(

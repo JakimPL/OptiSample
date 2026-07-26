@@ -1,25 +1,3 @@
-"""Shared per-pitch material tasks and the reconstruction-scoring primitive.
-
-Both the ungrouped optimizer (one sample per pitch, :mod:`optisample.optimize.orchestrate`) and
-pitch-zone grouping (:mod:`optisample.optimize.grouping`) need the same inputs: the material grouped
-by pitch, each pitch's representative recording (the loudest velocity actually played there, kept
-peak-normalized) and its per-``(velocity, duration)`` ground-truth references, plus a way to score
-how well a *stored* sample reconstructs a pitch's notes.
-
-The two callers differ only in *which* stored sample scores a pitch. Ungrouped, the stored sample is
-that pitch's own recording (no transpose). Grouped, it is a *different* pitch's recording, repitched
-to cover this one -- which is exactly what :func:`optisample.dsp.surrogate.render` does when asked for
-``pitch=task.pitch`` from a sample whose ``root_pitch`` differs. :func:`score_events` is therefore
-agnostic to the stored sample's origin: it renders it at the task's pitch and compares to the task's
-references.
-
-:func:`score_events` is the *single* per-event scorer. The optimizer sums it into the distortion it
-minimizes (via :func:`score_reconstruction`), and the artifact dumper renders the same stream into
-``metrics.json`` -- so the reported per-note scores can never drift from the objective they explain.
-"""
-
-from __future__ import annotations
-
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 
@@ -95,7 +73,15 @@ def merge_events(events: Sequence[NoteEvent]) -> list[MergedEvent]:
     for event in events:
         key = (event.velocity, event.duration_s)
         weights[key] = weights.get(key, 0.0) + event.weight
-    return [MergedEvent(velocity, duration, weight) for (velocity, duration), weight in weights.items()]
+
+    return [
+        MergedEvent(
+            velocity,
+            duration,
+            weight,
+        )
+        for (velocity, duration), weight in weights.items()
+    ]
 
 
 def _group_events_by_pitch(material: Sequence[NoteEvent]) -> dict[int, list[NoteEvent]]:
@@ -103,6 +89,7 @@ def _group_events_by_pitch(material: Sequence[NoteEvent]) -> dict[int, list[Note
     by_pitch: dict[int, list[NoteEvent]] = {}
     for event in material:
         by_pitch.setdefault(event.pitch, []).append(event)
+
     return by_pitch
 
 
@@ -111,10 +98,16 @@ def _recorded_velocities(audio: AudioMap) -> dict[int, list[int]]:
     velocities_at: dict[int, list[int]] = {}
     for pitch, velocity in audio:
         velocities_at.setdefault(pitch, []).append(velocity)
+
     return velocities_at
 
 
-def _build_pitch_task(pitch: int, events: Sequence[NoteEvent], available: Sequence[int], audio: AudioMap) -> PitchTask:
+def _build_pitch_task(
+    pitch: int,
+    events: Sequence[NoteEvent],
+    available: Sequence[int],
+    audio: AudioMap,
+) -> PitchTask:
     """Assemble one pitch's task: its representative recording and per-(velocity, duration) references.
 
     Each distinct ``(velocity, duration)`` the material plays becomes an :class:`Event` referenced by the
@@ -132,10 +125,19 @@ def _build_pitch_task(pitch: int, events: Sequence[NoteEvent], available: Sequen
         for merged in merge_events(events)
     )
     weight = sum(event.weight for event in built)
-    return PitchTask(pitch, weight, representative_velocity, audio[(pitch, representative_velocity)], built)
+    return PitchTask(
+        pitch,
+        weight,
+        representative_velocity,
+        audio[(pitch, representative_velocity)],
+        built,
+    )
 
 
-def build_tasks(instrument: InstrumentSpec, audio: AudioMap) -> list[PitchTask]:
+def build_tasks(
+    instrument: InstrumentSpec,
+    audio: AudioMap,
+) -> list[PitchTask]:
     """Group the material by pitch and attach each pitch's representative recording and references.
 
     Returned tasks are ordered by pitch -- the order the pitch-zone partitioning DP segments over.
@@ -148,7 +150,9 @@ def build_tasks(instrument: InstrumentSpec, audio: AudioMap) -> list[PitchTask]:
         available = sorted(velocities_at.get(pitch, []))
         if not available:
             raise ValueError(f"instrument {instrument.id!r} has no recorded sample for pitch {pitch}")
+
         tasks.append(_build_pitch_task(pitch, events, available, audio))
+
     return tasks
 
 
@@ -166,7 +170,11 @@ class EventScore:
         return self.event.weight * self.report.fidelity
 
 
-def score_events(stored: StoredSample, task: PitchTask, context: EvalContext) -> Iterator[EventScore]:
+def score_events(
+    stored: StoredSample,
+    task: PitchTask,
+    context: EvalContext,
+) -> Iterator[EventScore]:
     """Reconstruct each of ``task``'s notes from ``stored`` and score it, one :class:`EventScore` per event.
 
     ``stored`` is rendered at ``task.pitch`` -- a transpose of ``task.pitch - stored.root_pitch``
@@ -176,14 +184,31 @@ def score_events(stored: StoredSample, task: PitchTask, context: EvalContext) ->
     """
     for event in task.events:
         volume = context.velocity_map.volume(event.velocity)
-        candidate = render(stored, context.sample_rate, pitch=task.pitch, volume=volume, duration_s=event.duration_s)
+        candidate = render(
+            stored,
+            context.sample_rate,
+            pitch=task.pitch,
+            volume=volume,
+            duration_s=event.duration_s,
+        )
         reference = event.reference[: seconds_to_frames(event.duration_s, context.sample_rate)]
         yield EventScore(
-            event=event, volume=volume, report=evaluate(reference, candidate, context.sample_rate, context.composite)
+            event=event,
+            volume=volume,
+            report=evaluate(
+                reference,
+                candidate,
+                context.sample_rate,
+                context.composite,
+            ),
         )
 
 
-def score_reconstruction(stored: StoredSample, task: PitchTask, context: EvalContext) -> float:
+def score_reconstruction(
+    stored: StoredSample,
+    task: PitchTask,
+    context: EvalContext,
+) -> float:
     """Weighted mean distortion of reconstructing ``task``'s notes from ``stored`` (repitched to its key).
 
     The weighted sum of :func:`score_events` normalized per unit of material weight, so it can be

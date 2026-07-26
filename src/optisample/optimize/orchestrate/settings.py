@@ -1,7 +1,3 @@
-"""The knobs one optimization run consumes, bundled so the driver's call sites stay small."""
-
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Final
 

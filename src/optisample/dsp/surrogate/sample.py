@@ -13,7 +13,7 @@ from optisample.metrics.size import SampleSize
 
 Signal = NDArray[np.float64]
 
-MAX_VOLUME: Final = 64  # IT note volume spans 0x00..0x40 (linear in amplitude).
+MAX_VOLUME: Final = 64
 
 
 @dataclass(frozen=True)
@@ -24,8 +24,8 @@ class StoredSample:
     sample_rate: int
     depth_bits: int
     root_pitch: int
-    gain: float = 1.0  # normalization gain applied at encode time (stored = source * gain).
-    loop: Loop | None = None  # forward loop over stored frames, sustaining notes held past the sample
+    gain: float = 1.0
+    loop: Loop | None = None
 
     @property
     def frames(self) -> int:

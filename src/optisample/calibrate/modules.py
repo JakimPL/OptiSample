@@ -1,12 +1,3 @@
-"""Build the minimal IT module the calibrator hands to ``openmpt123``.
-
-:func:`single_note_module` wraps one stored sample in a one-sample, one-note module so ``openmpt123``
-renders exactly the note a :class:`~optisample.calibrate.context.NoteProbe` describes -- the
-ground-truth counterpart to the numpy surrogate render.
-"""
-
-from __future__ import annotations
-
 from typing import Final
 
 from optisample.calibrate.context import NoteProbe
@@ -23,7 +14,7 @@ from optisample.io.it_writer import (
 )
 from optisample.optimize.export import c5speed_for_pitch, row_seconds
 
-_ROW_MARGIN: Final = 2  # extra rows so the pattern outlasts the requested duration after row rounding
+_ROW_MARGIN: Final = 2
 
 
 def single_note_module(

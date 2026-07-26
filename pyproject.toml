@@ -87,4 +87,5 @@ disable = [
     "missing-function-docstring",
     "line-too-long",
     "too-few-public-methods",
+    "too-many-instance-attributes",
 ]

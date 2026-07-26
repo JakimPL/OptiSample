@@ -1,18 +1,3 @@
-"""Bit-depth reduction with peak-normalization, TPDF dither, and error-feedback noise shaping.
-
-Storing a sample peak-normalized ("hot") *before* requantizing maximizes the effective bit usage:
-the quantization noise floor sits ~1 LSB below full scale regardless of the source level, so a quiet
-source requantized as-is would waste bits. The makeup gain (the inverse of the normalization) is
-recorded by the caller so the velocity->volume map can restore the intended playback level later.
-
-Quantization uses a mid-tread signed grid with step ``2**(1 - bits)`` over ``[-1, 1)``, matching IT's
-signed PCM. On a full-scale sine the undithered SNR approaches the classic ``6.02 * bits + 1.76`` dB;
-TPDF dither trades a few dB of that for a signal-independent (click-free) noise floor, and first-order
-error-feedback noise shaping moves noise power out of the low band toward Nyquist.
-"""
-
-from __future__ import annotations
-
 from typing import Final
 
 import numpy as np
@@ -84,8 +69,17 @@ def requantize(
     data = np.asarray(signal, dtype=np.float64)
     if data.size == 0:
         return data.copy()
+
     generator = rng if rng is not None else np.random.default_rng(0)
-    noise = _tpdf_dither(data.size, step, generator) if dither else np.zeros(data.size, dtype=np.float64)
+    noise = (
+        _tpdf_dither(data.size, step, generator)
+        if dither
+        else np.zeros(
+            data.size,
+            dtype=np.float64,
+        )
+    )
     if noise_shaping:
         return _noise_shape(data, noise, step)
+
     return _quantize_grid(data + noise, step)

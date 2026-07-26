@@ -20,7 +20,7 @@ Method = Literal["exact", "lagrangian"]  # the MCKP solver the ungrouped strateg
 
 
 @dataclass(frozen=True)
-class SampleUnit:  # pylint: disable=too-many-instance-attributes
+class SampleUnit:
     """One stored sample a plan kept: the recording it re-encodes and every key that sample serves.
 
     Ungrouped, a unit is a single key playing its own sample; grouped, it is a whole pitch zone routed

@@ -1,13 +1,3 @@
-"""DSP-layer configuration: spectral-analysis sizing, loop detection, and quantization.
-
-``StftParams``/``MelParams`` size the spectral analysis, so the resolution is a tunable loaded from
-YAML rather than a signature default. ``LoopConfig`` holds the loop detector's band, periodicity gate,
-placement and seam-crossfade knobs; ``EncodeConfig`` is the derived bundle the surrogate encoder needs
-(loop detection + the normalization peak).
-"""
-
-from __future__ import annotations
-
 from optisample.config.base import ConfigModel
 
 
@@ -39,7 +29,7 @@ class SpectralConfig(ConfigModel):
     rolloff_percent: float
 
 
-class LoopConfig(ConfigModel):  # pylint: disable=too-many-instance-attributes
+class LoopConfig(ConfigModel):
     """Loop-point detection: search band, periodicity/sustain gates, placement, and seam crossfade."""
 
     min_hz: float
