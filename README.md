@@ -6,6 +6,13 @@ reproduces dynamics through a velocity→volume map.
 
 ## Requirements
 
+[`trackmod`](trackmod) is a tracker format library that ships as a git submodule, so a fresh clone fetches it before installing:
+
+```bash
+git submodule update --init
+uv sync
+```
+
 Ground-truth renders use `openmpt123` (optional — the pipeline falls back to a numpy surrogate when it
 is absent):
 
