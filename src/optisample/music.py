@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from typing import Final
 
-SEMITONES_PER_OCTAVE: Final = 12  # equal temperament: an octave is 12 semitones and doubles the frequency.
-MIDI_A4: Final = 69  # MIDI note number of A4, the tuning reference.
-A4_FREQ_HZ: Final = 440.0  # frequency of A4 in hertz.
-MIDI_MAX_VELOCITY: Final = 127  # MIDI velocity spans 0..127.
+SEMITONES_PER_OCTAVE: Final = 12
+MIDI_A4: Final = 69
+A4_FREQ_HZ: Final = 440.0
+MIDI_MAX_VELOCITY: Final = 127
 
 NOTE_NAMES: Final = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
 

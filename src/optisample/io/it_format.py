@@ -129,6 +129,5 @@ INSTRUMENT_HEADER: Final = ITRecord(
         Field("default_pan", 25, "B"),
         Field("name", 32, "26s"),
     ),
-    # 120 (play_note, sample_number) byte-pairs from offset 0x40; envelopes past it stay zero (disabled).
     arrays=(ArrayField("note_map", 64, KEYBOARD_NOTES, "BB"),),
 )

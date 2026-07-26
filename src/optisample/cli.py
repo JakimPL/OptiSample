@@ -26,11 +26,11 @@ from optisample.model import ProjectSpec
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.synth import generate_demo
 
-DEFAULT_SEED: Final = 0  # default RNG seed for both subcommands when --seed is not given.
-_PROFILE_TOP_FUNCTIONS: Final = 20  # functions --profile prints, ranked by cumulative time.
-_MS_PER_S: Final = 1000.0  # convert the --pre-roll-ms / --post-roll-ms flags to seconds.
-_NOTES_SUFFIX: Final = ".notes.json"  # NoteExtractor manifest suffix, stripped to name the instrument.
-_INTERPOLATIONS: Final = ("none", "linear", "cubic", "sinc")  # optisample.model.Interpolation values.
+DEFAULT_SEED: Final = 0
+_PROFILE_TOP_FUNCTIONS: Final = 20
+_MS_PER_S: Final = 1000.0
+_NOTES_SUFFIX: Final = ".notes.json"
+_INTERPOLATIONS: Final = ("none", "linear", "cubic", "sinc")
 
 
 def build_parser() -> argparse.ArgumentParser:

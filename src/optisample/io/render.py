@@ -29,7 +29,6 @@ from optisample.io.audio import read_wav
 from optisample.io.it_writer import ITModule, write_it
 
 _BINARY: Final = "openmpt123"
-# openmpt123 --filter takes interpolation *taps*; more taps = higher-quality (sinc) interpolation.
 _INTERPOLATION_TAPS: Final[dict[Interpolation, int]] = {"none": 1, "linear": 2, "cubic": 4, "sinc": 8}
 
 

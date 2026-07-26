@@ -19,7 +19,6 @@ MidiVelocity = Annotated[int, Field(ge=0, le=MIDI_MAX_VELOCITY)]
 PositiveFloat = Annotated[float, Field(gt=0.0)]
 
 Engine = Literal["openmpt"]
-# Duplicated in config.render.Interpolation: each keeps its own copy so the config package stays a dependency leaf.
 Interpolation = Literal["none", "linear", "cubic", "sinc"]
 
 _NO_LEAD_IN: Final = 0.0

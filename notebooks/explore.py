@@ -6,7 +6,6 @@ app = marimo.App(width="medium")
 
 @app.cell
 def _():
-    # Bootstrap: make the repo importable, then pull in the (tested) helper modules.
     import io
     import sys
     from pathlib import Path
@@ -26,7 +25,6 @@ def _():
 
 @app.cell
 def _():
-    # All algorithm knobs come from the bundled config; the composite is built once and threaded through.
     from optisample.config import load_config
     from optisample.metrics import build_composite
 

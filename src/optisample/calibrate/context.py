@@ -14,7 +14,7 @@ from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.dsp.surrogate import MAX_VOLUME
 from optisample.metrics.composite import CompositeFidelity
 
-_DEFAULT_PROBE_DURATION_S: Final = 0.5  # calibration notes last half a second unless a probe overrides it
+_DEFAULT_PROBE_DURATION_S: Final = 0.5
 
 
 @dataclass(frozen=True)

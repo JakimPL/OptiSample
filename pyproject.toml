@@ -1,7 +1,7 @@
 [project]
 name = "optisample"
-version = "0.0.1"
-description = "Sample Optimizer"
+version = "0.0.2"
+description = "OptiSample - Sample optimizer utility for creating ImpulseTracker instruments"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 authors = [{ name = "Jakim" }]
@@ -77,10 +77,7 @@ init_typed = true
 warn_required_dynamic_aliases = true
 
 [tool.pylint.main]
-# Thin marimo notebooks (top-level notebooks/*.py) are presentation-only and are not linted;
-# their reusable logic lives in notebooks/utils, which IS linted. See notebooks/README.md.
 ignore-paths = ['(.*/)?notebooks/[^/]+\.py$']
-# xmodits is a compiled (Rust) extension pylint cannot introspect for member checks.
 ignored-modules = ["xmodits"]
 
 [tool.pylint."messages control"]

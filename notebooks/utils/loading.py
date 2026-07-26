@@ -20,7 +20,7 @@ from optisample.synth import generate_demo
 Signal = NDArray[np.float64]
 
 _NOTES_SUFFIX = ".notes.json"
-_DEMO_BUDGET_KB = 128.0  # a .notes.json carries no budget; the inspector uses a fixed placeholder.
+_DEMO_BUDGET_KB = 128.0
 
 
 def ensure_demo(root: Path | str, config: SynthConfig, *, seed: int = 0) -> Path:

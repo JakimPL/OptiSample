@@ -33,7 +33,7 @@ from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan, Sam
 from optisample.optimize.tasks import EvalContext, PitchTask, score_events
 from optisample.optimize.velocity_map import VelocityVolumeMap
 
-_OPTIONAL_HEAD: Final = ("method", "pitches", "zones")  # plan-head fields present for only one of the two strategies
+_OPTIONAL_HEAD: Final = ("method", "pitches", "zones")
 
 
 class _Frozen(BaseModel):
