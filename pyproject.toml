@@ -54,13 +54,14 @@ known_first_party = ["optisample"]
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib --cov"
 pythonpath = ["src", "."]
+testpaths = ["tests"]
 
 [tool.coverage.run]
 source = ["src/optisample"]
 
 [tool.coverage.report]
 show_missing = true
-fail_under = 80
+fail_under = 99
 
 [tool.mypy]
 files = ["src/optisample", "notebooks/utils"]
