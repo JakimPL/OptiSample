@@ -10,14 +10,42 @@ running them, not by static analysis.
 From the repo root:
 
 ```bash
-uv run marimo edit notebooks/explore.py     # interactive
-uv run marimo run  notebooks/explore.py     # read-only app
+uv run marimo edit notebooks/pipeline.py    # the CLI as controls, its output as an explorer
+uv run marimo edit notebooks/explore.py     # samples and the metric layer
+uv run marimo run  notebooks/pipeline.py    # read-only app
 ```
 
-On first run, `explore.py` generates a synthetic demo project under `notebooks/_demo/`
-(git-ignored) — one `.notes.json` + samples directory per preset — and loads them into a combined
-manifest. Point the *demo directory* field at your own directory of `.notes.json` files to inspect
-real recordings instead.
+## `pipeline.py` — pipeline console
+
+Every CLI flag as a control and every stage's output as an explorer. A run shells out to
+`optisample <command>` exactly as a terminal would, and the invocation behind each button is printed
+above it, so anything found here is reproducible from a shell.
+
+**Controls** — the source dataset and run root; subset fraction; budget; tracker format; strategy;
+interpolation; dedupe key; shortlist size; stored rates and bit depths; looping; ground-truth render;
+workers; dither seed. One bundle stands behind all three stages, so a control moved once reaches
+whichever stage runs next.
+
+**Stages** — `subset` carves the share of a dataset that still spans its pitch and velocity ranges,
+`reduce` writes the survivors an allocation picks up from, and `optimize` allocates the budget. Each
+stage prefers what the one before it left: reduction reads the subset once it exists, and allocation
+reads the reduced dataset, so the sweep is reached having paid only the ingest. Every transcript is
+filed under `<run root>/logs/`.
+
+**Reduction explorer** — each axis read as `before -> after`, every kept recording measured against
+the material its pitch asks of it, the narrowed grid per pitch, and the survivors written. Then the
+**auditions**: the recording a pitch was judged against, beside every shortlisted encoding rendered
+to audio — the shortlist made audible before the sweep is paid for.
+
+**Allocation explorer** — the byte accounting, the encoding each kept item spends its bytes on (one
+table shape for both strategies), and where every item landed on the rate-distortion plane. Then the
+per-note fidelity summing back to the plan's objective, and per pitch the **A/B pair** the objective
+actually scored: the recording and the module's reconstruction, side by side with spectrograms and
+the sub-scores behind the number.
+
+The run root defaults to the repository root, so `subset/`, `reduced/` and `artifacts/` from a
+terminal run are picked up as they are. The explorers read whatever is on disk, so a long run started
+in a shell can be inspected here without re-running it.
 
 ## `explore.py` — sample & metric inspector
 
@@ -30,5 +58,6 @@ real recordings instead.
 - **Smoke-test panel:** the fixed P1 degradation set with a stacked bar decomposing the composite
   (bar height ≈ fidelity) — the interactive form of the P1 smoke test.
 
-Rendering the *optimized* IT instrument is deferred to a later phase; this notebook covers the
-inputs and the measurement layer only.
+On first run it generates a synthetic demo project under `notebooks/_demo/` (git-ignored) — one
+`.notes.json` + samples directory per preset — and loads them into a combined manifest. Point the
+*demo directory* field at your own directory of `.notes.json` files to inspect real recordings.

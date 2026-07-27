@@ -9,7 +9,8 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.artifacts import DumpSettings, ReducedInstrument, dump_reduced
-from optisample.artifacts.reduced import reduce_project, reduced_paths, stored_frames
+from optisample.artifacts.paths import reduced_paths
+from optisample.artifacts.reduced import reduce_project, stored_frames
 from optisample.config.reduce import DedupeKey
 from optisample.io.audio import read_wav
 from optisample.io.note_extractor import IngestSettings, load_notes

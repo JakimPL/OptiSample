@@ -20,4 +20,7 @@ __pycache__/
 *.coverage.*
 
 notebooks/_demo/
+notebooks/_runs/
 /artifacts/
+/reduced/
+/subset/

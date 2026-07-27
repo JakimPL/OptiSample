@@ -251,6 +251,29 @@ def test_a_reduced_dataset_optimizes_to_the_same_plan_as_its_source(tmp_path: Pa
     assert direct == again
 
 
+def test_subset_command_writes_a_dataset_the_other_commands_read(
+    tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out = tmp_path / "subset"
+    main(["subset", str(tiny_notes), "--fraction", "0.67", "--out", str(out)])
+
+    assert (out / "piano.notes.json").is_file()
+    assert len(list((out / "piano").glob("*.wav"))) == 2
+    printed = capsys.readouterr().out
+    assert "2 of 3 notes" in printed
+    main(
+        ["optimize", str(out / "piano.notes.json"), "--budget-kb", "48", "--out", str(tmp_path / "art"), "--no-render"]
+    )
+    assert (tmp_path / "art" / "piano" / "ungrouped" / "plan.json").is_file()
+
+
+def test_the_subset_command_names_its_output_after_the_instrument(tmp_path: Path, tiny_notes: Path) -> None:
+    main(["subset", str(tiny_notes), "--fraction", "1.0", "--instrument-id", "Grand", "--out", str(tmp_path / "s")])
+
+    assert (tmp_path / "s" / "Grand.notes.json").is_file()
+    assert len(list((tmp_path / "s" / "Grand").glob("*.wav"))) == len(PITCHES)
+
+
 def test_the_reduce_command_reads_the_same_ingest_flags_as_optimize(config: OptiConfig) -> None:
     """Both commands share one ingest parser, so a reduction knob means the same thing to either."""
     argv = ["m.notes.json", "--budget-kb", "48", "--dedupe-key", "pitch", "--candidates", "7", "--seed", "3"]

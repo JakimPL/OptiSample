@@ -10,6 +10,7 @@ from optisample.artifacts.context import (
     DumpSettings,
     PlanArtifacts,
 )
+from optisample.artifacts.paths import PlanPaths, plan_paths
 from optisample.artifacts.serialize import (
     NoteMetricRecord,
     RenderedNote,
@@ -51,7 +52,6 @@ class _Strategy:
 
 _UNGROUPED: Final = _Strategy("ungrouped", allocate_instrument)
 _GROUPED: Final = _Strategy("grouped", allocate_instrument_grouped)
-_MODULE_STEM: Final = "module"
 _NOTE_LABEL: Final = "Rendering note pairs"
 
 
@@ -75,7 +75,7 @@ def _note_record(
     kind: PlanKind,
     unit: Unit,
     task: PitchTask,
-    out_dir: Path,
+    paths: PlanPaths,
     dump_context: DumpContext,
 ) -> NoteMetricRecord:
     """Write the reference/rendered A/B pair for one pitch and return its metric record."""
@@ -83,9 +83,9 @@ def _note_record(
     rep = task.representative_event
     stem = pitch_label(task.pitch)
     reference = rep.scored_reference(dump_context.sample_rate)
-    write_wav(out_dir / "compare" / f"{stem}_ref.wav", reference, dump_context.sample_rate)
+    write_wav(paths.reference_wav(stem), reference, dump_context.sample_rate)
     rendered, rate, source = _rendered_note(dump_context, kind, unit, task, rep)
-    write_wav(out_dir / "compare" / f"{stem}_render.wav", rendered, rate)
+    write_wav(paths.rendered_wav(stem), rendered, rate)
     outcome = RenderedNote(
         served_by=unit.label,
         representative=unit.representative,
@@ -96,52 +96,52 @@ def _note_record(
     return note_record(task, events, contribution, outcome)
 
 
-def _write_plan_docs(kind: PlanKind, out_dir: Path) -> None:
+def _write_plan_docs(kind: PlanKind, paths: PlanPaths) -> None:
     """Write the human report and the plan, velocity-map and reduction JSON documents."""
-    write_text(out_dir / "report.txt", kind.report_text)
-    write_json(out_dir / "plan.json", kind.plan_document)
-    write_json(out_dir / "velocity_map.json", kind.plan_document.velocity_map)
-    write_json(out_dir / "reduction.json", kind.plan_document.reduction)
+    write_text(paths.report, kind.report_text)
+    write_json(paths.plan_json, kind.plan_document)
+    write_json(paths.velocity_map_json, kind.plan_document.velocity_map)
+    write_json(paths.reduction_json, kind.plan_document.reduction)
 
 
-def _write_sample_wavs(kind: PlanKind, out_dir: Path) -> None:
+def _write_sample_wavs(kind: PlanKind, paths: PlanPaths) -> None:
     """Decode every stored sample back to a float WAV under ``samples/`` (bit-identical to the module)."""
     for unit in kind.units:
-        write_wav(out_dir / "samples" / f"{unit.label}.wav", unit.stored.pcm, unit.stored.sample_rate)
+        write_wav(paths.sample_wav(unit.label), unit.stored.pcm, unit.stored.sample_rate)
 
 
-def _write_module_and_render(kind: PlanKind, out_dir: Path, dump_context: DumpContext) -> bool:
+def _write_module_and_render(kind: PlanKind, paths: PlanPaths, dump_context: DumpContext) -> bool:
     """Write the module in its own format and, when openmpt123 is available and asked for, render it."""
-    kind.module.save(out_dir / f"{_MODULE_STEM}{kind.module.extension}")
+    kind.module.save(paths.module(kind.module.extension))
     if not (dump_context.settings.render_ground_truth and openmpt123_available()):
         return False
-    (out_dir / "render").mkdir(parents=True, exist_ok=True)
+    paths.render_dir.mkdir(parents=True, exist_ok=True)
     audio, rate = render_module(kind.module, dump_context.settings.render)
-    write_wav(out_dir / "render" / f"{_MODULE_STEM}.wav", audio, rate)
+    write_wav(paths.module_render, audio, rate)
     return True
 
 
 def _write_metrics(
     kind: PlanKind,
-    out_dir: Path,
+    paths: PlanPaths,
     dump_context: DumpContext,
 ) -> None:
     """Score and A/B-render every covered pitch; ``metrics.json``'s objective reproduces ``plan.objective``."""
     covered = [(unit, task) for unit in kind.units for task in unit.tasks]
     progress = dump_context.settings.progress
     notes = [
-        _note_record(kind, unit, task, out_dir, dump_context)
+        _note_record(kind, unit, task, paths, dump_context)
         for unit, task in progress.track(covered, label=_NOTE_LABEL, total=len(covered))
     ]
     document = metrics_document(
         kind.name, kind.plan_document.instrument_id, dump_context.sample_rate, kind.plan_document.objective, notes
     )
-    write_json(out_dir / "metrics.json", document)
+    write_json(paths.metrics_json, document)
 
 
 def _dump_plan(
     kind: PlanKind,
-    out_dir: Path,
+    paths: PlanPaths,
     dump_context: DumpContext,
     started_at: float,
 ) -> PlanArtifacts:
@@ -150,12 +150,12 @@ def _dump_plan(
     ``started_at`` is the :func:`time.perf_counter` reading taken before the optimize call, so the
     reported ``elapsed_s`` spans the whole strategy (optimize + this dump), not just the I/O here.
     """
-    (out_dir / "samples").mkdir(parents=True, exist_ok=True)
-    (out_dir / "compare").mkdir(parents=True, exist_ok=True)
-    _write_plan_docs(kind, out_dir)
-    _write_sample_wavs(kind, out_dir)
-    rendered = _write_module_and_render(kind, out_dir, dump_context)
-    _write_metrics(kind, out_dir, dump_context)
+    paths.samples_dir.mkdir(parents=True, exist_ok=True)
+    paths.compare_dir.mkdir(parents=True, exist_ok=True)
+    _write_plan_docs(kind, paths)
+    _write_sample_wavs(kind, paths)
+    rendered = _write_module_and_render(kind, paths, dump_context)
+    _write_metrics(kind, paths, dump_context)
     return PlanArtifacts(
         name=kind.name,
         reason=None,
@@ -168,18 +168,18 @@ def _dump_plan(
 
 def _optimize_and_dump(
     instrument: InstrumentSpec,
-    out_dir: Path,
+    paths: PlanPaths,
     dump_context: DumpContext,
     strategy: _Strategy,
 ) -> PlanArtifacts:
     """Allocate one strategy and dump it; on an infeasible budget, record why instead of raising."""
-    out_dir.mkdir(parents=True, exist_ok=True)
+    paths.directory.mkdir(parents=True, exist_ok=True)
     started_at = perf_counter()
     try:
         plan = strategy.allocate(instrument, dump_context.inputs, dump_context.settings.optimize)
         kind = make_kind(plan, dump_context)
     except BudgetInfeasibleError as exc:
-        write_text(out_dir / "INFEASIBLE.txt", f"{strategy.name} allocation is infeasible at this budget:\n{exc}\n")
+        write_text(paths.infeasible, f"{strategy.name} allocation is infeasible at this budget:\n{exc}\n")
         return PlanArtifacts(
             strategy.name,
             reason=str(exc),
@@ -189,7 +189,7 @@ def _optimize_and_dump(
             elapsed_s=perf_counter() - started_at,
         )
 
-    return _dump_plan(kind, out_dir, dump_context, started_at)
+    return _dump_plan(kind, paths, dump_context, started_at)
 
 
 def dump_instrument(
@@ -212,7 +212,10 @@ def dump_instrument(
     strategies = [
         strategy for strategy, enabled in ((_UNGROUPED, settings.ungrouped), (_GROUPED, settings.grouped)) if enabled
     ]
-    plans = [_optimize_and_dump(instrument, out_dir / strategy.name, dump_context, strategy) for strategy in strategies]
+    plans = [
+        _optimize_and_dump(instrument, plan_paths(out_dir, strategy.name), dump_context, strategy)
+        for strategy in strategies
+    ]
     return DumpResult(instrument_id=instrument.id, directory=out_dir, plans=tuple(plans))
 
 

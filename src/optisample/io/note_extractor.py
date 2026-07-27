@@ -17,7 +17,9 @@ from optisample.model import (
 NOTES_SUFFIX: Final = ".notes.json"  # the manifest extension every NoteExtractor dataset is named by
 
 
-class _Render(BaseModel):
+class RenderWindow(BaseModel):
+    """Where one note sits in the render a manifest was extracted from, and which WAV holds it."""
+
     model_config = ConfigDict(extra="ignore")
 
     index: int
@@ -25,19 +27,28 @@ class _Render(BaseModel):
     release_end_seconds: float
 
 
-class _Note(BaseModel):
+class ManifestNote(BaseModel):
+    """One note as a ``.notes.json`` states it: what was played, and where it was recorded."""
+
     model_config = ConfigDict(extra="ignore")
 
     pitch: int
     velocity: int
     cc_averages: dict[int, float] = Field(default_factory=dict)
-    render: _Render
+    render: RenderWindow
+
+    @property
+    def duration_s(self) -> float:
+        """The audible span of the note: its onset through the end of its release."""
+        return self.render.release_end_seconds - self.render.start_seconds
 
 
-class _NotesFile(BaseModel):
+class NotesManifest(BaseModel):
+    """The fields a NoteExtractor ``.notes.json`` carries that the pipeline reads."""
+
     model_config = ConfigDict(extra="ignore")
 
-    notes: list[_Note]
+    notes: list[ManifestNote]
 
 
 def index_of_wav(path: Path | str) -> int:
@@ -80,7 +91,7 @@ def load_notes(
     notes_json = Path(notes_json)
     samples_dir = Path(samples_dir).resolve()
     raw: Any = json.loads(notes_json.read_text(encoding="utf-8"))
-    parsed = _NotesFile.model_validate(raw)
+    parsed = NotesManifest.model_validate(raw)
 
     wavs = {index_of_wav(wav): wav for wav in sorted(samples_dir.glob("*.wav"))}
 
@@ -104,7 +115,7 @@ def load_notes(
                 pitch=note.pitch,
                 velocity=note.velocity,
                 cc_averages=note.cc_averages,
-                duration_s=note.render.release_end_seconds - note.render.start_seconds,
+                duration_s=note.duration_s,
             )
         )
 

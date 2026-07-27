@@ -33,6 +33,28 @@ against each WAV filename's leading index token. Reducing the grid to one record
 optimizer's job: it keeps the shortest recording that still covers the notes that key has to play,
 under the identity `reduce.yaml` names (`pitch`, `pitch_velocity`, or `pitch_velocity_cc`).
 
+### Taking a slice first
+
+A thousand-note instrument is worth iterating on at a tenth of its size before it is run whole, and
+`optisample subset` writes that tenth as a dataset of the same shape:
+
+```bash
+optisample subset path/to/Piano.notes.json --fraction 0.1 --out subset
+optisample reduce subset/Piano.notes.json --budget-kb 512      # picks up from there
+```
+
+Notes are grouped by pitch, each pitch is allotted a share, and the notes it contributes are the ones
+its velocities spread evenly over — so a slice covers the keyboard the source plays and, within each
+pitch, the dynamics it was played across. Every pitch is represented before any pitch takes a second
+note; what is left over then goes round the pitches busiest first. Each kept note is written exactly
+as the source states it, so the slice measures the same material at the same lengths, and the output
+root is itself a NoteExtractor dataset.
+
+Because a pitch's picks start from its quietest and loudest recordings, a slice holds one recording
+per identity and leaves deduplication nothing to collapse. That is the honest reading of a slice's
+`recordings: n listed -> n kept` line: the dedupe axis is exercised by the whole dataset, not by a
+tenth of it.
+
 ## Reduction: shrinking the problem before it is solved
 
 A whole pre-optimization stage (`src/opticonfig/reduce.yaml`) runs before any byte is allocated, and
@@ -161,3 +183,18 @@ pipeline without real recordings:
 optisample synth demo_out --sample-rate 22050
 optisample optimize demo_out/piano.notes.json --budget-kb 96 --no-render
 ```
+
+## Driving it from a notebook
+
+[`notebooks/pipeline.py`](notebooks/pipeline.py) is the same CLI with its flags as controls and its
+output as an explorer: run `subset`, `reduce` and `optimize` from buttons, then read the reduction
+axes, listen to every shortlisted encoding, and compare each pitch's reconstruction against the
+recording the objective scored it on. It shells out to `optisample` and prints the invocation behind
+every button, so what it finds is reproducible from a terminal, and its explorers read whatever is
+already on disk — a long run started in a shell can be inspected without re-running it.
+
+```bash
+uv run marimo edit notebooks/pipeline.py
+```
+
+See [`notebooks/README.md`](notebooks/README.md) for what each panel shows.

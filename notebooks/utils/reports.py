@@ -1,0 +1,293 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Final
+
+from notebooks.utils.views import Row
+from optisample.artifacts.paths import PlanPaths, plan_paths, reduced_paths
+from optisample.artifacts.serialize import (
+    EncodingRecord,
+    MetricsDocument,
+    PitchItemRecord,
+    PlanDocument,
+    ReducedDocument,
+    ReductionDocument,
+    ZoneItemRecord,
+)
+from optisample.metrics import bytes_to_kib
+from optisample.music import note_name
+
+_STRATEGIES: Final = ("ungrouped", "grouped")
+_REFERENCE_STEM: Final = "reference"
+_REFERENCE_TAIL: Final = "_ref.wav"
+_ON: Final = "on"
+_OFF: Final = "-"
+_PERCENT: Final = 100.0
+
+
+def has_reduction(root: Path, instrument_id: str) -> bool:
+    """Whether a reduce run has left its document under ``root``, so the explorers have something to read."""
+    return reduced_paths(root, instrument_id).reduction_json.is_file()
+
+
+def read_reduced(root: Path, instrument_id: str) -> ReducedDocument:
+    """The document a reduce run left beside the dataset it wrote under ``root``."""
+    return ReducedDocument.model_validate_json(
+        reduced_paths(root, instrument_id).reduction_json.read_text(encoding="utf-8")
+    )
+
+
+def read_plan(paths: PlanPaths) -> PlanDocument:
+    """One strategy's plan: budgets, the velocity map, and the encoding chosen for every kept item."""
+    return PlanDocument.model_validate_json(paths.plan_json.read_text(encoding="utf-8"))
+
+
+def read_metrics(paths: PlanPaths) -> MetricsDocument:
+    """One strategy's per-note surrogate fidelity, summing back to the plan's objective."""
+    return MetricsDocument.model_validate_json(paths.metrics_json.read_text(encoding="utf-8"))
+
+
+def available_strategies(instrument_dir: Path) -> list[str]:
+    """The strategies whose plan an allocation left under ``instrument_dir``, in the order they run."""
+    return [strategy for strategy in _STRATEGIES if plan_paths(instrument_dir, strategy).plan_json.is_file()]
+
+
+# --- what the pre-optimization stage decided ---------------------------------------------------------
+
+
+def reduction_rows(reduction: ReductionDocument) -> list[Row]:
+    """Each reduction axis as one row reading before -> after, which is the stage's whole outcome."""
+    per_key = len(reduction.grids) or 1
+    return [
+        {"axis": "recordings", "before": reduction.listed_recordings, "after": reduction.kept_recordings},
+        {"axis": "played notes", "before": reduction.played_notes, "after": reduction.scored_classes},
+        {
+            "axis": "stored encodings per key",
+            "before": reduction.grid_size,
+            "after": round(sum(len(grid.shortlist) for grid in reduction.grids) / per_key, 2),
+        },
+    ]
+
+
+def recording_rows(reduction: ReductionDocument) -> list[Row]:
+    """One row per surviving recording, measured against the material its pitch asks of it."""
+    return [
+        {
+            "key": recording.key,
+            "pitch": recording.pitch,
+            "velocity": recording.velocity,
+            "dur_s": round(recording.duration_s, 3),
+            "required_s": round(recording.required_duration_s, 3),
+            "covers": recording.covers_material,
+            "shortfall_s": round(max(0.0, recording.required_duration_s - recording.duration_s), 3),
+        }
+        for recording in reduction.recordings
+    ]
+
+
+def shortlist_rows(reduction: ReductionDocument) -> list[Row]:
+    """One row per played pitch: the band bounding its grid, and the encodings left in the running."""
+    return [
+        {
+            "pitch": grid.pitch,
+            "note": grid.note,
+            "useful_rate_hz": round(grid.useful_rate_hz),
+            "shortlisted": len(grid.shortlist),
+            "encodings": " ".join(
+                f"{entry.target_rate // 1000}k/{entry.depth_bits}{'c' if entry.compress else ''}"
+                for entry in grid.shortlist
+            ),
+        }
+        for grid in reduction.grids
+    ]
+
+
+def survivor_rows(document: ReducedDocument) -> list[Row]:
+    """One row per WAV a reduce run wrote, as the reduced dataset holds it."""
+    return [
+        {
+            "index": sample.index,
+            "key": sample.key,
+            "file": sample.file,
+            "frames": sample.frames,
+            "dur_s": round(sample.duration_s, 3),
+        }
+        for sample in document.samples
+    ]
+
+
+# --- what the allocation bought ----------------------------------------------------------------------
+
+
+def _encoding_cells(encoding: EncodingRecord) -> Row:
+    """The stored-encoding block every plan item carries, as the cells a table shows it through."""
+    return {
+        "rate_hz": encoding.target_rate,
+        "depth": encoding.depth_bits,
+        "comp": _ON if encoding.compress else _OFF,
+        "loop": _ON if encoding.loop is not None else _OFF,
+        "frames": encoding.frames,
+        "kib": round(bytes_to_kib(encoding.stored_bytes), 3),
+        "distortion": round(encoding.distortion, 4),
+        "hull": encoding.hull_size,
+    }
+
+
+def _pitch_row(item: PitchItemRecord) -> Row:
+    """One kept pitch, holding the single key it was recorded at."""
+    return {
+        "keys": str(item.pitch),
+        "span": 1,
+        "note": item.note,
+        "rep_vel": item.representative_velocity,
+        "weight_s": round(item.weight, 2),
+        **_encoding_cells(item),
+    }
+
+
+def _zone_row(item: ZoneItemRecord) -> Row:
+    """One pitch zone, holding every key its representative is transposed across."""
+    return {
+        "keys": f"{item.keys[0]}-{item.keys[-1]}",
+        "span": len(item.pitches),
+        "note": note_name(item.representative),
+        "rep_vel": item.representative_velocity,
+        "weight_s": round(item.weight, 2),
+        **_encoding_cells(item),
+    }
+
+
+def plan_item_rows(plan: PlanDocument) -> list[Row]:
+    """One row per item the plan kept: the keys it serves, and the encoding it spends its bytes on.
+
+    Both strategies read through the same cells, so the two plans line up column for column and a
+    budget moved between them stays readable.
+    """
+    if plan.zones is not None:
+        return [_zone_row(zone) for zone in plan.zones]
+
+    return [_pitch_row(pitch) for pitch in plan.pitches or []]
+
+
+def budget_rows(plan: PlanDocument) -> list[Row]:
+    """The plan's byte accounting beside what the module it exports to actually occupies."""
+    items = plan.zones if plan.zones is not None else plan.pitches or []
+    return [
+        {
+            "strategy": plan.strategy,
+            "objective": round(plan.objective, 4),
+            "items": len(items),
+            "sample_budget_kib": round(bytes_to_kib(plan.budget.sample_budget_bytes), 1),
+            "used_kib": round(bytes_to_kib(plan.budget.used_bytes), 1),
+            "spent_pct": round(_PERCENT * plan.budget.used_bytes / plan.budget.sample_budget_bytes, 1),
+            "module_kib": round(bytes_to_kib(plan.module.total_bytes), 1),
+            "pcm_kib": round(bytes_to_kib(plan.module.pcm_bytes), 1),
+        }
+    ]
+
+
+def note_metric_rows(metrics: MetricsDocument) -> list[Row]:
+    """One row per covered pitch: which sample served it, and the share of the objective it carries."""
+    return [
+        {
+            "pitch": note.pitch,
+            "note": note.note,
+            "served_by": note.served_by,
+            "weight_s": round(note.weight, 2),
+            "mean_distortion": round(note.mean_distortion, 4),
+            "objective": round(note.objective_contribution, 4),
+            "classes": len(note.events),
+            "render": note.render_source,
+        }
+        for note in metrics.notes
+    ]
+
+
+def _measurement(value: float | None) -> float | str:
+    """A measurement as a table cell, naming the readings that had no finite value behind them."""
+    return "n/a" if value is None else round(value, 4)
+
+
+def event_rows(metrics: MetricsDocument, pitch: int) -> list[Row]:
+    """Every scored note class of one pitch, with the sub-scores its fidelity is composed of."""
+    return [
+        {
+            "velocity": event.velocity,
+            "dur_s": round(event.duration_s, 3),
+            "weight_s": round(event.weight, 2),
+            "volume": event.volume,
+            "fidelity": round(event.fidelity, 4),
+            **{name: _measurement(value) for name, value in event.breakdown.items()},
+            **{name: _measurement(value) for name, value in event.diagnostics.items()},
+        }
+        for note in metrics.notes
+        if note.pitch == pitch
+        for event in note.events
+    ]
+
+
+# --- the audio each stage left behind ----------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Clip:
+    """One WAV an inspection folder holds: what it is, and where it sits."""
+
+    label: str
+    path: Path
+
+
+def audition_pitches(root: Path, instrument_id: str) -> list[str]:
+    """The pitch folders a reduce run filled with auditions, in keyboard order."""
+    auditions_dir = reduced_paths(root, instrument_id).auditions_dir
+    if not auditions_dir.is_dir():
+        return []
+
+    return sorted(folder.name for folder in auditions_dir.iterdir() if folder.is_dir())
+
+
+def auditions(root: Path, instrument_id: str, pitch: str) -> list[Clip]:
+    """The recording one pitch was judged against, followed by every encoding shortlisted for it."""
+    folder = reduced_paths(root, instrument_id).auditions_dir / pitch
+    files = sorted(folder.glob("*.wav"), key=lambda wav: (wav.stem != _REFERENCE_STEM, wav.stem))
+    return [Clip(label=wav.stem, path=wav) for wav in files]
+
+
+def compared_pitches(paths: PlanPaths) -> list[str]:
+    """The pitches an allocation wrote an A/B pair for, in keyboard order."""
+    if not paths.compare_dir.is_dir():
+        return []
+
+    return sorted(wav.name.removesuffix(_REFERENCE_TAIL) for wav in paths.compare_dir.glob(f"*{_REFERENCE_TAIL}"))
+
+
+def comparison(paths: PlanPaths, pitch: str) -> tuple[Path, Path]:
+    """One pitch's A/B pair: the recording as scored, beside what the module produces for it."""
+    return paths.reference_wav(pitch), paths.rendered_wav(pitch)
+
+
+def stored_samples(paths: PlanPaths) -> list[Clip]:
+    """Every sample the plan stores, decoded back to a WAV bit-identical to the module's own."""
+    if not paths.samples_dir.is_dir():
+        return []
+
+    return [Clip(label=wav.stem, path=wav) for wav in sorted(paths.samples_dir.glob("*.wav"))]
+
+
+def module_render(paths: PlanPaths) -> Path | None:
+    """The whole module rendered through openmpt123, when the run asked for one and could have it."""
+    return paths.module_render if paths.module_render.is_file() else None
+
+
+def report_text(paths: PlanPaths) -> str:
+    """The human-readable report a strategy opens with, as written."""
+    return paths.report.read_text(encoding="utf-8")
+
+
+def infeasible_reason(paths: PlanPaths) -> str | None:
+    """Why a strategy left no plan, when the budget afforded no allocation at all."""
+    if paths.infeasible.is_file():
+        return paths.infeasible.read_text(encoding="utf-8")
+
+    return None

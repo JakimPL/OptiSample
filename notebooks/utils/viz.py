@@ -89,6 +89,48 @@ def contribution_bar(comparisons: list[Row], weights: dict[str, float], *, title
     return figure
 
 
+def rd_scatter(rows: list[Row], *, title: str | None = None) -> Figure:
+    """Where every kept item landed on the rate-distortion plane, marked by the depth it was stored at.
+
+    A plan is one point per item; reading them together says which keys the budget bought resolution
+    for and which it left carrying the distortion, and the depth split shows where the allocation
+    judged bandwidth worth more than bit depth.
+    """
+    figure = Figure(figsize=(8.0, 3.4))
+    axes = figure.add_subplot()
+    for depth in sorted({int(row["depth"]) for row in rows}):
+        at_depth = [row for row in rows if int(row["depth"]) == depth]
+        axes.scatter(
+            [float(row["kib"]) for row in at_depth],
+            [float(row["distortion"]) for row in at_depth],
+            s=26.0,
+            alpha=0.8,
+            label=f"{depth}-bit",
+        )
+    axes.set_xlabel("stored size (KiB)")
+    axes.set_ylabel("distortion")
+    axes.set_xscale("log")
+    axes.legend(loc="upper right", fontsize="small")
+    axes.set_title(title or "Rate-distortion of the kept items")
+    figure.set_layout_engine("tight")
+    return figure
+
+
+def objective_bar(rows: list[Row], *, title: str | None = None) -> Figure:
+    """Each pitch's share of the objective, in keyboard order, so the costly keys stand out by name."""
+    labels = [str(row["note"]) for row in rows]
+    positions = np.arange(len(rows), dtype=np.float64)
+    figure = Figure(figsize=(9.0, 3.2))
+    axes = figure.add_subplot()
+    axes.bar(positions, [float(row["objective"]) for row in rows])
+    axes.set_xticks(positions)
+    axes.set_xticklabels(labels, rotation=90.0, fontsize="x-small")
+    axes.set_ylabel("weighted distortion")
+    axes.set_title(title or "Objective contribution per pitch")
+    figure.set_layout_engine("tight")
+    return figure
+
+
 def figure_png(figure: Figure, *, dpi: int = 110) -> bytes:
     """Render a figure to PNG bytes via Agg — display in marimo with ``mo.image(...)``."""
     FigureCanvasAgg(figure)

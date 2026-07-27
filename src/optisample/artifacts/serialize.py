@@ -1,6 +1,6 @@
 import json
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
@@ -245,7 +245,9 @@ class EventMetricRecord(_Frozen):
     """One scored note class of a pitch: its stored volume and the surrogate fidelity + sub-scores it earned.
 
     ``velocity`` names the loudest note the class covers and ``duration_s`` the length it was scored
-    over; ``weight`` is the playing time of every note the class stands for.
+    over; ``weight`` is the playing time of every note the class stands for. A reading with no finite
+    value behind it -- the loudness of a note too quiet to gate, say -- stands as ``None``, which is how
+    :func:`write_json` states it and therefore how the written document reads back.
     """
 
     velocity: int
@@ -253,8 +255,8 @@ class EventMetricRecord(_Frozen):
     weight: float
     volume: int
     fidelity: float
-    breakdown: dict[str, float]
-    diagnostics: dict[str, float]
+    breakdown: Mapping[str, float | None]
+    diagnostics: Mapping[str, float | None]
 
 
 class NoteMetricRecord(_Frozen):

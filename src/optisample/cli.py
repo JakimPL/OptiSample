@@ -4,14 +4,16 @@ import pstats
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Final
+from typing import Final, get_args
 
 from optisample.artifacts import DumpSettings, dump_project, reduce_project
 from optisample.config import OptiConfig, load_config
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import DedupeKey, ReduceConfig
+from optisample.config.render import Interpolation
 from optisample.config.tracker import TrackerConfig, TrackerFormat
 from optisample.io.note_extractor import NOTES_SUFFIX, IngestSettings, load_notes
+from optisample.io.subset import write_subset
 from optisample.io.tracker.target import ExportTarget, export_target
 from optisample.model import ProjectSpec
 from optisample.optimize.orchestrate.settings import OptimizeSettings
@@ -21,34 +23,41 @@ from optisample.synth import DemoSettings, generate_demo
 DEFAULT_SEED: Final = 0
 _PROFILE_TOP_FUNCTIONS: Final = 20
 _MS_PER_S: Final = 1000.0
-_INTERPOLATIONS: Final = ("none", "linear", "cubic", "sinc")
+_INTERPOLATIONS: Final = get_args(Interpolation)
 _FORMATS: Final = tuple(TrackerFormat)
 _DEDUPE_KEYS: Final = tuple(DedupeKey)
 _ARTIFACTS_OUT: Final = Path("artifacts")
 _REDUCED_OUT: Final = Path("reduced")
+_SUBSET_OUT: Final = Path("subset")
 
 
-def _common_parser() -> argparse.ArgumentParser:
-    """The flags every subcommand reads: the config, the fan-out, and whether stages draw their bars."""
-    common = argparse.ArgumentParser(add_help=False)
-    common.add_argument(
+def _config_parser() -> argparse.ArgumentParser:
+    """The flag every subcommand reads: which directory a run loads its configured values from."""
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument(
         "--config",
         type=Path,
         default=None,
         help="Config directory to load (default: bundled)",
     )
-    common.add_argument(
+    return parser
+
+
+def _runtime_parser() -> argparse.ArgumentParser:
+    """The flags a command with stages reads: how far they fan out, and whether they draw their bars."""
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument(
         "--workers",
         type=int,
         default=None,
         help="Processes sharing the stages that fan out; 0 uses every core, 1 keeps the run in-process",
     )
-    common.add_argument(
+    parser.add_argument(
         "--no-progress",
         action="store_true",
         help="Keep stderr clear of stage progress bars (they are drawn when it is a terminal)",
     )
-    return common
+    return parser
 
 
 def _ingest_parser() -> argparse.ArgumentParser:
@@ -191,6 +200,38 @@ def _describe_optimize(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _describe_subset(parser: argparse.ArgumentParser) -> None:
+    """Add what carving a smaller dataset out of a larger one asks for."""
+    parser.add_argument(
+        "notes_json",
+        type=Path,
+        help="Path to the NoteExtractor .notes.json manifest to take a subset of",
+    )
+    parser.add_argument(
+        "--fraction",
+        type=float,
+        required=True,
+        help="Share of the notes to keep, in (0, 1]",
+    )
+    parser.add_argument(
+        "--samples-dir",
+        type=Path,
+        default=None,
+        help="Per-note WAV directory (default: notes_json's sibling <name>/)",
+    )
+    parser.add_argument(
+        "--instrument-id",
+        default=None,
+        help="Instrument id naming the written dataset (default: the .notes.json base name)",
+    )
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=_SUBSET_OUT,
+        help="Directory to write the subset dataset into",
+    )
+
+
 def _describe_reduce(parser: argparse.ArgumentParser) -> None:
     """Add what reducing alone asks for beyond the shared ingest flags."""
     parser.add_argument(
@@ -206,24 +247,32 @@ def build_parser() -> argparse.ArgumentParser:
         prog="optisample",
         description="Tracker module sample optimizer",
     )
-    common = _common_parser()
+    configured = _config_parser()
+    staged = [configured, _runtime_parser()]
     ingest = _ingest_parser()
     sub = parser.add_subparsers(dest="command", required=True)
     _describe_synth(
-        sub.add_parser("synth", parents=[common], help="Generate a synthetic demo dataset (.notes.json + WAVs)")
+        sub.add_parser("synth", parents=staged, help="Generate a synthetic demo dataset (.notes.json + WAVs)")
     )
     _describe_optimize(
         sub.add_parser(
             "optimize",
-            parents=[common, ingest],
+            parents=[*staged, ingest],
             help="Optimize a .notes.json and dump inspectable artifacts",
         )
     )
     _describe_reduce(
         sub.add_parser(
             "reduce",
-            parents=[common, ingest],
+            parents=[*staged, ingest],
             help="Run the pre-optimization stage alone and write the reduced dataset it decided on",
+        )
+    )
+    _describe_subset(
+        sub.add_parser(
+            "subset",
+            parents=[configured],
+            help="Write the share of a dataset that spans its pitch and velocity ranges",
         )
     )
     return parser
@@ -359,6 +408,22 @@ def _run_reduce(config: OptiConfig, args: argparse.Namespace) -> None:
         print(f"  reduction -> {result.paths.reduction_json}")
 
 
+def _run_subset(args: argparse.Namespace) -> None:
+    dataset = write_subset(
+        args.notes_json,
+        _samples_dir(args),
+        args.out,
+        instrument_id=args.instrument_id or _instrument_base(args.notes_json),
+        fraction=args.fraction,
+    )
+    print(f"{dataset.notes_json}")
+    print(f"  {dataset.kept_notes} of {dataset.source_notes} notes, {dataset.recordings} recordings")
+    print(
+        f"  pitches {dataset.pitches[0]}-{dataset.pitches[1]}, velocities {dataset.velocities[0]}-{dataset.velocities[1]}"
+    )
+    print(f"  samples -> {dataset.samples_dir}")
+
+
 def _run_optimize(config: OptiConfig, args: argparse.Namespace) -> None:
     manifest = load_notes(args.notes_json, _samples_dir(args), _ingest_settings(args))
     results = dump_project(manifest, args.out, _dump_settings(config, args))
@@ -422,6 +487,8 @@ def main(argv: list[str] | None = None) -> None:
     match args.command:
         case "synth":
             _run_synth(config, args)
+        case "subset":
+            _run_subset(args)
         case "reduce":
             _dispatch(lambda: _run_reduce(config, args), args)
         case "optimize":

@@ -5,6 +5,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Final
 
+from optisample.artifacts.paths import ReducedPaths, reduced_paths
 from optisample.artifacts.serialize import (
     ReducedDocument,
     WrittenSampleRecord,
@@ -13,7 +14,7 @@ from optisample.artifacts.serialize import (
 )
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode
 from optisample.io.audio import write_wav
-from optisample.io.note_extractor import NOTES_SUFFIX, NoteRecord, dump_notes
+from optisample.io.note_extractor import NoteRecord, dump_notes
 from optisample.metrics.base import Signal
 from optisample.model import InstrumentSpec, Manifest, NoteEvent
 from optisample.music import pitch_label
@@ -31,27 +32,9 @@ from optisample.optimize.tasks import (
 )
 from optisample.progress import ProgressSink
 
-_AUDITIONS_DIR: Final = "auditions"
-_REDUCTION_DIR: Final = "reduction"
-_REDUCTION_JSON: Final = "reduction.json"
 _REFERENCE_STEM: Final = "reference"
 _AUDITION_LABEL: Final = "Rendering auditions"
 _REFERENCE_FILES: Final = 1  # each pitch's audition folder opens with the recording the rest are judged against
-
-
-@dataclass(frozen=True)
-class ReducedPaths:
-    """Where one instrument's reduced dataset and its inspection material land under the output root.
-
-    ``notes_json`` and ``samples_dir`` are the sibling pair a later ingest resolves by default, so the
-    output root is itself a NoteExtractor dataset. What the stage decided sits apart under
-    ``reduction_json`` and ``auditions_dir``, leaving the dataset holding recordings alone.
-    """
-
-    notes_json: Path
-    samples_dir: Path
-    reduction_json: Path
-    auditions_dir: Path
 
 
 @dataclass(frozen=True)
@@ -72,17 +55,6 @@ class _Survivors:
 
     records: tuple[WrittenSampleRecord, ...]
     indices: dict[SampleKey, int]
-
-
-def reduced_paths(out_dir: Path, instrument_id: str) -> ReducedPaths:
-    """The tree one instrument's reduce run writes under ``out_dir``."""
-    reduction_dir = out_dir / _REDUCTION_DIR / instrument_id
-    return ReducedPaths(
-        notes_json=out_dir / f"{instrument_id}{NOTES_SUFFIX}",
-        samples_dir=out_dir / instrument_id,
-        reduction_json=reduction_dir / _REDUCTION_JSON,
-        auditions_dir=reduction_dir / _AUDITIONS_DIR,
-    )
 
 
 def stored_frames(recording: KeptRecording, sample_rate: int) -> int:
