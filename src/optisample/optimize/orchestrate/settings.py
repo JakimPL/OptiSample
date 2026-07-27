@@ -8,7 +8,7 @@ from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.composite import CompositeFidelity
 from optisample.optimize.plans import Method
 
-DEFAULT_SEED: Final = 0
+DEFAULT_SEED: Final = 137
 
 
 @dataclass(frozen=True)

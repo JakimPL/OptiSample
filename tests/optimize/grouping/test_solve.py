@@ -11,6 +11,7 @@ import pytest
 from optisample.dsp.surrogate import EncodingParams
 from optisample.optimize.dp import BudgetInfeasibleError
 from optisample.optimize.grouping import solve_grouping
+from optisample.optimize.grouping.cost_model import zone_starts
 from optisample.optimize.grouping.solve import _cheapest_partition_bytes
 from optisample.optimize.plans import ZoneOption
 from optisample.optimize.reduce.keys import SampleKey
@@ -78,7 +79,7 @@ def test_solve_grouping_raises_when_cheapest_partition_overflows() -> None:
     pitches = (60, 62)
     tasks = _fake_tasks(pitches)
     options = _fake_options(pitches, 0)
-    floor = _cheapest_partition_bytes(options, len(pitches))
+    floor = _cheapest_partition_bytes(options, zone_starts(options, len(pitches)))
     with pytest.raises(BudgetInfeasibleError):
         solve_grouping(tasks, options, floor - 1)
 

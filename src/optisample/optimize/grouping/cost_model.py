@@ -1,31 +1,25 @@
-"""The zone cost model: every candidate zone's ``(representative, encoding)`` options and their cost.
+import hashlib
+from collections.abc import Iterator, Sequence
+from dataclasses import dataclass, field
+from typing import Final
 
-A zone is a contiguous run of keys served by one stored sample. Any member can be the stored
-representative and any encoding can store it; each choice reconstructs the whole zone with some
-usage-weighted, summed distortion at some byte cost. This module enumerates all of them -- the "menu"
-the partition+allocation DP in :mod:`optisample.optimize.grouping.solve` chooses from.
+import numpy as np
 
-Folding representative selection into the RD options makes the choice budget-aware: at minimum byte
-pressure the best representative is exactly the k-medoids/PAM medoid (the member minimizing within-zone
-distortion), while a tighter budget may prefer a different member or a cheaper encoding, so the DP
-chooses representative and allocation jointly.
-
-This is the expensive half of grouping (an encode plus a reconstruction score per representative,
-encoding and covered pitch); the DP that consumes the menu is cheap.
-"""
-
-from __future__ import annotations
-
-from collections.abc import Sequence
-
-from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode
+from optisample.dsp.surrogate import EncodeContext, EncodingParams, StoredSample, encode
 from optisample.music import semitone_ratio
-from optisample.optimize.operating_points import lower_convex_hull, sweep_param_grid
+from optisample.optimize.operating_points import lower_convex_hull
 from optisample.optimize.plans.grouped import ZoneOption
+from optisample.optimize.reduce.bandwidth import ClipDemand, candidate_params
 from optisample.optimize.tasks import EvalContext, PitchTask, score_reconstruction
 
 _Range = tuple[int, int]  # half-open [i, j) index range into the ordered pitch tasks
 _ZoneOptions = dict[_Range, tuple[ZoneOption, ...]]
+_DemandKey = tuple[int, ClipDemand]  # representative pitch, what a zone asks of the sample rooted there
+_StoredKey = tuple[int, EncodingParams]  # representative pitch, the encoding storing it
+_ScoreKey = tuple[int, EncodingParams, int]  # representative pitch, encoding, the key reconstructed
+
+_SEED_BYTES: Final = 8  # digest width the dither stream of one encode identity starts from
+_NO_TRANSPOSE: Final = 0  # a representative at the top of its zone plays every other key downward
 
 
 def _zone_trim(range_tasks: Sequence[PitchTask], representative: int) -> float:
@@ -37,48 +31,174 @@ def _zone_trim(range_tasks: Sequence[PitchTask], representative: int) -> float:
     return max(task.max_duration_s * semitone_ratio(task.pitch - representative) for task in range_tasks)
 
 
-def _evaluate_zone_option(
-    rep_task: PitchTask, range_tasks: Sequence[PitchTask], params: EncodingParams, context: EvalContext
-) -> ZoneOption:
-    """Store ``rep_task``'s recording with ``params`` and score it reconstructing every key in the zone.
+def _zone_delta(range_tasks: Sequence[PitchTask], representative: int) -> int:
+    """Widest upward transpose the representative plays at -- the interval its stored band must survive.
 
-    The zone's total distortion is the usage-weighted sum of each covered key's reconstruction from this
-    one stored sample (repitched to that key), so a distant key that the representative serves poorly
-    costs the option here rather than being averaged away.
+    Keys below the representative play the stored sample slower, landing its content lower than it was
+    recorded, so the top of the zone alone decides how much stored bandwidth stays audible.
     """
-    encode_context = EncodeContext(root_pitch=rep_task.pitch, config=context.encode, rng=context.rng)
-    stored = encode(rep_task.representative, context.sample_rate, params, encode_context)
-    distortion = sum(task.weight * score_reconstruction(stored, task, context) for task in range_tasks)
-    stored_bytes = context.storage.sample_bytes(frames=stored.frames, depth=stored.depth)
-    return ZoneOption(rep_task.pitch, params, stored_bytes, distortion, stored.frames)
+    return max(_NO_TRANSPOSE, max(task.pitch for task in range_tasks) - representative)
 
 
-def _zone_options(range_tasks: Sequence[PitchTask], context: EvalContext) -> list[ZoneOption]:
-    """Every ``(representative, encoding)`` for one candidate zone, with its cost and total distortion.
+def _zone_demand(range_tasks: Sequence[PitchTask], representative: int) -> ClipDemand:
+    """What a zone asks of the sample rooted at ``representative``: its length, transpose and reach."""
+    return ClipDemand(
+        trim_s=_zone_trim(range_tasks, representative),
+        delta_semitones=_zone_delta(range_tasks, representative),
+        key_count=len(range_tasks),
+    )
 
-    Enumerates the outer product of representative (each covered key's own recording, the k-medoids
-    candidates) and encoding (loop x depth x rate); :func:`_evaluate_zone_option` scores each.
+
+@dataclass
+class _ZoneScorer:
+    """Prices and scores zone options for one run, reading back the work its candidate zones share.
+
+    Narrowing a representative's grid depends on that representative and on what the zone asks of it, so
+    the shortlist is kept for whichever other zones ask the same. The encode and each covered key's
+    reconstruction are kept under ``memoize``, which is also what makes them reusable: the dither then
+    comes from a seed fixed by ``(representative, encoding)``, so one identity scores the same wherever
+    the enumeration reaches it. Left off, every encode draws from the run's single shared stream in
+    enumeration order, and each zone is scored on its own.
     """
-    options: list[ZoneOption] = []
-    for rep_task in range_tasks:
-        trim_s = _zone_trim(range_tasks, rep_task.pitch)
-        for params in sweep_param_grid(context.sweep, context.sample_rate, trim_s=trim_s):
-            options.append(_evaluate_zone_option(rep_task, range_tasks, params, context))
-    return options
+
+    context: EvalContext
+    shortlists: dict[_DemandKey, tuple[EncodingParams, ...]] = field(default_factory=dict, init=False)
+    stored: dict[_StoredKey, StoredSample] = field(default_factory=dict, init=False)
+    distortions: dict[_ScoreKey, float] = field(default_factory=dict, init=False)
+
+    @property
+    def memoize(self) -> bool:
+        """Whether a scored encode is kept and read back in the other zones that share it."""
+        return self.context.grouping.memoize
+
+    def _dither(self, root_pitch: int, params: EncodingParams) -> np.random.Generator:
+        """Where one encode draws its dither: a stream its own identity fixes, or the run's shared one."""
+        if not self.memoize:
+            return self.context.rng
+
+        identity = repr((self.context.seed, root_pitch, params)).encode()
+        digest = hashlib.blake2b(identity, digest_size=_SEED_BYTES).digest()
+        return np.random.default_rng(int.from_bytes(digest, "big"))
+
+    def _encode(self, rep_task: PitchTask, params: EncodingParams) -> StoredSample:
+        encode_context = EncodeContext(
+            root_pitch=rep_task.pitch,
+            config=self.context.encode,
+            rng=self._dither(rep_task.pitch, params),
+        )
+        return encode(rep_task.representative, self.context.sample_rate, params, encode_context)
+
+    def shortlist(self, rep_task: PitchTask, demand: ClipDemand) -> tuple[EncodingParams, ...]:
+        """The encodings worth scoring for ``rep_task`` under ``demand``.
+
+        Delegates to :func:`~optisample.optimize.reduce.bandwidth.candidate_params`, whose answer depends
+        only on the recording and the demand, so every zone making the same ask reads back one shortlist.
+        """
+        key = (rep_task.pitch, demand)
+        if key not in self.shortlists:
+            self.shortlists[key] = candidate_params(rep_task.representative, demand, self.context)
+
+        return self.shortlists[key]
+
+    def stored_sample(self, rep_task: PitchTask, params: EncodingParams) -> StoredSample:
+        """``rep_task``'s recording stored with ``params``, as every zone rooted there stores it."""
+        if not self.memoize:
+            return self._encode(rep_task, params)
+
+        key = (rep_task.pitch, params)
+        if key not in self.stored:
+            self.stored[key] = self._encode(rep_task, params)
+
+        return self.stored[key]
+
+    def key_distortion(self, stored: StoredSample, params: EncodingParams, task: PitchTask) -> float:
+        """How well ``task``'s notes reconstruct from ``stored``, as in every zone covering that key."""
+        if not self.memoize:
+            return score_reconstruction(stored, task, self.context)
+
+        key = (stored.root_pitch, params, task.pitch)
+        if key not in self.distortions:
+            self.distortions[key] = score_reconstruction(stored, task, self.context)
+
+        return self.distortions[key]
+
+    def option(
+        self,
+        rep_task: PitchTask,
+        range_tasks: Sequence[PitchTask],
+        params: EncodingParams,
+    ) -> ZoneOption:
+        """Store ``rep_task``'s recording with ``params`` and score it reconstructing every key in the zone.
+
+        The zone's total distortion is the usage-weighted sum of each covered key's reconstruction from
+        this one stored sample (repitched to that key), so a distant key that the representative serves
+        poorly costs the option here rather than being averaged away.
+        """
+        stored = self.stored_sample(rep_task, params)
+        distortion = sum(task.weight * self.key_distortion(stored, params, task) for task in range_tasks)
+        return ZoneOption(
+            rep_task.pitch,
+            params,
+            self.context.storage.sample_bytes(frames=stored.frames, depth=stored.depth),
+            distortion,
+            stored.frames,
+        )
+
+    def zone_options(self, range_tasks: Sequence[PitchTask]) -> tuple[ZoneOption, ...]:
+        """Every ``(representative, encoding)`` for one candidate zone, with its cost and total distortion.
+
+        Enumerates the outer product of representative (each covered key's own recording, the k-medoids
+        candidates) and the encodings the bandwidth pre-pass leaves in the running for the zone's demand.
+        """
+        return tuple(
+            self.option(rep_task, range_tasks, params)
+            for rep_task in range_tasks
+            for params in self.shortlist(rep_task, _zone_demand(range_tasks, rep_task.pitch))
+        )
+
+
+def _capped_ranges(tasks: Sequence[PitchTask], max_semitones: int) -> Iterator[_Range]:
+    """Every run of neighbouring keys spanning at most ``max_semitones``, as half-open index ranges.
+
+    The cap states how far the material lets one recording reach: a wider zone asks a sample to stand in
+    further from its root than repitching holds up over, and dropping those ranges is what keeps the
+    candidate zones linear in the keyboard span. A single key spans nothing, so each key remains its own
+    candidate zone and some partition always exists.
+    """
+    for start, lowest in enumerate(tasks):
+        for stop in range(start + 1, len(tasks) + 1):
+            if tasks[stop - 1].pitch - lowest.pitch > max_semitones:
+                break
+
+            yield start, stop
 
 
 def build_zone_options(tasks: Sequence[PitchTask], context: EvalContext) -> _ZoneOptions:
-    """Score every contiguous pitch range ``[i, j)`` -- the menu the partition+allocation DP chooses from.
+    """Score every candidate pitch zone -- the menu the partition+allocation DP chooses from.
 
     This is the expensive step (an encode + reconstruction score per representative, encoding and
-    covered pitch); the DP that consumes it is cheap.
+    covered pitch); the DP that consumes it is cheap. The candidates are the runs of keys inside
+    ``reduce.grouping.max_zone_semitones`` of each other, each priced over the encodings the bandwidth
+    pre-pass leaves it, and each scored once for every zone that shares the score.
     """
-    count = len(tasks)
-    options: _ZoneOptions = {}
-    for i in range(count):
-        for j in range(i + 1, count + 1):
-            options[(i, j)] = tuple(_zone_options(tasks[i:j], context))
-    return options
+    scorer = _ZoneScorer(context)
+    return {
+        (start, stop): scorer.zone_options(tasks[start:stop])
+        for start, stop in _capped_ranges(tasks, context.grouping.max_zone_semitones)
+    }
+
+
+def zone_starts(options: _ZoneOptions, count: int) -> list[tuple[int, ...]]:
+    """Indexed by stop, the starts of the candidate zones ending there -- the ranges allocation may use.
+
+    The span cap leaves the candidate ranges sparse, so the allocation DP walks the zones that were
+    scored. Every key is its own candidate zone, so each stop is reachable from at least one start.
+    """
+    starts: list[list[int]] = [[] for _ in range(count + 1)]
+    for start, stop in options:
+        starts[stop].append(start)
+
+    return [tuple(sorted(group)) for group in starts]
 
 
 def zone_hull(options: Sequence[ZoneOption]) -> list[ZoneOption]:

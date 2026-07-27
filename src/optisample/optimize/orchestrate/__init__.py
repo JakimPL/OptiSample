@@ -42,7 +42,9 @@ def prepare_run(
         encode=settings.encode,
         storage=settings.target.storage,
         bandwidth=settings.reduce.bandwidth,
+        grouping=settings.reduce.grouping,
         byte_target=per_key_bytes(budget, len(tasks)),
+        seed=settings.seed,
     )
     return velocity_map, context, tasks
 

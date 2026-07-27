@@ -28,15 +28,18 @@ _PROXY_ROOT_PITCH: Final = 0  # the proxy plays the clip back at its own root, s
 
 @dataclass(frozen=True)
 class ClipDemand:
-    """What one stored sample has to serve: how long it is held, and how far up it is transposed.
+    """What one stored sample has to serve: the keys it covers, how long it is held, and its transpose.
 
     ``trim_s`` is the stored length the sweep trims to, which is what prices every candidate rate.
     ``delta_semitones`` is the largest upward transpose the sample plays at: zero while every key sounds
     its own recording, an octave once one representative also serves the key twelve semitones above it.
+    ``key_count`` is how many keys the one sample stands for, which sets the share of the budget it may
+    spend: a zone covering a dozen keys can afford a dozen times what a single key can.
     """
 
     trim_s: float
     delta_semitones: int
+    key_count: int
 
 
 class SweepInputs(Protocol):
@@ -151,9 +154,9 @@ def _shortlist(
     """The ``candidates`` frontier vertices priced closest to what one stored sample can afford.
 
     Every hull vertex is the encoding some byte price makes optimal, so the ones priced around the
-    budget's even share per key are the ones the allocation has a real chance of choosing; spending the
-    sweep there is what the shortlist buys. Vertices sit at distinct byte costs, so price alone settles
-    the ranking and the same clip always earns the same shortlist.
+    budget's share of the keys it serves are the ones the allocation has a real chance of choosing;
+    spending the sweep there is what the shortlist buys. Vertices sit at distinct byte costs, so price
+    alone settles the ranking and the same clip always earns the same shortlist.
     """
     ranked = sorted(
         lower_convex_hull(points),
@@ -169,8 +172,8 @@ def candidate_params(clip: Signal, demand: ClipDemand, context: SweepInputs) -> 
     plays, which the full grid affords only on a small instrument. This narrows the grid first. The
     recording's own band and the interval it is transposed by bound which rates buy anything at all
     (see :func:`useful_rate_hz`), and what survives that is priced and scored once apiece against the
-    clip alone; the ``candidates`` vertices of the resulting frontier lying nearest the budget's share
-    per key are what the real sweep then runs.
+    clip alone; the ``candidates`` vertices of the resulting frontier lying nearest what the keys it
+    serves can afford are what the real sweep then runs.
 
     A ``candidates`` count reaching the whole grid returns the grid as it stands, which is the setting
     that reproduces an unnarrowed run.
@@ -179,5 +182,9 @@ def candidate_params(clip: Signal, demand: ClipDemand, context: SweepInputs) -> 
     if context.bandwidth.candidates >= len(grid):
         return grid
 
-    kept = _shortlist(_proxy_points(clip, demand, grid, context), context.bandwidth, context.byte_target)
+    kept = _shortlist(
+        _proxy_points(clip, demand, grid, context),
+        context.bandwidth,
+        context.byte_target * demand.key_count,
+    )
     return tuple(params for params in grid if params in kept)

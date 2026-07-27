@@ -5,7 +5,7 @@ import numpy as np
 
 from optisample.config.dsp import EncodeConfig
 from optisample.config.optimize import SweepConfig
-from optisample.config.reduce import BandwidthConfig, ReduceConfig, Representatives
+from optisample.config.reduce import BandwidthConfig, ReduceConfig, Representatives, ZoneConfig
 from optisample.dsp.surrogate import StoredSample, render
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.metrics.base import Signal
@@ -65,7 +65,12 @@ class EvalContext:
     ``storage`` is the target format's cost table, so every operating point the sweep produces is
     priced in the bytes the written module will actually spend on it. ``bandwidth`` and ``byte_target``
     are what narrows a stored grid before that sweep runs: the reduction's own knobs, and the share of
-    the sample budget one stored sample can expect once the keys split it evenly.
+    the sample budget one stored sample can expect once the keys split it evenly. ``grouping`` bounds
+    what pitch-zone grouping enumerates and says whether it reuses a score across the zones sharing it.
+
+    The two dither sources sit side by side: ``rng`` is the one stream every encode draws from in the
+    order the sweep reaches it, and ``seed`` is the run entropy an encode reused across zones derives
+    its own stream from instead, so that score reads the same wherever it appears.
     """
 
     sample_rate: int
@@ -75,7 +80,9 @@ class EvalContext:
     encode: EncodeConfig
     storage: Storage
     bandwidth: BandwidthConfig
+    grouping: ZoneConfig
     byte_target: int
+    seed: int
 
 
 @dataclass(frozen=True)

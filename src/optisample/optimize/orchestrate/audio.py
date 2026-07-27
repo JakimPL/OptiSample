@@ -18,6 +18,7 @@ def _read_onset_aligned(selection: Selection) -> tuple[Signal, int]:
     lead_in_frames = round(selection.sample.lead_in_s * rate)
     if lead_in_frames > 0:
         data = data[lead_in_frames:]
+
     if data.ndim > 1:
         data = np.mean(data, axis=1)
 

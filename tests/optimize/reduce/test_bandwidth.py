@@ -23,8 +23,10 @@ SR = 22_050
 _TRIM_S = 0.5
 _FRAMES = int(_TRIM_S * SR)
 _OCTAVE = 12
-_UNTRANSPOSED = ClipDemand(trim_s=_TRIM_S, delta_semitones=0)
-_AN_OCTAVE_UP = ClipDemand(trim_s=_TRIM_S, delta_semitones=_OCTAVE)
+_ONE_KEY = 1
+_UNTRANSPOSED = ClipDemand(trim_s=_TRIM_S, delta_semitones=0, key_count=_ONE_KEY)
+_AN_OCTAVE_UP = ClipDemand(trim_s=_TRIM_S, delta_semitones=_OCTAVE, key_count=_ONE_KEY)
+_A_WHOLE_ZONE = ClipDemand(trim_s=_TRIM_S, delta_semitones=0, key_count=8)
 _RATES = (16_000, 8_000, 4_000)  # an explicit grid, so a test states which rates it expects back
 _FULL_GRID = 6  # the explicit rates against the two swept depths, under the one configured loop setting
 _RATE_PER_BANDWIDTH = 2.0  # Nyquist, which turns a content-edge tolerance into a rate tolerance
@@ -162,6 +164,17 @@ def test_a_generous_budget_shortlists_a_costlier_encoding_than_a_tight_one(
     lean = candidate_params(clip, _UNTRANSPOSED, make_context(byte_target=_TIGHT, candidates=1))
     rich = candidate_params(clip, _UNTRANSPOSED, make_context(byte_target=_GENEROUS, candidates=1))
     assert max(stored_rates(rich)) > max(stored_rates(lean))
+
+
+def test_a_sample_serving_a_whole_zone_may_spend_what_all_its_keys_bring(
+    make_context: Callable[..., _Context],
+) -> None:
+    """A zone's share of the budget is every key's share in it, so one sample there buys more."""
+    context = make_context(byte_target=1_000, candidates=1)
+    clip = broadband()
+    alone = candidate_params(clip, _UNTRANSPOSED, context)
+    for_a_zone = candidate_params(clip, _A_WHOLE_ZONE, context)
+    assert max(stored_rates(for_a_zone)) > max(stored_rates(alone))
 
 
 def test_the_same_clip_earns_the_same_shortlist_every_time(make_context: Callable[..., _Context]) -> None:
