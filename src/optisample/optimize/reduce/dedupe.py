@@ -19,7 +19,7 @@ from optisample.optimize.reduce.keys import (
 )
 
 _UNINDEXED: Final = maxsize  # a recording whose filename carries no render index ranks after indexed ones
-_NO_MATERIAL_S: Final = 0.0  # a pitch the material leaves unplayed only has the loop floor to satisfy
+NO_MATERIAL_S: Final = 0.0  # a pitch the material leaves unplayed only has the loop floor to satisfy
 
 
 @dataclass(frozen=True)
@@ -50,7 +50,16 @@ class Selection:
     @property
     def covers_material(self) -> bool:
         """Whether the kept recording holds every note its key has to serve, in full."""
-        return self.duration_s >= self.required_duration_s
+        return holds_material(self.duration_s, self.required_duration_s)
+
+
+def holds_material(duration_s: float, required_s: float) -> bool:
+    """Whether a recording of ``duration_s`` covers the ``required_s`` the material asks of its key.
+
+    The one rule both the selection and the run summary read, so a recording judged long enough when it
+    was kept reads as long enough everywhere it is reported.
+    """
+    return duration_s >= required_s
 
 
 def required_duration_s(longest_note_s: float, dedupe: DedupeConfig, loop: LoopConfig) -> float:
@@ -67,7 +76,7 @@ def required_duration_s(longest_note_s: float, dedupe: DedupeConfig, loop: LoopC
     return max(transposed, loop_floor)
 
 
-def _longest_note_by_pitch(material: Sequence[NoteEvent]) -> dict[int, float]:
+def longest_note_by_pitch(material: Sequence[NoteEvent]) -> dict[int, float]:
     """The longest note the material holds at each pitch, which every recording there must cover.
 
     The requirement is pitch-wide rather than per identity because any survivor at a pitch can end up
@@ -76,7 +85,7 @@ def _longest_note_by_pitch(material: Sequence[NoteEvent]) -> dict[int, float]:
     """
     longest: dict[int, float] = {}
     for event in material:
-        longest[event.pitch] = max(longest.get(event.pitch, _NO_MATERIAL_S), event.duration_s)
+        longest[event.pitch] = max(longest.get(event.pitch, NO_MATERIAL_S), event.duration_s)
 
     return longest
 
@@ -104,7 +113,7 @@ def _candidate(sample: SourceSample, dedupe: DedupeConfig) -> Candidate:
     return Candidate(
         sample=sample,
         key=sample_key(sample, dedupe),
-        usable_duration_s=max(info.duration_s - sample.lead_in_s, _NO_MATERIAL_S),
+        usable_duration_s=max(info.duration_s - sample.lead_in_s, NO_MATERIAL_S),
         order=_rank(sample),
     )
 
@@ -134,7 +143,7 @@ def select_recordings(
     Selections come back in :class:`~optisample.optimize.reduce.keys.SampleKey` order, so the audio map,
     the pitch tasks and every label derived from them are stable across runs.
     """
-    longest = _longest_note_by_pitch(instrument.material)
+    longest = longest_note_by_pitch(instrument.material)
     groups: dict[DedupeGroup, list[Candidate]] = {}
     for sample in instrument.samples:
         candidate = _candidate(sample, dedupe)
@@ -142,7 +151,7 @@ def select_recordings(
 
     selections = []
     for group, candidates in groups.items():
-        required_s = required_duration_s(longest.get(group.pitch, _NO_MATERIAL_S), dedupe, loop)
+        required_s = required_duration_s(longest.get(group.pitch, NO_MATERIAL_S), dedupe, loop)
         kept = _keep(candidates, required_s)
         selections.append(
             Selection(

@@ -9,6 +9,7 @@ from optisample.optimize.plans.budget import (
     instrument_overhead,
     populated_instrument_bytes,
 )
+from optisample.optimize.reduce.summary import ReductionSummary
 from trackmod.module.size import SizeReport
 
 RULE_WIDTH: Final = 70
@@ -16,11 +17,72 @@ SECTION_RULE: Final = "=" * RULE_WIDTH
 SUBSECTION_RULE: Final = "-" * RULE_WIDTH
 
 _CURVE_ROWS: Final = 6
+_SHORTFALL_ROWS: Final = 3  # shortfalls named in full before the rest are counted, keeping the block short
+_HZ_PER_KHZ: Final = 1000.0
 
 
 def _format_allocation_table(title: str, header: str, rows: Iterable[str]) -> str:
     """A titled, ruled allocation table: heading, subsection rule, column header, then the data rows."""
     return "\n".join((title, SUBSECTION_RULE, header, *rows))
+
+
+def _format_shortfalls(reduction: ReductionSummary) -> list[str]:
+    """Name the kept recordings that run shorter than their pitch's longest note, the rest counted.
+
+    A recording that falls short is scored over as much of the note as was recorded, so the objective
+    covers less material than the plan claims; saying which keys they are is what makes that visible.
+    """
+    shortfalls = reduction.shortfalls
+    if not shortfalls:
+        return []
+
+    lines = [f"  ! {len(shortfalls)} of {reduction.kept_recordings} kept recordings hold less than asked:"]
+    lines += [
+        f"      {recording.key.label:<22} {recording.duration_s:5.2f}s of {recording.required_duration_s:5.2f}s"
+        for recording in shortfalls[:_SHORTFALL_ROWS]
+    ]
+    remainder = len(shortfalls) - _SHORTFALL_ROWS
+    if remainder > 0:
+        lines.append(f"      (and {remainder} more)")
+
+    return lines
+
+
+def _format_grid(reduction: ReductionSummary) -> str:
+    """The full stored grid against the shortlist each played pitch keeps of it, and the band behind it.
+
+    The rate span states what the kept representatives' own content and the playback ceiling justify
+    storing, which is the measurement the shortlist is drawn around. An instrument whose material plays
+    nothing has no pitch to narrow, so the line reports the grid alone.
+    """
+    grids = reduction.grids
+    lead = f"Stored grid: {reduction.grid_size:>5} encodings  ->  "
+    if not grids:
+        lead += "swept once the material plays a pitch"
+        return lead
+
+    rates = [grid.useful_rate_hz / _HZ_PER_KHZ for grid in grids]
+    return (
+        f"{lead}{reduction.shortlisted / len(grids):>5.1f} shortlisted per key  "
+        f"({min(rates):.1f}-{max(rates):.1f} kHz useful)"
+    )
+
+
+def format_reduction_block(reduction: ReductionSummary) -> str:
+    """The pre-optimization stage's own summary: how much smaller each axis of the problem got.
+
+    Three lines, one per axis -- the recorded grid, the material, and the stored encoding grid -- each
+    reading ``before -> after``, so the search space the allocation was handed is stated alongside the
+    allocation itself. Any recording too short for its material is called out under them.
+    """
+    lines = [
+        "Reduction (pre-optimization)",
+        SUBSECTION_RULE,
+        f"Recordings:  {reduction.listed_recordings:>5} listed     ->  {reduction.kept_recordings:>5} kept",
+        f"Material:    {reduction.played_notes:>5} notes      ->  {reduction.scored_classes:>5} scored classes",
+        _format_grid(reduction),
+    ]
+    return "\n".join(lines + _format_shortfalls(reduction))
 
 
 def format_budget_block(plan: BudgetedPlanMixin, size: SizeReport) -> list[str]:
@@ -109,7 +171,13 @@ def _format_curve(plan: InstrumentPlan) -> str:
 
 def format_report(plan: InstrumentPlan, size: SizeReport) -> str:
     """Render a human-readable summary of an instrument optimization."""
-    sections = (_ungrouped_header(plan, size), _format_pitches(plan), _format_velocity_map(plan), _format_curve(plan))
+    sections = (
+        _ungrouped_header(plan, size),
+        format_reduction_block(plan.reduction),
+        _format_pitches(plan),
+        _format_velocity_map(plan),
+        _format_curve(plan),
+    )
     return "\n\n".join(sections) + "\n"
 
 
@@ -143,4 +211,5 @@ def _format_zones(plan: GroupedInstrumentPlan) -> str:
 
 def format_grouping_report(plan: GroupedInstrumentPlan, size: SizeReport) -> str:
     """Render a human-readable summary of a grouped optimization."""
-    return "\n\n".join((_grouped_header(plan, size), _format_zones(plan))) + "\n"
+    sections = (_grouped_header(plan, size), format_reduction_block(plan.reduction), _format_zones(plan))
+    return "\n\n".join(sections) + "\n"

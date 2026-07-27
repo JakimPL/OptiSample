@@ -165,11 +165,11 @@ def scoring(
     }
     material = [NoteEvent(pitch=pitch, velocity=100, duration_s=0.5, count=2) for pitch in PITCHES]
     settings = optimize_settings(sweep=sweep(rates=(SR,), depths=(16,), dither=False))
-    _, context, tasks = prepare_run(_instrument(material), audio, SR, settings)
-    task = tasks[0]
+    inputs = prepare_run(_instrument(material), audio, SR, settings)
+    task = inputs.tasks[0]
     params = EncodingParams(target_rate=SR, depth_bits=16, dither=False)
     stored = encode(task.representative, SR, params, make_encode_ctx(task.pitch))
-    return _Scoring(task=task, context=context, stored=stored)
+    return _Scoring(task=task, context=inputs.context, stored=stored)
 
 
 def test_score_events_yields_one_weighted_score_per_event(scoring: _Scoring) -> None:

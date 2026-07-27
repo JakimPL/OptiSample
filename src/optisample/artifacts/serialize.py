@@ -22,6 +22,7 @@ from optisample.optimize.plans import (
     SampleUnit,
     StrategyPlan,
 )
+from optisample.optimize.reduce.summary import ReductionSummary
 from optisample.optimize.tasks import EvalContext, PitchTask, score_events
 from optisample.optimize.velocity_map import VelocityVolumeMap
 from trackmod.module.size import SizeReport
@@ -127,6 +128,54 @@ class ZoneItemRecord(EncodingRecord, _ZoneHead):
     """One pitch zone: the keys it serves and the encoding chosen for its representative sample."""
 
 
+class KeptRecordingRecord(_Frozen):
+    """One recording that survived deduplication, measured against the material its pitch plays.
+
+    ``covers_material`` is false when the survivor runs shorter than its pitch's longest note, in which
+    case the objective scores it over as much of the note as was recorded.
+    """
+
+    key: str
+    pitch: int
+    velocity: int
+    duration_s: float
+    required_duration_s: float
+    covers_material: bool
+
+
+class ShortlistedEncodingRecord(_Frozen):
+    """One encoding the bandwidth pre-pass left in the running for a pitch's stored sample."""
+
+    target_rate: int
+    depth_bits: int
+    loop: bool
+
+
+class NarrowedGridRecord(_Frozen):
+    """What the pre-pass left of one pitch's encoding grid, and the stored band that bounds it."""
+
+    pitch: int
+    note: str
+    useful_rate_hz: float
+    shortlist: list[ShortlistedEncodingRecord]
+
+
+class ReductionDocument(_Frozen):
+    """The pre-optimization stage's decisions: what survived ingest and how small the search space got.
+
+    The three ``*_recordings``/``*_notes``/``grid_size`` counts are the before side of each reduction
+    axis; ``recordings`` and ``grids`` are the after side, per identity and per played pitch.
+    """
+
+    listed_recordings: int
+    kept_recordings: int
+    played_notes: int
+    scored_classes: int
+    grid_size: int
+    recordings: list[KeptRecordingRecord]
+    grids: list[NarrowedGridRecord]
+
+
 class PlanDocument(_Frozen):
     """One optimized plan for either strategy: budgets, the velocity map, and the kept items.
 
@@ -141,6 +190,7 @@ class PlanDocument(_Frozen):
     objective: float
     budget: BudgetRecord
     module: ModuleSizeRecord
+    reduction: ReductionDocument
     velocity_map: VelocityMapDocument
     pitches: list[PitchItemRecord] | None = None
     zones: list[ZoneItemRecord] | None = None
@@ -237,6 +287,43 @@ def _velocity_map_document(velocity_map: VelocityVolumeMap) -> VelocityMapDocume
     )
 
 
+def _reduction_document(reduction: ReductionSummary) -> ReductionDocument:
+    return ReductionDocument(
+        listed_recordings=reduction.listed_recordings,
+        kept_recordings=reduction.kept_recordings,
+        played_notes=reduction.played_notes,
+        scored_classes=reduction.scored_classes,
+        grid_size=reduction.grid_size,
+        recordings=[
+            KeptRecordingRecord(
+                key=recording.key.label,
+                pitch=recording.key.pitch,
+                velocity=recording.key.velocity,
+                duration_s=recording.duration_s,
+                required_duration_s=recording.required_duration_s,
+                covers_material=recording.covers_material,
+            )
+            for recording in reduction.recordings
+        ],
+        grids=[
+            NarrowedGridRecord(
+                pitch=grid.pitch,
+                note=note_name(grid.pitch),
+                useful_rate_hz=grid.useful_rate_hz,
+                shortlist=[
+                    ShortlistedEncodingRecord(
+                        target_rate=params.target_rate,
+                        depth_bits=params.depth_bits,
+                        loop=params.loop,
+                    )
+                    for params in grid.shortlist
+                ],
+            )
+            for grid in reduction.grids
+        ],
+    )
+
+
 def _loop_record(loop: Loop | None) -> LoopRecord | None:
     """The loop actually stored (``{start, end}``), or ``None`` when the sample was not looped."""
     return None if loop is None else LoopRecord(start=loop.start, end=loop.end)
@@ -309,6 +396,7 @@ def plan_document(
     units = plan.sample_units()
     budget = _budget_record(plan)
     module = _module_size_record(size)
+    reduction = _reduction_document(plan.reduction)
     velocity_map = _velocity_map_document(plan.velocity_map)
     if plan.strategy == "grouped":
         return PlanDocument(
@@ -317,6 +405,7 @@ def plan_document(
             objective=plan.objective,
             budget=budget,
             module=module,
+            reduction=reduction,
             velocity_map=velocity_map,
             zones=[_zone_item(unit, loop) for unit, loop in zip(units, loops)],
         )
@@ -327,6 +416,7 @@ def plan_document(
         objective=plan.objective,
         budget=budget,
         module=module,
+        reduction=reduction,
         velocity_map=velocity_map,
         pitches=[_pitch_item(unit, loop) for unit, loop in zip(units, loops)],
     )

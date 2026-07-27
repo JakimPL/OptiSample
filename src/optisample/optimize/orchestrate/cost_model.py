@@ -1,14 +1,11 @@
-from collections.abc import Sequence
-from typing import Final
+from collections.abc import Mapping, Sequence
 
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode
 from optisample.optimize.knapsack import KnapsackItem
 from optisample.optimize.operating_points import OperatingPoint, lower_convex_hull
-from optisample.optimize.reduce.bandwidth import ClipDemand, candidate_params
 from optisample.optimize.tasks import EvalContext, PitchTask, score_reconstruction
 
-_OWN_KEY: Final = 0  # every key here sounds its own recording, so nothing is transposed
-_ONE_KEY: Final = 1  # and each stored sample answers for that one key alone
+Shortlists = Mapping[int, tuple[EncodingParams, ...]]  # the encodings to sweep, by the pitch storing them
 
 
 def _evaluate_config(
@@ -30,34 +27,28 @@ def _evaluate_config(
 
 def _pitch_points(
     task: PitchTask,
+    shortlist: Sequence[EncodingParams],
     context: EvalContext,
 ) -> list[OperatingPoint]:
-    """Sweep the shortlisted encodings for one pitch, trimming storage to its longest note.
+    """Sweep one pitch's shortlisted encodings, each trimming storage to the longest note played here.
 
-    The shortlist comes from the bandwidth pre-pass, which prices and scores the whole rate x depth grid
-    from the recording alone and hands back the part of it the budget puts within reach. Every key here
-    plays its own recording, so the pre-pass bounds the stored band by the recording's own content.
+    ``shortlist`` is what the bandwidth pre-pass
+    (:func:`~optisample.optimize.reduce.summary.summarize_reduction`) left of the full grid for this
+    pitch, so the sweep spends its encodes on the encodings the budget puts within reach.
     """
-    demand = ClipDemand(trim_s=task.max_duration_s, delta_semitones=_OWN_KEY, key_count=_ONE_KEY)
-    return [
-        _evaluate_config(task, context, params)
-        for params in candidate_params(
-            task.representative,
-            demand,
-            context,
-        )
-    ]
+    return [_evaluate_config(task, context, params) for params in shortlist]
 
 
 def build_items(
     tasks: Sequence[PitchTask],
+    shortlists: Shortlists,
     context: EvalContext,
 ) -> tuple[tuple[KnapsackItem, ...], dict[int, tuple[OperatingPoint, ...]]]:
     """Turn each pitch task into a knapsack item plus its lower-convex-hull configs."""
     items: list[KnapsackItem] = []
     hulls: dict[int, tuple[OperatingPoint, ...]] = {}
     for task in tasks:
-        points = tuple(_pitch_points(task, context))
+        points = tuple(_pitch_points(task, shortlists[task.pitch], context))
         hulls[task.pitch] = tuple(lower_convex_hull(points))
         items.append(
             KnapsackItem(

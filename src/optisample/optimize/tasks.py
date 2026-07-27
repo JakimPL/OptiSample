@@ -57,6 +57,11 @@ class PitchTask:
         """Longest note the material holds at this pitch (the storage trim before any transpose)."""
         return max(event.duration_s for event in self.events)
 
+    @property
+    def scored_classes(self) -> int:
+        """How many classes the notes played here collapsed into, which is what one encoding is scored on."""
+        return len(self.events)
+
 
 @dataclass(frozen=True)
 class EvalContext:

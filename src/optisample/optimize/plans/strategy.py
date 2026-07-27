@@ -14,6 +14,7 @@ from typing import Literal, Protocol
 
 from optisample.dsp.surrogate import EncodingParams
 from optisample.optimize.reduce.keys import SampleKey
+from optisample.optimize.reduce.summary import ReductionSummary
 from optisample.optimize.velocity_map import VelocityVolumeMap
 
 Strategy = Literal["ungrouped", "grouped"]  # which allocation the plan came from.
@@ -60,6 +61,9 @@ class StrategyPlan(Protocol):
 
     @property
     def velocity_map(self) -> VelocityVolumeMap: ...
+
+    @property
+    def reduction(self) -> ReductionSummary: ...
 
     @property
     def strategy(self) -> Strategy: ...

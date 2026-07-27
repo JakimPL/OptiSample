@@ -9,6 +9,7 @@ from numpy.typing import NDArray
 
 from optisample.cli import _dump_settings, build_parser, main
 from optisample.config import OptiConfig
+from optisample.config.reduce import DedupeKey
 from optisample.config.tracker import TrackerFormat
 from optisample.io.audio import write_wav
 from optisample.io.note_extractor import NoteRecord, dump_notes
@@ -70,6 +71,31 @@ def test_the_format_flag_overrides_the_configured_format(config: OptiConfig) -> 
     assert target.format is TrackerFormat.XM
     assert target.compliance is config.tracker.compliance  # only the format is overridden
     assert target.it.global_volume == config.tracker.it.global_volume
+
+
+def test_the_reduction_flags_override_their_configured_sections(config: OptiConfig) -> None:
+    args = build_parser().parse_args(
+        [
+            "optimize",
+            "m.notes.json",
+            "--budget-kb",
+            "48",
+            "--dedupe-key",
+            "pitch",
+            "--candidates",
+            "7",
+        ]
+    )
+    reduce = _dump_settings(config, args).optimize.reduce
+    assert reduce.dedupe.key is DedupeKey.PITCH
+    assert reduce.bandwidth.candidates == 7
+    assert reduce.events == config.reduce.events  # only the named sections move
+    assert reduce.dedupe.cc_quantum == config.reduce.dedupe.cc_quantum
+
+
+def test_the_reduction_sections_stay_configured_when_no_flag_names_them(config: OptiConfig) -> None:
+    args = build_parser().parse_args(["optimize", "m.notes.json", "--budget-kb", "48"])
+    assert _dump_settings(config, args).optimize.reduce == config.reduce
 
 
 def test_optimize_command_writes_artifacts(

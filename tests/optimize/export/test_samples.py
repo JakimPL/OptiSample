@@ -20,6 +20,7 @@ from optisample.optimize.orchestrate import optimize_instrument
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import BudgetBreakdown, GroupedInstrumentPlan, InstrumentPlan, Zone, ZoneOption
 from optisample.optimize.reduce.keys import SampleKey
+from optisample.optimize.reduce.summary import ReductionSummary
 from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
 from tests.optimize.export.demo import SR
 from trackmod.core.notes.pitch import Note
@@ -123,7 +124,10 @@ def test_grouped_sample_keeps_the_representatives_stored_rate(
 
 
 def test_a_grouped_pitch_the_format_does_not_number_raises(
-    export_context: ExportContext, storage: Storage, piano_note: Callable[..., NDArray[np.float64]]
+    export_context: ExportContext,
+    storage: Storage,
+    piano_note: Callable[..., NDArray[np.float64]],
+    reduction: ReductionSummary,
 ) -> None:
     option = ZoneOption(
         representative=_UNREACHABLE_PITCH,
@@ -146,6 +150,7 @@ def test_a_grouped_pitch_the_format_does_not_number_raises(
         zones=(zone,),
         total_bytes=100,
         objective=0.0,
+        reduction=reduction,
     )
     audio = {SampleKey(_UNREACHABLE_PITCH, 100): piano_note(60, 100, seed=60 * 200 + 100)}
     with pytest.raises(ValueError, match="outside the IT key range"):

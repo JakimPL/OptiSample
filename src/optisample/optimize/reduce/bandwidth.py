@@ -93,13 +93,15 @@ def useful_rate_hz(
     the ceiling scaled back down by it. Nyquist doubles the surviving frequency into the rate that
     holds it.
 
-    Both bounds are deliberately generous, because a rate wrongly ruled out is a rate the allocation
-    never gets to buy. The ceiling is itself capped at the analysis Nyquist, the band every fidelity
-    score in the run is measured over.
+    The band is read over the stretch a sample trimmed to ``demand.trim_s`` keeps, which is the stretch
+    the storage actually holds. Both bounds are deliberately generous, because a rate wrongly ruled out
+    is a rate the allocation never gets to buy. The ceiling is itself capped at the analysis Nyquist,
+    the band every fidelity score in the run is measured over.
     """
+    stored = _stored_span(clip, demand.trim_s, sample_rate)
     ceiling_hz = min(config.ceiling_hz, sample_rate / _RATE_PER_BANDWIDTH)
     audible_hz = ceiling_hz * semitone_ratio(-demand.delta_semitones)
-    content_hz = content_edge_hz(clip, sample_rate, config.content_floor_db, config.content_band_hz)
+    content_hz = content_edge_hz(stored, sample_rate, config.content_floor_db, config.content_band_hz)
     return _RATE_PER_BANDWIDTH * min(content_hz, audible_hz)
 
 
@@ -129,12 +131,7 @@ def _proxy_points(
     same currency the budget is. The dither runs off the surrogate's own fixed seed, so a clip earns the
     same shortlist however many other clips were narrowed before it.
     """
-    useful_rate = useful_rate_hz(
-        _stored_span(clip, demand.trim_s, context.sample_rate),
-        demand,
-        context.sample_rate,
-        context.bandwidth,
-    )
+    useful_rate = useful_rate_hz(clip, demand, context.sample_rate, context.bandwidth)
     rates = set(_priced_rates(sorted({params.target_rate for params in grid}), useful_rate))
     source = SourceClip(
         signal=clip,

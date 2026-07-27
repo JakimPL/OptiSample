@@ -63,13 +63,13 @@ def demo_instrument() -> InstrumentSpec:
 def dump_context(
     demo_instrument: InstrumentSpec, demo_audio: AudioMap, no_render_settings: DumpSettings
 ) -> DumpContext:
-    _, context, tasks = prepare_run(demo_instrument, demo_audio, SR, no_render_settings.optimize)
+    inputs = prepare_run(demo_instrument, demo_audio, SR, no_render_settings.optimize)
     return DumpContext(
         audio=demo_audio,
         sample_rate=SR,
         material=tuple(demo_instrument.material or []),
-        eval_context=context,
-        tasks_by_pitch={task.pitch: task for task in tasks},
+        eval_context=inputs.context,
+        tasks_by_pitch={task.pitch: task for task in inputs.tasks},
         settings=no_render_settings,
     )
 

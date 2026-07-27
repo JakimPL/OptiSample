@@ -44,3 +44,30 @@ def test_metrics_document_objective_sums_note_contributions() -> None:
     assert doc.objective == 0.0  # no notes → no contribution
     assert doc.plan_objective == 1.5  # the plan objective is carried through verbatim
     assert doc.notes == []
+
+
+def test_plan_document_carries_the_reduction_both_strategies_share(
+    ungrouped_plan: InstrumentPlan, grouped_plan: GroupedInstrumentPlan
+) -> None:
+    """The pre-optimization stage runs once per instrument, so both documents record the same outcome."""
+    ungrouped = plan_document(ungrouped_plan, [None] * len(ungrouped_plan.sample_units()), _SIZE)
+    grouped = plan_document(grouped_plan, [None] * len(grouped_plan.sample_units()), _SIZE)
+    assert ungrouped.reduction == grouped.reduction
+    assert ungrouped.reduction.kept_recordings == len(ungrouped.reduction.recordings)
+    assert "reduction" in ungrouped.model_dump()
+
+
+def test_the_reduction_document_records_every_kept_recording_and_narrowed_grid(
+    ungrouped_plan: InstrumentPlan,
+) -> None:
+    reduction = plan_document(ungrouped_plan, [None] * len(ungrouped_plan.sample_units()), _SIZE).reduction
+    assert reduction.listed_recordings >= reduction.kept_recordings
+    assert reduction.played_notes >= reduction.scored_classes
+    recording = reduction.recordings[0]
+    assert recording.key and recording.duration_s > 0.0
+    coverage = recording.duration_s >= recording.required_duration_s
+    assert recording.covers_material is coverage
+    grid = reduction.grids[0]
+    assert grid.note and 0.0 < grid.useful_rate_hz
+    assert 0 < len(grid.shortlist) <= reduction.grid_size
+    assert all(encoding.depth_bits in (8, 16) for encoding in grid.shortlist)

@@ -107,8 +107,8 @@ def audio() -> dict[SampleKey, NDArray[np.float64]]:
 def options48(
     audio: dict[SampleKey, NDArray[np.float64]],
 ) -> tuple[list[PitchTask], dict[tuple[int, int], tuple[ZoneOption, ...]]]:
-    _, context, tasks = prepare_run(_instrument(48.0), audio, SR, _settings(GRID))
-    return tasks, build_zone_options(tasks, context)
+    inputs = prepare_run(_instrument(48.0), audio, SR, _settings(GRID))
+    return list(inputs.tasks), build_zone_options(inputs.tasks, inputs.context)
 
 
 @pytest.fixture(scope="module")
@@ -119,8 +119,8 @@ def plan48(audio: dict[SampleKey, NDArray[np.float64]]) -> GroupedInstrumentPlan
 @pytest.fixture(scope="module")
 def dithered(audio: dict[SampleKey, NDArray[np.float64]]) -> tuple[list[PitchTask], EvalContext]:
     """A run whose encodes draw dither, so a shared stream and a per-identity one tell apart."""
-    _, context, tasks = prepare_run(_instrument(48.0), audio, SR, _settings(GRID_DITHERED))
-    return tasks, context
+    inputs = prepare_run(_instrument(48.0), audio, SR, _settings(GRID_DITHERED))
+    return list(inputs.tasks), inputs.context
 
 
 def _without_memo(context: EvalContext) -> EvalContext:

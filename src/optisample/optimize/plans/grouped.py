@@ -6,6 +6,7 @@ from optisample.music import note_name
 from optisample.optimize.plans.budget import BudgetBreakdown, BudgetedPlanMixin
 from optisample.optimize.plans.strategy import SampleUnit
 from optisample.optimize.reduce.keys import SampleKey
+from optisample.optimize.reduce.summary import ReductionSummary
 from optisample.optimize.velocity_map import VelocityVolumeMap
 
 
@@ -60,6 +61,7 @@ class GroupedInstrumentPlan(BudgetedPlanMixin):
     zones: tuple[Zone, ...]
     total_bytes: int
     objective: float
+    reduction: ReductionSummary
     strategy: Literal["grouped"] = "grouped"
 
     @property

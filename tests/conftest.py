@@ -23,12 +23,18 @@ from optisample.config.reduce import ReduceConfig
 from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.config.synth import SynthConfig
 from optisample.config.tracker import TrackerFormat
-from optisample.dsp.surrogate import EncodeContext
+from optisample.dsp.surrogate import EncodeContext, EncodingParams
 from optisample.io.tracker.target import ExportTarget, export_target
 from optisample.metrics import CompositeFidelity, build_composite
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.operating_points import SweepContext
 from optisample.optimize.orchestrate.settings import OptimizeSettings
+from optisample.optimize.reduce.keys import SampleKey
+from optisample.optimize.reduce.summary import (
+    KeptRecording,
+    NarrowedGrid,
+    ReductionSummary,
+)
 from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
 from optisample.synth import NoteSpec, render_sample
 from trackmod.module.storage import Storage
@@ -243,3 +249,23 @@ def piano_note(config: OptiConfig) -> Callable[..., NDArray[np.float64]]:
         return render_sample("piano", spec, np.random.default_rng(seed), config.synth)
 
     return _piano
+
+
+@pytest.fixture
+def reduction() -> ReductionSummary:
+    """A stand-in pre-optimization summary, for tests that build a plan by hand.
+
+    Every count differs from the others so a report or document asserting one of them pins that field
+    rather than any field that happens to hold the same number.
+    """
+    return ReductionSummary(
+        listed_recordings=9,
+        played_notes=8,
+        scored_classes=3,
+        grid_size=12,
+        recordings=(
+            KeptRecording(SampleKey(60, 100), duration_s=1.0, required_duration_s=0.8),
+            KeptRecording(SampleKey(67, 100), duration_s=0.4, required_duration_s=0.8),
+        ),
+        grids=(NarrowedGrid(60, 11_025.0, (EncodingParams(target_rate=11_025, depth_bits=16),)),),
+    )

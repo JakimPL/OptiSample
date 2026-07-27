@@ -11,6 +11,7 @@ from optisample.optimize.operating_points import OperatingPoint
 from optisample.optimize.plans.budget import BudgetBreakdown, BudgetedPlanMixin
 from optisample.optimize.plans.strategy import Method, SampleUnit
 from optisample.optimize.reduce.keys import SampleKey
+from optisample.optimize.reduce.summary import ReductionSummary
 from optisample.optimize.velocity_map import VelocityVolumeMap
 
 
@@ -36,6 +37,7 @@ class InstrumentPlan(BudgetedPlanMixin):
     allocation: Allocation
     curve: tuple[RDCurvePoint, ...]
     method: Method
+    reduction: ReductionSummary
     strategy: Literal["ungrouped"] = "ungrouped"
 
     @property

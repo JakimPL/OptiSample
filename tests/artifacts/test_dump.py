@@ -91,6 +91,7 @@ def test_dump_writes_both_strategy_subtrees(generous: Path) -> None:
         assert (base / "report.txt").is_file()
         assert (base / "plan.json").is_file()
         assert (base / "velocity_map.json").is_file()
+        assert (base / "reduction.json").is_file()
         assert (base / "metrics.json").is_file()
         assert list((base / "samples").glob("*.wav"))  # at least one stored sample
         assert list((base / "compare").glob("*_ref.wav"))
@@ -127,6 +128,21 @@ def test_plan_json_records_budget_and_params(generous: Path) -> None:
     assert plan["budget"]["used_bytes"] <= plan["budget"]["sample_budget_bytes"]
     first = plan["pitches"][0]
     assert {"pitch", "note", "target_rate", "depth_bits", "stored_bytes", "distortion"} <= set(first)
+
+
+def test_reduction_json_states_what_the_pre_pass_left(generous: Path) -> None:
+    reduction = _load(generous / "ungrouped" / "reduction.json")
+    assert reduction["kept_recordings"] == len(reduction["recordings"]) == len(PITCHES)
+    assert reduction["scored_classes"] <= reduction["played_notes"]
+    assert [grid["pitch"] for grid in reduction["grids"]] == list(PITCHES)
+    assert all(len(grid["shortlist"]) <= reduction["grid_size"] for grid in reduction["grids"])
+
+
+def test_the_report_states_the_reduction_alongside_the_allocation(generous: Path) -> None:
+    for name in ("ungrouped", "grouped"):
+        report = (generous / name / "report.txt").read_text()
+        assert "Reduction (pre-optimization)" in report
+        assert "shortlisted per key" in report
 
 
 def test_velocity_map_json_has_anchors_and_full_table(generous: Path) -> None:

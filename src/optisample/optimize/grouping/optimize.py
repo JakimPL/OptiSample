@@ -20,24 +20,25 @@ def optimize_instrument_grouped(
     zones of repitched representatives. Grouping always solves partition and allocation together with
     the exact DP, so ``settings.method`` applies only to the ungrouped solver.
     """
-    velocity_map, context, tasks = prepare_run(
+    inputs = prepare_run(
         instrument,
         audio,
         sample_rate,
         settings,
     )
-    options = build_zone_options(tasks, context)
+    options = build_zone_options(inputs.tasks, inputs.context)
 
     budget = split_budget(instrument.budget_kb, settings.target.storage)
-    result = solve_grouping(tasks, options, budget.sample_bytes)
+    result = solve_grouping(inputs.tasks, options, budget.sample_bytes)
 
     return GroupedInstrumentPlan(
         instrument_id=instrument.id,
         budget=budget,
-        velocity_map=velocity_map,
+        velocity_map=inputs.velocity_map,
         zones=result.zones,
         total_bytes=result.total_bytes,
         objective=result.objective,
+        reduction=inputs.reduction,
     )
 
 

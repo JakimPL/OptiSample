@@ -9,6 +9,7 @@ from typing import Final
 from optisample.artifacts import DumpSettings, dump_project
 from optisample.config import OptiConfig, load_config
 from optisample.config.optimize import SweepConfig
+from optisample.config.reduce import DedupeKey, ReduceConfig
 from optisample.config.tracker import TrackerConfig, TrackerFormat
 from optisample.io.note_extractor import IngestSettings, load_notes
 from optisample.io.tracker.target import ExportTarget, export_target
@@ -23,6 +24,7 @@ _MS_PER_S: Final = 1000.0
 _NOTES_SUFFIX: Final = ".notes.json"
 _INTERPOLATIONS: Final = ("none", "linear", "cubic", "sinc")
 _FORMATS: Final = tuple(TrackerFormat)
+_DEDUPE_KEYS: Final = tuple(DedupeKey)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -149,6 +151,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Disable looping (store full-length samples)",
     )
     optimize.add_argument(
+        "--dedupe-key",
+        choices=_DEDUPE_KEYS,
+        default=None,
+        help="Identity one recording is kept per (default: the config's)",
+    )
+    optimize.add_argument(
+        "--candidates",
+        type=int,
+        default=None,
+        help="Stored encodings shortlisted per sample; at or above the grid size keeps every one",
+    )
+    optimize.add_argument(
         "--seed",
         type=int,
         default=DEFAULT_SEED,
@@ -170,11 +184,27 @@ def _export_target(config: OptiConfig, args: argparse.Namespace) -> ExportTarget
     return export_target(TrackerConfig.model_validate({**config.tracker.model_dump(), "format": args.format}))
 
 
+def _reduce_config(config: OptiConfig, args: argparse.Namespace) -> ReduceConfig:
+    """The reduction config with ``--dedupe-key`` and ``--candidates`` applied over the loaded values.
+
+    Both flags reach nested sections, so the override goes through a dump-and-revalidate: the schema
+    settles what a key or a candidate count may be, in one place, whichever side supplied it.
+    """
+    data = config.reduce.model_dump()
+    if args.dedupe_key is not None:
+        data["dedupe"]["key"] = args.dedupe_key
+
+    if args.candidates is not None:
+        data["bandwidth"]["candidates"] = args.candidates
+
+    return ReduceConfig.model_validate(data)
+
+
 def _optimize_settings(
     config: OptiConfig,
     args: argparse.Namespace,
 ) -> OptimizeSettings:
-    """Build the optimization settings from ``config``, applying the sweep/format/seed CLI overrides."""
+    """Build the optimization settings from ``config``, applying the sweep/reduce/format/seed overrides."""
     grid = SweepConfig.model_validate(
         {
             **config.sweep.model_dump(),
@@ -185,7 +215,7 @@ def _optimize_settings(
     )
     return OptimizeSettings(
         sweep=grid,
-        reduce=config.reduce,
+        reduce=_reduce_config(config, args),
         encode=config.encode,
         composite=build_composite(config.metrics),
         velocity=config.velocity,

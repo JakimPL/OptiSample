@@ -105,10 +105,11 @@ def _note_record(
 
 
 def _write_plan_docs(kind: PlanKind, out_dir: Path) -> None:
-    """Write the human report and the plan + velocity-map JSON documents."""
+    """Write the human report and the plan, velocity-map and reduction JSON documents."""
     write_text(out_dir / "report.txt", kind.report_text)
     write_json(out_dir / "plan.json", kind.plan_document)
     write_json(out_dir / "velocity_map.json", kind.plan_document.velocity_map)
+    write_json(out_dir / "reduction.json", kind.plan_document.reduction)
 
 
 def _write_sample_wavs(kind: PlanKind, out_dir: Path) -> None:
@@ -209,13 +210,13 @@ def dump_instrument(
     """Optimize one instrument (both strategies) and write every inspection artifact under ``out_dir``."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    _, context, tasks = prepare_run(instrument, audio, sample_rate, settings.optimize)
+    inputs = prepare_run(instrument, audio, sample_rate, settings.optimize)
     dump_context = DumpContext(
         audio=audio,
         sample_rate=sample_rate,
         material=tuple(instrument.material or []),
-        eval_context=context,
-        tasks_by_pitch={task.pitch: task for task in tasks},
+        eval_context=inputs.context,
+        tasks_by_pitch={task.pitch: task for task in inputs.tasks},
         settings=settings,
     )
     strategies = [
