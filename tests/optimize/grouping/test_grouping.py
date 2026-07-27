@@ -45,6 +45,7 @@ SR = 44_100
 PITCHES = (60, 62, 64)
 _OCTAVE = 12
 _SHARED = 2  # workers, enough to score the representatives apart without asking the machine for every core
+_PER_KEY_BYTES = 1_000  # the share of the budget one key brings, which a zone's keys pool behind its sample
 
 _CONFIG = load_config()
 
@@ -134,7 +135,7 @@ def dithered(audio: dict[SampleKey, NDArray[np.float64]]) -> tuple[list[PitchTas
 def _task(pitch: int, silence: NDArray[np.float64]) -> PitchTask:
     """A one-event task at ``pitch``, the minimum ``_zone_trim`` reads."""
     key = SampleKey(pitch, 100)
-    return PitchTask(pitch, 1.0, key, silence, (key,), (Event(100, 64, 0.5, 1.0, silence),))
+    return PitchTask(pitch, 1.0, key, silence, (key,), (Event(key, 100, 64, 0.5, 1.0, silence),))
 
 
 def test_zone_trim_scales_with_upward_transpose() -> None:
@@ -157,7 +158,11 @@ def test_zone_delta_is_the_widest_upward_transpose() -> None:
 def test_a_zone_asks_its_representative_for_the_reach_of_every_key_it_covers() -> None:
     silence = np.zeros(4, dtype=np.float64)
     tasks = [_task(pitch, silence) for pitch in (60, 67, 72)]
-    assert _zone_demand(tasks, 60) == ClipDemand(trim_s=1.0, delta_semitones=_OCTAVE, key_count=3)
+    assert _zone_demand(tasks, 60, _PER_KEY_BYTES) == ClipDemand(
+        trim_s=1.0,
+        delta_semitones=_OCTAVE,
+        byte_target=3 * _PER_KEY_BYTES,
+    )
 
 
 def test_the_span_cap_leaves_the_zones_one_recording_can_reach_across() -> None:
@@ -209,10 +214,11 @@ def test_an_encodings_dither_follows_its_identity_rather_than_when_it_is_drawn(
 ) -> None:
     """The property the whole staging rests on: a stored sample scores the same wherever it is reached."""
     tasks, context = dithered
-    params = _GridCache(context).shortlist(tasks[0], _zone_demand(tasks[:1], tasks[0].pitch))[0]
-    root = tasks[0].pitch
-    assert dither(context.seed, root, params).random() == dither(context.seed, root, params).random()
-    assert dither(context.seed, root, params).random() != dither(context.seed, root + 1, params).random()
+    demand = _zone_demand(tasks[:1], tasks[0].pitch, context.byte_target)
+    params = _GridCache(context).shortlist(tasks[0], demand)[0]
+    stored, other = tasks[0].representative_key, tasks[1].representative_key
+    assert dither(context.seed, stored, params).random() == dither(context.seed, stored, params).random()
+    assert dither(context.seed, stored, params).random() != dither(context.seed, other, params).random()
 
 
 def test_zones_holding_a_representative_the_same_length_read_back_one_priced_grid(
@@ -221,8 +227,8 @@ def test_zones_holding_a_representative_the_same_length_read_back_one_priced_gri
     """The stored length settles the pricing; a zone's transpose and reach only rank what it priced."""
     tasks, context = dithered
     cache = _GridCache(context)
-    wide = _zone_demand(tasks[:2], tasks[0].pitch)
-    alone = replace(wide, delta_semitones=0, key_count=1)  # a different ask at the same stored length
+    wide = _zone_demand(tasks[:2], tasks[0].pitch, context.byte_target)
+    alone = replace(wide, delta_semitones=0, byte_target=context.byte_target)  # another ask, same length
 
     cache.shortlist(tasks[0], wide)
     cache.shortlist(tasks[0], alone)
@@ -232,15 +238,15 @@ def test_zones_holding_a_representative_the_same_length_read_back_one_priced_gri
 def test_pooling_the_shortlists_states_each_stored_sample_once(
     dithered: tuple[list[PitchTask], EvalContext],
 ) -> None:
-    """Every candidate zone asks its representative for something; each distinct ask is stated once."""
+    """Every candidate zone asks a recording for something; each distinct ask is stated once."""
     tasks, context = dithered
     ranges = _ranges(tasks, context)
     shortlists = zone_shortlists(tasks, ranges, context, NO_PROGRESS)
     requests = store_requests(tasks, shortlists)
 
-    stored = [(request.representative.pitch, encoding.params) for request in requests for encoding in request.encodings]
+    stored = [(request.stored_key, encoding.params) for request in requests for encoding in request.encodings]
     assert len(stored) == len(set(stored))
-    assert {pitch for pitch, _ in stored} == {representative for _, representative in shortlists}
+    assert {key for key, _ in stored} == {stored_key for _, stored_key in shortlists}
 
 
 def test_a_stored_sample_is_asked_about_exactly_the_keys_some_zone_routes_to_it(
@@ -250,15 +256,15 @@ def test_a_stored_sample_is_asked_about_exactly_the_keys_some_zone_routes_to_it(
     ranges = _ranges(tasks, context)
     shortlists = zone_shortlists(tasks, ranges, context, NO_PROGRESS)
 
-    wanted: dict[tuple[int, object], set[int]] = {}
-    for (span, representative), shortlist in shortlists.items():
+    wanted: dict[tuple[SampleKey, object], set[int]] = {}
+    for (span, stored_key), shortlist in shortlists.items():
         for params in shortlist:
             covered = {task.pitch for task in tasks[span[0] : span[1]]}
-            wanted.setdefault((representative, params), set()).update(covered)
+            wanted.setdefault((stored_key, params), set()).update(covered)
 
     for request in store_requests(tasks, shortlists):
         for encoding in request.encodings:
-            assert set(encoding.keys) == wanted[(request.representative.pitch, encoding.params)]
+            assert set(encoding.keys) == wanted[(request.stored_key, encoding.params)]
 
 
 def test_scoring_a_representative_answers_for_every_encoding_asked_of_it(

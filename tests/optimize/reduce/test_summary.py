@@ -33,7 +33,6 @@ _PITCHES = (60, 67)
 _NOTE_S = 0.4
 _RATES = (16_000, 8_000, 4_000)  # an explicit grid, so a test states the size it expects back
 _FULL_GRID = 9  # those rates once at 16 bits and twice at 8, under the one configured loop setting
-_ONE_KEY = 1
 _NO_TRANSPOSE = 0
 _RATE_PER_BANDWIDTH = 2.0  # Nyquist, which turns a content-edge tolerance into a rate tolerance
 _SHARED = 2  # workers, enough to run the pre-pass apart without asking the machine for every core
@@ -150,7 +149,7 @@ def test_every_played_pitch_earns_the_grid_the_sweep_will_run(
 ) -> None:
     """The shortlist recorded here is the one the cost model reads back, so both must agree exactly."""
     summary = summarize_reduction(instrument, clips, audio, inputs)
-    demand = ClipDemand(trim_s=_NOTE_S, delta_semitones=_NO_TRANSPOSE, key_count=_ONE_KEY)
+    demand = ClipDemand(trim_s=_NOTE_S, delta_semitones=_NO_TRANSPOSE, byte_target=context.byte_target)
     assert summary.shortlists() == {
         clip.pitch: candidate_params(clip.representative, demand, context) for clip in clips
     }
@@ -193,7 +192,7 @@ def test_a_muffled_recording_reports_the_lower_rate_it_narrowed_the_grid_by(
         for key, signal in sorted(muffled.items())
     )
     summary = summarize_reduction(instrument, clips, muffled, inputs)
-    demand = ClipDemand(trim_s=_NOTE_S, delta_semitones=_NO_TRANSPOSE, key_count=_ONE_KEY)
+    demand = ClipDemand(trim_s=_NOTE_S, delta_semitones=_NO_TRANSPOSE, byte_target=context.byte_target)
     for grid, clip in zip(summary.grids, clips):
         assert grid.useful_rate_hz == useful_rate_hz(clip.representative, demand, SR, context.bandwidth)
         assert grid.useful_rate_hz < float(SR)

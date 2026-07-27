@@ -30,6 +30,7 @@ from optisample.optimize.tasks import (
     PitchTask,
     build_tasks,
     render_event,
+    score_event,
     score_events,
     score_reconstruction,
 )
@@ -138,6 +139,26 @@ def test_candidates_offer_the_survivors_the_policy_allows(
     assert tasks[0].candidates == expected  # the representative always leads
 
 
+def test_a_note_class_names_the_recording_it_is_scored_against(
+    piano_note: Callable[..., NDArray[np.float64]],
+    graded_velocity_map: VelocityVolumeMap,
+    reduce: ReduceFactory,
+) -> None:
+    """A class carries its reference's identity, so the classes at one pitch stay tellable apart."""
+    audio: AudioMap = {
+        SampleKey(60, velocity): piano_note(60, velocity, dur=0.5, seed=60 * 137 + velocity) for velocity in (40, 100)
+    }
+    material = [
+        NoteEvent(pitch=60, velocity=100, duration_s=0.5, count=1),
+        NoteEvent(pitch=60, velocity=40, duration_s=0.5, count=1),
+    ]
+    task = build_tasks(_instrument(material), audio, graded_velocity_map, reduce())[0]
+    assert {event.reference_key for event in task.events} == {SampleKey(60, 100), SampleKey(60, 40)}
+    assert len({event.identity for event in task.events}) == len(task.events)
+    for event in task.events:
+        assert np.array_equal(event.reference, audio[event.reference_key])
+
+
 def test_build_tasks_raises_when_a_material_pitch_has_no_recording(
     piano_note: Callable[..., NDArray[np.float64]],
     graded_velocity_map: VelocityVolumeMap,
@@ -186,6 +207,13 @@ def test_score_events_yields_one_weighted_score_per_event(scoring: _Scoring) -> 
     for score in scores:
         assert score.weighted_fidelity == pytest.approx(score.event.weight * score.report.fidelity)
         assert score.report.fidelity >= 0.0
+
+
+def test_scoring_one_class_reads_what_the_whole_pitch_scorer_reads_for_it(scoring: _Scoring) -> None:
+    """The atom: a caller scoring some of a pitch's classes lands on the numbers the sum is built from."""
+    for score in score_events(scoring.stored, scoring.task, scoring.context):
+        alone = score_event(scoring.stored, score.event, pitch=scoring.task.pitch, context=scoring.context)
+        assert alone.fidelity == score.report.fidelity
 
 
 def test_score_reconstruction_is_the_weight_normalized_mean(scoring: _Scoring) -> None:

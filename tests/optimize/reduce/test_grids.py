@@ -29,7 +29,6 @@ _NOTE_S = 0.4
 _RATES = (16_000, 8_000, 4_000)
 _KEPT = 2  # candidates the shortlist keeps, so a test states the size it expects back
 _OWN_KEY = 0
-_ONE_KEY = 1
 
 ReduceFactory = Callable[..., ReduceConfig]
 SweepFactory = Callable[..., SweepConfig]
@@ -82,9 +81,12 @@ def clips() -> tuple[_Clip, ...]:
 
 
 @pytest.fixture
-def demand() -> ClipDemand:
-    """What a key sounding its own recording asks of it: the note's span, at the pitch recorded."""
-    return ClipDemand(trim_s=_NOTE_S, delta_semitones=_OWN_KEY, key_count=_ONE_KEY)
+def demand(context: GridContext) -> ClipDemand:
+    """What a key sounding its own recording asks of it: the note's span, at the pitch recorded.
+
+    It answers for that key alone, so what it may spend is the per-key share as the context states it.
+    """
+    return ClipDemand(trim_s=_NOTE_S, delta_semitones=_OWN_KEY, byte_target=context.byte_target)
 
 
 # --- what a context carries -------------------------------------------------------------------------

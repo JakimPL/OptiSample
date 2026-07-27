@@ -20,7 +20,6 @@ from trackmod.module.storage import Storage
 NARROW_LABEL: Final = "Narrowing stored grids"
 
 _OWN_KEY: Final = 0  # a key sounding its own recording plays it at the pitch it was recorded at
-_ONE_KEY: Final = 1  # and that one stored sample answers for that one key alone
 
 
 class StoredClip(Protocol):
@@ -100,8 +99,14 @@ def narrow_grid(clip: StoredClip, context: GridContext) -> NarrowedGrid:
     Reads the clip and the context alone, and the proxy encodes it prices run off the surrogate's own
     fixed dither seed, so a pitch earns the same grid in whichever process and whichever order it is
     reached. That is the property :func:`narrow_grids` shares the pitches out on.
+
+    The sample answers for its own key alone, so what it may spend is the per-key share as it stands.
     """
-    demand = ClipDemand(trim_s=clip.max_duration_s, delta_semitones=_OWN_KEY, key_count=_ONE_KEY)
+    demand = ClipDemand(
+        trim_s=clip.max_duration_s,
+        delta_semitones=_OWN_KEY,
+        byte_target=context.byte_target,
+    )
     return NarrowedGrid(
         pitch=clip.pitch,
         useful_rate_hz=useful_rate_hz(clip.representative, demand, context.sample_rate, context.bandwidth),

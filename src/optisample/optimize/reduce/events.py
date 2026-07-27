@@ -33,7 +33,11 @@ class MergedEvent:
 
     @property
     def identity(self) -> EventIdentity:
-        """What decides two notes reconstruct identically: reference, volume, and scored length."""
+        """What decides two notes reconstruct identically: reference, volume, and scored length.
+
+        The one home for that rule, so the classes merging collapses the material into are the very
+        classes scoring reads back and remembers a reconstruction under.
+        """
         return self.reference_key, self.volume, self.duration_s
 
     def absorbing(self, other: MergedEvent) -> MergedEvent:

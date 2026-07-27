@@ -11,7 +11,7 @@ from optisample.dsp.timebase import seconds_to_frames
 from optisample.metrics.base import Signal
 from optisample.metrics.composite import CompositeFidelity, QualityReport, evaluate
 from optisample.model import InstrumentSpec, NoteEvent
-from optisample.optimize.reduce.events import merge_events
+from optisample.optimize.reduce.events import MergedEvent, merge_events
 from optisample.optimize.reduce.keys import SampleKey, nearest_key
 from optisample.optimize.velocity_map import VelocityVolumeMap
 from trackmod.module.storage import Storage
@@ -20,18 +20,15 @@ AudioMap = Mapping[SampleKey, Signal]
 
 
 @dataclass(frozen=True)
-class Event:
-    """A class of notes the material plays at one pitch that score alike, with its ground-truth source.
+class Event(MergedEvent):
+    """A merged class of notes the material plays at one pitch, with its ground-truth source attached.
 
-    ``volume`` is the note volume every member renders at and ``duration_s`` the length they are all
-    scored over, the two things the reconstruction depends on. ``velocity`` labels the class by the
-    loudest note in it, and ``weight`` is their combined playing time.
+    Everything deciding how the class scores comes from
+    :class:`~optisample.optimize.reduce.events.MergedEvent`; what the task layer adds is ``reference``,
+    the recording :attr:`~optisample.optimize.reduce.events.MergedEvent.reference_key` names, resolved
+    once here so a scorer reads the audio straight off the class it is scoring.
     """
 
-    velocity: int
-    volume: int
-    duration_s: float
-    weight: float
     reference: Signal
 
     def scored_reference(self, sample_rate: int) -> Signal:
@@ -97,8 +94,8 @@ class EvalContext:
     ``storage`` is the target format's cost table, so every operating point the sweep produces is
     priced in the bytes the written module will actually spend on it. ``bandwidth`` and ``byte_target``
     are what narrows a stored grid before that sweep runs: the reduction's own knobs, and the share of
-    the sample budget one stored sample can expect once the keys split it evenly. ``grouping`` bounds
-    what pitch-zone grouping enumerates.
+    the sample budget one key can expect once they split it evenly, which is the scale every demand a
+    zone makes of a recording is built from. ``grouping`` bounds what pitch-zone grouping enumerates.
 
     The two dither sources sit side by side: ``rng`` is the one stream the ungrouped sweep's encodes
     draw from in the order it reaches them, and ``seed`` is the run entropy a stored sample scored
@@ -172,6 +169,7 @@ def _build_pitch_task(
     representative_key = nearest_key(available, max(event.velocity for event in events))
     scored = tuple(
         Event(
+            merged.reference_key,
             merged.velocity,
             merged.volume,
             merged.duration_s,
@@ -234,6 +232,22 @@ class EventScore:
         return self.event.weight * self.report.fidelity
 
 
+def score_event(stored: StoredSample, event: Event, *, pitch: int, context: EvalContext) -> QualityReport:
+    """Reconstruct one note class from ``stored`` sounded at ``pitch`` and score it against its source.
+
+    The atom every reconstruction score is built from: one render and one composite evaluation, settled
+    by the stored sample, the key it sounds at and the class alone. A caller scoring some of a pitch's
+    classes therefore reads exactly the numbers the whole-pitch scorer reads for those classes.
+    """
+    candidate = render_event(stored, event, pitch=pitch, sample_rate=context.sample_rate)
+    return evaluate(
+        event.scored_reference(context.sample_rate),
+        candidate,
+        context.sample_rate,
+        context.composite,
+    )
+
+
 def score_events(
     stored: StoredSample,
     task: PitchTask,
@@ -247,16 +261,7 @@ def score_events(
     objective and ``metrics.json`` consume.
     """
     for event in task.events:
-        candidate = render_event(stored, event, pitch=task.pitch, sample_rate=context.sample_rate)
-        yield EventScore(
-            event=event,
-            report=evaluate(
-                event.scored_reference(context.sample_rate),
-                candidate,
-                context.sample_rate,
-                context.composite,
-            ),
-        )
+        yield EventScore(event=event, report=score_event(stored, event, pitch=task.pitch, context=context))
 
 
 def score_reconstruction(

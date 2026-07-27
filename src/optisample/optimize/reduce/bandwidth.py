@@ -29,18 +29,18 @@ _UNTRANSPOSED: Final = 0  # the transpose a sample plays at while it serves the 
 
 @dataclass(frozen=True)
 class ClipDemand:
-    """What one stored sample has to serve: the keys it covers, how long it is held, and its transpose.
+    """What one stored sample has to serve: how long it is held, its transpose, and what it may cost.
 
     ``trim_s`` is the stored length the sweep trims to, which is what prices every candidate rate.
     ``delta_semitones`` is the largest upward transpose the sample plays at: zero while every key sounds
     its own recording, an octave once one representative also serves the key twelve semitones above it.
-    ``key_count`` is how many keys the one sample stands for, which sets the share of the budget it may
-    spend: a zone covering a dozen keys can afford a dozen times what a single key can.
+    ``byte_target`` is the share of the budget this one sample may spend, which is the price the
+    shortlist is ranked around: a zone covering a dozen keys carries a dozen keys' worth of it.
     """
 
     trim_s: float
     delta_semitones: int
-    key_count: int
+    byte_target: int
 
 
 class SweepInputs(Protocol):
@@ -68,9 +68,6 @@ class SweepInputs(Protocol):
 
     @property
     def bandwidth(self) -> BandwidthConfig: ...
-
-    @property
-    def byte_target(self) -> int: ...
 
 
 def _stored_span(clip: Signal, trim_s: float, sample_rate: int) -> Signal:
@@ -237,9 +234,9 @@ def narrowed_params(grid: ProxyGrid, demand: ClipDemand, context: SweepInputs) -
     """What ``demand`` leaves of an already-priced grid, in the sweep's own enumeration order.
 
     The demand enters here and nowhere else. The interval the sample is transposed by rules out the rates
-    whose extra band plays back inaudibly, and the keys it answers for scale the byte target the frontier
-    is ranked around; both read the points :func:`proxy_grid` already measured. So the second zone to ask
-    the same recording for the same stored length is answered by arithmetic alone.
+    whose extra band plays back inaudibly, and the share of the budget it carries ranks the frontier;
+    both read the points :func:`proxy_grid` already measured. So the second zone to ask the same
+    recording for the same stored length is answered by arithmetic alone.
 
     A ``candidates`` count reaching the whole grid returns the grid as it stands, which is the setting
     that reproduces an unnarrowed run.
@@ -257,7 +254,7 @@ def narrowed_params(grid: ProxyGrid, demand: ClipDemand, context: SweepInputs) -
     kept = _shortlist(
         [point for point in grid.points if point.params.target_rate in rates],
         context.bandwidth,
-        context.byte_target * demand.key_count,
+        demand.byte_target,
     )
     return tuple(params for params in grid.entries if params in kept)
 
@@ -268,7 +265,7 @@ def candidate_params(clip: Signal, demand: ClipDemand, context: SweepInputs) -> 
     Scoring an encoding properly costs a render and a composite evaluation for every note the material
     plays, which the full grid affords only on a small instrument. This narrows the grid first: the clip
     held for the demand's stored length is priced across the grid (:func:`proxy_grid`), and the demand
-    then takes the ``candidates`` frontier vertices nearest what the keys it serves can afford
+    then takes the ``candidates`` frontier vertices nearest the share of the budget it carries
     (:func:`narrowed_params`). The two run together for a caller with one demand per clip; a caller
     making several demands of one recording prices it once and narrows it repeatedly.
     """

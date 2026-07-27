@@ -9,25 +9,26 @@ from typing import Final
 import numpy as np
 
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, StoredSample, encode
+from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.tasks import EvalContext, PitchTask, score_reconstruction
 from optisample.parallel import map_workers
 from optisample.progress import ProgressSink
 
-StoredKey = tuple[int, EncodingParams]  # representative pitch, the encoding its recording is stored under
+StoredKey = tuple[SampleKey, EncodingParams]  # the recording stored, and the encoding it is stored under
 
 STORE_LABEL: Final = "Scoring stored samples"
 
 _SEED_BYTES: Final = 8  # digest width the dither stream of one encode identity starts from
 
 
-def dither(seed: int, root_pitch: int, params: EncodingParams) -> np.random.Generator:
+def dither(seed: int, key: SampleKey, params: EncodingParams) -> np.random.Generator:
     """The stream one stored sample draws its dither from: the one its own identity fixes.
 
-    Deriving the seed from the run entropy, the root pitch and the encoding gives each stored sample a
-    stream of its own, so the sample one candidate zone prices reads the same wherever another zone
-    reaches it and whichever process carried the work.
+    Deriving the seed from the run entropy, the recording stored and the encoding gives each stored
+    sample a stream of its own, so the sample one candidate zone prices reads the same wherever another
+    zone reaches it and whichever process carried the work.
     """
-    identity = repr((seed, root_pitch, params)).encode()
+    identity = repr((seed, key, params)).encode()
     digest = hashlib.blake2b(identity, digest_size=_SEED_BYTES).digest()
     return np.random.default_rng(int.from_bytes(digest, "big"))
 
@@ -55,6 +56,11 @@ class StoreRequest:
     encodings: tuple[StoredEncoding, ...]
 
     @property
+    def stored_key(self) -> SampleKey:
+        """The recording this request stores, which is the one its representative was chosen for."""
+        return self.representative.representative_key
+
+    @property
     def tasks_by_pitch(self) -> dict[int, PitchTask]:
         """The keys this request reconstructs, reachable by the pitch each encoding names them with."""
         return {task.pitch: task for task in self.served}
@@ -77,9 +83,9 @@ class StoredScore:
 def _stored_sample(request: StoreRequest, params: EncodingParams, context: EvalContext) -> StoredSample:
     """``request``'s recording stored under ``params``, rooted at the pitch it was recorded at."""
     encode_context = EncodeContext(
-        root_pitch=request.representative.pitch,
+        root_pitch=request.stored_key.pitch,
         config=context.encode,
-        rng=dither(context.seed, request.representative.pitch, params),
+        rng=dither(context.seed, request.stored_key, params),
     )
     return encode(request.representative.representative, context.sample_rate, params, encode_context)
 
@@ -115,7 +121,7 @@ def score_stores(
 
     Each request is answered from its own recording and the keys it serves, and every encode draws from
     the stream :func:`dither` fixes for it, so the scores read the same however many processes carried
-    them. Answers come back under the ``(representative, encoding)`` each one belongs to.
+    them. Answers come back under the ``(recording, encoding)`` each stored sample is identified by.
     """
     answered = map_workers(
         partial(score_request, context=context),
@@ -125,7 +131,7 @@ def score_stores(
         progress=progress,
     )
     return {
-        (request.representative.pitch, params): score
+        (request.stored_key, params): score
         for request, scores in zip(requests, answered)
         for params, score in scores.items()
     }

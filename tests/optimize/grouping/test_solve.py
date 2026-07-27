@@ -22,7 +22,12 @@ def _fake_tasks(pitches: tuple[int, ...]) -> list[PitchTask]:
     silence = np.zeros(4, dtype=np.float64)
     return [
         PitchTask(
-            pitch, 1.0, SampleKey(pitch, 100), silence, (SampleKey(pitch, 100),), (Event(100, 64, 1.0, 1.0, silence),)
+            pitch,
+            1.0,
+            SampleKey(pitch, 100),
+            silence,
+            (SampleKey(pitch, 100),),
+            (Event(SampleKey(pitch, 100), 100, 64, 1.0, 1.0, silence),),
         )
         for pitch in pitches
     ]

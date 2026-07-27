@@ -14,13 +14,14 @@ from optisample.optimize.grouping.stores import (
 from optisample.optimize.operating_points import lower_convex_hull
 from optisample.optimize.plans.grouped import ZoneOption
 from optisample.optimize.reduce.bandwidth import ClipDemand, ProxyGrid, narrowed_params, proxy_grid
+from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.tasks import EvalContext, PitchTask
 from optisample.progress import ProgressSink
 
 _Range = tuple[int, int]  # half-open [i, j) index range into the ordered pitch tasks
 _ZoneOptions = dict[_Range, tuple[ZoneOption, ...]]
-_ZoneKey = tuple[_Range, int]  # a candidate zone and the key of it whose recording it would store
-_GridKey = tuple[int, float]  # representative pitch, the stored length a zone holds its sample for
+_ZoneKey = tuple[_Range, SampleKey]  # a candidate zone and the recording of one of its keys it would store
+_GridKey = tuple[SampleKey, float]  # the recording stored, and the length a zone holds it for
 
 _NO_TRANSPOSE: Final = 0  # a representative at the top of its zone plays every other key downward
 _NARROW_LABEL: Final = "Narrowing pitch zones"
@@ -44,12 +45,16 @@ def _zone_delta(range_tasks: Sequence[PitchTask], representative: int) -> int:
     return max(_NO_TRANSPOSE, max(task.pitch for task in range_tasks) - representative)
 
 
-def _zone_demand(range_tasks: Sequence[PitchTask], representative: int) -> ClipDemand:
-    """What a zone asks of the sample rooted at ``representative``: its length, transpose and reach."""
+def _zone_demand(range_tasks: Sequence[PitchTask], representative: int, per_key_bytes: int) -> ClipDemand:
+    """What a zone asks of the sample rooted at ``representative``: its length, transpose and budget.
+
+    The keys the one sample stands for pool their shares of the budget, so a zone covering a dozen keys
+    shortlists around a dozen times what a single key affords.
+    """
     return ClipDemand(
         trim_s=_zone_trim(range_tasks, representative),
         delta_semitones=_zone_delta(range_tasks, representative),
-        key_count=len(range_tasks),
+        byte_target=per_key_bytes * len(range_tasks),
     )
 
 
@@ -83,7 +88,7 @@ class _GridCache:
 
     def shortlist(self, rep_task: PitchTask, demand: ClipDemand) -> tuple[EncodingParams, ...]:
         """The encodings worth scoring for ``rep_task`` under ``demand``."""
-        key = (rep_task.pitch, demand.trim_s)
+        key = (rep_task.representative_key, demand.trim_s)
         if key not in self.grids:
             self.grids[key] = proxy_grid(rep_task.representative, demand.trim_s, self.context)
 
@@ -107,8 +112,8 @@ def zone_shortlists(
     for start, stop in progress.track(ranges, label=_NARROW_LABEL, total=len(ranges)):
         range_tasks = tasks[start:stop]
         for rep_task in range_tasks:
-            demand = _zone_demand(range_tasks, rep_task.pitch)
-            shortlists[((start, stop), rep_task.pitch)] = cache.shortlist(rep_task, demand)
+            demand = _zone_demand(range_tasks, rep_task.pitch, context.byte_target)
+            shortlists[((start, stop), rep_task.representative_key)] = cache.shortlist(rep_task, demand)
 
     return shortlists
 
@@ -117,28 +122,29 @@ def store_requests(
     tasks: Sequence[PitchTask],
     shortlists: dict[_ZoneKey, tuple[EncodingParams, ...]],
 ) -> tuple[StoreRequest, ...]:
-    """Gather the shortlists into one workload per representative: what to store, and who it serves.
+    """Gather the shortlists into one workload per stored recording: what to store, and who it serves.
 
-    A candidate zone asks its representative for a shortlisted encoding and expects every key it covers
-    reconstructed from it, and the zones sharing a representative overlap heavily in both. Pooling their
-    asks per representative is what leaves each encode and each key's reconstruction stated once, so the
+    A candidate zone asks one of its keys' recordings for a shortlisted encoding and expects every key it
+    covers reconstructed from it, and the zones sharing that recording overlap heavily in both. Pooling
+    their asks per recording is what leaves each encode and each key's reconstruction stated once, so the
     scoring stage runs exactly the work the whole set of candidate zones needs.
     """
     by_pitch = {task.pitch: task for task in tasks}
-    asked: dict[int, dict[EncodingParams, set[int]]] = {}
-    for (span, representative), shortlist in shortlists.items():
+    by_key = {task.representative_key: task for task in tasks}
+    asked: dict[SampleKey, dict[EncodingParams, set[int]]] = {}
+    for (span, stored_key), shortlist in shortlists.items():
         covered = [task.pitch for task in tasks[span[0] : span[1]]]
-        wanted = asked.setdefault(representative, {})
+        wanted = asked.setdefault(stored_key, {})
         for params in shortlist:
             wanted.setdefault(params, set()).update(covered)
 
     return tuple(
         StoreRequest(
-            representative=by_pitch[representative],
+            representative=by_key[stored_key],
             served=tuple(by_pitch[pitch] for pitch in sorted({pitch for keys in wanted.values() for pitch in keys})),
             encodings=tuple(StoredEncoding(params=params, keys=tuple(sorted(keys))) for params, keys in wanted.items()),
         )
-        for representative, wanted in sorted(asked.items())
+        for stored_key, wanted in sorted(asked.items())
     )
 
 
@@ -175,9 +181,9 @@ def _zone_options(
     candidates) and the encodings the bandwidth pre-pass left in the running for the zone's demand.
     """
     return tuple(
-        _zone_option(range_tasks, rep_task, params, scores[(rep_task.pitch, params)])
+        _zone_option(range_tasks, rep_task, params, scores[(rep_task.representative_key, params)])
         for rep_task in range_tasks
-        for params in shortlists[(span, rep_task.pitch)]
+        for params in shortlists[(span, rep_task.representative_key)]
     )
 
 
