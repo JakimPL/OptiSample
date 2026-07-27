@@ -236,13 +236,30 @@ def test_memoizing_stores_one_sample_per_encoding_identity(
     assert scorer.stored_sample(tasks[0], params) is scorer.stored_sample(tasks[0], params)
 
 
-def test_a_zone_asking_the_same_of_a_representative_reads_back_its_shortlist(
+def test_zones_holding_a_representative_the_same_length_read_back_one_priced_grid(
     dithered: tuple[list[PitchTask], EvalContext],
 ) -> None:
+    """The stored length settles the pricing; a zone's transpose and reach only rank what it priced."""
     tasks, context = dithered
     scorer = _ZoneScorer(context)
-    demand = _zone_demand(tasks[:2], tasks[0].pitch)
-    assert scorer.shortlist(tasks[0], demand) is scorer.shortlist(tasks[0], demand)
+    wide = _zone_demand(tasks[:2], tasks[0].pitch)
+    alone = replace(wide, delta_semitones=0, key_count=1)  # a different ask at the same stored length
+
+    scorer.shortlist(tasks[0], wide)
+    scorer.shortlist(tasks[0], alone)
+    assert scorer.priced_grid(tasks[0], wide.trim_s) is scorer.priced_grid(tasks[0], alone.trim_s)
+    assert len(scorer.grids) == 1
+
+
+def test_sharing_a_priced_grid_scores_a_zone_exactly_as_pricing_it_alone_does(
+    dithered: tuple[list[PitchTask], EvalContext],
+) -> None:
+    """Each zone still narrows to its own demand, so what it shares changes no option it is given."""
+    tasks, context = dithered
+    shared = _ZoneScorer(context)
+    for start, stop in _capped_ranges(tasks, context.grouping.max_zone_semitones):
+        alone = _ZoneScorer(context)  # a scorer that has priced and scored nothing before this zone
+        assert shared.zone_options(tasks[start:stop]) == alone.zone_options(tasks[start:stop])
 
 
 def test_scoring_each_zone_on_its_own_keeps_nothing_between_them(

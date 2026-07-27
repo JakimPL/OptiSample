@@ -9,13 +9,13 @@ from optisample.dsp.surrogate import EncodeContext, EncodingParams, StoredSample
 from optisample.music import semitone_ratio
 from optisample.optimize.operating_points import lower_convex_hull
 from optisample.optimize.plans.grouped import ZoneOption
-from optisample.optimize.reduce.bandwidth import ClipDemand, candidate_params
+from optisample.optimize.reduce.bandwidth import ClipDemand, ProxyGrid, narrowed_params, proxy_grid
 from optisample.optimize.tasks import EvalContext, PitchTask, score_reconstruction
 from optisample.progress import ProgressSink
 
 _Range = tuple[int, int]  # half-open [i, j) index range into the ordered pitch tasks
 _ZoneOptions = dict[_Range, tuple[ZoneOption, ...]]
-_DemandKey = tuple[int, ClipDemand]  # representative pitch, what a zone asks of the sample rooted there
+_GridKey = tuple[int, float]  # representative pitch, the stored length a zone holds its sample for
 _StoredKey = tuple[int, EncodingParams]  # representative pitch, the encoding storing it
 _ScoreKey = tuple[int, EncodingParams, int]  # representative pitch, encoding, the key reconstructed
 
@@ -55,8 +55,9 @@ def _zone_demand(range_tasks: Sequence[PitchTask], representative: int) -> ClipD
 class _ZoneScorer:
     """Prices and scores zone options for one run, reading back the work its candidate zones share.
 
-    Narrowing a representative's grid depends on that representative and on what the zone asks of it, so
-    the shortlist is kept for whichever other zones ask the same. The encode and each covered key's
+    Pricing a representative's grid depends on that representative and the length its sample is held
+    for, so the priced grid is kept for whichever other zones hold the same recording that long -- the
+    transpose and the key count each zone adds are arithmetic over it. The encode and each covered key's
     reconstruction are kept under ``memoize``, which is also what makes them reusable: the dither then
     comes from a seed fixed by ``(representative, encoding)``, so one identity scores the same wherever
     the enumeration reaches it. Left off, every encode draws from the run's single shared stream in
@@ -64,7 +65,7 @@ class _ZoneScorer:
     """
 
     context: EvalContext
-    shortlists: dict[_DemandKey, tuple[EncodingParams, ...]] = field(default_factory=dict, init=False)
+    grids: dict[_GridKey, ProxyGrid] = field(default_factory=dict, init=False)
     stored: dict[_StoredKey, StoredSample] = field(default_factory=dict, init=False)
     distortions: dict[_ScoreKey, float] = field(default_factory=dict, init=False)
 
@@ -90,17 +91,27 @@ class _ZoneScorer:
         )
         return encode(rep_task.representative, self.context.sample_rate, params, encode_context)
 
+    def priced_grid(self, rep_task: PitchTask, trim_s: float) -> ProxyGrid:
+        """``rep_task``'s recording priced across the stored grid at ``trim_s``, as every zone prices it.
+
+        This is where the bandwidth pre-pass spends its time inside grouping: one encode and one
+        composite evaluation per grid entry. What it measures follows from the recording and the length
+        held, and a zone's stored length is the longest note it covers stretched by the transpose that
+        reaches it, so the many zones landing on the same length share one priced grid.
+        """
+        key = (rep_task.pitch, trim_s)
+        if key not in self.grids:
+            self.grids[key] = proxy_grid(rep_task.representative, trim_s, self.context)
+
+        return self.grids[key]
+
     def shortlist(self, rep_task: PitchTask, demand: ClipDemand) -> tuple[EncodingParams, ...]:
         """The encodings worth scoring for ``rep_task`` under ``demand``.
 
-        Delegates to :func:`~optisample.optimize.reduce.bandwidth.candidate_params`, whose answer depends
-        only on the recording and the demand, so every zone making the same ask reads back one shortlist.
+        Prices the grid for the length ``demand`` holds the sample (:meth:`priced_grid`), then lets the
+        transpose and the key count narrow it, which is arithmetic over points already measured.
         """
-        key = (rep_task.pitch, demand)
-        if key not in self.shortlists:
-            self.shortlists[key] = candidate_params(rep_task.representative, demand, self.context)
-
-        return self.shortlists[key]
+        return narrowed_params(self.priced_grid(rep_task, demand.trim_s), demand, self.context)
 
     def stored_sample(self, rep_task: PitchTask, params: EncodingParams) -> StoredSample:
         """``rep_task``'s recording stored with ``params``, as every zone rooted there stores it."""

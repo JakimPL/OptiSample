@@ -16,7 +16,13 @@ from optisample.dsp.spectral import bandlimit
 from optisample.dsp.surrogate import EncodingParams
 from optisample.metrics import CompositeFidelity
 from optisample.optimize.operating_points import sweep_param_grid
-from optisample.optimize.reduce.bandwidth import ClipDemand, candidate_params, useful_rate_hz
+from optisample.optimize.reduce.bandwidth import (
+    ClipDemand,
+    candidate_params,
+    narrowed_params,
+    proxy_grid,
+    useful_rate_hz,
+)
 from trackmod.module.storage import Storage
 
 SR = 22_050
@@ -182,3 +188,38 @@ def test_the_same_clip_earns_the_same_shortlist_every_time(make_context: Callabl
     context = make_context(byte_target=8_000, candidates=2)
     clip = broadband()
     assert candidate_params(clip, _UNTRANSPOSED, context) == candidate_params(clip, _UNTRANSPOSED, context)
+
+
+# --- pricing once, narrowing many times ---------------------------------------------------------------
+
+
+def test_one_priced_grid_answers_every_demand_holding_the_clip_that_long(
+    make_context: Callable[..., _Context],
+) -> None:
+    """What a demand adds -- its transpose and its reach -- is arithmetic over points already measured."""
+    context = make_context(byte_target=1_000, candidates=2)
+    clip = broadband()
+    priced = proxy_grid(clip, _TRIM_S, context)
+    for demand in (_UNTRANSPOSED, _AN_OCTAVE_UP, _A_WHOLE_ZONE):
+        assert narrowed_params(priced, demand, context) == candidate_params(clip, demand, context)
+
+
+def test_pricing_admits_every_rate_a_transposed_demand_can_still_ask_for(
+    make_context: Callable[..., _Context],
+) -> None:
+    """A transpose only lowers the audible rate, so pricing untransposed leaves a demand nothing to add."""
+    context = make_context(byte_target=_GENEROUS, candidates=_FULL_GRID - 1)
+    clip = broadband()
+    priced = {point.params.target_rate for point in proxy_grid(clip, _TRIM_S, context).points}
+    for delta_semitones in (0, 1, _OCTAVE, 2 * _OCTAVE):
+        demand = ClipDemand(trim_s=_TRIM_S, delta_semitones=delta_semitones, key_count=_ONE_KEY)
+        assert stored_rates(candidate_params(clip, demand, context)) <= priced
+
+
+def test_a_candidate_count_reaching_the_whole_grid_settles_before_anything_is_priced(
+    make_context: Callable[..., _Context],
+) -> None:
+    context = make_context(byte_target=8_000, candidates=_FULL_GRID)
+    priced = proxy_grid(broadband(), _TRIM_S, context)
+    assert priced.entries == tuple(sweep_param_grid(context.sweep, SR, trim_s=_TRIM_S))
+    assert priced.points == ()
