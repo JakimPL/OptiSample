@@ -20,18 +20,18 @@ from optisample.optimize.operating_points import (
     rd_frontier,
     sample_operating_points,
 )
-from optisample.synth import NoteSpec, render_sample
+from optisample.synth import NoteSpec, synthesize
 from trackmod.core.samples.depth import BitDepth
 
 SR = 44_100
 
-# render_sample is a test-signal generator here; its synth config is fixture-independent test data.
+# synthesize is a test-signal generator here; its synth config is fixture-independent test data.
 _SYNTH = load_config().synth
 
 
 def bright_piano(pitch: int = 84, velocity: int = 115, dur: float = 1.0) -> np.ndarray:
     spec = NoteSpec(pitch=pitch, velocity=velocity, controller=60.0, duration_s=dur, sample_rate=SR)
-    return render_sample("piano", spec, np.random.default_rng(1), _SYNTH)
+    return synthesize("piano", spec, np.random.default_rng(1), _SYNTH)
 
 
 def point(stored_bytes: int, distortion: float) -> OperatingPoint:

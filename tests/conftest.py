@@ -29,14 +29,11 @@ from optisample.metrics import CompositeFidelity, build_composite
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.operating_points import SweepContext
 from optisample.optimize.orchestrate.settings import OptimizeSettings
+from optisample.optimize.reduce.grids import NarrowedGrid
 from optisample.optimize.reduce.keys import SampleKey
-from optisample.optimize.reduce.summary import (
-    KeptRecording,
-    NarrowedGrid,
-    ReductionSummary,
-)
+from optisample.optimize.reduce.summary import KeptRecording, ReductionSummary
 from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
-from optisample.synth import NoteSpec, render_sample
+from optisample.synth import NoteSpec, synthesize
 from trackmod.module.storage import Storage
 from trackmod.spec.levels import MAX_VOLUME
 
@@ -191,14 +188,13 @@ def graded_velocity_map() -> VelocityVolumeMap:
 
 
 @pytest.fixture
-def optimize_settings(
-    config: OptiConfig, composite: CompositeFidelity, target: ExportTarget
-) -> Callable[..., OptimizeSettings]:
+def optimize_settings(config: OptiConfig, target: ExportTarget) -> Callable[..., OptimizeSettings]:
     """Factory: an ``OptimizeSettings`` from the bundled config, overriding the swept grid/method/seed.
 
     ``sweep`` (a ``SweepConfig``, usually built via the ``sweep`` factory) and ``reduce`` (a
     ``ReduceConfig``, usually built via the ``reduce`` factory) are the knobs the optimize tests vary;
-    ``encode``, ``composite``, ``velocity`` and ``target`` come from the bundled config.
+    ``encode``, ``metrics``, ``velocity`` and ``target`` come from the bundled config. Every run stays
+    in the calling process, so the suite reads a stage's own timing rather than a pool's startup.
     """
 
     def _build(
@@ -212,7 +208,7 @@ def optimize_settings(
             sweep=sweep,
             reduce=reduce if reduce is not None else config.reduce,
             encode=config.encode,
-            composite=composite,
+            metrics=config.metrics,
             velocity=config.velocity,
             method=method if method is not None else config.optimize.method,
             target=target,
@@ -246,7 +242,7 @@ def piano_note(config: OptiConfig) -> Callable[..., NDArray[np.float64]]:
 
     def _piano(pitch: int, velocity: int = 100, dur: float = 0.6, *, seed: int) -> NDArray[np.float64]:
         spec = NoteSpec(pitch, velocity, 0.0, dur, _NOTE_SR)
-        return render_sample("piano", spec, np.random.default_rng(seed), config.synth)
+        return synthesize("piano", spec, np.random.default_rng(seed), config.synth)
 
     return _piano
 

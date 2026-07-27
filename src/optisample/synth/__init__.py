@@ -6,7 +6,21 @@ Split into pure synthesis (:mod:`~optisample.synth.archetypes` — archetype wav
 import each name from here.
 """
 
-from optisample.synth.archetypes import Archetype, NoteSpec, render_sample
-from optisample.synth.generate import generate_demo
+from optisample.synth.archetypes import (
+    Archetype,
+    NoteSpec,
+    draw_phases,
+    render_sample,
+    synthesize,
+)
+from optisample.synth.generate import DemoSettings, generate_demo
 
-__all__ = ["Archetype", "NoteSpec", "generate_demo", "render_sample"]
+__all__ = [
+    "Archetype",
+    "DemoSettings",
+    "NoteSpec",
+    "draw_phases",
+    "generate_demo",
+    "render_sample",
+    "synthesize",
+]

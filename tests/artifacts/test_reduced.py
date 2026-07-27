@@ -270,7 +270,7 @@ def test_the_dedupe_key_the_dataset_was_reduced_under_reaches_the_document(
         sweep=no_render_settings.optimize.sweep,
         reduce=reduce(dedupe={"key": DedupeKey.PITCH}),  # type: ignore[arg-type]
         encode=no_render_settings.optimize.encode,
-        composite=no_render_settings.optimize.composite,
+        metrics=no_render_settings.optimize.metrics,
         velocity=no_render_settings.optimize.velocity,
         method=no_render_settings.optimize.method,
         target=no_render_settings.optimize.target,

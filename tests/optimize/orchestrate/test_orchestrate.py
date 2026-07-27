@@ -18,13 +18,13 @@ from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import InstrumentPlan
 from optisample.optimize.reduce.keys import SampleKey
 from optisample.progress import NO_PROGRESS
-from optisample.synth import NoteSpec, render_sample
+from optisample.synth import NoteSpec, synthesize
 
 SR = 44_100
 PITCHES = (60, 67)
 VELOCITIES = (50, 100)
 
-# render_sample is a test-signal generator here; its synth config is fixture-independent test data.
+# synthesize is a test-signal generator here; its synth config is fixture-independent test data.
 _CONFIG = load_config()
 _SYNTH = _CONFIG.synth
 _DEDUPE = _CONFIG.reduce.dedupe
@@ -32,7 +32,7 @@ _LOOP = _CONFIG.loop
 
 
 def note(pitch: int, velocity: int, dur: float = 0.5) -> NDArray[np.float64]:
-    return render_sample(
+    return synthesize(
         "piano",
         NoteSpec(pitch, velocity, 0.0, dur, SR),
         np.random.default_rng(pitch * 200 + velocity),

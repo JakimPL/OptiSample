@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from optisample.config.synth import SynthConfig
-from optisample.synth import Archetype, NoteSpec, render_sample
+from optisample.synth import Archetype, NoteSpec, synthesize
 
 QUICK_RATE = 8_000
 
@@ -16,8 +16,8 @@ def _note(velocity: int) -> NoteSpec:
 @pytest.mark.parametrize("archetype", ["sustained", "piano"])
 def test_higher_velocity_is_louder(archetype: Archetype, synth_config: SynthConfig) -> None:
     rng = np.random.default_rng(0)
-    soft = render_sample(archetype, _note(40), rng, synth_config)
-    loud = render_sample(archetype, _note(120), rng, synth_config)
+    soft = synthesize(archetype, _note(40), rng, synth_config)
+    loud = synthesize(archetype, _note(120), rng, synth_config)
 
     def rms(x: np.ndarray) -> float:
         return float(np.sqrt(np.mean(x**2)))
@@ -28,8 +28,8 @@ def test_higher_velocity_is_louder(archetype: Archetype, synth_config: SynthConf
 @pytest.mark.parametrize("archetype", ["sustained", "piano"])
 def test_higher_velocity_is_brighter(archetype: Archetype, synth_config: SynthConfig) -> None:
     rng = np.random.default_rng(0)
-    soft = render_sample(archetype, _note(40), rng, synth_config)
-    loud = render_sample(archetype, _note(120), rng, synth_config)
+    soft = synthesize(archetype, _note(40), rng, synth_config)
+    loud = synthesize(archetype, _note(120), rng, synth_config)
 
     def centroid(x: np.ndarray) -> float:
         mag = np.abs(np.fft.rfft(x))

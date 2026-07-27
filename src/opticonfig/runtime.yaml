@@ -1,0 +1,1 @@
+workers: 6   # processes sharing the stages that fan out; 0 uses every core, 1 stays in-process

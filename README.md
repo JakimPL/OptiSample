@@ -117,6 +117,14 @@ Scoring pitch zones............... 100%     12/12     [00:07<00:00]
 Bars are drawn when stderr is a terminal, so redirected output stays clean; `--no-progress` silences them
 at a terminal too. Results keep to stdout either way.
 
+The stages that fan out — narrowing each pitch's stored grid, rendering each demo note — share their work
+across processes. `--workers N` sets how many; `0` (the shipped `src/opticonfig/runtime.yaml` value) asks
+for one per core, and each stage caps that at the items it holds, so a five-pitch stage starts five
+workers. `--workers 1` carries the whole run in the calling process, which is what `--profile` reads end
+to end and what a machine you are also working on stays responsive under. A run states the same reduction
+and the same plan whichever count it was given: every pitch is narrowed from its own clip against a fixed
+dither seed, and each demo note's phases are drawn in note order before any of them are rendered.
+
 `--format` overrides `src/opticonfig/tracker.yaml`, which also sets the compliance level the module is
 graded against and each format's own settings. Impulse Tracker numbers the whole ten-octave keyboard
 (MIDI 12–131); FastTracker 2 stops at MIDI 107, and a higher key is reported before anything is

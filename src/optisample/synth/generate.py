@@ -1,27 +1,60 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Final
 
 import numpy as np
+from numpy.typing import NDArray
 
 from optisample.config.synth import PresetConfig, SynthConfig
 from optisample.io.audio import write_wav
 from optisample.io.note_extractor import NoteRecord, dump_notes
-from optisample.progress import ProgressSink
-from optisample.synth.archetypes import NoteSpec, render_sample
+from optisample.parallel import IN_PROCESS, map_workers
+from optisample.progress import NO_PROGRESS, ProgressSink
+from optisample.synth.archetypes import Archetype, NoteSpec, draw_phases, render_sample
 
 DEFAULT_SEED: Final = 137
 _NO_CONTROLLER: Final = 0.0
 
 
 @dataclass(frozen=True)
+class DemoSettings:
+    """How a demo dataset is produced, as opposed to which instruments it holds.
+
+    ``sample_rate`` is the rate every preset renders at, which a quick run drops below the configured
+    one. ``seed`` is the entropy the whole dataset is reproducible from, ``workers`` how many processes
+    share the notes out between them, and ``progress`` where each preset reports how far through it is.
+    """
+
+    sample_rate: int
+    seed: int = DEFAULT_SEED
+    workers: int = IN_PROCESS
+    progress: ProgressSink = NO_PROGRESS
+
+
+@dataclass(frozen=True)
 class _Rendering:
-    """What every note of every preset is rendered through: the archetype config, rate, RNG and sink."""
+    """What every note of every preset is rendered through: the archetype config, the RNG and the run."""
 
     config: SynthConfig
-    sample_rate: int
     rng: np.random.Generator
-    progress: ProgressSink
+    settings: DemoSettings
+
+
+@dataclass(frozen=True)
+class _PlayedNote:
+    """One note as a worker receives it: where it lands, what to synthesize, and where it starts from."""
+
+    path: Path
+    archetype: Archetype
+    spec: NoteSpec
+    phases: NDArray[np.float64]
+
+
+def _write_note(note: _PlayedNote, config: SynthConfig) -> None:
+    """Synthesize one note and write it as a WAV, which is the whole of a worker's share of a preset."""
+    write_wav(note.path, render_sample(note.archetype, note.spec, note.phases, config), note.spec.sample_rate)
 
 
 def _note_specs(preset: PresetConfig, sample_rate: int) -> list[NoteSpec]:
@@ -37,6 +70,28 @@ def _note_specs(preset: PresetConfig, sample_rate: int) -> list[NoteSpec]:
     ]
 
 
+def _played_notes(
+    samples_dir: Path,
+    preset: PresetConfig,
+    specs: Sequence[NoteSpec],
+    rendering: _Rendering,
+) -> list[_PlayedNote]:
+    """Pair every note with the file it lands in and the phases it starts from, in render-index order.
+
+    The whole preset's phases are drawn here, one note after another, so a seed reproduces the dataset
+    however the notes are then shared out to be rendered.
+    """
+    return [
+        _PlayedNote(
+            path=samples_dir / f"{index:04d}_p{spec.pitch}_v{spec.velocity}.wav",
+            archetype=preset.archetype,
+            spec=spec,
+            phases=draw_phases(preset.archetype, spec, rendering.rng, rendering.config),
+        )
+        for index, spec in enumerate(specs)
+    ]
+
+
 def _render_preset(outdir: Path, preset: PresetConfig, rendering: _Rendering) -> tuple[Path, Path]:
     """Render one preset's material song to per-note WAVs and write its ``.notes.json``.
 
@@ -46,48 +101,30 @@ def _render_preset(outdir: Path, preset: PresetConfig, rendering: _Rendering) ->
     """
     samples_dir = outdir / preset.id
     samples_dir.mkdir(parents=True, exist_ok=True)
-    specs = _note_specs(preset, rendering.sample_rate)
-    records: list[NoteRecord] = []
-    tracked = rendering.progress.track(specs, label=f"Rendering {preset.id}", total=len(specs))
-    for index, spec in enumerate(tracked):
-        write_wav(
-            samples_dir / f"{index:04d}_p{spec.pitch}_v{spec.velocity}.wav",
-            render_sample(preset.archetype, spec, rendering.rng, rendering.config),
-            rendering.sample_rate,
-        )
-        records.append(
-            NoteRecord(
-                index=index,
-                pitch=spec.pitch,
-                velocity=spec.velocity,
-                duration_s=spec.duration_s,
-            )
-        )
-
+    specs = _note_specs(preset, rendering.settings.sample_rate)
+    map_workers(
+        partial(_write_note, config=rendering.config),
+        _played_notes(samples_dir, preset, specs, rendering),
+        workers=rendering.settings.workers,
+        label=f"Rendering {preset.id}",
+        progress=rendering.settings.progress,
+    )
+    records = [
+        NoteRecord(index=index, pitch=spec.pitch, velocity=spec.velocity, duration_s=spec.duration_s)
+        for index, spec in enumerate(specs)
+    ]
     notes_json = outdir / f"{preset.id}.notes.json"
     dump_notes(records, notes_json)
     return notes_json, samples_dir
 
 
-def generate_demo(
-    outdir: Path | str,
-    config: SynthConfig,
-    *,
-    sample_rate: int | None = None,
-    seed: int = DEFAULT_SEED,
-    progress: ProgressSink,
-) -> list[tuple[Path, Path]]:
+def generate_demo(outdir: Path | str, config: SynthConfig, settings: DemoSettings) -> list[tuple[Path, Path]]:
     """Render every preset in ``config`` to ``outdir`` as a NoteExtractor-style samples dir + ``.notes.json``.
 
-    ``sample_rate`` overrides the render rate for a quick low-rate run; ``None`` uses ``config.sample_rate``.
-    Returns one ``(notes_json, samples_dir)`` pair per preset. Deterministic for a given ``seed``.
+    Returns one ``(notes_json, samples_dir)`` pair per preset. Deterministic for a given
+    ``settings.seed``, whichever fan-out the notes were rendered under.
     """
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
-    rendering = _Rendering(
-        config=config,
-        sample_rate=config.sample_rate if sample_rate is None else sample_rate,
-        rng=np.random.default_rng(seed),
-        progress=progress,
-    )
+    rendering = _Rendering(config=config, rng=np.random.default_rng(settings.seed), settings=settings)
     return [_render_preset(outdir, preset, rendering) for preset in config.presets]

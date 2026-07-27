@@ -8,7 +8,6 @@ from optisample.artifacts.context import DumpContext, DumpSettings
 from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
 from optisample.io.tracker.target import export_target
-from optisample.metrics import build_composite
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.grouping import optimize_instrument_grouped
 from optisample.optimize.orchestrate import optimize_instrument, prepare_run
@@ -32,7 +31,7 @@ def tiny_settings() -> OptimizeSettings:
         sweep=grid,
         reduce=_CONFIG.reduce,
         encode=_CONFIG.encode,
-        composite=build_composite(_CONFIG.metrics),
+        metrics=_CONFIG.metrics,
         velocity=_CONFIG.velocity,
         method=_CONFIG.optimize.method,
         target=export_target(_CONFIG.tracker),

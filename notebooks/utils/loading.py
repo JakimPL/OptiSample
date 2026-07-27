@@ -7,8 +7,7 @@ from optisample.config.synth import SynthConfig
 from optisample.io.audio import read_wav
 from optisample.io.note_extractor import NOTES_SUFFIX, IngestSettings, load_notes
 from optisample.model import InstrumentSpec, Manifest, ProjectSpec, SourceSample
-from optisample.progress import NO_PROGRESS
-from optisample.synth import generate_demo
+from optisample.synth import DemoSettings, generate_demo
 
 Signal = NDArray[np.float64]
 
@@ -19,7 +18,7 @@ def ensure_demo(root: Path | str, config: SynthConfig, *, seed: int = 0) -> Path
     """Return the demo directory under ``root``, generating the synthetic dataset (from ``config``) if absent."""
     root = Path(root)
     if not sorted(root.glob(f"*{NOTES_SUFFIX}")):
-        generate_demo(root, config, seed=seed, progress=NO_PROGRESS)
+        generate_demo(root, config, DemoSettings(sample_rate=config.sample_rate, seed=seed))
     return root
 
 

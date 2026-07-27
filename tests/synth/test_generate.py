@@ -9,8 +9,7 @@ from optisample.config.synth import SynthConfig
 from optisample.io.audio import read_wav
 from optisample.io.note_extractor import IngestSettings, load_notes
 from optisample.model import ProjectSpec
-from optisample.progress import NO_PROGRESS
-from optisample.synth import generate_demo
+from optisample.synth import DemoSettings, generate_demo
 
 QUICK_RATE = 8_000
 
@@ -20,7 +19,7 @@ def _first_wav(samples_dir: Path) -> Path:
 
 
 def test_generate_demo_writes_notes_and_audio(synth_config: SynthConfig, tmp_path: Path) -> None:
-    outputs = generate_demo(tmp_path, synth_config, sample_rate=QUICK_RATE, progress=NO_PROGRESS)
+    outputs = generate_demo(tmp_path, synth_config, DemoSettings(sample_rate=QUICK_RATE))
     assert {samples_dir.name for _, samples_dir in outputs} == {preset.id for preset in synth_config.presets}
 
     for notes_json, samples_dir in outputs:
@@ -39,8 +38,8 @@ def test_generate_demo_writes_notes_and_audio(synth_config: SynthConfig, tmp_pat
 
 
 def test_generate_demo_is_deterministic(synth_config: SynthConfig, tmp_path: Path) -> None:
-    a = generate_demo(tmp_path / "a", synth_config, sample_rate=QUICK_RATE, seed=7, progress=NO_PROGRESS)
-    b = generate_demo(tmp_path / "b", synth_config, sample_rate=QUICK_RATE, seed=7, progress=NO_PROGRESS)
+    a = generate_demo(tmp_path / "a", synth_config, DemoSettings(sample_rate=QUICK_RATE, seed=7))
+    b = generate_demo(tmp_path / "b", synth_config, DemoSettings(sample_rate=QUICK_RATE, seed=7))
     wave_a, _ = read_wav(_first_wav(a[0][1]))
     wave_b, _ = read_wav(_first_wav(b[0][1]))
     np.testing.assert_array_equal(wave_a, wave_b)

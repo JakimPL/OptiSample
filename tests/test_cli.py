@@ -8,6 +8,7 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.cli import (
+    _demo_settings,
     _dump_settings,
     _optimize_settings,
     build_parser,
@@ -257,6 +258,22 @@ def test_the_reduce_command_reads_the_same_ingest_flags_as_optimize(config: Opti
     optimized = build_parser().parse_args(["optimize", *argv])
     assert _optimize_settings(config, reduced).reduce == _optimize_settings(config, optimized).reduce
     assert _optimize_settings(config, reduced).seed == 3
+
+
+def test_the_workers_flag_sets_how_far_a_run_fans_out(config: OptiConfig) -> None:
+    args = build_parser().parse_args(["optimize", "m.notes.json", "--budget-kb", "48", "--workers", "3"])
+    assert _optimize_settings(config, args).workers == 3
+
+
+def test_a_run_fans_out_the_configured_way_when_no_flag_names_a_count(config: OptiConfig) -> None:
+    args = build_parser().parse_args(["optimize", "m.notes.json", "--budget-kb", "48"])
+    assert _optimize_settings(config, args).workers == config.runtime.workers
+
+
+def test_the_demo_reads_the_same_fan_out_flag_as_a_run(config: OptiConfig) -> None:
+    """One flag on the shared parser, so ``--workers 1`` means an in-process run to either command."""
+    args = build_parser().parse_args(["synth", "demo", "--workers", "1"])
+    assert _demo_settings(config, args).workers == 1
 
 
 def test_synth_command_generates_notes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

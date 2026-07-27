@@ -9,6 +9,7 @@ from optisample.config.metrics import MetricsConfig
 from optisample.config.optimize import OptimizeConfig, SweepConfig, VelocityConfig
 from optisample.config.reduce import ReduceConfig
 from optisample.config.render import PlaybackConfig, RenderConfig
+from optisample.config.runtime import RuntimeConfig
 from optisample.config.synth import SynthConfig
 from optisample.config.tracker import TrackerConfig
 
@@ -28,6 +29,7 @@ class OptiConfig(ConfigModel):
     playback: PlaybackConfig
     tracker: TrackerConfig
     synth: SynthConfig
+    runtime: RuntimeConfig
 
     @property
     def encode(self) -> EncodeConfig:

@@ -11,7 +11,6 @@ from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import ReduceConfig
 from optisample.io.audio import write_wav
 from optisample.io.tracker.target import export_target
-from optisample.metrics.composite import build_composite
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.dp import BudgetInfeasibleError
 from optisample.optimize.grouping import (
@@ -36,14 +35,13 @@ from optisample.optimize.reduce.bandwidth import ClipDemand
 from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.tasks import EvalContext, Event, PitchTask
 from optisample.progress import NO_PROGRESS
-from optisample.synth import NoteSpec, render_sample
+from optisample.synth import NoteSpec, synthesize
 
 SR = 44_100
 PITCHES = (60, 62, 64)
 _OCTAVE = 12
 
 _CONFIG = load_config()
-_COMPOSITE = build_composite(_CONFIG.metrics)
 
 
 def _grid(**overrides: object) -> SweepConfig:
@@ -61,7 +59,7 @@ def _settings(sweep: SweepConfig, **sections: Mapping[str, object]) -> OptimizeS
         sweep=sweep,
         reduce=_reduce(**sections),
         encode=_CONFIG.encode,
-        composite=_COMPOSITE,
+        metrics=_CONFIG.metrics,
         velocity=_CONFIG.velocity,
         method=_CONFIG.optimize.method,
         target=export_target(_CONFIG.tracker),
@@ -74,7 +72,7 @@ GRID_DITHERED = _grid(rates=(11_025,), depths=(8,), dither=True)  # a grid whose
 
 
 def _note(pitch: int, velocity: int, dur: float) -> NDArray[np.float64]:
-    return render_sample(
+    return synthesize(
         "piano",
         NoteSpec(pitch, velocity, 0.0, dur, SR),
         np.random.default_rng(pitch * 137 + velocity),
@@ -310,7 +308,7 @@ def test_grouping_raises_when_even_one_merged_zone_overflows(audio: dict[SampleK
 def test_grouping_handles_the_sustained_archetype() -> None:
     pitches = (60, 62, 64)
     audio = {
-        SampleKey(pitch, 100): render_sample(
+        SampleKey(pitch, 100): synthesize(
             "sustained", NoteSpec(pitch, 100, 0.0, 0.6, SR), np.random.default_rng(pitch), _CONFIG.synth
         )
         for pitch in pitches

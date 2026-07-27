@@ -13,11 +13,10 @@ from optisample.config.reduce import DedupeKey, ReduceConfig
 from optisample.config.tracker import TrackerConfig, TrackerFormat
 from optisample.io.note_extractor import NOTES_SUFFIX, IngestSettings, load_notes
 from optisample.io.tracker.target import ExportTarget, export_target
-from optisample.metrics import build_composite
 from optisample.model import ProjectSpec
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.progress import ProgressSink, bars_are_watchable, progress_sink
-from optisample.synth import generate_demo
+from optisample.synth import DemoSettings, generate_demo
 
 DEFAULT_SEED: Final = 0
 _PROFILE_TOP_FUNCTIONS: Final = 20
@@ -30,13 +29,19 @@ _REDUCED_OUT: Final = Path("reduced")
 
 
 def _common_parser() -> argparse.ArgumentParser:
-    """The flags every subcommand reads: which config to load, and whether stages draw their bars."""
+    """The flags every subcommand reads: the config, the fan-out, and whether stages draw their bars."""
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument(
         "--config",
         type=Path,
         default=None,
         help="Config directory to load (default: bundled)",
+    )
+    common.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Processes sharing the stages that fan out; 0 uses every core, 1 keeps the run in-process",
     )
     common.add_argument(
         "--no-progress",
@@ -248,6 +253,14 @@ def _reduce_config(config: OptiConfig, args: argparse.Namespace) -> ReduceConfig
     return ReduceConfig.model_validate(data)
 
 
+def _workers(config: OptiConfig, args: argparse.Namespace) -> int:
+    """How many processes the run's fanned-out stages share: ``--workers`` over the configured count."""
+    if args.workers is None:
+        return config.runtime.workers
+
+    return int(args.workers)
+
+
 def _progress(args: argparse.Namespace) -> ProgressSink:
     """Where the run reports its stages: bars on stderr when a terminal is there to redraw them.
 
@@ -274,11 +287,12 @@ def _optimize_settings(
         sweep=grid,
         reduce=_reduce_config(config, args),
         encode=config.encode,
-        composite=build_composite(config.metrics),
+        metrics=config.metrics,
         velocity=config.velocity,
         method=config.optimize.method,
         target=_export_target(config, args),
         seed=args.seed,
+        workers=_workers(config, args),
         progress=_progress(args),
     )
 
@@ -379,15 +393,18 @@ def _run_profiled(
         pstats.Stats(profiler, stream=sys.stderr).sort_stats("cumulative").print_stats(top)
 
 
-def _run_synth(config: OptiConfig, args: argparse.Namespace) -> None:
-    outputs = generate_demo(
-        args.outdir,
-        config.synth,
-        sample_rate=args.sample_rate,
+def _demo_settings(config: OptiConfig, args: argparse.Namespace) -> DemoSettings:
+    """How the demo dataset is produced, with ``--sample-rate`` overriding the configured render rate."""
+    return DemoSettings(
+        sample_rate=config.synth.sample_rate if args.sample_rate is None else args.sample_rate,
         seed=args.seed,
+        workers=_workers(config, args),
         progress=_progress(args),
     )
-    for notes_json, samples_dir in outputs:
+
+
+def _run_synth(config: OptiConfig, args: argparse.Namespace) -> None:
+    for notes_json, samples_dir in generate_demo(args.outdir, config.synth, _demo_settings(config, args)):
         print(f"Wrote {notes_json} (samples: {samples_dir})")
 
 

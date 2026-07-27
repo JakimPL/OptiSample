@@ -14,7 +14,7 @@ from optisample.config.synth import SynthConfig
 from optisample.dsp.surrogate import StoredSample
 from optisample.io.tracker.target import ExportTarget
 from optisample.metrics import CompositeFidelity
-from optisample.synth import NoteSpec, render_sample
+from optisample.synth import NoteSpec, synthesize
 
 SAMPLE_RATE = 44_100
 
@@ -48,6 +48,6 @@ def recording(synth_config: SynthConfig) -> Callable[..., NDArray[np.float64]]:
 
     def _recording(archetype: str, pitch: int, dur: float) -> NDArray[np.float64]:
         spec = NoteSpec(pitch, 100, 0.0, dur, SAMPLE_RATE)
-        return render_sample(archetype, spec, np.random.default_rng(pitch), synth_config)
+        return synthesize(archetype, spec, np.random.default_rng(pitch), synth_config)
 
     return _recording

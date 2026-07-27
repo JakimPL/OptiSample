@@ -10,6 +10,7 @@ from optisample.music import A4_FREQ_HZ, MIDI_MAX_VELOCITY, midi_to_freq
 Archetype = Literal["sustained", "piano"]
 
 _MIN_PARTIALS: Final = 1
+_FULL_TURN: Final = 2.0 * np.pi
 
 
 @dataclass(frozen=True)
@@ -74,32 +75,30 @@ def _attack_release(
 
 def render_sustained(
     spec: NoteSpec,
-    rng: np.random.Generator,
+    phases: NDArray[np.float64],
     config: SynthConfig,
 ) -> NDArray[np.float64]:
     """Synthesize a sustained tone: vibrato-modulated partials rolled off by velocity and controller.
 
-    Partials at or above ``evolution_min_partial`` get a slow independent wax/wane, so the sustain
-    drifts continuously; an attack/release envelope then shapes it and it is peak-normalized to the
-    velocity's target level.
+    One partial is summed per entry of ``phases``, each starting at the angle that entry names. Partials
+    at or above ``evolution_min_partial`` get a slow independent wax/wane, so the sustain drifts
+    continuously; an attack/release envelope then shapes it and it is peak-normalized to the velocity's
+    target level.
     """
     archetype_config = config.sustained
     fundamental = midi_to_freq(spec.pitch)
-    partials = _n_partials(fundamental, spec.sample_rate, archetype_config.n_partials, config.nyquist_fraction)
     time_axis = spec.time_axis()
 
-    vibrato = 1.0 + archetype_config.vibrato_depth * np.sin(2.0 * np.pi * archetype_config.vibrato_hz * time_axis)
+    vibrato = 1.0 + archetype_config.vibrato_depth * np.sin(_FULL_TURN * archetype_config.vibrato_hz * time_axis)
     rolloff = (archetype_config.rolloff_base + archetype_config.rolloff_vel * spec.normalized_velocity) * (
         1.0 + archetype_config.rolloff_controller * spec.controller
     )
 
     signal = np.zeros_like(time_axis)
-    for partial in range(1, partials + 1):
-        phase = 2.0 * np.pi * np.cumsum(partial * fundamental * vibrato) / spec.sample_rate + rng.uniform(
-            0.0, 2.0 * np.pi
-        )
+    for partial, offset in enumerate(phases, start=1):
+        phase = _FULL_TURN * np.cumsum(partial * fundamental * vibrato) / spec.sample_rate + offset
         depth = archetype_config.evolution_depth if partial >= archetype_config.evolution_min_partial else 0.0
-        evolution = 1.0 + depth * np.sin(2.0 * np.pi * archetype_config.evolution_hz * time_axis + partial)
+        evolution = 1.0 + depth * np.sin(_FULL_TURN * archetype_config.evolution_hz * time_axis + partial)
         signal += rolloff ** (partial - 1) / partial * evolution * np.sin(phase)
 
     signal *= _attack_release(time_axis, attack_s=archetype_config.attack_s, release_s=archetype_config.release_s)
@@ -113,21 +112,16 @@ def render_sustained(
     )
 
 
-def render_piano(spec: NoteSpec, rng: np.random.Generator, config: SynthConfig) -> NDArray[np.float64]:
+def render_piano(spec: NoteSpec, phases: NDArray[np.float64], config: SynthConfig) -> NDArray[np.float64]:
     """Synthesize a struck-string tone: inharmonic partials with frequency-dependent decay.
 
-    Partial ``partial`` is stretched slightly sharp by ``inharmonicity`` (the stiff-string effect) and
-    rings with a time constant that shortens for higher partials, so the tone darkens as it decays; a
-    short attack ramp and peak-normalization to the velocity's target level finish it.
+    One partial is summed per entry of ``phases``, each starting at the angle that entry names. Partial
+    ``partial`` is stretched slightly sharp by ``inharmonicity`` (the stiff-string effect) and rings with
+    a time constant that shortens for higher partials, so the tone darkens as it decays; a short attack
+    ramp and peak-normalization to the velocity's target level finish it.
     """
     archetype_config = config.piano
     fundamental = midi_to_freq(spec.pitch)
-    partials = _n_partials(
-        fundamental,
-        spec.sample_rate,
-        archetype_config.n_partials,
-        config.nyquist_fraction,
-    )
     time_axis = spec.time_axis()
 
     base_tau = float(
@@ -141,10 +135,10 @@ def render_piano(spec: NoteSpec, rng: np.random.Generator, config: SynthConfig) 
         1.0 + archetype_config.rolloff_controller * spec.controller
     )
     signal = np.zeros_like(time_axis)
-    for partial in range(1, partials + 1):
+    for partial, offset in enumerate(phases, start=1):
         freq = partial * fundamental * np.sqrt(1.0 + archetype_config.inharmonicity * partial * partial)
         tau = base_tau / (1.0 + archetype_config.decay_partial_factor * (partial - 1))
-        phase = 2.0 * np.pi * freq * time_axis + rng.uniform(0.0, 2.0 * np.pi)
+        phase = _FULL_TURN * freq * time_axis + offset
         signal += rolloff ** (partial - 1) / partial * np.exp(-time_axis / tau) * np.sin(phase)
 
     signal *= np.minimum(1.0, time_axis / archetype_config.attack_s)
@@ -159,13 +153,49 @@ def render_piano(spec: NoteSpec, rng: np.random.Generator, config: SynthConfig) 
 
 
 def render_sample(
-    archetype: Archetype, spec: NoteSpec, rng: np.random.Generator, config: SynthConfig
+    archetype: Archetype, spec: NoteSpec, phases: NDArray[np.float64], config: SynthConfig
 ) -> NDArray[np.float64]:
-    """Render ``spec`` with the synthesis routine for ``archetype``."""
+    """Render ``spec`` with the synthesis routine for ``archetype``, starting from ``phases``."""
     match archetype:
         case "sustained":
-            return render_sustained(spec, rng, config)
+            return render_sustained(spec, phases, config)
         case "piano":
-            return render_piano(spec, rng, config)
+            return render_piano(spec, phases, config)
         case _:  # pragma: no cover - archetype is an exhaustive Literal
             assert_never(archetype)
+
+
+def _partial_count(archetype: Archetype, spec: NoteSpec, config: SynthConfig) -> int:
+    """How many partials ``archetype`` sums for ``spec``, under its own requested count."""
+    match archetype:
+        case "sustained":
+            requested = config.sustained.n_partials
+        case "piano":
+            requested = config.piano.n_partials
+        case _:  # pragma: no cover - archetype is an exhaustive Literal
+            assert_never(archetype)
+
+    return _n_partials(midi_to_freq(spec.pitch), spec.sample_rate, requested, config.nyquist_fraction)
+
+
+def draw_phases(
+    archetype: Archetype, spec: NoteSpec, rng: np.random.Generator, config: SynthConfig
+) -> NDArray[np.float64]:
+    """The starting angle of every partial ``archetype`` sums for ``spec``, drawn from ``rng``.
+
+    Drawing a note's phases up front leaves :func:`render_sample` a pure function of its inputs, so a
+    note sounds the same in whichever process and whichever order it is rendered. Drawing them all from
+    one stream, in the order the notes are listed, keeps a whole dataset reproducible from one seed.
+    """
+    return rng.uniform(0.0, _FULL_TURN, size=_partial_count(archetype, spec, config))
+
+
+def synthesize(
+    archetype: Archetype, spec: NoteSpec, rng: np.random.Generator, config: SynthConfig
+) -> NDArray[np.float64]:
+    """One note drawn from ``rng`` and rendered, for a caller wanting a note rather than a dataset.
+
+    A dataset draws every note's phases first and renders them apart, which is what lets the rendering
+    be shared out; a caller after a single note has the two steps here in one place.
+    """
+    return render_sample(archetype, spec, draw_phases(archetype, spec, rng, config), config)
