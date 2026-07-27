@@ -13,4 +13,3 @@ bandwidth:
   content_band_hz: 200.0           # width the spectrum is averaged into before that edge is read
 grouping:
   max_zone_semitones: 12           # widest contiguous pitch zone the partition DP considers
-  memoize: true                    # reuse a scored (representative, encoding, key) across zones

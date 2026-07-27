@@ -98,11 +98,11 @@ class EvalContext:
     priced in the bytes the written module will actually spend on it. ``bandwidth`` and ``byte_target``
     are what narrows a stored grid before that sweep runs: the reduction's own knobs, and the share of
     the sample budget one stored sample can expect once the keys split it evenly. ``grouping`` bounds
-    what pitch-zone grouping enumerates and says whether it reuses a score across the zones sharing it.
+    what pitch-zone grouping enumerates.
 
-    The two dither sources sit side by side: ``rng`` is the one stream every encode draws from in the
-    order the sweep reaches it, and ``seed`` is the run entropy an encode reused across zones derives
-    its own stream from instead, so that score reads the same wherever it appears.
+    The two dither sources sit side by side: ``rng`` is the one stream the ungrouped sweep's encodes
+    draw from in the order it reaches them, and ``seed`` is the run entropy a stored sample scored
+    across zones derives its own stream from, so that score reads the same wherever it appears.
     """
 
     sample_rate: int

@@ -21,25 +21,30 @@ from optisample.optimize.grouping import (
 )
 from optisample.optimize.grouping.cost_model import (
     _capped_ranges,
+    _GridCache,
     _zone_delta,
     _zone_demand,
     _zone_trim,
     _ZoneOptions,
-    _ZoneScorer,
+    store_requests,
+    zone_shortlists,
     zone_starts,
 )
+from optisample.optimize.grouping.stores import dither, score_request, score_stores
 from optisample.optimize.orchestrate import optimize_instrument, prepare_run
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import GroupedInstrumentPlan, ZoneOption
 from optisample.optimize.reduce.bandwidth import ClipDemand
 from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.tasks import EvalContext, Event, PitchTask
+from optisample.parallel import IN_PROCESS
 from optisample.progress import NO_PROGRESS
 from optisample.synth import NoteSpec, synthesize
 
 SR = 44_100
 PITCHES = (60, 62, 64)
 _OCTAVE = 12
+_SHARED = 2  # workers, enough to score the representatives apart without asking the machine for every core
 
 _CONFIG = load_config()
 
@@ -107,7 +112,8 @@ def options48(
     audio: dict[SampleKey, NDArray[np.float64]],
 ) -> tuple[list[PitchTask], dict[tuple[int, int], tuple[ZoneOption, ...]]]:
     inputs = prepare_run(_instrument(48.0), audio, SR, _settings(GRID))
-    return list(inputs.tasks), build_zone_options(inputs.tasks, inputs.context, NO_PROGRESS)
+    options = build_zone_options(inputs.tasks, inputs.context, workers=IN_PROCESS, progress=NO_PROGRESS)
+    return list(inputs.tasks), options
 
 
 @pytest.fixture(scope="module")
@@ -120,11 +126,6 @@ def dithered(audio: dict[SampleKey, NDArray[np.float64]]) -> tuple[list[PitchTas
     """A run whose encodes draw dither, so a shared stream and a per-identity one tell apart."""
     inputs = prepare_run(_instrument(48.0), audio, SR, _settings(GRID_DITHERED))
     return list(inputs.tasks), inputs.context
-
-
-def _without_memo(context: EvalContext) -> EvalContext:
-    """The same run scoring every zone on its own, off the one dither stream it shares."""
-    return replace(context, grouping=_reduce(grouping={"memoize": False}).grouping)
 
 
 # --- zone cost model -----------------------------------------------------------------------------
@@ -196,44 +197,22 @@ def test_zone_hull_is_a_monotone_frontier(
     assert all(a.distortion > b.distortion for a, b in zip(hull, hull[1:]))  # descending distortion
 
 
-# --- reuse across zones --------------------------------------------------------------------------
+# --- what the candidate zones share ---------------------------------------------------------------
 
 
-def _distortions(options: tuple[ZoneOption, ...]) -> list[float]:
-    return [option.distortion for option in options]
+def _ranges(tasks: list[PitchTask], context: EvalContext) -> list[tuple[int, int]]:
+    return list(_capped_ranges(tasks, context.grouping.max_zone_semitones))
 
 
-def test_a_zone_scores_the_same_whatever_was_encoded_before_it(
+def test_an_encodings_dither_follows_its_identity_rather_than_when_it_is_drawn(
     dithered: tuple[list[PitchTask], EvalContext],
 ) -> None:
-    """Drawing the dither from the encoding's own identity is what makes a score reusable at all."""
+    """The property the whole staging rests on: a stored sample scores the same wherever it is reached."""
     tasks, context = dithered
-    alone = _ZoneScorer(context).zone_options(tasks[2:3])
-
-    scorer = _ZoneScorer(context)
-    scorer.zone_options(tasks[0:2])  # two other zones draw their dither first
-    assert _distortions(scorer.zone_options(tasks[2:3])) == _distortions(alone)
-
-
-def test_one_shared_dither_stream_makes_a_score_depend_on_that_order(
-    dithered: tuple[list[PitchTask], EvalContext],
-) -> None:
-    tasks, context = dithered
-    unmemoized = _without_memo(context)
-    alone = _ZoneScorer(unmemoized).zone_options(tasks[2:3])
-
-    scorer = _ZoneScorer(unmemoized)
-    scorer.zone_options(tasks[0:2])
-    assert _distortions(scorer.zone_options(tasks[2:3])) != _distortions(alone)
-
-
-def test_memoizing_stores_one_sample_per_encoding_identity(
-    dithered: tuple[list[PitchTask], EvalContext],
-) -> None:
-    tasks, context = dithered
-    scorer = _ZoneScorer(context)
-    params = scorer.shortlist(tasks[0], _zone_demand(tasks[:1], tasks[0].pitch))[0]
-    assert scorer.stored_sample(tasks[0], params) is scorer.stored_sample(tasks[0], params)
+    params = _GridCache(context).shortlist(tasks[0], _zone_demand(tasks[:1], tasks[0].pitch))[0]
+    root = tasks[0].pitch
+    assert dither(context.seed, root, params).random() == dither(context.seed, root, params).random()
+    assert dither(context.seed, root, params).random() != dither(context.seed, root + 1, params).random()
 
 
 def test_zones_holding_a_representative_the_same_length_read_back_one_priced_grid(
@@ -241,36 +220,79 @@ def test_zones_holding_a_representative_the_same_length_read_back_one_priced_gri
 ) -> None:
     """The stored length settles the pricing; a zone's transpose and reach only rank what it priced."""
     tasks, context = dithered
-    scorer = _ZoneScorer(context)
+    cache = _GridCache(context)
     wide = _zone_demand(tasks[:2], tasks[0].pitch)
     alone = replace(wide, delta_semitones=0, key_count=1)  # a different ask at the same stored length
 
-    scorer.shortlist(tasks[0], wide)
-    scorer.shortlist(tasks[0], alone)
-    assert scorer.priced_grid(tasks[0], wide.trim_s) is scorer.priced_grid(tasks[0], alone.trim_s)
-    assert len(scorer.grids) == 1
+    cache.shortlist(tasks[0], wide)
+    cache.shortlist(tasks[0], alone)
+    assert len(cache.grids) == 1
 
 
-def test_sharing_a_priced_grid_scores_a_zone_exactly_as_pricing_it_alone_does(
+def test_pooling_the_shortlists_states_each_stored_sample_once(
     dithered: tuple[list[PitchTask], EvalContext],
 ) -> None:
-    """Each zone still narrows to its own demand, so what it shares changes no option it is given."""
+    """Every candidate zone asks its representative for something; each distinct ask is stated once."""
     tasks, context = dithered
-    shared = _ZoneScorer(context)
-    for start, stop in _capped_ranges(tasks, context.grouping.max_zone_semitones):
-        alone = _ZoneScorer(context)  # a scorer that has priced and scored nothing before this zone
-        assert shared.zone_options(tasks[start:stop]) == alone.zone_options(tasks[start:stop])
+    ranges = _ranges(tasks, context)
+    shortlists = zone_shortlists(tasks, ranges, context, NO_PROGRESS)
+    requests = store_requests(tasks, shortlists)
+
+    stored = [(request.representative.pitch, encoding.params) for request in requests for encoding in request.encodings]
+    assert len(stored) == len(set(stored))
+    assert {pitch for pitch, _ in stored} == {representative for _, representative in shortlists}
 
 
-def test_scoring_each_zone_on_its_own_keeps_nothing_between_them(
+def test_a_stored_sample_is_asked_about_exactly_the_keys_some_zone_routes_to_it(
     dithered: tuple[list[PitchTask], EvalContext],
 ) -> None:
     tasks, context = dithered
-    scorer = _ZoneScorer(_without_memo(context))
-    params = scorer.shortlist(tasks[0], _zone_demand(tasks[:1], tasks[0].pitch))[0]
-    assert scorer.stored_sample(tasks[0], params) is not scorer.stored_sample(tasks[0], params)
-    assert scorer.zone_options(tasks[:1])  # every zone is still scored, just never read back
-    assert not scorer.stored and not scorer.distortions
+    ranges = _ranges(tasks, context)
+    shortlists = zone_shortlists(tasks, ranges, context, NO_PROGRESS)
+
+    wanted: dict[tuple[int, object], set[int]] = {}
+    for (span, representative), shortlist in shortlists.items():
+        for params in shortlist:
+            covered = {task.pitch for task in tasks[span[0] : span[1]]}
+            wanted.setdefault((representative, params), set()).update(covered)
+
+    for request in store_requests(tasks, shortlists):
+        for encoding in request.encodings:
+            assert set(encoding.keys) == wanted[(request.representative.pitch, encoding.params)]
+
+
+def test_scoring_a_representative_answers_for_every_encoding_asked_of_it(
+    dithered: tuple[list[PitchTask], EvalContext],
+) -> None:
+    tasks, context = dithered
+    request = store_requests(tasks, zone_shortlists(tasks, _ranges(tasks, context), context, NO_PROGRESS))[0]
+    scores = score_request(request, context)
+
+    assert set(scores) == {encoding.params for encoding in request.encodings}
+    for encoding in request.encodings:
+        assert set(scores[encoding.params].distortions) == set(encoding.keys)
+
+
+def test_scoring_shared_across_processes_reads_the_same_as_scoring_in_one(
+    dithered: tuple[list[PitchTask], EvalContext],
+) -> None:
+    """A stored sample belongs to one representative and draws its own dither, so scheduling cannot move it."""
+    tasks, context = dithered
+    requests = store_requests(tasks, zone_shortlists(tasks, _ranges(tasks, context), context, NO_PROGRESS))
+    alone = score_stores(requests, context, workers=IN_PROCESS, progress=NO_PROGRESS)
+    shared = score_stores(requests, context, workers=_SHARED, progress=NO_PROGRESS)
+    assert {key: score.distortions for key, score in shared.items()} == {
+        key: score.distortions for key, score in alone.items()
+    }
+
+
+def test_zone_options_read_the_same_however_the_scoring_was_shared_out(
+    audio: dict[SampleKey, NDArray[np.float64]],
+) -> None:
+    inputs = prepare_run(_instrument(48.0), audio, SR, _settings(GRID_DITHERED))
+    alone = build_zone_options(inputs.tasks, inputs.context, workers=IN_PROCESS, progress=NO_PROGRESS)
+    shared = build_zone_options(inputs.tasks, inputs.context, workers=_SHARED, progress=NO_PROGRESS)
+    assert shared == alone
 
 
 # --- end-to-end behaviour ------------------------------------------------------------------------

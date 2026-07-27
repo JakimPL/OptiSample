@@ -20,7 +20,12 @@ def allocate_instrument_grouped(
     makes the two strategies' objectives comparable. Grouping always solves with the exact DP, so
     ``settings.method`` applies to the ungrouped solver alone.
     """
-    options = build_zone_options(inputs.tasks, inputs.context, settings.progress)
+    options = build_zone_options(
+        inputs.tasks,
+        inputs.context,
+        workers=settings.workers,
+        progress=settings.progress,
+    )
 
     budget = split_budget(instrument.budget_kb, settings.target.storage)
     result = solve_grouping(inputs.tasks, options, budget.sample_bytes)

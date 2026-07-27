@@ -81,13 +81,10 @@ class ZoneConfig(ConfigModel):
     """How pitch-zone grouping bounds its own search.
 
     ``max_zone_semitones`` caps how wide a contiguous zone may be, which is what keeps the number of
-    candidate ranges linear in the keyboard span. ``memoize`` reuses a scored
-    ``(representative, encoding, key)`` reconstruction across every zone that contains it, and seeds
-    each encode's dither from that same identity so the result is independent of evaluation order.
+    candidate ranges linear in the keyboard span.
     """
 
     max_zone_semitones: Annotated[int, Field(ge=1)]
-    memoize: bool
 
 
 class ReduceConfig(ConfigModel):
