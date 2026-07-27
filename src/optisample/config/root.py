@@ -6,6 +6,7 @@ from optisample.config.dsp import (
     SpectralConfig,
 )
 from optisample.config.dynamics import DynamicsConfig
+from optisample.config.layers import LayersConfig
 from optisample.config.metrics import MetricsConfig
 from optisample.config.optimize import OptimizeConfig, SweepConfig, VelocityConfig
 from optisample.config.reduce import ReduceConfig
@@ -26,6 +27,7 @@ class OptiConfig(ConfigModel):
     sweep: SweepConfig
     optimize: OptimizeConfig
     reduce: ReduceConfig
+    layers: LayersConfig
     velocity: VelocityConfig
     render: RenderConfig
     playback: PlaybackConfig
