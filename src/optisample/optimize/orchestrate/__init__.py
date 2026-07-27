@@ -4,7 +4,7 @@ import numpy as np
 
 from optisample.model import InstrumentSpec
 from optisample.optimize.knapsack import rd_curve
-from optisample.optimize.orchestrate.audio import load_instrument_audio
+from optisample.optimize.orchestrate.audio import load_run_audio
 from optisample.optimize.orchestrate.cost_model import build_items
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.orchestrate.solve import solve_allocation
@@ -73,20 +73,27 @@ def prepare_run(
         instrument,
         tasks,
         audio,
-        ReductionInputs(dedupe=settings.reduce.dedupe, loop=settings.encode.loop, context=context),
+        ReductionInputs(
+            dedupe=settings.reduce.dedupe,
+            loop=settings.encode.loop,
+            context=context,
+            progress=settings.progress,
+        ),
     )
     return RunInputs(velocity_map=velocity_map, context=context, tasks=tuple(tasks), reduction=reduction)
 
 
-def optimize_instrument(
+def allocate_instrument(
     instrument: InstrumentSpec,
-    audio: AudioMap,
-    sample_rate: int,
+    inputs: RunInputs,
     settings: OptimizeSettings,
 ) -> InstrumentPlan:
-    """Optimize one instrument's byte budget end to end and return a structured plan."""
-    inputs = prepare_run(instrument, audio, sample_rate, settings)
-    items, hulls = build_items(inputs.tasks, inputs.reduction.shortlists(), inputs.context)
+    """Sweep the prepared pitch tasks and solve the byte budget across them.
+
+    Takes the run :func:`prepare_run` already built, so an instrument allocated under both strategies
+    pays for the velocity map, the pitch tasks and the bandwidth pre-pass once between them.
+    """
+    items, hulls = build_items(inputs.tasks, inputs.reduction.shortlists(), inputs.context, settings.progress)
 
     budget = split_budget(instrument.budget_kb, settings.target.storage)
     allocation, pitches = solve_allocation(inputs.tasks, items, hulls, budget.sample_bytes, settings.method)
@@ -103,14 +110,26 @@ def optimize_instrument(
     )
 
 
+def optimize_instrument(
+    instrument: InstrumentSpec,
+    audio: AudioMap,
+    sample_rate: int,
+    settings: OptimizeSettings,
+) -> InstrumentPlan:
+    """Optimize one instrument's byte budget end to end and return a structured plan."""
+    inputs = prepare_run(instrument, audio, sample_rate, settings)
+    return allocate_instrument(instrument, inputs, settings)
+
+
 def run_instrument(instrument: InstrumentSpec, settings: OptimizeSettings) -> InstrumentPlan:
     """Load an instrument's recordings from disk and optimize it."""
-    audio, sample_rate = load_instrument_audio(instrument, settings.reduce.dedupe, settings.encode.loop)
+    audio, sample_rate = load_run_audio(instrument, settings)
     return optimize_instrument(instrument, audio, sample_rate, settings)
 
 
 __all__ = [
     "RunInputs",
+    "allocate_instrument",
     "optimize_instrument",
     "prepare_run",
     "run_instrument",

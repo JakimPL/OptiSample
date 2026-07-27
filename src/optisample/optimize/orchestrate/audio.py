@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Final
+
 import numpy as np
 
 from optisample.config.dsp import LoopConfig
@@ -8,8 +10,12 @@ from optisample.dsp.resample import resample_to
 from optisample.io.audio import read_wav
 from optisample.metrics.base import Signal
 from optisample.model import InstrumentSpec
+from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.reduce.dedupe import Selection, select_recordings
 from optisample.optimize.reduce.keys import SampleKey
+from optisample.progress import ProgressSink
+
+_DECODE_LABEL: Final = "Decoding survivors"
 
 
 def _read_onset_aligned(selection: Selection) -> tuple[Signal, int]:
@@ -29,6 +35,7 @@ def load_instrument_audio(
     instrument: InstrumentSpec,
     dedupe: DedupeConfig,
     loop: LoopConfig,
+    progress: ProgressSink,
 ) -> tuple[dict[SampleKey, Signal], int]:
     """Read the surviving recording of each identity into a ``SampleKey -> signal`` map at a common rate.
 
@@ -39,7 +46,8 @@ def load_instrument_audio(
     """
     audio: dict[SampleKey, Signal] = {}
     sample_rate = 0
-    for selection in select_recordings(instrument, dedupe, loop):
+    survivors = select_recordings(instrument, dedupe, loop, progress)
+    for selection in progress.track(survivors, label=_DECODE_LABEL, total=len(survivors)):
         data, rate = _read_onset_aligned(selection)
         if sample_rate == 0:
             sample_rate = rate
@@ -48,3 +56,12 @@ def load_instrument_audio(
         audio[selection.key] = data
 
     return audio, sample_rate
+
+
+def load_run_audio(instrument: InstrumentSpec, settings: OptimizeSettings) -> tuple[dict[SampleKey, Signal], int]:
+    """The recordings one run works from, read off the settings that decide which of them survive.
+
+    Both strategies' disk entry points start here, so an instrument loaded for grouping holds exactly the
+    survivors it holds for the ungrouped solver.
+    """
+    return load_instrument_audio(instrument, settings.reduce.dedupe, settings.encode.loop, settings.progress)

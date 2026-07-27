@@ -17,6 +17,7 @@ from optisample.optimize.orchestrate.audio import load_instrument_audio
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import InstrumentPlan
 from optisample.optimize.reduce.keys import SampleKey
+from optisample.progress import NO_PROGRESS
 from optisample.synth import NoteSpec, render_sample
 
 SR = 44_100
@@ -175,7 +176,7 @@ def test_load_instrument_audio_decodes_the_recording_dedup_kept(tmp_path: Path) 
         ],
         material=[NoteEvent(pitch=60, velocity=100, duration_s=0.2, count=1)],
     )
-    audio, _ = load_instrument_audio(inst, _DEDUPE, _LOOP)
+    audio, _ = load_instrument_audio(inst, _DEDUPE, _LOOP, NO_PROGRESS)
     expected, _ = read_wav(short_path)
     assert list(audio) == [SampleKey(60, 100)]  # both recordings competed for the one key
     np.testing.assert_array_equal(audio[SampleKey(60, 100)], expected)
@@ -192,7 +193,7 @@ def test_load_instrument_audio_trims_lead_in_from_the_front(tmp_path: Path) -> N
         samples=[SourceSample(file=path, pitch=60, velocity=100, lead_in_s=lead_in_s)],
         material=[NoteEvent(pitch=60, velocity=100, duration_s=0.4, count=1)],
     )
-    audio, _ = load_instrument_audio(inst, _DEDUPE, _LOOP)
+    audio, _ = load_instrument_audio(inst, _DEDUPE, _LOOP, NO_PROGRESS)
     full, _ = read_wav(path)
     trimmed = round(lead_in_s * SR)
     np.testing.assert_array_equal(audio[SampleKey(60, 100)], full[trimmed:])  # frame 0 lands on the note onset
@@ -213,7 +214,7 @@ def test_load_instrument_audio_downmixes_stereo_and_resamples(tmp_path: Path) ->
         ],
         material=[NoteEvent(pitch=60, velocity=100, duration_s=0.4, count=1)],
     )
-    audio, sample_rate = load_instrument_audio(inst, _DEDUPE, _LOOP)
+    audio, sample_rate = load_instrument_audio(inst, _DEDUPE, _LOOP, NO_PROGRESS)
     assert sample_rate == SR  # the lowest key's rate wins; the 22 kHz one is resampled up
     assert audio[SampleKey(60, 100)].ndim == 1  # stereo downmixed to mono
     # written as 22.05 kHz, resampled up to 44.1 kHz → twice the frames

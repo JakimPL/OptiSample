@@ -29,27 +29,32 @@ from optisample.metrics.base import Signal
 from optisample.model import InstrumentSpec, Manifest, NoteEvent
 from optisample.music import note_name
 from optisample.optimize.dp import BudgetInfeasibleError
-from optisample.optimize.grouping import optimize_instrument_grouped
-from optisample.optimize.orchestrate import optimize_instrument, prepare_run
+from optisample.optimize.grouping import allocate_instrument_grouped
+from optisample.optimize.orchestrate import RunInputs, allocate_instrument, prepare_run
 from optisample.optimize.orchestrate.audio import load_instrument_audio
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
 from optisample.optimize.tasks import AudioMap, Event, PitchTask
 
-_Optimizer = Callable[[InstrumentSpec, AudioMap, int, OptimizeSettings], InstrumentPlan | GroupedInstrumentPlan]
+_Allocator = Callable[[InstrumentSpec, RunInputs, OptimizeSettings], InstrumentPlan | GroupedInstrumentPlan]
 
 
 @dataclass(frozen=True)
 class _Strategy:
-    """One allocation strategy: its subdirectory name and the optimizer that produces its plan."""
+    """One allocation strategy: its subdirectory name and the allocator that produces its plan.
+
+    Both allocators read the run the dumper prepared once, so the two strategies share the velocity map,
+    the pitch tasks and the bandwidth pre-pass rather than each deriving its own.
+    """
 
     name: str
-    optimize: _Optimizer
+    allocate: _Allocator
 
 
-_UNGROUPED: Final = _Strategy("ungrouped", optimize_instrument)
-_GROUPED: Final = _Strategy("grouped", optimize_instrument_grouped)
+_UNGROUPED: Final = _Strategy("ungrouped", allocate_instrument)
+_GROUPED: Final = _Strategy("grouped", allocate_instrument_grouped)
 _MODULE_STEM: Final = "module"
+_NOTE_LABEL: Final = "Rendering note pairs"
 
 
 def _representative_event(task: PitchTask) -> Event:
@@ -135,7 +140,12 @@ def _write_metrics(
     dump_context: DumpContext,
 ) -> None:
     """Score and A/B-render every covered pitch; ``metrics.json``'s objective reproduces ``plan.objective``."""
-    notes = [_note_record(kind, unit, task, out_dir, dump_context) for unit in kind.units for task in unit.tasks]
+    covered = [(unit, task) for unit in kind.units for task in unit.tasks]
+    progress = dump_context.settings.progress
+    notes = [
+        _note_record(kind, unit, task, out_dir, dump_context)
+        for unit, task in progress.track(covered, label=_NOTE_LABEL, total=len(covered))
+    ]
     document = metrics_document(
         kind.name, kind.plan_document.instrument_id, dump_context.sample_rate, kind.plan_document.objective, notes
     )
@@ -175,16 +185,11 @@ def _optimize_and_dump(
     dump_context: DumpContext,
     strategy: _Strategy,
 ) -> PlanArtifacts:
-    """Optimize one strategy and dump it; on an infeasible budget, record why instead of raising."""
+    """Allocate one strategy and dump it; on an infeasible budget, record why instead of raising."""
     out_dir.mkdir(parents=True, exist_ok=True)
     started_at = perf_counter()
     try:
-        plan = strategy.optimize(
-            instrument,
-            dump_context.audio,
-            dump_context.sample_rate,
-            dump_context.settings.optimize,
-        )
+        plan = strategy.allocate(instrument, dump_context.inputs, dump_context.settings.optimize)
         kind = make_kind(plan, dump_context)
     except BudgetInfeasibleError as exc:
         write_text(out_dir / "INFEASIBLE.txt", f"{strategy.name} allocation is infeasible at this budget:\n{exc}\n")
@@ -210,13 +215,11 @@ def dump_instrument(
     """Optimize one instrument (both strategies) and write every inspection artifact under ``out_dir``."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    inputs = prepare_run(instrument, audio, sample_rate, settings.optimize)
     dump_context = DumpContext(
         audio=audio,
         sample_rate=sample_rate,
         material=tuple(instrument.material or []),
-        eval_context=inputs.context,
-        tasks_by_pitch={task.pitch: task for task in inputs.tasks},
+        inputs=prepare_run(instrument, audio, sample_rate, settings.optimize),
         settings=settings,
     )
     strategies = [
@@ -231,7 +234,11 @@ def dump_project(
     out_dir: Path | str,
     settings: DumpSettings,
 ) -> list[DumpResult]:
-    """Run :func:`dump_instrument` for every instrument in a loaded manifest under ``out_dir``."""
+    """Run :func:`dump_instrument` for every instrument in a loaded manifest under ``out_dir``.
+
+    Each instrument's own stages report their progress as they run, so this walks them plainly and lets
+    those bars have the terminal line to themselves.
+    """
     out_dir = Path(out_dir)
     results: list[DumpResult] = []
     for instrument in manifest.instruments:
@@ -239,6 +246,7 @@ def dump_project(
             instrument,
             settings.optimize.reduce.dedupe,
             settings.optimize.encode.loop,
+            settings.progress,
         )
         results.append(
             dump_instrument(instrument, audio, sample_rate, out_dir / instrument.id, settings),

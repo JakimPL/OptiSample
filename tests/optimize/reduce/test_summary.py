@@ -23,6 +23,7 @@ from optisample.optimize.reduce.summary import (
     ReductionInputs,
     summarize_reduction,
 )
+from optisample.progress import NO_PROGRESS
 from trackmod.module.storage import Storage
 
 SR = 22_050
@@ -91,7 +92,12 @@ def context(
 
 @pytest.fixture
 def inputs(context: _Context, config_dedupe: ReduceConfig, loop_config: LoopConfig) -> ReductionInputs:
-    return ReductionInputs(dedupe=config_dedupe.dedupe, loop=loop_config, context=context)
+    return ReductionInputs(
+        dedupe=config_dedupe.dedupe,
+        loop=loop_config,
+        context=context,
+        progress=NO_PROGRESS,
+    )
 
 
 @pytest.fixture

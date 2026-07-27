@@ -23,9 +23,11 @@ from optisample.optimize.reduce.dedupe import (
     required_duration_s,
 )
 from optisample.optimize.reduce.keys import SampleKey
+from optisample.progress import ProgressSink
 
 _OWN_KEY: Final = 0  # a key sounding its own recording plays it at the pitch it was recorded at
 _ONE_KEY: Final = 1  # and that one stored sample answers for that one key alone
+_NARROW_LABEL: Final = "Narrowing stored grids"
 
 
 class StoredClip(Protocol):
@@ -125,12 +127,14 @@ class ReductionInputs:
     """The run-wide inputs the summary is measured against (bundled to stay under the argument limit).
 
     ``dedupe`` and ``loop`` set how long a kept recording has to be; ``context`` is the run's scoring
-    context, which is what prices and narrows a stored grid.
+    context, which is what prices and narrows a stored grid; ``progress`` is where the pre-pass reports
+    how many pitches it has narrowed so far.
     """
 
     dedupe: DedupeConfig
     loop: LoopConfig
     context: SweepInputs
+    progress: ProgressSink
 
 
 def _grid_size(context: SweepInputs) -> int:
@@ -189,5 +193,7 @@ def summarize_reduction(
         scored_classes=sum(clip.scored_classes for clip in clips),
         grid_size=_grid_size(inputs.context),
         recordings=_kept_recordings(instrument, audio, inputs),
-        grids=tuple(_narrowed_grid(clip, inputs) for clip in clips),
+        grids=tuple(
+            _narrowed_grid(clip, inputs) for clip in inputs.progress.track(clips, label=_NARROW_LABEL, total=len(clips))
+        ),
     )

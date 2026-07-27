@@ -11,6 +11,7 @@ from optisample.optimize.operating_points import lower_convex_hull
 from optisample.optimize.plans.grouped import ZoneOption
 from optisample.optimize.reduce.bandwidth import ClipDemand, candidate_params
 from optisample.optimize.tasks import EvalContext, PitchTask, score_reconstruction
+from optisample.progress import ProgressSink
 
 _Range = tuple[int, int]  # half-open [i, j) index range into the ordered pitch tasks
 _ZoneOptions = dict[_Range, tuple[ZoneOption, ...]]
@@ -20,6 +21,7 @@ _ScoreKey = tuple[int, EncodingParams, int]  # representative pitch, encoding, t
 
 _SEED_BYTES: Final = 8  # digest width the dither stream of one encode identity starts from
 _NO_TRANSPOSE: Final = 0  # a representative at the top of its zone plays every other key downward
+_ZONE_LABEL: Final = "Scoring pitch zones"
 
 
 def _zone_trim(range_tasks: Sequence[PitchTask], representative: int) -> float:
@@ -173,18 +175,22 @@ def _capped_ranges(tasks: Sequence[PitchTask], max_semitones: int) -> Iterator[_
             yield start, stop
 
 
-def build_zone_options(tasks: Sequence[PitchTask], context: EvalContext) -> _ZoneOptions:
+def build_zone_options(tasks: Sequence[PitchTask], context: EvalContext, progress: ProgressSink) -> _ZoneOptions:
     """Score every candidate pitch zone -- the menu the partition+allocation DP chooses from.
 
     This is the expensive step (an encode + reconstruction score per representative, encoding and
     covered pitch); the DP that consumes it is cheap. The candidates are the runs of keys inside
     ``reduce.grouping.max_zone_semitones`` of each other, each priced over the encodings the bandwidth
     pre-pass leaves it, and each scored once for every zone that shares the score.
+
+    A wide zone costs more than a narrow one, so the reported progress runs ahead of the elapsed share
+    early in each key's run of candidates and settles as the whole keyboard averages out.
     """
     scorer = _ZoneScorer(context)
+    ranges = list(_capped_ranges(tasks, context.grouping.max_zone_semitones))
     return {
         (start, stop): scorer.zone_options(tasks[start:stop])
-        for start, stop in _capped_ranges(tasks, context.grouping.max_zone_semitones)
+        for start, stop in progress.track(ranges, label=_ZONE_LABEL, total=len(ranges))
     }
 
 

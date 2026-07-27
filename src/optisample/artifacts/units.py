@@ -60,6 +60,7 @@ def build_units(plan: StrategyPlan, dump_context: DumpContext) -> tuple[Unit, ..
     its recording is the loudest velocity actually played there.
     """
     units: list[Unit] = []
+    tasks_by_pitch = dump_context.tasks_by_pitch
     encoded = encode_plan_units(
         plan.sample_units(),
         dump_context.audio,
@@ -72,7 +73,7 @@ def build_units(plan: StrategyPlan, dump_context: DumpContext) -> tuple[Unit, ..
             Unit(
                 label=unit.label,
                 stored=stored,
-                tasks=tuple(dump_context.tasks_by_pitch[key] for key in unit.keys),
+                tasks=tuple(tasks_by_pitch[key] for key in unit.keys),
                 representative_key=unit.representative_key,
             )
         )

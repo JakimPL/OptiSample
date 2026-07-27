@@ -17,9 +17,11 @@ from optisample.optimize.reduce.keys import (
     dedupe_group,
     sample_key,
 )
+from optisample.progress import ProgressSink
 
 _UNINDEXED: Final = maxsize  # a recording whose filename carries no render index ranks after indexed ones
 NO_MATERIAL_S: Final = 0.0  # a pitch the material leaves unplayed only has the loop floor to satisfy
+_PROBE_LABEL: Final = "Probing recordings"
 
 
 @dataclass(frozen=True)
@@ -131,6 +133,7 @@ def select_recordings(
     instrument: InstrumentSpec,
     dedupe: DedupeConfig,
     loop: LoopConfig,
+    progress: ProgressSink,
 ) -> tuple[Selection, ...]:
     """Reduce the recorded grid to one survivor per identity, shrinking what the optimizer explores.
 
@@ -145,7 +148,8 @@ def select_recordings(
     """
     longest = longest_note_by_pitch(instrument.material)
     groups: dict[DedupeGroup, list[Candidate]] = {}
-    for sample in instrument.samples:
+    listed = instrument.samples
+    for sample in progress.track(listed, label=_PROBE_LABEL, total=len(listed)):
         candidate = _candidate(sample, dedupe)
         groups.setdefault(dedupe_group(candidate.key, dedupe.key), []).append(candidate)
 

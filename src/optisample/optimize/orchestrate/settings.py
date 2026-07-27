@@ -7,6 +7,7 @@ from optisample.config.reduce import ReduceConfig
 from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.composite import CompositeFidelity
 from optisample.optimize.plans import Method
+from optisample.progress import NO_PROGRESS, ProgressSink
 
 DEFAULT_SEED: Final = 137
 
@@ -19,7 +20,8 @@ class OptimizeSettings:
     encode config, the prebuilt composite fidelity, the velocity-map shaping and the solver method --
     all sourced from config at the entry point. ``target`` is the tracker format the plan will be
     written as, which is what prices every stored sample the allocation considers. ``seed`` drives the
-    dither RNG (not a tuning knob, so it keeps a code default).
+    dither RNG and ``progress`` is where each stage reports how far through it is; both describe how the
+    run is carried out rather than what it computes, so they keep code defaults.
     """
 
     sweep: SweepConfig
@@ -30,3 +32,4 @@ class OptimizeSettings:
     method: Method
     target: ExportTarget
     seed: int = DEFAULT_SEED
+    progress: ProgressSink = NO_PROGRESS

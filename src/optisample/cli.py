@@ -16,9 +16,10 @@ from optisample.io.tracker.target import ExportTarget, export_target
 from optisample.metrics import build_composite
 from optisample.model import ProjectSpec
 from optisample.optimize.orchestrate.settings import OptimizeSettings
+from optisample.progress import ProgressSink, bars_are_watchable, progress_sink
 from optisample.synth import generate_demo
 
-DEFAULT_SEED: Final = 0
+DEFAULT_SEED: Final = 137
 _PROFILE_TOP_FUNCTIONS: Final = 20
 _MS_PER_S: Final = 1000.0
 _NOTES_SUFFIX: Final = ".notes.json"
@@ -38,6 +39,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Config directory to load (default: bundled)",
+    )
+    common.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="Keep stderr clear of stage progress bars (they are drawn when it is a terminal)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -200,6 +206,15 @@ def _reduce_config(config: OptiConfig, args: argparse.Namespace) -> ReduceConfig
     return ReduceConfig.model_validate(data)
 
 
+def _progress(args: argparse.Namespace) -> ProgressSink:
+    """Where the run reports its stages: bars on stderr when a terminal is there to redraw them.
+
+    Redirected output keeps every redraw as literal text, so a piped or logged run reports nothing and
+    ``--no-progress`` asks for the same silence at a terminal.
+    """
+    return progress_sink(sys.stderr, enabled=not args.no_progress and bars_are_watchable(sys.stderr))
+
+
 def _optimize_settings(
     config: OptiConfig,
     args: argparse.Namespace,
@@ -222,6 +237,7 @@ def _optimize_settings(
         method=config.optimize.method,
         target=_export_target(config, args),
         seed=args.seed,
+        progress=_progress(args),
     )
 
 
@@ -316,6 +332,7 @@ def main(argv: list[str] | None = None) -> None:
             config.synth,
             sample_rate=args.sample_rate,
             seed=args.seed,
+            progress=_progress(args),
         )
         for notes_json, samples_dir in outputs:
             print(f"Wrote {notes_json} (samples: {samples_dir})")

@@ -70,6 +70,19 @@ flags: `--format {it,xm}`, `--strategy {both,grouped,ungrouped}`, `--no-render`,
 (repeatable sweep values), `--no-loop`, `--interpolation`, `--seed`. `--dedupe-key` and `--candidates`
 override the two reduction knobs worth varying per run (see below).
 
+Each long stage draws a labelled progress bar on stderr, carrying the count it will reach and an ETA, so
+a large instrument states how long it needs while it runs:
+
+```
+Probing recordings................ 100%     40/40     [00:00<00:00]
+Narrowing stored grids............ 100%      5/5      [00:00<00:00]
+Sweeping encodings................ 100%     13/13     [00:00<00:00]
+Scoring pitch zones............... 100%     12/12     [00:07<00:00]
+```
+
+Bars are drawn when stderr is a terminal, so redirected output stays clean; `--no-progress` silences them
+at a terminal too. Results keep to stdout either way.
+
 `--format` overrides `src/opticonfig/tracker.yaml`, which also sets the compliance level the module is
 graded against and each format's own settings. Impulse Tracker numbers the whole ten-octave keyboard
 (MIDI 12–131); FastTracker 2 stops at MIDI 107, and a higher key is reported before anything is

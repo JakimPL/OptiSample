@@ -35,6 +35,7 @@ from optisample.optimize.plans import GroupedInstrumentPlan, ZoneOption
 from optisample.optimize.reduce.bandwidth import ClipDemand
 from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.tasks import EvalContext, Event, PitchTask
+from optisample.progress import NO_PROGRESS
 from optisample.synth import NoteSpec, render_sample
 
 SR = 44_100
@@ -108,7 +109,7 @@ def options48(
     audio: dict[SampleKey, NDArray[np.float64]],
 ) -> tuple[list[PitchTask], dict[tuple[int, int], tuple[ZoneOption, ...]]]:
     inputs = prepare_run(_instrument(48.0), audio, SR, _settings(GRID))
-    return list(inputs.tasks), build_zone_options(inputs.tasks, inputs.context)
+    return list(inputs.tasks), build_zone_options(inputs.tasks, inputs.context, NO_PROGRESS)
 
 
 @pytest.fixture(scope="module")
