@@ -2,7 +2,7 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -13,6 +13,8 @@ from optisample.model import (
     ProjectSpec,
     SourceSample,
 )
+
+NOTES_SUFFIX: Final = ".notes.json"  # the manifest extension every NoteExtractor dataset is named by
 
 
 class _Render(BaseModel):

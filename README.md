@@ -52,6 +52,37 @@ Each strategy's `report.txt` opens with a `Reduction (pre-optimization)` block r
 per axis, and `reduction.json` records every kept recording (with the material it covers) and every
 pitch's shortlist. A recording too short for its notes is named there rather than quietly truncated.
 
+### Reducing on its own
+
+`optisample reduce` runs that whole stage and stops, writing what it decided as a dataset an allocation
+run reads back later:
+
+```bash
+optisample reduce path/to/Piano.notes.json --budget-kb 96 --out reduced
+optisample optimize reduced/Piano.notes.json --budget-kb 96      # picks up from there
+```
+
+It takes every ingest and reduction flag `optimize` takes, and writes:
+
+```
+reduced/
+  Piano.notes.json                 # one entry per played note, pointing at the survivor serving it
+  Piano/0000_p060_C4_v100.wav      # one WAV per surviving recording, onset-aligned at the analysis rate
+  reduction/Piano/
+    reduction.json                 # the whole summary, plus the dedupe key it was produced under
+    auditions/p060_C4/             # reference.wav beside every shortlisted encoding, rendered
+```
+
+The root is itself a NoteExtractor dataset, so the reduced tree is the resume point for a long run: the
+survivors are trimmed to what the material asks of them (the demo's 40 recordings become 5 files, 2.6 MB
+down to 340 KB) and the allocation reaches the sweep having paid only the ingest. Allocating from a
+reduced dataset reproduces the plan allocating from its source produces, so the round trip costs nothing
+in fidelity. The auditions make the shortlist audible before the sweep is paid for.
+
+A dataset reproduces its survivors exactly under the key it was reduced with; reducing it again under a
+coarser key projects several identities onto one survivor, which then reports the identity of the first
+note that reaches it.
+
 ## Usage
 
 Optimize a `.notes.json` into an inspectable artifact tree:
@@ -79,6 +110,9 @@ Narrowing stored grids............ 100%      5/5      [00:00<00:00]
 Sweeping encodings................ 100%     13/13     [00:00<00:00]
 Scoring pitch zones............... 100%     12/12     [00:07<00:00]
 ```
+
+`--seed` fixes the dither so a run reproduces byte for byte; every other flag above is shared with
+`optisample reduce` (see below).
 
 Bars are drawn when stderr is a terminal, so redirected output stays clean; `--no-progress` silences them
 at a terminal too. Results keep to stdout either way.

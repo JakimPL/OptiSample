@@ -6,12 +6,12 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Final
 
-from optisample.artifacts import DumpSettings, dump_project
+from optisample.artifacts import DumpSettings, dump_project, reduce_project
 from optisample.config import OptiConfig, load_config
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import DedupeKey, ReduceConfig
 from optisample.config.tracker import TrackerConfig, TrackerFormat
-from optisample.io.note_extractor import IngestSettings, load_notes
+from optisample.io.note_extractor import NOTES_SUFFIX, IngestSettings, load_notes
 from optisample.io.tracker.target import ExportTarget, export_target
 from optisample.metrics import build_composite
 from optisample.model import ProjectSpec
@@ -19,20 +19,18 @@ from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.progress import ProgressSink, bars_are_watchable, progress_sink
 from optisample.synth import generate_demo
 
-DEFAULT_SEED: Final = 137
+DEFAULT_SEED: Final = 0
 _PROFILE_TOP_FUNCTIONS: Final = 20
 _MS_PER_S: Final = 1000.0
-_NOTES_SUFFIX: Final = ".notes.json"
 _INTERPOLATIONS: Final = ("none", "linear", "cubic", "sinc")
 _FORMATS: Final = tuple(TrackerFormat)
 _DEDUPE_KEYS: Final = tuple(DedupeKey)
+_ARTIFACTS_OUT: Final = Path("artifacts")
+_REDUCED_OUT: Final = Path("reduced")
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="optisample",
-        description="Tracker module sample optimizer",
-    )
+def _common_parser() -> argparse.ArgumentParser:
+    """The flags every subcommand reads: which config to load, and whether stages draw their bars."""
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument(
         "--config",
@@ -45,139 +43,183 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Keep stderr clear of stage progress bars (they are drawn when it is a terminal)",
     )
-    sub = parser.add_subparsers(dest="command", required=True)
+    return common
 
-    synth = sub.add_parser(
-        "synth",
-        parents=[common],
-        help="Generate a synthetic demo dataset (.notes.json + WAVs)",
-    )
-    synth.add_argument(
-        "outdir",
-        type=Path,
-        help="Directory to write each preset's samples dir and .notes.json into",
-    )
-    synth.add_argument(
-        "--sample-rate",
-        type=int,
-        default=None,
-        help="Render sample rate (Hz); defaults to the config",
-    )
-    synth.add_argument(
-        "--seed",
-        type=int,
-        default=DEFAULT_SEED,
-        help="RNG seed for reproducible output",
-    )
 
-    optimize = sub.add_parser(
-        "optimize",
-        parents=[common],
-        help="Optimize a .notes.json and dump inspectable artifacts",
-    )
-    optimize.add_argument(
+def _ingest_parser() -> argparse.ArgumentParser:
+    """The flags ``optimize`` and ``reduce`` share: which recordings to read and how to narrow them.
+
+    Both commands run the same ingest and the same pre-optimization stage, so the notes file, the budget
+    the shortlist is priced against, the trimmer padding and every reduction knob are declared once and
+    read identically whichever command was asked for.
+    """
+    ingest = argparse.ArgumentParser(add_help=False)
+    ingest.add_argument(
         "notes_json",
         type=Path,
         help="Path to a NoteExtractor .notes.json manifest",
     )
-    optimize.add_argument(
+    ingest.add_argument(
         "--samples-dir",
         type=Path,
         default=None,
         help="Per-note WAV directory (default: notes_json's sibling <name>/)",
     )
-    optimize.add_argument(
+    ingest.add_argument(
         "--budget-kb",
         type=float,
         required=True,
         help="Byte budget for the instrument (KiB)",
     )
-    optimize.add_argument(
+    ingest.add_argument(
         "--instrument-id",
         default=None,
         help="Instrument id (default: the .notes.json base name)",
     )
-    optimize.add_argument(
+    ingest.add_argument(
         "--format",
         choices=_FORMATS,
         default=None,
         help="Tracker format to write (default: the config's)",
     )
-    optimize.add_argument(
+    ingest.add_argument(
         "--interpolation",
         choices=_INTERPOLATIONS,
         default=None,
         help="Playback interpolation (default: sinc)",
     )
-    optimize.add_argument(
+    ingest.add_argument(
         "--pre-roll-ms",
         type=float,
         default=0.0,
         help="Pre-roll padding trimmed as lead-in (ms)",
     )
-    optimize.add_argument(
+    ingest.add_argument(
         "--post-roll-ms",
         type=float,
         default=0.0,
         help="Post-roll padding recorded for provenance (ms)",
     )
-    optimize.add_argument(
-        "--out",
-        type=Path,
-        default=Path("artifacts"),
-        help="Artifact output directory",
-    )
-    optimize.add_argument(
-        "--strategy",
-        choices=("both", "grouped", "ungrouped"),
-        default="both",
-    )
-    optimize.add_argument(
-        "--no-render",
-        action="store_true",
-        help="Skip openmpt123 ground-truth renders",
-    )
-    optimize.add_argument(
+    ingest.add_argument(
         "--rate",
         type=int,
         action="append",
         dest="rates",
         help="Sample rate to sweep (repeatable)",
     )
-    optimize.add_argument(
+    ingest.add_argument(
         "--depth",
         type=int,
         action="append",
         dest="depths",
         help="Bit depth to sweep (repeatable)",
     )
-    optimize.add_argument(
+    ingest.add_argument(
         "--no-loop",
         action="store_true",
         help="Disable looping (store full-length samples)",
     )
-    optimize.add_argument(
+    ingest.add_argument(
         "--dedupe-key",
         choices=_DEDUPE_KEYS,
         default=None,
         help="Identity one recording is kept per (default: the config's)",
     )
-    optimize.add_argument(
+    ingest.add_argument(
         "--candidates",
         type=int,
         default=None,
         help="Stored encodings shortlisted per sample; at or above the grid size keeps every one",
     )
-    optimize.add_argument(
+    ingest.add_argument(
         "--seed",
         type=int,
         default=DEFAULT_SEED,
         help="RNG seed for reproducible encoding",
     )
-    optimize.add_argument(
+    ingest.add_argument(
         "--profile",
         action="store_true",
         help="Run under cProfile and print the hottest functions to stderr",
+    )
+    return ingest
+
+
+def _describe_synth(parser: argparse.ArgumentParser) -> None:
+    """Add what generating a demo dataset asks for beyond the shared flags."""
+    parser.add_argument(
+        "outdir",
+        type=Path,
+        help="Directory to write each preset's samples dir and .notes.json into",
+    )
+    parser.add_argument(
+        "--sample-rate",
+        type=int,
+        default=None,
+        help="Render sample rate (Hz); defaults to the config",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=DEFAULT_SEED,
+        help="RNG seed for reproducible output",
+    )
+
+
+def _describe_optimize(parser: argparse.ArgumentParser) -> None:
+    """Add what allocating a budget asks for beyond the shared ingest flags."""
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=_ARTIFACTS_OUT,
+        help="Artifact output directory",
+    )
+    parser.add_argument(
+        "--strategy",
+        choices=("both", "grouped", "ungrouped"),
+        default="both",
+    )
+    parser.add_argument(
+        "--no-render",
+        action="store_true",
+        help="Skip openmpt123 ground-truth renders",
+    )
+
+
+def _describe_reduce(parser: argparse.ArgumentParser) -> None:
+    """Add what reducing alone asks for beyond the shared ingest flags."""
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=_REDUCED_OUT,
+        help="Directory to write the reduced dataset, its reduction report and its auditions into",
+    )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="optisample",
+        description="Tracker module sample optimizer",
+    )
+    common = _common_parser()
+    ingest = _ingest_parser()
+    sub = parser.add_subparsers(dest="command", required=True)
+    _describe_synth(
+        sub.add_parser("synth", parents=[common], help="Generate a synthetic demo dataset (.notes.json + WAVs)")
+    )
+    _describe_optimize(
+        sub.add_parser(
+            "optimize",
+            parents=[common, ingest],
+            help="Optimize a .notes.json and dump inspectable artifacts",
+        )
+    )
+    _describe_reduce(
+        sub.add_parser(
+            "reduce",
+            parents=[common, ingest],
+            help="Run the pre-optimization stage alone and write the reduced dataset it decided on",
+        )
     )
     return parser
 
@@ -259,8 +301,8 @@ def _dump_settings(
 def _instrument_base(notes_json: Path) -> str:
     """The instrument name behind a ``.notes.json`` path (its ``.notes.json`` suffix stripped)."""
     name = notes_json.name
-    if name.endswith(_NOTES_SUFFIX):
-        return name[: -len(_NOTES_SUFFIX)]
+    if name.endswith(NOTES_SUFFIX):
+        return name[: -len(NOTES_SUFFIX)]
 
     return notes_json.stem
 
@@ -282,15 +324,29 @@ def _project(args: argparse.Namespace) -> ProjectSpec:
     return ProjectSpec(name=name, interpolation=args.interpolation)
 
 
-def _run_optimize(config: OptiConfig, args: argparse.Namespace) -> None:
-    settings = IngestSettings(
+def _ingest_settings(args: argparse.Namespace) -> IngestSettings:
+    """The manifest fields the notes file leaves to the caller, read off the shared ingest flags."""
+    return IngestSettings(
         instrument_id=args.instrument_id or _instrument_base(args.notes_json),
         budget_kb=args.budget_kb,
         project=_project(args),
         pre_roll_s=args.pre_roll_ms / _MS_PER_S,
         post_roll_s=args.post_roll_ms / _MS_PER_S,
     )
-    manifest = load_notes(args.notes_json, _samples_dir(args), settings)
+
+
+def _run_reduce(config: OptiConfig, args: argparse.Namespace) -> None:
+    manifest = load_notes(args.notes_json, _samples_dir(args), _ingest_settings(args))
+    results = reduce_project(manifest, args.out, _optimize_settings(config, args))
+    for result in results:
+        print(f"{result.instrument_id}: {result.paths.notes_json}  [{result.elapsed_s:.1f}s]")
+        print(f"  {result.survivors} samples, {result.notes} notes -> {result.paths.samples_dir}")
+        print(f"  {result.auditions} auditions -> {result.paths.auditions_dir}")
+        print(f"  reduction -> {result.paths.reduction_json}")
+
+
+def _run_optimize(config: OptiConfig, args: argparse.Namespace) -> None:
+    manifest = load_notes(args.notes_json, _samples_dir(args), _ingest_settings(args))
     results = dump_project(manifest, args.out, _dump_settings(config, args))
     total_s = 0.0
     for result in results:
@@ -323,21 +379,33 @@ def _run_profiled(
         pstats.Stats(profiler, stream=sys.stderr).sort_stats("cumulative").print_stats(top)
 
 
+def _run_synth(config: OptiConfig, args: argparse.Namespace) -> None:
+    outputs = generate_demo(
+        args.outdir,
+        config.synth,
+        sample_rate=args.sample_rate,
+        seed=args.seed,
+        progress=_progress(args),
+    )
+    for notes_json, samples_dir in outputs:
+        print(f"Wrote {notes_json} (samples: {samples_dir})")
+
+
+def _dispatch(run: Callable[[], None], args: argparse.Namespace) -> None:
+    """Carry out a command, under cProfile when ``--profile`` asked to see where the time went."""
+    if args.profile:
+        _run_profiled(run)
+    else:
+        run()
+
+
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     config = load_config(args.config)
-    if args.command == "synth":
-        outputs = generate_demo(
-            args.outdir,
-            config.synth,
-            sample_rate=args.sample_rate,
-            seed=args.seed,
-            progress=_progress(args),
-        )
-        for notes_json, samples_dir in outputs:
-            print(f"Wrote {notes_json} (samples: {samples_dir})")
-    elif args.command == "optimize":
-        if args.profile:
-            _run_profiled(lambda: _run_optimize(config, args))
-        else:
-            _run_optimize(config, args)
+    match args.command:
+        case "synth":
+            _run_synth(config, args)
+        case "reduce":
+            _dispatch(lambda: _run_reduce(config, args), args)
+        case "optimize":
+            _dispatch(lambda: _run_optimize(config, args), args)

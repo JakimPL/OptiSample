@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from optisample.music import midi_to_freq, note_name, semitone_ratio
+from optisample.music import midi_to_freq, note_name, pitch_label, semitone_ratio
 
 
 def test_semitone_ratio_octaves() -> None:
@@ -22,3 +22,14 @@ def test_midi_to_freq_a4() -> None:
 )
 def test_note_name(pitch: int, name: str) -> None:
     assert note_name(pitch) == name
+
+
+@pytest.mark.parametrize(("pitch", "label"), [(0, "p000_C-1"), (60, "p060_C4"), (108, "p108_C8")])
+def test_a_pitch_label_carries_its_number_and_its_note(pitch: int, label: str) -> None:
+    assert pitch_label(pitch) == label
+
+
+def test_pitch_labels_sort_into_pitch_order() -> None:
+    """The zero-padded number leads, so a directory of per-pitch folders reads low to high."""
+    pitches = [72, 9, 60, 100]
+    assert [pitch_label(pitch) for pitch in sorted(pitches)] == sorted(pitch_label(pitch) for pitch in pitches)

@@ -16,6 +16,16 @@ def note_name(pitch: int) -> str:
     return f"{NOTE_NAMES[pitch % SEMITONES_PER_OCTAVE]}{pitch // SEMITONES_PER_OCTAVE - 1}"
 
 
+def pitch_label(pitch: int) -> str:
+    """MIDI note number -> the stable name every per-pitch artifact is filed under (60 -> ``p060_C4``).
+
+    The zero-padded number leads so a directory listing reads in pitch order, and the note name follows
+    so the same listing is readable as music. One spelling, so a key's label, its A/B pair and its
+    audition folder all name the same pitch the same way.
+    """
+    return f"p{pitch:03d}_{note_name(pitch)}"
+
+
 def semitone_ratio(semitones: float) -> float:
     """Playback speed / frequency ratio for a pitch shift of ``semitones`` (12 semitones = 2x)."""
     return float(2.0 ** (semitones / SEMITONES_PER_OCTAVE))

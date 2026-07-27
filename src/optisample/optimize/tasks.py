@@ -34,6 +34,15 @@ class Event:
     weight: float
     reference: Signal
 
+    def scored_reference(self, sample_rate: int) -> Signal:
+        """The stretch of the source note a reconstruction of this class is compared against.
+
+        The class is scored over ``duration_s``, so the ground truth is the recording held for exactly
+        that long. One accessor, so the objective, the A/B pair and the shortlist auditions all measure
+        against the same span.
+        """
+        return self.reference[: seconds_to_frames(self.duration_s, sample_rate)]
+
 
 @dataclass(frozen=True)
 class PitchTask:
@@ -61,6 +70,24 @@ class PitchTask:
     def scored_classes(self) -> int:
         """How many classes the notes played here collapsed into, which is what one encoding is scored on."""
         return len(self.events)
+
+    @property
+    def representative_event(self) -> Event:
+        """The note class worth listening to at this pitch: the most-played one, ties going to the longest.
+
+        Every artifact that renders one note per pitch renders this one, so the A/B pair and the
+        shortlist auditions are heard at the dynamic and length the material spends the most time on.
+        """
+        return max(self.events, key=lambda event: (event.weight, event.duration_s))
+
+
+def render_event(stored: StoredSample, event: Event, *, pitch: int, sample_rate: int) -> Signal:
+    """The audio ``stored`` produces for one note class: repitched to ``pitch``, at its volume and length.
+
+    The one reconstruction the objective, the A/B pair and the shortlist auditions all listen to, so a
+    fidelity score and the WAV written beside it describe the same audio.
+    """
+    return render(stored, sample_rate, pitch=pitch, volume=event.volume, duration_s=event.duration_s)
 
 
 @dataclass(frozen=True)
@@ -220,18 +247,11 @@ def score_events(
     objective and ``metrics.json`` consume.
     """
     for event in task.events:
-        candidate = render(
-            stored,
-            context.sample_rate,
-            pitch=task.pitch,
-            volume=event.volume,
-            duration_s=event.duration_s,
-        )
-        reference = event.reference[: seconds_to_frames(event.duration_s, context.sample_rate)]
+        candidate = render_event(stored, event, pitch=task.pitch, sample_rate=context.sample_rate)
         yield EventScore(
             event=event,
             report=evaluate(
-                reference,
+                event.scored_reference(context.sample_rate),
                 candidate,
                 context.sample_rate,
                 context.composite,

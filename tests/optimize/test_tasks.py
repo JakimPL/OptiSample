@@ -12,7 +12,14 @@ from numpy.typing import NDArray
 
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import ReduceConfig, Representatives
-from optisample.dsp.surrogate import EncodeContext, EncodingParams, StoredSample, encode
+from optisample.dsp.surrogate import (
+    EncodeContext,
+    EncodingParams,
+    StoredSample,
+    encode,
+    render,
+)
+from optisample.dsp.timebase import seconds_to_frames
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.orchestrate import prepare_run
 from optisample.optimize.orchestrate.settings import OptimizeSettings
@@ -22,6 +29,7 @@ from optisample.optimize.tasks import (
     EvalContext,
     PitchTask,
     build_tasks,
+    render_event,
     score_events,
     score_reconstruction,
 )
@@ -199,3 +207,42 @@ def test_score_reconstruction_of_a_weightless_task_is_zero(scoring: _Scoring) ->
         events=(),
     )
     assert score_reconstruction(scoring.stored, empty, scoring.context) == 0.0
+
+
+# --- the pieces every artifact renders one note through ---------------------------------------------
+
+
+def test_a_class_is_compared_against_its_source_note_held_for_its_scored_length(scoring: _Scoring) -> None:
+    event = scoring.task.events[0]
+    reference = event.scored_reference(SR)
+    assert reference.size == seconds_to_frames(event.duration_s, SR)
+    assert np.array_equal(reference, event.reference[: reference.size])
+
+
+def test_the_representative_is_the_most_played_class(
+    piano_note: Callable[..., NDArray[np.float64]],
+    optimize_settings: Callable[..., OptimizeSettings],
+    sweep: Callable[..., SweepConfig],
+) -> None:
+    """Ties go to the longest, so the pitch stands for the dynamic and length it spends the most time on."""
+    audio: AudioMap = {
+        SampleKey(60, velocity): piano_note(60, velocity, dur=0.6, seed=velocity) for velocity in (40, 100)
+    }
+    material = [
+        NoteEvent(pitch=60, velocity=40, duration_s=0.5, count=1),
+        NoteEvent(pitch=60, velocity=100, duration_s=0.5, count=4),
+    ]
+    settings = optimize_settings(sweep=sweep(rates=(SR,), depths=(16,), dither=False))
+    task = prepare_run(_instrument(material), audio, SR, settings).tasks[0]
+    assert task.representative_event.velocity == 100
+    assert task.representative_event.weight == max(event.weight for event in task.events)
+
+
+def test_rendering_a_class_matches_what_the_objective_scored(scoring: _Scoring) -> None:
+    """The reconstruction written to disk is the one the fidelity report was measured on."""
+    event = scoring.task.events[0]
+    rendered = render_event(scoring.stored, event, pitch=scoring.task.pitch, sample_rate=SR)
+    assert rendered.size == seconds_to_frames(event.duration_s, SR)
+    assert np.array_equal(
+        rendered, render(scoring.stored, SR, pitch=scoring.task.pitch, volume=event.volume, duration_s=event.duration_s)
+    )

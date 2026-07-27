@@ -4,7 +4,7 @@ from math import floor
 from typing import Protocol
 
 from optisample.config.reduce import DedupeConfig, DedupeKey
-from optisample.music import note_name
+from optisample.music import pitch_label
 
 CcBuckets = tuple[tuple[int, int], ...]
 
@@ -53,7 +53,7 @@ class SampleKey:
     @property
     def label(self) -> str:
         """Stable display name: the note, the velocity, and any controller variant that sets it apart."""
-        base = f"p{self.pitch:03d}_{note_name(self.pitch)}_v{self.velocity:03d}"
+        base = f"{pitch_label(self.pitch)}_v{self.velocity:03d}"
         if not self.cc:
             return base
 

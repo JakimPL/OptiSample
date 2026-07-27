@@ -21,20 +21,18 @@ from optisample.artifacts.serialize import (
     write_text,
 )
 from optisample.artifacts.units import PlanKind, Unit, make_kind
-from optisample.dsp.surrogate import render
-from optisample.dsp.timebase import seconds_to_frames
 from optisample.io.audio import write_wav
 from optisample.io.render import openmpt123_available, render_module
 from optisample.metrics.base import Signal
 from optisample.model import InstrumentSpec, Manifest, NoteEvent
-from optisample.music import note_name
+from optisample.music import pitch_label
 from optisample.optimize.dp import BudgetInfeasibleError
 from optisample.optimize.grouping import allocate_instrument_grouped
 from optisample.optimize.orchestrate import RunInputs, allocate_instrument, prepare_run
 from optisample.optimize.orchestrate.audio import load_instrument_audio
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
-from optisample.optimize.tasks import AudioMap, Event, PitchTask
+from optisample.optimize.tasks import AudioMap, Event, PitchTask, render_event
 
 _Allocator = Callable[[InstrumentSpec, RunInputs, OptimizeSettings], InstrumentPlan | GroupedInstrumentPlan]
 
@@ -57,11 +55,6 @@ _MODULE_STEM: Final = "module"
 _NOTE_LABEL: Final = "Rendering note pairs"
 
 
-def _representative_event(task: PitchTask) -> Event:
-    """The note worth listening to for a pitch: the most-played dynamic (ties -> the longest)."""
-    return max(task.events, key=lambda event: (event.weight, event.duration_s))
-
-
 def _rendered_note(
     dump_context: DumpContext,
     kind: PlanKind,
@@ -74,13 +67,7 @@ def _rendered_note(
         note = NoteEvent(pitch=task.pitch, velocity=event.velocity, duration_s=event.duration_s)
         audio, rate = render_module(kind.make_module([note]), dump_context.settings.render)
         return audio, rate, "openmpt123"
-    candidate = render(
-        unit.stored,
-        dump_context.sample_rate,
-        pitch=task.pitch,
-        volume=event.volume,
-        duration_s=event.duration_s,
-    )
+    candidate = render_event(unit.stored, event, pitch=task.pitch, sample_rate=dump_context.sample_rate)
     return candidate, dump_context.sample_rate, "surrogate"
 
 
@@ -93,9 +80,9 @@ def _note_record(
 ) -> NoteMetricRecord:
     """Write the reference/rendered A/B pair for one pitch and return its metric record."""
     events, contribution = event_records(unit.stored, task, dump_context.eval_context)
-    rep = _representative_event(task)
-    stem = f"p{task.pitch:03d}_{note_name(task.pitch)}"
-    reference = rep.reference[: seconds_to_frames(rep.duration_s, dump_context.sample_rate)]
+    rep = task.representative_event
+    stem = pitch_label(task.pitch)
+    reference = rep.scored_reference(dump_context.sample_rate)
     write_wav(out_dir / "compare" / f"{stem}_ref.wav", reference, dump_context.sample_rate)
     rendered, rate, source = _rendered_note(dump_context, kind, unit, task, rep)
     write_wav(out_dir / "compare" / f"{stem}_render.wav", rendered, rate)

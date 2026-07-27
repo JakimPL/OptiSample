@@ -7,7 +7,12 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from optisample.cli import _dump_settings, build_parser, main
+from optisample.cli import (
+    _dump_settings,
+    _optimize_settings,
+    build_parser,
+    main,
+)
 from optisample.config import OptiConfig
 from optisample.config.reduce import DedupeKey
 from optisample.config.tracker import TrackerFormat
@@ -218,6 +223,40 @@ def test_optimize_command_honors_single_strategy(
     assert (out / "piano" / "ungrouped").is_dir()
     assert not (out / "piano" / "grouped").exists()  # --strategy ungrouped skips the grouped run
     assert "ungrouped: objective" in capsys.readouterr().out
+
+
+def test_reduce_command_writes_a_dataset_and_its_reduction(
+    tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out = tmp_path / "reduced"
+    main(["reduce", str(tiny_notes), "--budget-kb", "48", "--out", str(out), "--rate", "11025", "--depth", "8"])
+    assert (out / "piano.notes.json").is_file()
+    assert sorted(path.name for path in (out / "piano").glob("*.wav"))
+    assert (out / "reduction" / "piano" / "reduction.json").is_file()
+    assert (out / "reduction" / "piano" / "auditions").is_dir()
+    printed = capsys.readouterr().out
+    assert "samples" in printed and "auditions" in printed
+
+
+def test_a_reduced_dataset_optimizes_to_the_same_plan_as_its_source(tmp_path: Path, tiny_notes: Path) -> None:
+    """The round trip the reduce stage exists for: allocating from the dataset reaches the same plan."""
+    reduced = tmp_path / "reduced"
+    flags = ["--budget-kb", "48", "--rate", "11025", "--depth", "8"]
+    main(["reduce", str(tiny_notes), *flags, "--out", str(reduced)])
+    main(["optimize", str(tiny_notes), *flags, "--out", str(tmp_path / "direct"), "--no-render"])
+    main(["optimize", str(reduced / "piano.notes.json"), *flags, "--out", str(tmp_path / "again"), "--no-render"])
+    direct = (tmp_path / "direct" / "piano" / "ungrouped" / "plan.json").read_text(encoding="utf-8")
+    again = (tmp_path / "again" / "piano" / "ungrouped" / "plan.json").read_text(encoding="utf-8")
+    assert direct == again
+
+
+def test_the_reduce_command_reads_the_same_ingest_flags_as_optimize(config: OptiConfig) -> None:
+    """Both commands share one ingest parser, so a reduction knob means the same thing to either."""
+    argv = ["m.notes.json", "--budget-kb", "48", "--dedupe-key", "pitch", "--candidates", "7", "--seed", "3"]
+    reduced = build_parser().parse_args(["reduce", *argv])
+    optimized = build_parser().parse_args(["optimize", *argv])
+    assert _optimize_settings(config, reduced).reduce == _optimize_settings(config, optimized).reduce
+    assert _optimize_settings(config, reduced).seed == 3
 
 
 def test_synth_command_generates_notes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

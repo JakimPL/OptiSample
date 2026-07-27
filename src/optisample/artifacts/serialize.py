@@ -13,6 +13,7 @@ from pydantic import (
     model_serializer,
 )
 
+from optisample.config.reduce import DedupeKey
 from optisample.dsp.loop import Loop
 from optisample.dsp.surrogate import StoredSample
 from optisample.music import note_name
@@ -176,6 +177,36 @@ class ReductionDocument(_Frozen):
     grids: list[NarrowedGridRecord]
 
 
+class WrittenSampleRecord(_Frozen):
+    """One survivor as a reduced dataset holds it: the file written and the index its notes join on.
+
+    ``index`` leads the filename, which is what a later ingest reads to route each note back to this
+    recording. ``frames`` and ``duration_s`` measure what was written, so a dataset trimmed to what the
+    material asks for states the length it kept.
+    """
+
+    index: int
+    key: str
+    file: str
+    frames: int
+    duration_s: float
+
+
+class ReducedDocument(_Frozen):
+    """What one reduce run produced: the dataset it wrote and the decisions that shaped it.
+
+    ``dedupe_key`` is the identity the survivors were kept under, so a run reading this dataset back
+    states the projection it already stands at. ``sample_rate`` is the analysis rate every survivor was
+    written at, which is the rate the shortlist in ``reduction`` was measured over.
+    """
+
+    instrument_id: str
+    dedupe_key: DedupeKey
+    sample_rate: int
+    samples: list[WrittenSampleRecord]
+    reduction: ReductionDocument
+
+
 class PlanDocument(_Frozen):
     """One optimized plan for either strategy: budgets, the velocity map, and the kept items.
 
@@ -287,7 +318,12 @@ def _velocity_map_document(velocity_map: VelocityVolumeMap) -> VelocityMapDocume
     )
 
 
-def _reduction_document(reduction: ReductionSummary) -> ReductionDocument:
+def reduction_document(reduction: ReductionSummary) -> ReductionDocument:
+    """The pre-optimization stage's own outcome as a document, for the plan tree and the reduced dataset.
+
+    Both consumers state the same reduction, so a dataset written by ``reduce`` and a plan produced from
+    it report their shared search space in one shape.
+    """
     return ReductionDocument(
         listed_recordings=reduction.listed_recordings,
         kept_recordings=reduction.kept_recordings,
@@ -396,7 +432,7 @@ def plan_document(
     units = plan.sample_units()
     budget = _budget_record(plan)
     module = _module_size_record(size)
-    reduction = _reduction_document(plan.reduction)
+    reduction = reduction_document(plan.reduction)
     velocity_map = _velocity_map_document(plan.velocity_map)
     if plan.strategy == "grouped":
         return PlanDocument(
