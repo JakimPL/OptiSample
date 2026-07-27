@@ -14,11 +14,13 @@ from optisample.optimize.operating_points import (
     OperatingPoint,
     SourceClip,
     SweepContext,
+    compression_at,
     default_rates,
     evaluate_encoding,
     lower_convex_hull,
     rd_frontier,
     sample_operating_points,
+    sweep_param_grid,
 )
 from optisample.synth import NoteSpec, synthesize
 from trackmod.core.samples.depth import BitDepth
@@ -105,13 +107,31 @@ def test_evaluate_encoding_bytes_match_the_formats_cost_table(sweep_context: Swe
     assert result.stored_bytes == sweep_context.storage.sample_bytes(frames=result.frames, depth=BitDepth.SIXTEEN)
 
 
+def test_a_shallow_depth_is_swept_over_every_compression_the_config_asks_for(
+    sweep: Callable[..., SweepConfig],
+) -> None:
+    assert compression_at(sweep(compress=(False, True)), 8) == (False, True)
+
+
+def test_a_deep_depth_is_swept_uncompressed_once(sweep: Callable[..., SweepConfig]) -> None:
+    """Sixteen bits leave the quantizer's floor below anything compression could protect, so it is skipped."""
+    assert compression_at(sweep(compress=(False, True)), 16) == (False,)
+
+
+def test_the_grid_enumerates_compression_only_where_it_is_swept(sweep: Callable[..., SweepConfig]) -> None:
+    grid = sweep(rates=(22_050,), depths=(16, 8), compress=(False, True))
+    params = list(sweep_param_grid(grid, SR, trim_s=None))
+    assert [(point.depth_bits, point.compress) for point in params] == [(16, False), (8, False), (8, True)]
+
+
 def test_sample_operating_points_covers_the_grid(
     sweep: Callable[..., SweepConfig], sweep_context: SweepContext
 ) -> None:
+    """One point per grid entry: three rates once at 16 bits, and both compressions of them at 8."""
     clip = SourceClip(signal=bright_piano(), sample_rate=SR, root_pitch=84, duration_s=1.0)
-    grid = sweep(rates=(44_100, 22_050, 11_025), depths=(16, 8))
+    grid = sweep(rates=(44_100, 22_050, 11_025), depths=(16, 8), compress=(False, True))
     points = sample_operating_points(clip, grid, seeded(sweep_context))
-    assert len(points) == 3 * 2
+    assert len(points) == 3 + 3 * 2
     assert all(p.stored_bytes > 0 for p in points)
 
 

@@ -3,6 +3,8 @@ from typing import Final
 import numpy as np
 from numpy.typing import NDArray
 
+from optisample.dsp.levels import db_to_gain, peak_amplitude
+
 Signal = NDArray[np.float64]
 
 VALID_DEPTHS: Final = (8, 16)
@@ -15,12 +17,37 @@ def quantization_step(bits: int) -> float:
     return 2.0 ** (1 - bits)
 
 
-def normalize_peak(signal: Signal, target_peak: float) -> tuple[Signal, float]:
-    """Scale so ``max|x| == target_peak``; return ``(normalized, gain)``. Silence -> ``(copy, 1.0)``."""
+def headroom_peak(headroom_db: float) -> float:
+    """The peak a stored sample is normalized to: full scale lowered by ``headroom_db``.
+
+    A dithered encode adds up to one step to every sample and the signed grid stops one step below full
+    scale, so a sample normalized to full scale meets the clip on its own loudest frame. Keeping the
+    peak this far under leaves the dither somewhere to go, and costs ``headroom_db`` of the depth's
+    signal-to-noise ratio to do it.
+    """
+    return db_to_gain(-headroom_db)
+
+
+def normalize_peak(
+    signal: Signal,
+    target_peak: float,
+    *,
+    reference_peak: float | None = None,
+) -> tuple[Signal, float]:
+    """Scale ``signal`` so ``reference_peak`` lands on ``target_peak``; return ``(scaled, gain)``.
+
+    The reference defaults to the signal's own peak, which stores every clip as hot as its depth
+    allows and leaves the level to be restored on playback. Naming the loudest peak of a whole
+    instrument instead scales every one of its clips by a single factor, so the balance between them
+    survives into the PCM -- what a format keeping no per-sample multiplier needs.
+
+    A reference of zero leaves the signal as it stands, at unit gain.
+    """
     data = np.asarray(signal, dtype=np.float64)
-    largest = float(np.max(np.abs(data))) if data.size else 0.0
+    largest = peak_amplitude(data) if reference_peak is None else reference_peak
     if largest <= 0.0:
         return data.copy(), 1.0
+
     gain = target_peak / largest
     return np.asarray(data * gain, dtype=np.float64), gain
 

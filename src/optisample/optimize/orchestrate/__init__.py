@@ -8,6 +8,7 @@ from optisample.optimize.orchestrate.audio import load_run_audio
 from optisample.optimize.orchestrate.cost_model import build_items
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.orchestrate.solve import solve_allocation
+from optisample.optimize.orchestrate.staging import staged_encode
 from optisample.optimize.plans import InstrumentPlan, per_key_bytes, split_budget
 from optisample.optimize.reduce.grids import GridContext
 from optisample.optimize.reduce.summary import (
@@ -53,7 +54,9 @@ def prepare_run(
     bandwidth pre-pass then runs here, once, and the sweep reads its shortlist back.
 
     The narrowing context is built first and the scoring context from it, so the pre-pass and the sweep
-    that reads its shortlist back price and measure against one set of values.
+    that reads its shortlist back price and measure against one set of values. Gain staging is settled
+    here too (:func:`~optisample.optimize.orchestrate.staging.staged_encode`), so every encode the run
+    makes stores its clip the way the export will write it.
     """
     velocity_map = derive_velocity_map(
         loudness_by_velocity([(key.velocity, signal) for key, signal in audio.items()], sample_rate),
@@ -64,7 +67,7 @@ def prepare_run(
     grid = GridContext(
         sample_rate=sample_rate,
         metrics=settings.metrics,
-        encode=settings.encode,
+        encode=staged_encode(settings.encode, settings.target, audio),
         storage=settings.target.storage,
         sweep=settings.sweep,
         bandwidth=settings.reduce.bandwidth,
@@ -88,7 +91,7 @@ def prepare_run(
         audio,
         ReductionInputs(
             dedupe=settings.reduce.dedupe,
-            loop=settings.encode.loop,
+            loop=grid.encode.loop,
             context=grid,
             workers=settings.workers,
             progress=settings.progress,

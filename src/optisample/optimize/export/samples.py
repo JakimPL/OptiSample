@@ -9,14 +9,18 @@ from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.base import Signal
 from optisample.music import note_name, sounded_note
 from optisample.optimize.export.context import ExportContext
-from optisample.optimize.plans import SampleUnit
+from optisample.optimize.plans import SampleUnit, StrategyPlan
 from optisample.optimize.tasks import AudioMap
+from optisample.optimize.velocity_map import VelocityVolumeMap
 from trackmod.core.instruments.keymap import KeyAssignment, Keymap, routed_keymap
 from trackmod.core.notes.pitch import Note
 from trackmod.core.samples.loop import Loop
 from trackmod.core.samples.sample import Sample
+from trackmod.spec.levels import MAX_VOLUME
 
 _SAMPLE_LABEL_CHARS: Final = 18  # instrument-id chars kept before the " <note>" suffix in a sample name.
+_UNIT_GAIN: Final = 1.0  # what a sample stored without scaling plays back at
+_QUIETEST_GAIN: Final = 1  # the softest step that still sounds, so a quiet sample is heard rather than dropped
 
 
 def encode_plan_units(
@@ -53,6 +57,45 @@ def _stored_loop(stored: StoredSample) -> Loop | None:
     return None if stored.loop is None else Loop(begin=stored.loop.start, end=stored.loop.end)
 
 
+def _makeup(unit: SampleUnit, stored: StoredSample, velocity_map: VelocityVolumeMap) -> float:
+    """How loud one sample has to play for its notes to sound at the level they were recorded at.
+
+    Two multipliers meet on every note: this one, and the note volume the velocity map writes into the
+    pattern. That volume already states the dynamic of the velocity this sample was recorded at, so what
+    is left here is the rest -- undoing how hot the sample was stored, then dividing out the dynamic the
+    pattern will apply again. What survives the division is the balance between the recordings
+    themselves, which is the part the velocity axis never carried. A representative whose velocity maps
+    to silence leaves its own scaling to stand, since the pattern silences the note either way.
+    """
+    written = velocity_map.volume(unit.representative_key.velocity)
+    if written <= 0:
+        return stored.playback_gain
+
+    return stored.playback_gain * MAX_VOLUME / written
+
+
+def sample_gains(
+    encoded: Sequence[tuple[SampleUnit, StoredSample]],
+    velocity_map: VelocityVolumeMap,
+    target: ExportTarget,
+) -> tuple[int, ...]:
+    """Each sample's playback multiplier, scaled so the one needing most of it takes the top step.
+
+    Every sample is stored as hot as its own depth allows, which spends the whole grid on one recording
+    and leaves the instrument flat -- a naturally quiet key comes back as loud as a bright one. The 0-64
+    gain the format keeps per sample is where that balance is restored (see :func:`_makeup`), stated
+    relative to the sample asking for the most so the whole set fits the steps available. A format
+    pinning the gain to full scale carries the balance in the PCM instead, so every sample there reports
+    the same top step.
+    """
+    if not target.stores_sample_gain:
+        return tuple(MAX_VOLUME for _ in encoded)
+
+    makeups = [_makeup(unit, stored, velocity_map) for unit, stored in encoded]
+    loudest = max(makeups, default=_UNIT_GAIN)
+    return tuple(max(_QUIETEST_GAIN, round(MAX_VOLUME * makeup / loudest)) for makeup in makeups)
+
+
 def sample_name(instrument_id: str, unit: SampleUnit) -> str:
     """The stored sample's display name: the instrument, shortened, plus the note it was recorded at."""
     return f"{instrument_id[:_SAMPLE_LABEL_CHARS]} {note_name(unit.representative)}"
@@ -66,32 +109,38 @@ def _unit_assignments(unit: SampleUnit, sample: int, target: ExportTarget) -> di
 
 
 def plan_samples(
-    instrument_id: str,
-    units: Sequence[SampleUnit],
+    plan: StrategyPlan,
     audio: AudioMap,
     sample_rate: int,
     context: ExportContext,
 ) -> tuple[tuple[Sample, ...], Keymap]:
     """Re-encode each unit's representative and map every key it serves onto the resulting sample.
 
-    Units are encoded in order from one seeded RNG, so the byte layout reproduces the plan exactly.
+    Units are encoded in order from one seeded RNG, so the byte layout reproduces the plan exactly. The
+    whole set is encoded before any sample is built, because each one's gain is stated against the
+    sample asking for the most of it (:func:`sample_gains`), and read alongside the velocity map the
+    same plan writes into the patterns.
     """
+    encoded = list(
+        encode_plan_units(
+            plan.sample_units(),
+            audio,
+            sample_rate,
+            context.encode,
+            context.seed,
+        )
+    )
+    gains = sample_gains(encoded, plan.velocity_map, context.target)
     samples: list[Sample] = []
     assignments: dict[Note, KeyAssignment] = {}
-    encoded = encode_plan_units(
-        units,
-        audio,
-        sample_rate,
-        context.encode,
-        context.seed,
-    )
-    for index, (unit, stored) in enumerate(encoded):
+    for index, ((unit, stored), gain) in enumerate(zip(encoded, gains)):
         samples.append(
             Sample(
-                name=sample_name(instrument_id, unit),
+                name=sample_name(plan.instrument_id, unit),
                 pcm=stored.pcm,
                 rate=stored.sample_rate,
                 depth=stored.depth,
+                gain=gain,
                 loop=_stored_loop(stored),
             )
         )

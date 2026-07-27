@@ -1,6 +1,7 @@
 import numpy as np
 
 from optisample.dsp.loop import Loop
+from optisample.dsp.quantize import apply_gain
 from optisample.dsp.resample import resample_num
 from optisample.dsp.surrogate.sample import Signal, StoredSample
 from optisample.music import semitone_ratio
@@ -73,12 +74,16 @@ def render(
     volume: int = MAX_VOLUME,
     duration_s: float | None = None,
 ) -> Signal:
-    """Render a note from ``stored`` at ``out_rate``: repitch to ``pitch``, scale by ``volume``, fit duration.
+    """Render a note from ``stored`` at ``out_rate``: repitch to ``pitch``, level it, fit the duration.
 
     ``pitch`` defaults to the sample's root (no transpose). Repitching plays the sample faster/slower
     (``2**((pitch - root) / 12)``), which shifts both pitch and length the way a tracker does. If the
     sample carries a loop and the note is held past the stored length, the loop region is repeated to
     sustain it (in the output domain, so it tracks the repitch); otherwise the note simply ends.
+
+    The note sounds at :attr:`~optisample.dsp.surrogate.sample.StoredSample.playback_gain` times
+    ``volume``: the first restores the level the recording was stored hot from, which is what a module
+    reaches through its per-sample multiplier, and the second is the note's own dynamic.
     """
     played, scale = _repitch(stored, out_rate, pitch)
     if duration_s is not None and stored.loop is not None:
@@ -86,7 +91,7 @@ def render(
         if target > played.size:
             played = _sustain_with_loop(played, stored.loop, scale, target)
 
-    rendered = played * (volume / MAX_VOLUME)
+    rendered = apply_gain(played, stored.playback_gain * volume / MAX_VOLUME)
     if duration_s is not None:
         rendered = _fit_length(rendered, round(duration_s * out_rate))
 

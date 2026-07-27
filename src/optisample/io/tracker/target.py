@@ -11,6 +11,7 @@ from trackmod.limits.compliance import Compliance
 from trackmod.limits.table import Limits
 from trackmod.module.protocol import TrackerModule
 from trackmod.module.storage import Storage
+from trackmod.spec.levels import MAX_VOLUME
 from trackmod.trackers.it.limits import it_limits
 from trackmod.trackers.it.module import ITModule
 from trackmod.trackers.it.settings import ITSettings
@@ -63,6 +64,16 @@ class ExportTarget:
                 return it_limits(self.compliance)
             case TrackerFormat.XM:
                 return xm_limits(self.compliance)
+
+    @property
+    def stores_sample_gain(self) -> bool:
+        """Whether this format keeps a per-sample multiplier, so a stored level can be restored on playback.
+
+        Impulse Tracker gives every sample its own 0-64 gain, which is what lets each one be stored as
+        hot as its depth allows and the instrument's balance be written beside it. FastTracker 2 pins
+        the same capability to full gain, so an instrument written as XM carries its balance in the PCM.
+        """
+        return self.limits.bound(Capability.SAMPLE_GAIN).minimum < MAX_VOLUME
 
     @property
     def min_rows(self) -> int:

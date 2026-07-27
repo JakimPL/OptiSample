@@ -92,6 +92,7 @@ class EncodingRecord(_Frozen):
 
     target_rate: int
     depth_bits: int
+    compress: bool
     trim_s: float | None
     loop: LoopRecord | None
     frames: int
@@ -149,6 +150,7 @@ class ShortlistedEncodingRecord(_Frozen):
 
     target_rate: int
     depth_bits: int
+    compress: bool
     loop: bool
 
 
@@ -350,6 +352,7 @@ def reduction_document(reduction: ReductionSummary) -> ReductionDocument:
                     ShortlistedEncodingRecord(
                         target_rate=params.target_rate,
                         depth_bits=params.depth_bits,
+                        compress=params.compress,
                         loop=params.loop,
                     )
                     for params in grid.shortlist
@@ -387,6 +390,7 @@ def _encoding_record(unit: SampleUnit, loop: Loop | None) -> EncodingRecord:
     return EncodingRecord(
         target_rate=unit.params.target_rate,
         depth_bits=unit.params.depth_bits,
+        compress=unit.params.compress,
         trim_s=unit.params.trim_s,
         loop=_loop_record(loop),
         frames=unit.frames,

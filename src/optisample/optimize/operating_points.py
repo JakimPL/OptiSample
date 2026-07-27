@@ -18,6 +18,7 @@ from optisample.metrics.composite import CompositeFidelity, evaluate
 from trackmod.module.storage import Storage
 
 _HULL_EPS: Final = 1e-12
+_COMPRESSIBLE_DEPTH: Final = 8  # bits; a deeper grid's noise floor sits below what compression protects
 
 
 @dataclass(frozen=True, eq=False)
@@ -81,29 +82,45 @@ def sweep_rates(sweep: SweepConfig, sample_rate: int) -> list[int]:
     )
 
 
+def compression_at(sweep: SweepConfig, depth: int) -> tuple[bool, ...]:
+    """The compression settings ``depth`` is swept over, in the order ``sweep`` asks for them.
+
+    Compression trades waveform for headroom against the quantizer, a bargain only a grid shallow enough
+    to hear its own noise floor stands to win. Depths past that are enumerated uncompressed, once, which
+    keeps the sweep from paying twice for encodings the objective would score alike.
+    """
+    if depth <= _COMPRESSIBLE_DEPTH:
+        return sweep.compress
+
+    return (False,)
+
+
 def sweep_param_grid(
     sweep: SweepConfig,
     sample_rate: int,
     *,
     trim_s: float | None,
 ) -> Iterator[EncodingParams]:
-    """Yield every ``(loop, depth, rate)`` encoding configuration in ``sweep``, trimmed to ``trim_s``.
+    """Yield every ``(loop, depth, compress, rate)`` configuration in ``sweep``, trimmed to ``trim_s``.
 
-    Iterating loop-major, then depth, then rate fixes the single order in which every cost model
-    enumerates and scores encodings, so the per-sample, per-pitch and per-zone sweeps stay identical.
+    Iterating loop-major, then depth, then compression, then rate fixes the single order in which every
+    cost model enumerates and scores encodings, so the per-sample, per-pitch and per-zone sweeps stay
+    identical.
     """
     rates = sweep_rates(sweep, sample_rate)
     for loop in sweep.loops:
         for depth in sweep.depths:
-            for rate in rates:
-                yield EncodingParams(
-                    target_rate=rate,
-                    depth_bits=depth,
-                    trim_s=trim_s,
-                    dither=sweep.dither,
-                    noise_shaping=sweep.noise_shaping,
-                    loop=loop,
-                )
+            for compress in compression_at(sweep, depth):
+                for rate in rates:
+                    yield EncodingParams(
+                        target_rate=rate,
+                        depth_bits=depth,
+                        trim_s=trim_s,
+                        dither=sweep.dither,
+                        noise_shaping=sweep.noise_shaping,
+                        loop=loop,
+                        compress=compress,
+                    )
 
 
 def _reference(clip: SourceClip) -> Signal:

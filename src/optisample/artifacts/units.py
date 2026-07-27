@@ -1,7 +1,7 @@
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from optisample.artifacts.context import DumpContext, DumpSettings
+from optisample.artifacts.context import DumpContext
 from optisample.artifacts.serialize import PlanDocument, plan_document
 from optisample.dsp.surrogate import StoredSample
 from optisample.model import NoteEvent
@@ -57,7 +57,8 @@ def build_units(plan: StrategyPlan, dump_context: DumpContext) -> tuple[Unit, ..
     ``plan.sample_units`` reports the strategy-specific choices -- each unit's representative recording,
     root pitch and the keys it covers -- and encoding them through one seeded RNG is what keeps the byte
     layout reproducing the written module exactly. A unit's representative pitch is always its encode root and
-    its recording is the loudest velocity actually played there.
+    its recording is the loudest velocity actually played there. The encode config comes from the prepared
+    run, so a unit is re-encoded under the gain staging the allocation scored it with.
     """
     units: list[Unit] = []
     tasks_by_pitch = dump_context.tasks_by_pitch
@@ -65,7 +66,7 @@ def build_units(plan: StrategyPlan, dump_context: DumpContext) -> tuple[Unit, ..
         plan.sample_units(),
         dump_context.audio,
         dump_context.sample_rate,
-        dump_context.settings.optimize.encode,
+        dump_context.eval_context.encode,
         dump_context.settings.optimize.seed,
     )
     for unit, stored in encoded:
@@ -80,10 +81,11 @@ def build_units(plan: StrategyPlan, dump_context: DumpContext) -> tuple[Unit, ..
     return tuple(units)
 
 
-def _export_context(settings: DumpSettings) -> ExportContext:
-    """The exporter context (re-encode config, playback, target format, dither seed) from the settings."""
+def _export_context(dump_context: DumpContext) -> ExportContext:
+    """The exporter context: the run's own re-encode config, plus playback, target format and dither seed."""
+    settings = dump_context.settings
     return ExportContext(
-        encode=settings.optimize.encode,
+        encode=dump_context.eval_context.encode,
         playback=settings.playback,
         target=settings.optimize.target,
         seed=settings.optimize.seed,
@@ -99,7 +101,7 @@ def make_kind(plan: InstrumentPlan | GroupedInstrumentPlan, dump_context: DumpCo
     strategy-specific.
     """
     units = build_units(plan, dump_context)
-    export_context = _export_context(dump_context.settings)
+    export_context = _export_context(dump_context)
     loops = [unit.stored.loop for unit in units]
 
     def make_module(material: Sequence[NoteEvent]) -> TrackerModule:

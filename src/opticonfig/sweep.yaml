@@ -6,3 +6,4 @@ depths: [16, 8]              # swept bit depths
 dither: true
 noise_shaping: false
 loops: [true]                # loop by default; non-periodic material falls back to a trim
+compress: [false, true]      # swept where the quantizer is shallow enough to hear the headroom it buys

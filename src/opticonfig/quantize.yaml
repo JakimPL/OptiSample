@@ -1,2 +1,2 @@
 # Requantization shaping (optisample.config.dsp.QuantizeConfig).
-target_peak: 1.0 # normalize to full scale before storing ("store hot")
+headroom_db: 0.5 # store hot, this far under full scale so the dither has room

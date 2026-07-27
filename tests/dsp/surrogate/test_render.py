@@ -34,6 +34,16 @@ def test_render_transpose_octave_halves_length(
     assert octave_up.size == pytest.approx(base.size // 2, abs=2)
 
 
+def test_a_quiet_recording_plays_back_as_quietly_as_it_was_recorded(
+    sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
+) -> None:
+    """Storing hot spends the depth on one recording; playback undoes it, so the instrument keeps its balance."""
+    quiet = 0.25 * sine(440.0)
+    stored = encode(quiet, SR, EncodingParams(target_rate=SR, depth_bits=16, dither=False), make_encode_ctx(60))
+    rendered = render(stored, SR, pitch=60)
+    assert float(np.max(np.abs(rendered))) == pytest.approx(0.25, rel=1e-3)
+
+
 def test_render_volume_scales_amplitude(
     sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
 ) -> None:

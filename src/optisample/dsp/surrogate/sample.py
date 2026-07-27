@@ -34,5 +34,15 @@ class StoredSample:
         return BitDepth(self.depth_bits)
 
     @property
+    def playback_gain(self) -> float:
+        """What playback multiplies the stored PCM by to sound at the level it was recorded at.
+
+        Storing hot spends the whole depth on one recording, which is what :attr:`gain` records; playing
+        the sample back through this undoes that scaling, so a quiet recording sounds quiet again and an
+        instrument keeps the balance between its samples. A sample stored at unit gain plays as it is.
+        """
+        return 1.0 / self.gain if self.gain > 0.0 else 1.0
+
+    @property
     def duration_s(self) -> float:
         return self.frames / self.sample_rate if self.sample_rate else 0.0

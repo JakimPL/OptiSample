@@ -10,15 +10,24 @@ from numpy.typing import NDArray
 
 from optisample.config.optimize import SweepConfig
 from optisample.config.render import RenderConfig
-from optisample.dsp.surrogate import EncodingParams
+from optisample.config.tracker import TrackerFormat
+from optisample.dsp.surrogate import EncodingParams, StoredSample
 from optisample.io.render import openmpt123_available, render_module
+from optisample.io.tracker.target import ExportTarget
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.export import build_module
 from optisample.optimize.export.context import ExportContext
-from optisample.optimize.export.samples import sample_name
+from optisample.optimize.export.samples import sample_gains, sample_name
 from optisample.optimize.orchestrate import optimize_instrument
 from optisample.optimize.orchestrate.settings import OptimizeSettings
-from optisample.optimize.plans import BudgetBreakdown, GroupedInstrumentPlan, InstrumentPlan, Zone, ZoneOption
+from optisample.optimize.plans import (
+    BudgetBreakdown,
+    GroupedInstrumentPlan,
+    InstrumentPlan,
+    SampleUnit,
+    Zone,
+    ZoneOption,
+)
 from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.reduce.summary import ReductionSummary
 from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
@@ -26,11 +35,14 @@ from tests.optimize.export.demo import SR
 from trackmod.core.notes.pitch import Note
 from trackmod.module.protocol import TrackerModule
 from trackmod.module.storage import Storage
+from trackmod.spec.levels import MAX_VOLUME
 from trackmod.spec.pitch import RATE_NOTE
 
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
 
 _UNREACHABLE_PITCH = 5  # below MIDI 12, so no tracker keyboard numbers it
+_LOUDEST_VELOCITY = 100  # the velocity a graded map puts at full volume
+_SOFTER_VELOCITY = 50  # ... and one it puts at half, so the pattern carries a dynamic of its own
 
 
 def test_one_sample_per_planned_pitch_each_sounding_its_own_key(
@@ -100,6 +112,83 @@ def test_a_pitch_the_format_does_not_number_raises(
     plan = optimize_instrument(instrument, audio, SR, settings)
     with pytest.raises(ValueError, match="outside the IT key range"):
         build_module(plan, audio, SR, instrument.material or [], export_context)
+
+
+def _encoded(gain: float, velocity: int = _LOUDEST_VELOCITY) -> tuple[SampleUnit, StoredSample]:
+    """A stand-in encoded unit, carrying only the recorded velocity and the scaling the export reads."""
+    unit = SampleUnit(
+        label="unit",
+        representative_key=SampleKey(60, velocity),
+        keys=(60,),
+        params=EncodingParams(22_050, 8),
+        frames=8,
+        stored_bytes=8,
+        distortion=0.0,
+        hull_size=1,
+        weight=1.0,
+    )
+    stored = StoredSample(pcm=np.zeros(8, dtype=np.float64), sample_rate=22_050, depth_bits=8, root_pitch=60, gain=gain)
+    return unit, stored
+
+
+@pytest.fixture
+def graded_map() -> VelocityVolumeMap:
+    """A map putting the softer of two velocities at half volume, so a test can see it applied twice."""
+    volumes = tuple(MAX_VOLUME if velocity >= _LOUDEST_VELOCITY else MAX_VOLUME // 2 for velocity in range(128))
+    return VelocityVolumeMap(volumes, (VelocityAnchor(_LOUDEST_VELOCITY, -10.0, MAX_VOLUME),))
+
+
+def test_the_sample_needing_most_of_the_gain_takes_the_top_step(
+    graded_map: VelocityVolumeMap, target: ExportTarget
+) -> None:
+    """The balance storing hot flattens: a recording lifted twice as far comes back half as loud."""
+    encoded = [_encoded(2.0), _encoded(4.0), _encoded(8.0)]
+    assert sample_gains(encoded, graded_map, target) == (MAX_VOLUME, 32, 16)
+
+
+def test_a_sample_recorded_at_a_softer_velocity_is_not_turned_down_twice(
+    graded_map: VelocityVolumeMap, target: ExportTarget
+) -> None:
+    """Its notes already carry that dynamic in the pattern, so charging it here as well would double it."""
+    loud, soft = _encoded(1.0), _encoded(2.0, velocity=_SOFTER_VELOCITY)
+    assert sample_gains([loud, soft], graded_map, target) == (MAX_VOLUME, MAX_VOLUME)
+
+
+def test_a_representative_the_map_silences_keeps_its_own_scaling(
+    flat_velocity_map: VelocityVolumeMap, target: ExportTarget
+) -> None:
+    """The pattern silences that note whatever gain the sample carries, so the division is left out."""
+    silent = VelocityVolumeMap(tuple(0 for _ in range(128)), flat_velocity_map.anchors)
+    assert sample_gains([_encoded(1.0), _encoded(4.0)], silent, target) == (MAX_VOLUME, 16)
+
+
+def test_a_recording_far_under_the_loudest_is_still_heard(
+    flat_velocity_map: VelocityVolumeMap, target: ExportTarget
+) -> None:
+    """The format's 64 steps run out before a wide instrument does, so the quietest keeps the softest one."""
+    assert sample_gains([_encoded(1.0), _encoded(10_000.0)], flat_velocity_map, target)[1] == 1
+
+
+def test_a_format_pinning_its_gain_writes_every_sample_at_full(
+    flat_velocity_map: VelocityVolumeMap, retarget: Callable[[TrackerFormat], ExportTarget]
+) -> None:
+    """FastTracker 2 has no per-sample multiplier to grade, so the PCM carries the balance instead."""
+    encoded = [_encoded(2.0), _encoded(8.0)]
+    assert sample_gains(encoded, flat_velocity_map, retarget(TrackerFormat.XM)) == (MAX_VOLUME, MAX_VOLUME)
+
+
+def test_an_instrument_of_no_samples_needs_no_gains(flat_velocity_map: VelocityVolumeMap, target: ExportTarget) -> None:
+    assert sample_gains([], flat_velocity_map, target) == ()
+
+
+def test_the_written_module_grades_its_samples_against_the_one_needing_most(
+    build: Callable[..., tuple[InstrumentPlan, TrackerModule]],
+) -> None:
+    """End to end: the plan's samples reach the module carrying the balance the recordings were made with."""
+    _, module = build()
+    gains = [sample.gain for sample in module.song.samples]
+    assert max(gains) == MAX_VOLUME
+    assert all(0 < gain <= MAX_VOLUME for gain in gains)
 
 
 def test_grouped_module_shares_one_sample_across_a_merged_zone(

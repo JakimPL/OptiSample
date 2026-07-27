@@ -170,9 +170,14 @@ def _tracked_ccs(material: Sequence[NoteEvent]) -> list[int]:
 
 
 def _encoding_stem(params: EncodingParams) -> str:
-    """The audition filename for one shortlisted encoding: the stored rate, depth and loop it asks for."""
-    stem = f"r{params.target_rate}_d{params.depth_bits}"
-    return f"{stem}_loop" if params.loop else stem
+    """The audition filename for one shortlisted encoding: every axis it asks for, in the sweep's order."""
+    parts = [f"r{params.target_rate}", f"d{params.depth_bits}"]
+    if params.compress:
+        parts.append("c")
+    if params.loop:
+        parts.append("loop")
+
+    return "_".join(parts)
 
 
 def _audition(task: PitchTask, event: Event, params: EncodingParams, context: EvalContext) -> Signal:

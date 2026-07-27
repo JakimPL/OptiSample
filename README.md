@@ -83,6 +83,30 @@ A dataset reproduces its survivors exactly under the key it was reduced with; re
 coarser key projects several identities onto one survivor, which then reports the identity of the first
 note that reaches it.
 
+## Gain staging: storing hot and getting the level back
+
+An 8-bit grid has 256 steps, so how much of it a recording occupies decides how much of the recording
+survives. Every sample is therefore stored hot — normalized to `headroom_db` (`src/opticonfig/quantize.yaml`)
+under full scale, far enough down that the dither has somewhere to go — and the level it was lifted from
+is given back on playback. Normalization reads the span the sample actually stores, after the trim or the
+loop, so a peak in a discarded tail leaves the stored sample exactly where it asked to be.
+
+Where that level comes back depends on the format. Impulse Tracker keeps a 0–64 multiplier per sample, and
+that is where the balance is restored — so a naturally quiet key sounds quiet again while still spending
+its whole depth on its own recording. The multiplier carries only the part the pattern does not: the
+velocity→volume map already states the dynamic of the velocity each sample was recorded at, so that share
+is divided out and what remains is the balance between the recordings themselves. FastTracker 2 has no such
+field, so an XM run normalizes every clip against the instrument's loudest peak instead and the balance
+rides in the PCM. That reference is fixed before the sweep, because how hot a sample is stored is part of
+what the objective measures.
+
+Ahead of the quantizer sits an optional soft-knee compressor (`src/opticonfig/dynamics.yaml`), reading its
+threshold against each clip's own peak so it shapes crest factor rather than level. It is a **swept axis**,
+not a preprocessing step: the grid offers each 8-bit encoding both compressed and plain, prices them the
+same way, and the objective picks. A 16-bit encoding is enumerated uncompressed, since its noise floor
+already sits below anything compression could protect. The `comp` column in `report.txt` and the `_c` in an
+audition filename say which way each sample went.
+
 ## Usage
 
 Optimize a `.notes.json` into an inspectable artifact tree:

@@ -1,6 +1,7 @@
 from collections.abc import Iterable
 from typing import Final
 
+from optisample.dsp.surrogate import EncodingParams
 from optisample.metrics.size import bytes_to_kib
 from optisample.music import note_name
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
@@ -19,11 +20,18 @@ SUBSECTION_RULE: Final = "-" * RULE_WIDTH
 _CURVE_ROWS: Final = 6
 _SHORTFALL_ROWS: Final = 3  # shortfalls named in full before the rest are counted, keeping the block short
 _HZ_PER_KHZ: Final = 1000.0
+_COMPRESSED: Final = "on"
+_UNCOMPRESSED: Final = "-"
 
 
 def _format_allocation_table(title: str, header: str, rows: Iterable[str]) -> str:
     """A titled, ruled allocation table: heading, subsection rule, column header, then the data rows."""
     return "\n".join((title, SUBSECTION_RULE, header, *rows))
+
+
+def _compression_mark(params: EncodingParams) -> str:
+    """How an allocation row states whether its encoding was compressed on the way to the quantizer."""
+    return _COMPRESSED if params.compress else _UNCOMPRESSED
 
 
 def _format_shortfalls(reduction: ReductionSummary) -> list[str]:
@@ -124,8 +132,8 @@ def _ungrouped_header(plan: InstrumentPlan, size: SizeReport) -> str:
 
 def _format_pitches(plan: InstrumentPlan) -> str:
     header = (
-        f"{'pitch':>5}  {'note':>4}  {'weight(s)':>9}  {'rep.vel':>7}  "
-        f"{'rate(Hz)':>8}  {'depth':>5}  {'size(KiB)':>9}  {'distortion':>10}  {'hull':>4}"
+        f"{'pitch':>5}  {'note':>4}  {'weight(s)':>9}  {'rep.vel':>7}  {'rate(Hz)':>8}  "
+        f"{'depth':>5}  {'comp':>4}  {'size(KiB)':>9}  {'distortion':>10}  {'hull':>4}"
     )
     rows = []
     for pitch in plan.pitches:
@@ -133,7 +141,8 @@ def _format_pitches(plan: InstrumentPlan) -> str:
         rows.append(
             f"{pitch.pitch:>5}  {note_name(pitch.pitch):>4}  {pitch.weight:>9.1f}  "
             f"{pitch.representative_key.velocity:>7}  {point.params.target_rate:>8}  {point.params.depth_bits:>5}  "
-            f"{bytes_to_kib(point.stored_bytes):>9.1f}  {point.distortion:>10.4f}  {len(pitch.hull):>4}"
+            f"{_compression_mark(point.params):>4}  {bytes_to_kib(point.stored_bytes):>9.1f}  "
+            f"{point.distortion:>10.4f}  {len(pitch.hull):>4}"
         )
 
     return _format_allocation_table("Per-pitch allocation", header, rows)
@@ -193,8 +202,8 @@ def _grouped_header(plan: GroupedInstrumentPlan, size: SizeReport) -> str:
 
 def _format_zones(plan: GroupedInstrumentPlan) -> str:
     header = (
-        f"{'keys':>11}  {'rep':>4}  {'rep.vel':>7}  {'rate(Hz)':>8}  "
-        f"{'depth':>5}  {'size(KiB)':>9}  {'distortion':>10}  {'options':>7}"
+        f"{'keys':>11}  {'rep':>4}  {'rep.vel':>7}  {'rate(Hz)':>8}  {'depth':>5}  "
+        f"{'comp':>4}  {'size(KiB)':>9}  {'distortion':>10}  {'options':>7}"
     )
     rows = []
     for zone in plan.zones:
@@ -204,7 +213,8 @@ def _format_zones(plan: GroupedInstrumentPlan) -> str:
         rows.append(
             f"{span:>11}  {zone.representative:>4}  {zone.representative_key.velocity:>7}  "
             f"{option.params.target_rate:>8}  {option.params.depth_bits:>5}  "
-            f"{bytes_to_kib(option.stored_bytes):>9.1f}  {option.distortion:>10.4f}  {len(zone.hull):>7}"
+            f"{_compression_mark(option.params):>4}  {bytes_to_kib(option.stored_bytes):>9.1f}  "
+            f"{option.distortion:>10.4f}  {len(zone.hull):>7}"
         )
     return _format_allocation_table("Zones (one stored sample each, repitched across the zone's keys)", header, rows)
 

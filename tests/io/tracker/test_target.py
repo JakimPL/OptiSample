@@ -97,6 +97,14 @@ def test_the_storage_table_prices_a_stored_sample(
     assert storage.frames_budget(cost, depth=BitDepth.SIXTEEN) == frames  # the inverse of the same table
 
 
+def test_only_the_format_with_a_per_sample_multiplier_reports_one(
+    retarget: Callable[[TrackerFormat], ExportTarget],
+) -> None:
+    """Which format restores a stored level on playback, and which has to carry it in the PCM instead."""
+    assert retarget(TrackerFormat.IT).stores_sample_gain
+    assert not retarget(TrackerFormat.XM).stores_sample_gain
+
+
 @pytest.mark.parametrize("tracker_format", _FORMATS)
 def test_the_release_cell_silences_a_channel(
     tracker_format: TrackerFormat, retarget: Callable[[TrackerFormat], ExportTarget]

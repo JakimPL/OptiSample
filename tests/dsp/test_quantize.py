@@ -7,7 +7,14 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.config.dsp import QuantizeConfig
-from optisample.dsp.quantize import apply_gain, normalize_peak, quantization_step, requantize
+from optisample.dsp.levels import db_to_gain
+from optisample.dsp.quantize import (
+    apply_gain,
+    headroom_peak,
+    normalize_peak,
+    quantization_step,
+    requantize,
+)
 from optisample.dsp.spectral import band_energy
 from optisample.metrics.diagnostics import snr
 
@@ -32,9 +39,32 @@ def test_normalize_peak_hits_target(sine: Callable[..., NDArray[np.float64]]) ->
 
 def test_normalize_peak_silence_is_identity(quantize_config: QuantizeConfig) -> None:
     silence = np.zeros(128, dtype=np.float64)
-    norm, gain = normalize_peak(silence, quantize_config.target_peak)
+    norm, gain = normalize_peak(silence, headroom_peak(quantize_config.headroom_db))
     assert gain == 1.0
     assert np.array_equal(norm, silence)
+
+
+def test_a_named_reference_scales_every_clip_by_one_factor(sine: Callable[..., NDArray[np.float64]]) -> None:
+    """What a format storing no per-sample gain needs: the margin between two recordings, kept in the PCM."""
+    loud, quiet = sine(440.0), 0.25 * sine(440.0)
+    reference = float(np.max(np.abs(loud)))
+    scaled_loud, loud_gain = normalize_peak(loud, 1.0, reference_peak=reference)
+    scaled_quiet, quiet_gain = normalize_peak(quiet, 1.0, reference_peak=reference)
+    assert loud_gain == quiet_gain
+    assert float(np.max(np.abs(scaled_quiet))) == pytest.approx(0.25 * float(np.max(np.abs(scaled_loud))))
+
+
+def test_a_reference_of_silence_leaves_a_clip_as_it_stands(sine: Callable[..., NDArray[np.float64]]) -> None:
+    signal = sine(440.0)
+    scaled, gain = normalize_peak(signal, 1.0, reference_peak=0.0)
+    assert gain == 1.0
+    assert np.array_equal(scaled, signal)
+
+
+def test_headroom_leaves_the_peak_that_far_under_full_scale() -> None:
+    assert headroom_peak(0.0) == pytest.approx(1.0)
+    assert headroom_peak(6.0) == pytest.approx(db_to_gain(-6.0))
+    assert headroom_peak(0.5) < 1.0
 
 
 def test_apply_gain_scales_linearly(sine: Callable[..., NDArray[np.float64]]) -> None:

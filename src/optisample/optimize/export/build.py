@@ -25,13 +25,7 @@ def build_song(
     that audition them. Everything else -- the song and instrument name, the single channel, the clock
     -- is the same for both strategies, so it lives here once.
     """
-    samples, keymap = plan_samples(
-        plan.instrument_id,
-        plan.sample_units(),
-        audio,
-        sample_rate,
-        context,
-    )
+    samples, keymap = plan_samples(plan, audio, sample_rate, context)
     patterns, order = material_patterns(
         material,
         plan.velocity_map,

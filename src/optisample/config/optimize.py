@@ -15,6 +15,7 @@ class SweepConfig(ConfigModel):
     dither: bool
     noise_shaping: bool
     loops: tuple[bool, ...]
+    compress: tuple[bool, ...]
 
 
 class OptimizeConfig(ConfigModel):

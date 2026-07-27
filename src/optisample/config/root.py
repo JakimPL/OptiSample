@@ -5,6 +5,7 @@ from optisample.config.dsp import (
     QuantizeConfig,
     SpectralConfig,
 )
+from optisample.config.dynamics import DynamicsConfig
 from optisample.config.metrics import MetricsConfig
 from optisample.config.optimize import OptimizeConfig, SweepConfig, VelocityConfig
 from optisample.config.reduce import ReduceConfig
@@ -19,6 +20,7 @@ class OptiConfig(ConfigModel):
 
     loop: LoopConfig
     quantize: QuantizeConfig
+    dynamics: DynamicsConfig
     spectral: SpectralConfig
     metrics: MetricsConfig
     sweep: SweepConfig
@@ -33,8 +35,9 @@ class OptiConfig(ConfigModel):
 
     @property
     def encode(self) -> EncodeConfig:
-        """The bundle the surrogate encoder needs: loop detection plus the normalization peak."""
+        """The bundle the surrogate encoder needs: loop detection, compression and the stored headroom."""
         return EncodeConfig(
             loop=self.loop,
-            target_peak=self.quantize.target_peak,
+            dynamics=self.dynamics,
+            headroom_db=self.quantize.headroom_db,
         )

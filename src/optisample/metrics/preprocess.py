@@ -1,25 +1,12 @@
-from typing import Final, cast, overload
+from typing import Final
 
 import numpy as np
 import pyloudnorm as pyln
 
+from optisample.dsp.levels import db_to_gain
 from optisample.metrics.base import MetricContext, Signal
 
 _MIN_LOUDNESS_SECONDS: Final = 0.4  # BS.1770 integrated-loudness block size
-
-
-@overload
-def db_to_gain(delta_db: float) -> float: ...
-@overload
-def db_to_gain(delta_db: Signal) -> Signal: ...
-def db_to_gain(delta_db: float | Signal) -> float | Signal:
-    """Amplitude gain for a level change of ``delta_db`` decibels (``10 ** (dB / 20)``).
-
-    Loudness normalization and the velocity->volume map are both linear in amplitude, so a level
-    delta in dB becomes a multiplicative gain this way (``+6 dB`` ~ 2x). Accepts a scalar delta or
-    a per-element array of deltas, returning the matching type.
-    """
-    return cast(float | Signal, 10.0 ** (delta_db / 20.0))
 
 
 def match_length(reference: Signal, candidate: Signal) -> tuple[Signal, Signal]:

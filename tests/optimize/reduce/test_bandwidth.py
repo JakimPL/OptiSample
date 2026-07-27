@@ -28,7 +28,7 @@ _UNTRANSPOSED = ClipDemand(trim_s=_TRIM_S, delta_semitones=0, key_count=_ONE_KEY
 _AN_OCTAVE_UP = ClipDemand(trim_s=_TRIM_S, delta_semitones=_OCTAVE, key_count=_ONE_KEY)
 _A_WHOLE_ZONE = ClipDemand(trim_s=_TRIM_S, delta_semitones=0, key_count=8)
 _RATES = (16_000, 8_000, 4_000)  # an explicit grid, so a test states which rates it expects back
-_FULL_GRID = 6  # the explicit rates against the two swept depths, under the one configured loop setting
+_FULL_GRID = 9  # the explicit rates once at 16 bits and twice at 8, under the one configured loop setting
 _RATE_PER_BANDWIDTH = 2.0  # Nyquist, which turns a content-edge tolerance into a rate tolerance
 _TIGHT = 0  # a byte target no encoding can undercut, so the cheapest vertex wins
 _GENEROUS = 10**6  # a byte target no encoding reaches, so the costliest vertex wins

@@ -30,10 +30,16 @@ def test_yaml_lists_coerce_to_tuples() -> None:
     assert isinstance(cfg.synth.presets[0].material, tuple)
 
 
-def test_encode_is_derived_from_loop_and_quantize() -> None:
+def test_encode_is_derived_from_loop_quantize_and_dynamics() -> None:
     cfg = load_config()
     assert cfg.encode.loop == cfg.loop
-    assert cfg.encode.target_peak == cfg.quantize.target_peak
+    assert cfg.encode.dynamics == cfg.dynamics
+    assert cfg.encode.headroom_db == cfg.quantize.headroom_db
+
+
+def test_a_freshly_loaded_encode_config_names_no_instrument_to_normalize_against() -> None:
+    """The reference is a per-instrument measurement, so config alone leaves each clip on its own peak."""
+    assert load_config().encode.peak_reference is None
 
 
 def test_custom_directory_overrides_bundled(tmp_path: Path) -> None:

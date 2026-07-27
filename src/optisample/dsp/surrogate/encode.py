@@ -1,6 +1,7 @@
-from optisample.config.dsp import LoopConfig
+from optisample.config.dsp import EncodeConfig, LoopConfig
+from optisample.dsp.dynamics import compress
 from optisample.dsp.loop import Loop, crossfade_loop, detect_loop
-from optisample.dsp.quantize import normalize_peak, requantize
+from optisample.dsp.quantize import headroom_peak, normalize_peak, requantize
 from optisample.dsp.resample import resample_to
 from optisample.dsp.surrogate.params import EncodeContext, EncodingParams
 from optisample.dsp.surrogate.sample import Signal, StoredSample
@@ -44,24 +45,49 @@ def _loop_or_trim(
     return resampled, None
 
 
+def _stored_span(
+    signal: Signal,
+    sample_rate: int,
+    params: EncodingParams,
+    config: EncodeConfig,
+) -> tuple[Signal, Loop | None]:
+    """The stretch of ``signal`` a sample holds: resampled, shaped where asked, then looped or trimmed.
+
+    Compression runs on the resampled waveform, ahead of loop detection, so the seam is crossfaded over
+    exactly the audio that will be stored and stays continuous.
+    """
+    resampled = resample_to(signal, sample_rate, params.target_rate)
+    shaped = compress(resampled, params.target_rate, config.dynamics) if params.compress else resampled
+    return _loop_or_trim(shaped, params, config.loop)
+
+
 def encode(
     signal: Signal,
     sample_rate: int,
     params: EncodingParams,
     context: EncodeContext,
 ) -> StoredSample:
-    """Encode ``signal`` into a :class:`StoredSample`: normalize -> resample -> (loop | trim) -> requantize.
+    """Encode ``signal`` into a :class:`StoredSample`: resample -> compress -> (loop | trim) -> normalize.
+
+    The chain ends on the quantizer, which the two steps before it exist to feed. Normalizing last
+    measures the span actually stored, so a peak in a stretch the trim discards leaves the stored sample
+    at the level it asked for; ``params.compress`` narrows the crest factor first, putting more of the
+    grid's range under the material. :attr:`StoredSample.gain` records what the normalization applied,
+    which playback undoes.
 
     With ``params.loop`` set, storage is trimmed to the attack plus a looped sustain region (when the
     signal is periodic enough); the loop then sustains notes held past the stored length. For a plain
     config, storage is trimmed to ``trim_s`` and a longer note ends there. A loop request on aperiodic
     material falls back to the trimmed sample, so a looped config always matches or beats its plain twin.
     """
-    normalized, gain = normalize_peak(signal, context.config.target_peak)
-    resampled = resample_to(normalized, sample_rate, params.target_rate)
-    resampled, loop = _loop_or_trim(resampled, params, context.config.loop)
+    span, loop = _stored_span(signal, sample_rate, params, context.config)
+    normalized, gain = normalize_peak(
+        span,
+        headroom_peak(context.config.headroom_db),
+        reference_peak=context.config.peak_reference,
+    )
     pcm = requantize(
-        resampled,
+        normalized,
         params.depth_bits,
         dither=params.dither,
         noise_shaping=params.noise_shaping,

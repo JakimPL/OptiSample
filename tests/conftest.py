@@ -12,6 +12,7 @@ from optisample.config.dsp import (
     QuantizeConfig,
     SpectralConfig,
 )
+from optisample.config.dynamics import DynamicsConfig
 from optisample.config.metrics import MetricsConfig
 from optisample.config.optimize import (
     Method,
@@ -61,6 +62,11 @@ def quantize_config(config: OptiConfig) -> QuantizeConfig:
 @pytest.fixture
 def encode_config(config: OptiConfig) -> EncodeConfig:
     return config.encode
+
+
+@pytest.fixture
+def dynamics_config(config: OptiConfig) -> DynamicsConfig:
+    return config.dynamics
 
 
 @pytest.fixture
