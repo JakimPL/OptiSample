@@ -7,6 +7,7 @@ from typing import Literal
 
 from optisample.music import note_name
 from optisample.optimize.knapsack import Allocation, RDCurvePoint
+from optisample.optimize.layers.bands import UNSPLIT, VelocityLayers
 from optisample.optimize.operating_points import OperatingPoint
 from optisample.optimize.plans.budget import BudgetBreakdown, BudgetedPlanMixin
 from optisample.optimize.plans.strategy import FIRST_LAYER, Method, SampleUnit
@@ -39,6 +40,11 @@ class InstrumentPlan(BudgetedPlanMixin):
     method: Method
     reduction: ReductionSummary
     strategy: Literal["ungrouped"] = "ungrouped"
+
+    @property
+    def layers(self) -> VelocityLayers:
+        """The one layer every key is written as, since a kept recording answers each of its dynamics."""
+        return UNSPLIT
 
     @property
     def used_bytes(self) -> int:

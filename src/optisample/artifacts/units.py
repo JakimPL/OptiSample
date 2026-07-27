@@ -8,6 +8,7 @@ from optisample.model import NoteEvent
 from optisample.optimize.export import build_module
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.samples import encode_plan_units
+from optisample.optimize.layers.bands import VelocityLayers
 from optisample.optimize.plans import (
     GroupedInstrumentPlan,
     InstrumentPlan,
@@ -21,10 +22,15 @@ from trackmod.module.protocol import TrackerModule
 
 @dataclass(frozen=True)
 class Unit:
-    """One stored sample and the pitch tasks it serves (a zone, or a single key when ungrouped)."""
+    """One stored sample and the pitch tasks it serves (a zone, or a single key when ungrouped).
+
+    ``layer`` is the velocity band the sample answers for, so the tasks are the notes that band covers
+    and the artifacts written for them are filed under the same layer the module plays them through.
+    """
 
     label: str
     stored: StoredSample
+    layer: int
     tasks: tuple[PitchTask, ...]
     representative_key: SampleKey
 
@@ -40,10 +46,12 @@ class PlanKind:
 
     ``module`` is the plan playing the instrument's whole material -- the one the dumper writes and
     renders -- while ``make_module`` rebuilds it over any other material, which is how each pitch gets
-    its own single-note A/B render.
+    its own single-note A/B render. ``layers`` names the velocity band each written instrument answers
+    for, which is how the dumper files a unit's artifacts under the layer that plays them.
     """
 
     name: str
+    layers: VelocityLayers
     units: tuple[Unit, ...]
     report_text: str
     plan_document: PlanDocument
@@ -55,13 +63,14 @@ def build_units(plan: StrategyPlan, dump_context: DumpContext) -> tuple[Unit, ..
     """Re-encode every stored sample the plan kept, in the exporter's order + seed so the PCM matches.
 
     ``plan.sample_units`` reports the strategy-specific choices -- each unit's representative recording,
-    root pitch and the keys it covers -- and encoding them through one seeded RNG is what keeps the byte
-    layout reproducing the written module exactly. A unit's representative pitch is always its encode root and
-    its recording is the loudest velocity actually played there. The encode config comes from the prepared
-    run, so a unit is re-encoded under the gain staging the allocation scored it with.
+    root pitch, velocity layer and the keys it covers -- and encoding them through one seeded RNG is what
+    keeps the byte layout reproducing the written module exactly. A unit's representative pitch is always
+    its encode root and its recording is the loudest velocity played in the band it answers for. The
+    encode config comes from the prepared run, so a unit is re-encoded under the gain staging the
+    allocation scored it with.
     """
     units: list[Unit] = []
-    tasks_by_pitch = dump_context.tasks_by_pitch
+    tasks = dump_context.layer_tasks(plan.layers)
     encoded = encode_plan_units(
         plan.sample_units(),
         dump_context.audio,
@@ -74,7 +83,8 @@ def build_units(plan: StrategyPlan, dump_context: DumpContext) -> tuple[Unit, ..
             Unit(
                 label=unit.label,
                 stored=stored,
-                tasks=tuple(tasks_by_pitch[key] for key in unit.keys),
+                layer=unit.layer,
+                tasks=tuple(tasks[(unit.layer, key)] for key in unit.keys),
                 representative_key=unit.representative_key,
             )
         )
@@ -113,4 +123,6 @@ def make_kind(plan: InstrumentPlan | GroupedInstrumentPlan, dump_context: DumpCo
         report_text = format_grouping_report(plan, size)
     else:
         report_text = format_report(plan, size)
-    return PlanKind(plan.strategy, units, report_text, plan_document(plan, loops, size), module, make_module)
+    return PlanKind(
+        plan.strategy, plan.layers, units, report_text, plan_document(plan, loops, size), module, make_module
+    )

@@ -24,6 +24,7 @@ from tests.optimize.export.demo import PITCHES, SR, VELOCITIES, demo_instrument,
 from trackmod.module.protocol import TrackerModule
 
 _GROUPED_BUDGET_KB = 8.0
+_LAYERED_BUDGET_KB = 96.0  # room for a sample per key of every band, so a velocity split is affordable
 
 
 @pytest.fixture
@@ -98,3 +99,21 @@ def grouped_build(
         return plan, module
 
     return _grouped_build
+
+
+@pytest.fixture
+def layered_build(
+    optimize_settings: Callable[..., OptimizeSettings],
+    sweep: Callable[..., SweepConfig],
+    export_context: ExportContext,
+    demo_audio: dict[SampleKey, NDArray[np.float64]],
+) -> Callable[..., tuple[GroupedInstrumentPlan, TrackerModule]]:
+    """A generous grouped build: pitch 60 is played at both dynamics, so a velocity split can pay."""
+
+    def _layered_build(budget_kb: float = _LAYERED_BUDGET_KB) -> tuple[GroupedInstrumentPlan, TrackerModule]:
+        settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depths=(16, 8)))
+        plan = optimize_instrument_grouped(demo_instrument(budget_kb), demo_audio, SR, settings)
+        module = build_module(plan, demo_audio, SR, demo_material(), export_context)
+        return plan, module
+
+    return _layered_build

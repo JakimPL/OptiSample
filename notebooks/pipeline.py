@@ -400,9 +400,10 @@ def _(mo, paths, reports, viz):
 
 @app.cell
 def _(mo, paths, reports):
-    _pitches = reports.compared_pitches(paths)
-    mo.stop(not _pitches, mo.md("*No A/B pairs were written.*"))
-    compare_pitch = mo.ui.dropdown(options=_pitches, value=_pitches[0], label="A/B pitch")
+    _compared = reports.compared_notes(paths)
+    mo.stop(not _compared, mo.md("*No A/B pairs were written.*"))
+    _options = {note.label: note for note in _compared}
+    compare_pitch = mo.ui.dropdown(options=_options, value=_compared[0].label, label="A/B pitch")
     mo.vstack([mo.md("### Reference vs. module — the very pair the objective scored"), compare_pitch])
     return (compare_pitch,)
 
@@ -446,9 +447,7 @@ def _(
         [
             mo.hstack([signal_panel("reference", reference_path), signal_panel("module", render_path)]),
             mo.md("**Scored classes at this pitch** — every note the objective measured through this sample:"),
-            mo.ui.table(
-                reports.event_rows(metrics, int(compare_pitch.value.split("_")[0].removeprefix("p"))), selection=None
-            ),
+            mo.ui.table(reports.event_rows(metrics, compare_pitch.value), selection=None),
         ]
     )
     return reference_path, render_path, signal_panel

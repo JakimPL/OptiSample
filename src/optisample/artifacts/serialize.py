@@ -260,10 +260,16 @@ class EventMetricRecord(_Frozen):
 
 
 class NoteMetricRecord(_Frozen):
-    """Every scored event of one covered pitch, plus which sample served it and its objective share."""
+    """Every scored event of one covered pitch, plus which sample served it and its objective share.
+
+    ``layer`` names the velocity band these events fall in, so a key played across several dynamics
+    holds one record per layer, each stating the share of the objective that band's own notes carry. It
+    is also the folder the pair's A/B WAVs were written under.
+    """
 
     pitch: int
     note: str
+    layer: str
     served_by: str
     representative: int
     weight: float
@@ -493,6 +499,7 @@ class RenderedNote:
     """The A/B-render outcome and provenance for one note: which sample served it and what it rendered."""
 
     served_by: str
+    layer: str
     representative: int
     source: str
     rate: int
@@ -506,6 +513,7 @@ def note_record(
     return NoteMetricRecord(
         pitch=task.pitch,
         note=note_name(task.pitch),
+        layer=rendered.layer,
         served_by=rendered.served_by,
         representative=rendered.representative,
         weight=task.weight,

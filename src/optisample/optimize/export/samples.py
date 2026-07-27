@@ -9,6 +9,7 @@ from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.base import Signal
 from optisample.music import note_name, sounded_note
 from optisample.optimize.export.context import ExportContext
+from optisample.optimize.layers.bands import VelocityLayers
 from optisample.optimize.plans import SampleUnit, StrategyPlan
 from optisample.optimize.tasks import AudioMap
 from optisample.optimize.velocity_map import VelocityVolumeMap
@@ -18,7 +19,7 @@ from trackmod.core.samples.loop import Loop
 from trackmod.core.samples.sample import Sample
 from trackmod.spec.levels import MAX_VOLUME
 
-_SAMPLE_LABEL_CHARS: Final = 18  # instrument-id chars kept before the " <note>" suffix in a sample name.
+_SAMPLE_LABEL_CHARS: Final = 13  # instrument-id chars kept before the " <note> v<velocity>" suffix, XM's 22.
 _UNIT_GAIN: Final = 1.0  # what a sample stored without scaling plays back at
 _QUIETEST_GAIN: Final = 1  # the softest step that still sounds, so a quiet sample is heard rather than dropped
 
@@ -97,8 +98,14 @@ def sample_gains(
 
 
 def sample_name(instrument_id: str, unit: SampleUnit) -> str:
-    """The stored sample's display name: the instrument, shortened, plus the note it was recorded at."""
-    return f"{instrument_id[:_SAMPLE_LABEL_CHARS]} {note_name(unit.representative)}"
+    """The stored sample's display name: the instrument, shortened, plus the recording it holds.
+
+    Naming the recording rather than the key tells the samples of a layered instrument apart, since one
+    key stores a recording per velocity band and the tracker lists them side by side. The whole name fits
+    the narrowest field a target format keeps for it.
+    """
+    key = unit.representative_key
+    return f"{instrument_id[:_SAMPLE_LABEL_CHARS]} {note_name(key.pitch)} v{key.velocity}"
 
 
 def _unit_assignments(unit: SampleUnit, sample: int, target: ExportTarget) -> dict[Note, KeyAssignment]:
@@ -108,18 +115,34 @@ def _unit_assignments(unit: SampleUnit, sample: int, target: ExportTarget) -> di
     return {key: KeyAssignment(sample=sample, note=sounded_note(key, root_key)) for key in keys}
 
 
+def _layer_keymaps(units: Sequence[SampleUnit], layers: VelocityLayers, target: ExportTarget) -> tuple[Keymap, ...]:
+    """One key routing per velocity layer, each holding only the samples its own band stores.
+
+    A layer is written as its own instrument, and a keymap is keyed by note alone, so the velocity axis
+    lives in the choice of instrument the pattern names. Splitting the routings here is what lets one key
+    play a soft recording at one dynamic and a loud one at another. Samples are numbered across the whole
+    plan, so a routing names its samples by their position in the song's single sample list.
+    """
+    assignments: tuple[dict[Note, KeyAssignment], ...] = tuple({} for _ in layers.bands)
+    for index, unit in enumerate(units):
+        assignments[unit.layer].update(_unit_assignments(unit, index, target))
+
+    return tuple(routed_keymap(routing) for routing in assignments)
+
+
 def plan_samples(
     plan: StrategyPlan,
     audio: AudioMap,
     sample_rate: int,
     context: ExportContext,
-) -> tuple[tuple[Sample, ...], Keymap]:
+) -> tuple[tuple[Sample, ...], tuple[Keymap, ...]]:
     """Re-encode each unit's representative and map every key it serves onto the resulting sample.
 
     Units are encoded in order from one seeded RNG, so the byte layout reproduces the plan exactly. The
     whole set is encoded before any sample is built, because each one's gain is stated against the
     sample asking for the most of it (:func:`sample_gains`), and read alongside the velocity map the
-    same plan writes into the patterns.
+    same plan writes into the patterns. The routings come back one per velocity layer, in band order, so
+    the caller writes one instrument for each.
     """
     encoded = list(
         encode_plan_units(
@@ -131,19 +154,16 @@ def plan_samples(
         )
     )
     gains = sample_gains(encoded, plan.velocity_map, context.target)
-    samples: list[Sample] = []
-    assignments: dict[Note, KeyAssignment] = {}
-    for index, ((unit, stored), gain) in enumerate(zip(encoded, gains)):
-        samples.append(
-            Sample(
-                name=sample_name(plan.instrument_id, unit),
-                pcm=stored.pcm,
-                rate=stored.sample_rate,
-                depth=stored.depth,
-                gain=gain,
-                loop=_stored_loop(stored),
-            )
+    samples = tuple(
+        Sample(
+            name=sample_name(plan.instrument_id, unit),
+            pcm=stored.pcm,
+            rate=stored.sample_rate,
+            depth=stored.depth,
+            gain=gain,
+            loop=_stored_loop(stored),
         )
-        assignments.update(_unit_assignments(unit, index, context.target))
-
-    return tuple(samples), routed_keymap(assignments)
+        for (unit, stored), gain in zip(encoded, gains)
+    )
+    keymaps = _layer_keymaps([unit for unit, _ in encoded], plan.layers, context.target)
+    return samples, keymaps

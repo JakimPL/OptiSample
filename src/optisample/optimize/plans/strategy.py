@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Final, Literal, Protocol
 
 from optisample.dsp.surrogate import EncodingParams
+from optisample.optimize.layers.bands import VelocityLayers
 from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.reduce.summary import ReductionSummary
 from optisample.optimize.velocity_map import VelocityVolumeMap
@@ -57,8 +58,10 @@ class StrategyPlan(Protocol):
     """What both instrument plans expose so their consumers stay strategy-agnostic.
 
     Read-only by construction: the concrete plans are frozen. ``sample_units`` yields the kept samples in
-    the plan's own order. Strategy-only facts (the ungrouped solver ``method``) stay on the concrete
-    plan, reached by narrowing on :attr:`strategy` where a serializer genuinely needs them.
+    the plan's own order and ``layers`` the velocity bands they are written as, so the exporter knows how
+    many instruments to emit and which one each note plays through. Strategy-only facts (the ungrouped
+    solver ``method``) stay on the concrete plan, reached by narrowing on :attr:`strategy` where a
+    serializer genuinely needs them.
     """
 
     @property
@@ -66,6 +69,9 @@ class StrategyPlan(Protocol):
 
     @property
     def velocity_map(self) -> VelocityVolumeMap: ...
+
+    @property
+    def layers(self) -> VelocityLayers: ...
 
     @property
     def reduction(self) -> ReductionSummary: ...

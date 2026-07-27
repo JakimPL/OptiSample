@@ -64,9 +64,9 @@ def dump_context(
     demo_instrument: InstrumentSpec, demo_audio: AudioMap, no_render_settings: DumpSettings
 ) -> DumpContext:
     return DumpContext(
+        instrument=demo_instrument,
         audio=demo_audio,
         sample_rate=SR,
-        material=tuple(demo_instrument.material or []),
         inputs=prepare_run(demo_instrument, demo_audio, SR, no_render_settings.optimize),
         settings=no_render_settings,
     )

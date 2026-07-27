@@ -88,6 +88,14 @@ class PlanPaths:
         """The per-pitch A/B pairs: the recording as scored, beside what the module produces for it."""
         return self.directory / "compare"
 
+    def layer_dir(self, layer: str) -> Path:
+        """One velocity layer's A/B pairs, filed under the band it answers for.
+
+        A key played softly and loudly is reconstructed once per layer, so the band the pair belongs to
+        is part of where it lands and each layer's notes are auditioned as a set.
+        """
+        return self.compare_dir / layer
+
     @property
     def render_dir(self) -> Path:
         """Where a ground-truth render of the whole module lands."""
@@ -106,13 +114,13 @@ class PlanPaths:
         """One stored sample's decoded WAV, filed under the label its plan unit carries."""
         return self.samples_dir / f"{label}.wav"
 
-    def reference_wav(self, pitch: str) -> Path:
-        """The stretch of the recording one pitch's reconstruction was scored against."""
-        return self.compare_dir / f"{pitch}_ref.wav"
+    def reference_wav(self, layer: str, pitch: str) -> Path:
+        """The stretch of the recording one pitch's reconstruction in ``layer`` was scored against."""
+        return self.layer_dir(layer) / f"{pitch}_ref.wav"
 
-    def rendered_wav(self, pitch: str) -> Path:
-        """What the module produces for one pitch's representative note."""
-        return self.compare_dir / f"{pitch}_render.wav"
+    def rendered_wav(self, layer: str, pitch: str) -> Path:
+        """What the module produces for one pitch's representative note in ``layer``."""
+        return self.layer_dir(layer) / f"{pitch}_render.wav"
 
 
 def plan_paths(out_dir: Path, strategy: str) -> PlanPaths:

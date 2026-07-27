@@ -1,4 +1,4 @@
 # Velocity layering (optisample.config.layers.LayersConfig).
-max_layers: 1    # velocity bands stored per key == instruments written; 1 keeps one recording per key
+max_layers: 3    # velocity bands stored per key == instruments written; 1 keeps one recording per key
 nodes: 6         # elementary velocity cells bands are assembled from; the cost dial ((nodes+1)/2)
 min_gain: 0.02   # relative objective gain an extra layer must buy to be preferred to fewer

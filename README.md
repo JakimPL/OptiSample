@@ -184,6 +184,14 @@ optisample synth demo_out --sample-rate 22050
 optisample optimize demo_out/piano.notes.json --budget-kb 96 --no-render
 ```
 
+The `dynamics` preset plays each of its three keys across four velocities, which is the material
+velocity layering pays on — the grouped strategy stores a recording per band and writes one instrument
+for each, so the module plays a soft note through the sample recorded softly:
+
+```bash
+optisample optimize demo_out/dynamics.notes.json --budget-kb 192 --strategy grouped
+```
+
 ## Driving it from a notebook
 
 [`notebooks/pipeline.py`](notebooks/pipeline.py) is the same CLI with its flags as controls and its

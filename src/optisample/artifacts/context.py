@@ -2,7 +2,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from optisample.config.render import PlaybackConfig, RenderConfig
-from optisample.model import NoteEvent
+from optisample.model import InstrumentSpec, NoteEvent
+from optisample.optimize.layers.bands import VelocityLayers
+from optisample.optimize.layers.tasks import layered_tasks
 from optisample.optimize.orchestrate import RunInputs
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.tasks import AudioMap, EvalContext, PitchTask
@@ -40,21 +42,42 @@ class DumpContext:
     reads the same ones back.
     """
 
+    instrument: InstrumentSpec
     audio: AudioMap
     sample_rate: int
-    material: tuple[NoteEvent, ...]
     inputs: RunInputs
     settings: DumpSettings
+
+    @property
+    def material(self) -> tuple[NoteEvent, ...]:
+        """Every note the instrument plays, which is what the written module auditions."""
+        return tuple(self.instrument.material or [])
 
     @property
     def eval_context(self) -> EvalContext:
         """The scoring context every strategy measures its reconstructions with."""
         return self.inputs.context
 
-    @property
-    def tasks_by_pitch(self) -> dict[int, PitchTask]:
-        """The prepared pitch tasks, keyed by the pitch each one covers."""
-        return {task.pitch: task for task in self.inputs.tasks}
+    def layer_tasks(self, layers: VelocityLayers) -> dict[tuple[int, int], PitchTask]:
+        """The pitch tasks one plan's velocity split scores, keyed by the layer and pitch each covers.
+
+        A key played softly and loudly holds one task per layer, each scoring only the notes its own band
+        covers, so a plan's stored samples are measured against exactly the material they answer for. The
+        single full-range split answers the tasks the run was prepared with, key for key.
+        """
+        return {
+            (layer, task.pitch): task
+            for layer, tasks in enumerate(
+                layered_tasks(
+                    self.instrument,
+                    self.audio,
+                    self.inputs.velocity_map,
+                    self.settings.optimize.reduce,
+                    layers,
+                )
+            )
+            for task in tasks
+        }
 
 
 @dataclass(frozen=True)

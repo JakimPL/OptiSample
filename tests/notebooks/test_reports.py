@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from notebooks.utils import reports
+from notebooks.utils.reports import ComparedNote
 from optisample.artifacts.paths import plan_paths, reduced_paths
 from optisample.artifacts.serialize import (
     BudgetRecord,
@@ -33,6 +34,7 @@ from optisample.io.audio import write_wav
 
 SR = 8_000
 _INSTRUMENT = "Piano"
+_LAYER = "v000-v127"  # the one band an unlayered plan writes, which is the folder its pairs land in
 _ENCODING = {
     "target_rate": 11_025,
     "depth_bits": 8,
@@ -136,6 +138,7 @@ def _metrics() -> MetricsDocument:
             NoteMetricRecord(
                 pitch=60,
                 note="C4",
+                layer=_LAYER,
                 served_by="p060_C4",
                 representative=60,
                 weight=2.0,
@@ -200,9 +203,9 @@ def instrument_dir(tmp_path: Path) -> Path:
     paths = plan_paths(root, "ungrouped")
     write_json(paths.metrics_json, _metrics())
     paths.report.write_text("Instrument 'Piano'\n", encoding="utf-8")
-    paths.compare_dir.mkdir()
+    paths.layer_dir(_LAYER).mkdir(parents=True)
     for stem in ("p060_C4_ref", "p060_C4_render"):
-        write_wav(paths.compare_dir / f"{stem}.wav", np.zeros(SR, dtype=np.float64), SR)
+        write_wav(paths.layer_dir(_LAYER) / f"{stem}.wav", np.zeros(SR, dtype=np.float64), SR)
 
     return root
 
@@ -287,7 +290,7 @@ def test_the_budget_row_states_what_the_plan_spent(instrument_dir: Path) -> None
 def test_a_metric_with_no_finite_value_behind_it_is_named_rather_than_dropped(instrument_dir: Path) -> None:
     """``write_json`` writes a non-finite reading as null, so the table says so instead of showing a number."""
     metrics = reports.read_metrics(plan_paths(instrument_dir, "ungrouped"))
-    row = reports.event_rows(metrics, 60)[0]
+    row = reports.event_rows(metrics, ComparedNote(_LAYER, "p060_C4"))[0]
 
     assert row["loudness_delta_lu"] == "n/a"
     assert row["snr_db"] == 20.0
@@ -301,18 +304,19 @@ def test_per_note_rows_carry_each_pitch_s_share_of_the_objective(instrument_dir:
 
 
 def test_events_of_a_pitch_no_note_covers_come_back_empty(instrument_dir: Path) -> None:
-    assert reports.event_rows(reports.read_metrics(plan_paths(instrument_dir, "ungrouped")), 99) == []
+    unplayed = ComparedNote(_LAYER, "p099_D#7")
+    assert reports.event_rows(reports.read_metrics(plan_paths(instrument_dir, "ungrouped")), unplayed) == []
 
 
 def test_the_ab_pair_resolves_to_the_two_files_that_were_written(instrument_dir: Path) -> None:
     paths = plan_paths(instrument_dir, "ungrouped")
-    assert reports.compared_pitches(paths) == ["p060_C4"]
-    reference, rendered = reports.comparison(paths, "p060_C4")
+    assert reports.compared_notes(paths) == [ComparedNote(_LAYER, "p060_C4")]
+    reference, rendered = reports.comparison(paths, ComparedNote(_LAYER, "p060_C4"))
     assert reference.is_file() and rendered.is_file()
 
 
 def test_a_strategy_that_wrote_no_pairs_offers_none(instrument_dir: Path) -> None:
-    assert reports.compared_pitches(plan_paths(instrument_dir, "grouped")) == []
+    assert reports.compared_notes(plan_paths(instrument_dir, "grouped")) == []
 
 
 def test_absent_optional_artifacts_read_as_absent(instrument_dir: Path) -> None:

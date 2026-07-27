@@ -41,6 +41,7 @@ from trackmod.module.protocol import TrackerModule
 from trackmod.module.storage import Storage
 from trackmod.spec.levels import MAX_VOLUME
 from trackmod.spec.pitch import RATE_NOTE
+from trackmod.trackers.xm.spec.sizes import NAME_BYTES as _NARROWEST_NAME_BYTES
 
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
 
@@ -74,13 +75,24 @@ def test_stored_samples_match_the_chosen_operating_points(
         assert sample.rate == pitch_plan.chosen.params.target_rate  # the true stored rate, untransposed
 
 
-def test_sample_names_carry_the_instrument_and_the_recorded_note(
+def test_sample_names_carry_the_instrument_and_the_recording_stored(
     build: Callable[..., tuple[InstrumentPlan, TrackerModule]],
 ) -> None:
     plan, module = build()
     assert [sample.name for sample in module.song.samples] == [
         sample_name(plan.instrument_id, unit) for unit in plan.sample_units()
     ]
+    assert [sample.name for sample in module.song.samples] == ["piano C4 v100", "piano G4 v100"]
+
+
+def test_sample_names_tell_one_key_s_velocity_layers_apart(
+    layered_build: Callable[..., tuple[GroupedInstrumentPlan, TrackerModule]],
+) -> None:
+    """A key stores a recording per band, so naming the recording is what keeps the two listed apart."""
+    _, module = layered_build()
+    names = [sample.name for sample in module.song.samples]
+    assert len(set(names)) == len(names)
+    assert all(len(name) <= _NARROWEST_NAME_BYTES for name in names)
 
 
 @pytest.mark.parametrize("builder", ["build", "grouped_build"])

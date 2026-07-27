@@ -10,6 +10,9 @@ MIDI_MAX_VELOCITY: Final = 127
 
 NOTE_NAMES: Final = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
 
+_LABEL_PREFIX: Final = "p"
+_LABEL_SEPARATOR: Final = "_"
+
 
 def note_name(pitch: int) -> str:
     """MIDI note number -> scientific pitch name (60 -> ``C4``)."""
@@ -23,7 +26,19 @@ def pitch_label(pitch: int) -> str:
     so the same listing is readable as music. One spelling, so a key's label, its A/B pair and its
     audition folder all name the same pitch the same way.
     """
-    return f"p{pitch:03d}_{note_name(pitch)}"
+    return f"{_LABEL_PREFIX}{pitch:03d}{_LABEL_SEPARATOR}{note_name(pitch)}"
+
+
+def labelled_pitch(label: str) -> int:
+    """The MIDI note number :func:`pitch_label` filed an artifact under (``p060_C4`` -> 60).
+
+    Reads the number back off the one spelling that wrote it, so a reader walking a directory recovers
+    the key each artifact belongs to.
+
+    Raises:
+        ValueError: when ``label`` opens with something other than a zero-padded pitch number.
+    """
+    return int(label.split(_LABEL_SEPARATOR)[0].removeprefix(_LABEL_PREFIX))
 
 
 def semitone_ratio(semitones: float) -> float:

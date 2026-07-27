@@ -53,3 +53,22 @@ presets:
       - {pitch: 67, velocity: 100, duration_s: 0.5, count: 10}
       - {pitch: 55, velocity: 50, duration_s: 0.9, count: 7}
       - {pitch: 72, velocity: 100, duration_s: 0.4, count: 6}
+  - id: dynamics             # every key played across four dynamics, so velocity layering has something to buy
+    archetype: piano
+    pitches: [48, 60, 72]
+    velocities: [20, 55, 90, 125]
+    sample_dur: 1.2
+    budget_kb: 192.0
+    material:
+      - {pitch: 48, velocity: 20, duration_s: 0.5, count: 2}
+      - {pitch: 48, velocity: 55, duration_s: 0.5, count: 2}
+      - {pitch: 48, velocity: 90, duration_s: 0.5, count: 2}
+      - {pitch: 48, velocity: 125, duration_s: 0.5, count: 2}
+      - {pitch: 60, velocity: 20, duration_s: 0.5, count: 2}
+      - {pitch: 60, velocity: 55, duration_s: 0.5, count: 2}
+      - {pitch: 60, velocity: 90, duration_s: 0.5, count: 2}
+      - {pitch: 60, velocity: 125, duration_s: 0.5, count: 2}
+      - {pitch: 72, velocity: 20, duration_s: 0.5, count: 2}
+      - {pitch: 72, velocity: 55, duration_s: 0.5, count: 2}
+      - {pitch: 72, velocity: 90, duration_s: 0.5, count: 2}
+      - {pitch: 72, velocity: 125, duration_s: 0.5, count: 2}

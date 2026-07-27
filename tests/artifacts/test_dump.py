@@ -94,8 +94,8 @@ def test_dump_writes_both_strategy_subtrees(generous: Path) -> None:
         assert (base / "reduction.json").is_file()
         assert (base / "metrics.json").is_file()
         assert list((base / "samples").glob("*.wav"))  # at least one stored sample
-        assert list((base / "compare").glob("*_ref.wav"))
-        assert list((base / "compare").glob("*_render.wav"))
+        assert list((base / "compare").glob("*/*_ref.wav"))
+        assert list((base / "compare").glob("*/*_render.wav"))
 
 
 def test_metrics_objective_reproduces_plan_objective(generous: Path) -> None:
@@ -111,7 +111,7 @@ def test_ungrouped_dumps_one_sample_per_pitch(generous: Path) -> None:
     samples = list((generous / "ungrouped" / "samples").glob("*.wav"))
     assert len(samples) == len(plan["pitches"]) == len(PITCHES)
     # Each covered pitch gets an A/B pair.
-    assert len(list((generous / "ungrouped" / "compare").glob("*_ref.wav"))) == len(PITCHES)
+    assert len(list((generous / "ungrouped" / "compare").glob("*/*_ref.wav"))) == len(PITCHES)
 
 
 def test_grouped_samples_match_zone_count(generous: Path) -> None:
@@ -262,3 +262,56 @@ def test_dump_project_reads_wavs_and_writes_per_instrument(
     results = dump_project(manifest, tmp_path / "artifacts", NO_RENDER)
     assert len(results) == 1
     assert (tmp_path / "artifacts" / "piano" / "grouped" / "module.it").is_file()
+
+
+# --- velocity layers -----------------------------------------------------------------------------
+
+_DYNAMICS = (40, 110)  # two dynamics per key, so a velocity split has a timbre difference to buy
+
+
+@pytest.fixture(scope="module")
+def layered(tmp_path_factory: pytest.TempPathFactory, piano_note: Callable[..., NDArray[np.float64]]) -> Path:
+    """A generous dump of an instrument every key of which is played softly and loudly."""
+    audio = {
+        SampleKey(pitch, velocity): piano_note(pitch, velocity, 0.6, seed=pitch * 137 + velocity)
+        for pitch in PITCHES
+        for velocity in _DYNAMICS
+    }
+    samples = [
+        SourceSample(file=Path(f"{pitch}_{velocity}.wav"), pitch=pitch, velocity=velocity)
+        for pitch in PITCHES
+        for velocity in _DYNAMICS
+    ]
+    material = [
+        NoteEvent(pitch=pitch, velocity=velocity, duration_s=0.5, count=4)
+        for pitch in PITCHES
+        for velocity in _DYNAMICS
+    ]
+    instrument = InstrumentSpec(id="piano", budget_kb=192.0, samples=samples, material=material)
+    out = tmp_path_factory.mktemp("layered")
+    dump_instrument(instrument, audio, SR, out, NO_RENDER)
+    return out
+
+
+def test_a_layered_plan_files_its_ab_pairs_under_the_band_that_played_them(layered: Path) -> None:
+    plan = _load(layered / "grouped" / "plan.json")
+    metrics = _load(layered / "grouped" / "metrics.json")
+    bands = sorted({note["layer"] for note in metrics["notes"]})
+    assert len(bands) > 1  # the material earned a velocity split
+    assert sorted(folder.name for folder in (layered / "grouped" / "compare").iterdir()) == bands
+    for band in bands:
+        assert list((layered / "grouped" / "compare" / band).glob("*_ref.wav"))
+
+    assert len(metrics["notes"]) == sum(len(zone["pitches"]) for zone in plan["zones"])
+
+
+def test_a_layered_plan_scores_each_key_once_per_band_it_is_played_in(layered: Path) -> None:
+    metrics = _load(layered / "grouped" / "metrics.json")
+    covered = [(note["layer"], note["pitch"]) for note in metrics["notes"]]
+    assert len(covered) == len(set(covered))  # one record per (layer, pitch), never a silent overwrite
+    assert metrics["objective"] == pytest.approx(_load(layered / "grouped" / "plan.json")["objective"], rel=1e-4)
+
+
+def test_an_ungrouped_plan_stays_a_single_full_range_layer(layered: Path) -> None:
+    metrics = _load(layered / "ungrouped" / "metrics.json")
+    assert {note["layer"] for note in metrics["notes"]} == {"v000-v127"}

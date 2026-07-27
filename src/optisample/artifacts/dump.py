@@ -78,16 +78,18 @@ def _note_record(
     paths: PlanPaths,
     dump_context: DumpContext,
 ) -> NoteMetricRecord:
-    """Write the reference/rendered A/B pair for one pitch and return its metric record."""
+    """Write the reference/rendered A/B pair for one pitch of one layer and return its metric record."""
     events, contribution = event_records(unit.stored, task, dump_context.eval_context)
     rep = task.representative_event
+    band = kind.layers.bands[unit.layer].label
     stem = pitch_label(task.pitch)
     reference = rep.scored_reference(dump_context.sample_rate)
-    write_wav(paths.reference_wav(stem), reference, dump_context.sample_rate)
+    write_wav(paths.reference_wav(band, stem), reference, dump_context.sample_rate)
     rendered, rate, source = _rendered_note(dump_context, kind, unit, task, rep)
-    write_wav(paths.rendered_wav(stem), rendered, rate)
+    write_wav(paths.rendered_wav(band, stem), rendered, rate)
     outcome = RenderedNote(
         served_by=unit.label,
+        layer=band,
         representative=unit.representative,
         source=source,
         rate=rate,
@@ -151,7 +153,9 @@ def _dump_plan(
     reported ``elapsed_s`` spans the whole strategy (optimize + this dump), not just the I/O here.
     """
     paths.samples_dir.mkdir(parents=True, exist_ok=True)
-    paths.compare_dir.mkdir(parents=True, exist_ok=True)
+    for band in kind.layers.bands:
+        paths.layer_dir(band.label).mkdir(parents=True, exist_ok=True)
+
     _write_plan_docs(kind, paths)
     _write_sample_wavs(kind, paths)
     rendered = _write_module_and_render(kind, paths, dump_context)
@@ -203,9 +207,9 @@ def dump_instrument(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     dump_context = DumpContext(
+        instrument=instrument,
         audio=audio,
         sample_rate=sample_rate,
-        material=tuple(instrument.material or []),
         inputs=prepare_run(instrument, audio, sample_rate, settings.optimize),
         settings=settings,
     )

@@ -16,7 +16,7 @@ from optisample.artifacts.serialize import (
     ZoneItemRecord,
 )
 from optisample.metrics import bytes_to_kib
-from optisample.music import note_name
+from optisample.music import labelled_pitch, note_name
 
 _STRATEGIES: Final = ("ungrouped", "grouped")
 _REFERENCE_STEM: Final = "reference"
@@ -187,12 +187,35 @@ def budget_rows(plan: PlanDocument) -> list[Row]:
     ]
 
 
+@dataclass(frozen=True, order=True)
+class ComparedNote:
+    """One A/B pair an allocation wrote: the velocity layer that played the note, and the note itself.
+
+    Ordering is by layer and then by ``stem``, which leads with the zero-padded MIDI pitch, so a listing
+    walks each layer's keyboard in order.
+    """
+
+    layer: str
+    stem: str
+
+    @property
+    def pitch(self) -> int:
+        """The MIDI pitch this pair was written for, which leads the stem it was filed under."""
+        return labelled_pitch(self.stem)
+
+    @property
+    def label(self) -> str:
+        """How a selector names this pair: the layer's velocity band, then the note."""
+        return f"{self.layer} {self.stem}"
+
+
 def note_metric_rows(metrics: MetricsDocument) -> list[Row]:
-    """One row per covered pitch: which sample served it, and the share of the objective it carries."""
+    """One row per covered pitch of each velocity layer, and the share of the objective it carries."""
     return [
         {
             "pitch": note.pitch,
             "note": note.note,
+            "layer": note.layer,
             "served_by": note.served_by,
             "weight_s": round(note.weight, 2),
             "mean_distortion": round(note.mean_distortion, 4),
@@ -209,8 +232,12 @@ def _measurement(value: float | None) -> float | str:
     return "n/a" if value is None else round(value, 4)
 
 
-def event_rows(metrics: MetricsDocument, pitch: int) -> list[Row]:
-    """Every scored note class of one pitch, with the sub-scores its fidelity is composed of."""
+def event_rows(metrics: MetricsDocument, compared: ComparedNote) -> list[Row]:
+    """Every scored note class one A/B pair covers, with the sub-scores its fidelity is composed of.
+
+    A key played across several dynamics is reconstructed once per velocity layer, so the pair names the
+    layer as well as the pitch and the rows are the classes that layer's own sample answered for.
+    """
     return [
         {
             "velocity": event.velocity,
@@ -222,7 +249,7 @@ def event_rows(metrics: MetricsDocument, pitch: int) -> list[Row]:
             **{name: _measurement(value) for name, value in event.diagnostics.items()},
         }
         for note in metrics.notes
-        if note.pitch == pitch
+        if (note.layer, note.pitch) == (compared.layer, compared.pitch)
         for event in note.events
     ]
 
@@ -254,17 +281,20 @@ def auditions(root: Path, instrument_id: str, pitch: str) -> list[Clip]:
     return [Clip(label=wav.stem, path=wav) for wav in files]
 
 
-def compared_pitches(paths: PlanPaths) -> list[str]:
-    """The pitches an allocation wrote an A/B pair for, in keyboard order."""
+def compared_notes(paths: PlanPaths) -> list[ComparedNote]:
+    """Every A/B pair an allocation wrote, by velocity layer and then in keyboard order."""
     if not paths.compare_dir.is_dir():
         return []
 
-    return sorted(wav.name.removesuffix(_REFERENCE_TAIL) for wav in paths.compare_dir.glob(f"*{_REFERENCE_TAIL}"))
+    return sorted(
+        ComparedNote(layer=wav.parent.name, stem=wav.name.removesuffix(_REFERENCE_TAIL))
+        for wav in paths.compare_dir.glob(f"*/*{_REFERENCE_TAIL}")
+    )
 
 
-def comparison(paths: PlanPaths, pitch: str) -> tuple[Path, Path]:
-    """One pitch's A/B pair: the recording as scored, beside what the module produces for it."""
-    return paths.reference_wav(pitch), paths.rendered_wav(pitch)
+def comparison(paths: PlanPaths, compared: ComparedNote) -> tuple[Path, Path]:
+    """One pair: the recording as scored, beside what the module produces for it through that layer."""
+    return paths.reference_wav(compared.layer, compared.stem), paths.rendered_wav(compared.layer, compared.stem)
 
 
 def stored_samples(paths: PlanPaths) -> list[Clip]:

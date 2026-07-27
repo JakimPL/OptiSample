@@ -79,6 +79,9 @@ class VelocityLayers:
         raise ValueError(f"velocity {velocity} lies above the topmost layer {self.bands[-1].label}")
 
 
+UNSPLIT: Final = VelocityLayers((VelocityBand(_SOFTEST_VELOCITY, MIDI_MAX_VELOCITY),))  # one layer, every dynamic
+
+
 def _weight_by_velocity(material: Sequence[NoteEvent]) -> dict[int, float]:
     """Playing time the material spends at each velocity it strikes."""
     weights: dict[int, float] = {}
