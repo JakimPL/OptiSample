@@ -2,19 +2,22 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 from typing import Final
 
 import numpy as np
 
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, StoredSample, encode
+from optisample.optimize.reduce.events import EventIdentity
 from optisample.optimize.reduce.keys import SampleKey
-from optisample.optimize.tasks import EvalContext, PitchTask, score_reconstruction
+from optisample.optimize.tasks import EvalContext, Event, PitchTask, score_event, weighted_distortion
 from optisample.parallel import map_workers
 from optisample.progress import ProgressSink
 
 StoredKey = tuple[SampleKey, EncodingParams]  # the recording stored, and the encoding it is stored under
+
+_ClassKey = tuple[int, EventIdentity]  # the key a note class sounds at, and the class scored there
 
 STORE_LABEL: Final = "Scoring stored samples"
 
@@ -35,10 +38,22 @@ def dither(seed: int, key: SampleKey, params: EncodingParams) -> np.random.Gener
 
 @dataclass(frozen=True)
 class StoredEncoding:
-    """One encoding a recording is stored under, and the keys the zones asking for it route to it."""
+    """One encoding a recording is stored under, and the axis positions the zones asking for it route to it."""
 
     params: EncodingParams
-    keys: tuple[int, ...]
+    positions: tuple[int, ...]
+
+
+@dataclass(frozen=True)
+class ServedKey:
+    """One key a stored sample answers for: where it sits on the axis, and the notes it plays there.
+
+    A key is named by its position rather than its pitch because a layered axis sounds the same pitch
+    once per velocity band, each time with the band's own notes to reconstruct.
+    """
+
+    position: int
+    task: PitchTask
 
 
 @dataclass(frozen=True)
@@ -48,11 +63,11 @@ class StoreRequest:
     Collecting a representative's encodes and reconstructions into a single request is what lets each of
     them be computed exactly once however the work is shared out: a stored sample belongs to one
     representative and a reconstruction to one stored sample, so each lands in exactly one worker.
-    ``served`` carries the pitch tasks the keys name, which is everything scoring them reads.
+    ``served`` carries the pitch tasks the positions name, which is everything scoring them reads.
     """
 
     representative: PitchTask
-    served: tuple[PitchTask, ...]
+    served: tuple[ServedKey, ...]
     encodings: tuple[StoredEncoding, ...]
 
     @property
@@ -61,23 +76,50 @@ class StoreRequest:
         return self.representative.representative_key
 
     @property
-    def tasks_by_pitch(self) -> dict[int, PitchTask]:
-        """The keys this request reconstructs, reachable by the pitch each encoding names them with."""
-        return {task.pitch: task for task in self.served}
+    def tasks_by_position(self) -> dict[int, PitchTask]:
+        """The keys this request reconstructs, reachable by the position each encoding names them with."""
+        return {key.position: key.task for key in self.served}
 
 
 @dataclass(frozen=True)
 class StoredScore:
     """What one stored sample costs to keep and how well each key it serves reconstructs from it.
 
-    ``distortions`` holds the per-unit-weight reconstruction distortion of each key, keyed by pitch, so
-    a zone weights the keys it covers by its own material and leaves the rest to the zones that cover
-    them.
+    ``distortions`` holds the per-unit-weight reconstruction distortion of each key, keyed by its axis
+    position, so a zone weights the keys it covers by its own material and leaves the rest to the zones
+    that cover them.
     """
 
     stored_bytes: int
     frames: int
     distortions: dict[int, float]
+
+
+@dataclass
+class _StoredScorer:
+    """One stored sample's reconstructions, each note class it is asked about measured exactly once.
+
+    A class's score is settled by the stored sample, the key it sounds at and the class itself, so two
+    positions on the axis asking for the same class read one measurement. That is what makes a layered
+    axis affordable: the velocity bands sharing a stored sample overlap in the classes they cover, and
+    the overlap is measured once between them.
+    """
+
+    stored: StoredSample
+    context: EvalContext
+    measured: dict[_ClassKey, float] = field(default_factory=dict, init=False)
+
+    def _fidelity(self, task: PitchTask, event: Event) -> float:
+        """How well one note class reconstructs at ``task``'s key, measured on first ask and kept."""
+        identity = (task.pitch, event.identity)
+        if identity not in self.measured:
+            self.measured[identity] = score_event(self.stored, event, pitch=task.pitch, context=self.context).fidelity
+
+        return self.measured[identity]
+
+    def distortion(self, task: PitchTask) -> float:
+        """``task``'s reconstruction distortion per unit of weight, weighted the way the objective is."""
+        return weighted_distortion(task, partial(self._fidelity, task))
 
 
 def _stored_sample(request: StoreRequest, params: EncodingParams, context: EvalContext) -> StoredSample:
@@ -94,17 +136,18 @@ def score_request(request: StoreRequest, context: EvalContext) -> dict[EncodingP
     """Store ``request``'s recording under every encoding asked of it and score the keys each one serves.
 
     This is where pitch-zone grouping spends its time: one encode per encoding, and one reconstruction
-    per key that encoding is asked about. Both are settled by the recording, the encoding and the key
-    alone, which is what makes a representative's workload a unit of work in its own right.
+    per note class that encoding is asked about. Both are settled by the recording, the encoding and the
+    class alone, which is what makes a representative's workload a unit of work in its own right.
     """
-    served = request.tasks_by_pitch
+    served = request.tasks_by_position
     scores: dict[EncodingParams, StoredScore] = {}
     for encoding in request.encodings:
         stored = _stored_sample(request, encoding.params, context)
+        scorer = _StoredScorer(stored, context)
         scores[encoding.params] = StoredScore(
             stored_bytes=context.storage.sample_bytes(frames=stored.frames, depth=stored.depth),
             frames=stored.frames,
-            distortions={pitch: score_reconstruction(stored, served[pitch], context) for pitch in encoding.keys},
+            distortions={position: scorer.distortion(served[position]) for position in encoding.positions},
         )
 
     return scores

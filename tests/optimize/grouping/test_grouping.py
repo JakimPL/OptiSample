@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
 
@@ -13,22 +13,24 @@ from optisample.io.audio import write_wav
 from optisample.io.tracker.target import export_target
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.dp import BudgetInfeasibleError
-from optisample.optimize.grouping import (
-    build_zone_options,
-    optimize_instrument_grouped,
-    run_instrument_grouped,
-    zone_hull,
-)
+from optisample.optimize.grouping import build_zone_options, zone_hull
 from optisample.optimize.grouping.cost_model import (
+    ZoneSegment,
+    _Candidate,
     _capped_ranges,
     _GridCache,
     _zone_delta,
     _zone_demand,
     _zone_trim,
     _ZoneOptions,
+    candidate_zones,
     store_requests,
     zone_shortlists,
     zone_starts,
+)
+from optisample.optimize.grouping.optimize import (
+    optimize_instrument_grouped,
+    run_instrument_grouped,
 )
 from optisample.optimize.grouping.stores import dither, score_request, score_stores
 from optisample.optimize.orchestrate import optimize_instrument, prepare_run
@@ -64,12 +66,18 @@ def _settings(sweep: SweepConfig, **sections: Mapping[str, object]) -> OptimizeS
     return OptimizeSettings(
         sweep=sweep,
         reduce=_reduce(**sections),
+        layers=_CONFIG.layers,
         encode=_CONFIG.encode,
         metrics=_CONFIG.metrics,
         velocity=_CONFIG.velocity,
         method=_CONFIG.optimize.method,
         target=export_target(_CONFIG.tracker),
     )
+
+
+def _one_layer(tasks: Sequence[PitchTask]) -> tuple[ZoneSegment, ...]:
+    """The whole keyboard as a single velocity layer -- the axis grouping alone segments over."""
+    return (ZoneSegment(tuple(tasks), _PER_KEY_BYTES),)
 
 
 GRID = _grid(rates=(44_100, 11_025), depths=(16, 8), dither=False)
@@ -113,7 +121,8 @@ def options48(
     audio: dict[SampleKey, NDArray[np.float64]],
 ) -> tuple[list[PitchTask], dict[tuple[int, int], tuple[ZoneOption, ...]]]:
     inputs = prepare_run(_instrument(48.0), audio, SR, _settings(GRID))
-    options = build_zone_options(inputs.tasks, inputs.context, workers=IN_PROCESS, progress=NO_PROGRESS)
+    segments = _one_layer(inputs.tasks)
+    (options,) = build_zone_options(segments, inputs.context, workers=IN_PROCESS, progress=NO_PROGRESS)
     return list(inputs.tasks), options
 
 
@@ -205,8 +214,8 @@ def test_zone_hull_is_a_monotone_frontier(
 # --- what the candidate zones share ---------------------------------------------------------------
 
 
-def _ranges(tasks: list[PitchTask], context: EvalContext) -> list[tuple[int, int]]:
-    return list(_capped_ranges(tasks, context.grouping.max_zone_semitones))
+def _zones(tasks: list[PitchTask], context: EvalContext) -> list[_Candidate]:
+    return candidate_zones(_one_layer(tasks), context.grouping.max_zone_semitones)
 
 
 def test_an_encodings_dither_follows_its_identity_rather_than_when_it_is_drawn(
@@ -214,7 +223,7 @@ def test_an_encodings_dither_follows_its_identity_rather_than_when_it_is_drawn(
 ) -> None:
     """The property the whole staging rests on: a stored sample scores the same wherever it is reached."""
     tasks, context = dithered
-    demand = _zone_demand(tasks[:1], tasks[0].pitch, context.byte_target)
+    demand = _zone_demand(tasks[:1], tasks[0].pitch, _PER_KEY_BYTES)
     params = _GridCache(context).shortlist(tasks[0], demand)[0]
     stored, other = tasks[0].representative_key, tasks[1].representative_key
     assert dither(context.seed, stored, params).random() == dither(context.seed, stored, params).random()
@@ -227,8 +236,8 @@ def test_zones_holding_a_representative_the_same_length_read_back_one_priced_gri
     """The stored length settles the pricing; a zone's transpose and reach only rank what it priced."""
     tasks, context = dithered
     cache = _GridCache(context)
-    wide = _zone_demand(tasks[:2], tasks[0].pitch, context.byte_target)
-    alone = replace(wide, delta_semitones=0, byte_target=context.byte_target)  # another ask, same length
+    wide = _zone_demand(tasks[:2], tasks[0].pitch, _PER_KEY_BYTES)
+    alone = replace(wide, delta_semitones=0, byte_target=_PER_KEY_BYTES)  # another ask, same length
 
     cache.shortlist(tasks[0], wide)
     cache.shortlist(tasks[0], alone)
@@ -240,8 +249,7 @@ def test_pooling_the_shortlists_states_each_stored_sample_once(
 ) -> None:
     """Every candidate zone asks a recording for something; each distinct ask is stated once."""
     tasks, context = dithered
-    ranges = _ranges(tasks, context)
-    shortlists = zone_shortlists(tasks, ranges, context, NO_PROGRESS)
+    shortlists = zone_shortlists(tasks, _zones(tasks, context), context, NO_PROGRESS)
     requests = store_requests(tasks, shortlists)
 
     stored = [(request.stored_key, encoding.params) for request in requests for encoding in request.encodings]
@@ -253,30 +261,28 @@ def test_a_stored_sample_is_asked_about_exactly_the_keys_some_zone_routes_to_it(
     dithered: tuple[list[PitchTask], EvalContext],
 ) -> None:
     tasks, context = dithered
-    ranges = _ranges(tasks, context)
-    shortlists = zone_shortlists(tasks, ranges, context, NO_PROGRESS)
+    shortlists = zone_shortlists(tasks, _zones(tasks, context), context, NO_PROGRESS)
 
     wanted: dict[tuple[SampleKey, object], set[int]] = {}
     for (span, stored_key), shortlist in shortlists.items():
         for params in shortlist:
-            covered = {task.pitch for task in tasks[span[0] : span[1]]}
-            wanted.setdefault((stored_key, params), set()).update(covered)
+            wanted.setdefault((stored_key, params), set()).update(range(span[0], span[1]))
 
     for request in store_requests(tasks, shortlists):
         for encoding in request.encodings:
-            assert set(encoding.keys) == wanted[(request.stored_key, encoding.params)]
+            assert set(encoding.positions) == wanted[(request.stored_key, encoding.params)]
 
 
 def test_scoring_a_representative_answers_for_every_encoding_asked_of_it(
     dithered: tuple[list[PitchTask], EvalContext],
 ) -> None:
     tasks, context = dithered
-    request = store_requests(tasks, zone_shortlists(tasks, _ranges(tasks, context), context, NO_PROGRESS))[0]
+    request = store_requests(tasks, zone_shortlists(tasks, _zones(tasks, context), context, NO_PROGRESS))[0]
     scores = score_request(request, context)
 
     assert set(scores) == {encoding.params for encoding in request.encodings}
     for encoding in request.encodings:
-        assert set(scores[encoding.params].distortions) == set(encoding.keys)
+        assert set(scores[encoding.params].distortions) == set(encoding.positions)
 
 
 def test_scoring_shared_across_processes_reads_the_same_as_scoring_in_one(
@@ -284,7 +290,7 @@ def test_scoring_shared_across_processes_reads_the_same_as_scoring_in_one(
 ) -> None:
     """A stored sample belongs to one representative and draws its own dither, so scheduling cannot move it."""
     tasks, context = dithered
-    requests = store_requests(tasks, zone_shortlists(tasks, _ranges(tasks, context), context, NO_PROGRESS))
+    requests = store_requests(tasks, zone_shortlists(tasks, _zones(tasks, context), context, NO_PROGRESS))
     alone = score_stores(requests, context, workers=IN_PROCESS, progress=NO_PROGRESS)
     shared = score_stores(requests, context, workers=_SHARED, progress=NO_PROGRESS)
     assert {key: score.distortions for key, score in shared.items()} == {
@@ -296,8 +302,9 @@ def test_zone_options_read_the_same_however_the_scoring_was_shared_out(
     audio: dict[SampleKey, NDArray[np.float64]],
 ) -> None:
     inputs = prepare_run(_instrument(48.0), audio, SR, _settings(GRID_DITHERED))
-    alone = build_zone_options(inputs.tasks, inputs.context, workers=IN_PROCESS, progress=NO_PROGRESS)
-    shared = build_zone_options(inputs.tasks, inputs.context, workers=_SHARED, progress=NO_PROGRESS)
+    segments = _one_layer(inputs.tasks)
+    alone = build_zone_options(segments, inputs.context, workers=IN_PROCESS, progress=NO_PROGRESS)
+    shared = build_zone_options(segments, inputs.context, workers=_SHARED, progress=NO_PROGRESS)
     assert shared == alone
 
 

@@ -10,7 +10,7 @@ lets those consumers work off one shape instead of branching on the concrete pla
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Final, Literal, Protocol
 
 from optisample.dsp.surrogate import EncodingParams
 from optisample.optimize.reduce.keys import SampleKey
@@ -20,6 +20,9 @@ from optisample.optimize.velocity_map import VelocityVolumeMap
 Strategy = Literal["ungrouped", "grouped"]  # which allocation the plan came from.
 Method = Literal["exact", "lagrangian"]  # the MCKP solver the ungrouped strategy ran.
 
+SINGLE_LAYER: Final = 1  # instruments a plan writes while one recording per key answers every dynamic
+FIRST_LAYER: Final = 0  # the layer that one recording is written as, and the quietest of any richer split
+
 
 @dataclass(frozen=True)
 class SampleUnit:
@@ -28,12 +31,14 @@ class SampleUnit:
     Ungrouped, a unit is a single key playing its own sample; grouped, it is a whole pitch zone routed
     to one repitched representative. The exporter, dumper and serializer all read this normalized view,
     so none of them has to know which strategy built the plan. ``label`` is the unit's stable name (the
-    dumper's per-sample WAV filename and ``served_by`` reference), and ``representative_key`` names the
-    surviving recording in the audio map that the unit re-encodes.
+    dumper's per-sample WAV filename and ``served_by`` reference), ``representative_key`` names the
+    surviving recording in the audio map that the unit re-encodes, and ``layer`` the velocity band it
+    answers for, which is the instrument the written pattern plays its keys through.
     """
 
     label: str
     representative_key: SampleKey
+    layer: int
     keys: tuple[int, ...]
     params: EncodingParams
     frames: int

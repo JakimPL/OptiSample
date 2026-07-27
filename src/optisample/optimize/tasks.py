@@ -1,4 +1,4 @@
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -92,10 +92,9 @@ class EvalContext:
     """Shared scoring inputs (bundled to stay under the argument limit).
 
     ``storage`` is the target format's cost table, so every operating point the sweep produces is
-    priced in the bytes the written module will actually spend on it. ``bandwidth`` and ``byte_target``
-    are what narrows a stored grid before that sweep runs: the reduction's own knobs, and the share of
-    the sample budget one key can expect once they split it evenly, which is the scale every demand a
-    zone makes of a recording is built from. ``grouping`` bounds what pitch-zone grouping enumerates.
+    priced in the bytes the written module will actually spend on it. ``bandwidth`` holds the
+    reduction's own knobs, which narrow a stored grid before that sweep runs, and ``grouping`` bounds
+    what pitch-zone grouping enumerates.
 
     The two dither sources sit side by side: ``rng`` is the one stream the ungrouped sweep's encodes
     draw from in the order it reaches them, and ``seed`` is the run entropy a stored sample scored
@@ -110,7 +109,6 @@ class EvalContext:
     storage: Storage
     bandwidth: BandwidthConfig
     grouping: ZoneConfig
-    byte_target: int
     seed: int
 
 
@@ -264,6 +262,18 @@ def score_events(
         yield EventScore(event=event, report=score_event(stored, event, pitch=task.pitch, context=context))
 
 
+def weighted_distortion(task: PitchTask, fidelity: Callable[[Event], float]) -> float:
+    """``task``'s distortion per unit of material weight, gathered from a per-class ``fidelity``.
+
+    The rule turning per-class scores into the number an allocation compares, held apart from how a
+    class is scored so a caller measuring its classes some other way -- reading a score it already took
+    for one -- still weights them the way the objective does. A key the material never plays scores
+    zero.
+    """
+    total = sum(event.weight * fidelity(event) for event in task.events)
+    return total / task.weight if task.weight > 0.0 else 0.0
+
+
 def score_reconstruction(
     stored: StoredSample,
     task: PitchTask,
@@ -271,8 +281,10 @@ def score_reconstruction(
 ) -> float:
     """Weighted mean distortion of reconstructing ``task``'s notes from ``stored`` (repitched to its key).
 
-    The weighted sum of :func:`score_events` normalized per unit of material weight, so it can be
-    reweighted by usage at the call site.
+    The weighted sum of each class's own score (:func:`score_event`) normalized per unit of material
+    weight, so it can be reweighted by usage at the call site.
     """
-    total = sum(score.weighted_fidelity for score in score_events(stored, task, context))
-    return total / task.weight if task.weight > 0.0 else 0.0
+    return weighted_distortion(
+        task,
+        lambda event: score_event(stored, event, pitch=task.pitch, context=context).fidelity,
+    )

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Final
 
 from optisample.config.dsp import EncodeConfig
+from optisample.config.layers import LayersConfig
 from optisample.config.metrics import MetricsConfig
 from optisample.config.optimize import SweepConfig, VelocityConfig
 from optisample.config.reduce import ReduceConfig
@@ -19,16 +20,18 @@ class OptimizeSettings:
     """Knobs for one optimization run (bundled to keep the call site small).
 
     Carries the config the run needs -- the encoding sweep grid, the pre-optimization reductions, the
-    encode config, the fidelity metric's own config, the velocity-map shaping and the solver method --
-    all sourced from config at the entry point. ``target`` is the tracker format the plan will be
-    written as, which is what prices every stored sample the allocation considers. ``seed`` drives the
-    dither RNG, ``workers`` how many processes the stages that fan out share their work between, and
-    ``progress`` is where each stage reports how far through it is; the three describe how the run is
-    carried out rather than what it computes, so they keep code defaults.
+    velocity layering, the encode config, the fidelity metric's own config, the velocity-map shaping and
+    the solver method -- all sourced from config at the entry point. ``target`` is the tracker format the
+    plan will be written as, which is what prices every stored sample the allocation considers and how
+    many layers it may store. ``seed`` drives the dither RNG, ``workers`` how many processes the stages
+    that fan out share their work between, and ``progress`` is where each stage reports how far through
+    it is; the three describe how the run is carried out rather than what it computes, so they keep code
+    defaults.
     """
 
     sweep: SweepConfig
     reduce: ReduceConfig
+    layers: LayersConfig
     encode: EncodeConfig
     metrics: MetricsConfig
     velocity: VelocityConfig

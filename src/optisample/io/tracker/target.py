@@ -76,6 +76,16 @@ class ExportTarget:
         return self.limits.bound(Capability.SAMPLE_GAIN).minimum < MAX_VOLUME
 
     @property
+    def max_instruments(self) -> int:
+        """How many instruments this format numbers, which is how many velocity layers a plan may store."""
+        return self.limits.bound(Capability.INSTRUMENTS).maximum
+
+    @property
+    def max_samples(self) -> int:
+        """How many samples this format numbers, which caps the stored zones summed over every layer."""
+        return self.limits.bound(Capability.SAMPLES).maximum
+
+    @property
     def min_rows(self) -> int:
         """The shortest pattern this format accepts, which laid-out material is padded up to."""
         return self.limits.bound(Capability.PATTERN_ROWS).minimum

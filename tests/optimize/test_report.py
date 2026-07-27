@@ -4,9 +4,13 @@ from typing import Final
 
 from optisample.dsp.surrogate import EncodingParams
 from optisample.metrics.size import bytes_to_kib
+from optisample.music import MIDI_MAX_VELOCITY
 from optisample.optimize.knapsack import Allocation, RDCurvePoint, Selection
+from optisample.optimize.layers.bands import VelocityBand, VelocityLayers
 from optisample.optimize.operating_points import OperatingPoint
 from optisample.optimize.plans import (
+    FIRST_LAYER,
+    SINGLE_LAYER,
     GroupedInstrumentPlan,
     InstrumentPlan,
     PitchPlan,
@@ -31,6 +35,7 @@ from trackmod.module.storage import Storage
 
 _MODULE_BYTES = 64 * 1024
 _SIZE = SizeReport(patterns=120, pcm=9000, headers=800, largest_pattern=90)
+_WHOLE_AXIS = VelocityLayers((VelocityBand(0, MIDI_MAX_VELOCITY),))  # one layer answering every dynamic
 
 
 def _point(rate: int = 22_050, depth: int = 16, size: int = 5000, distortion: float = 0.1) -> OperatingPoint:
@@ -45,7 +50,7 @@ def _ungrouped_plan(
 ) -> InstrumentPlan:
     return InstrumentPlan(
         instrument_id="piano",
-        budget=split_budget(_MODULE_BYTES / 1024.0, storage),
+        budget=split_budget(_MODULE_BYTES / 1024.0, storage, SINGLE_LAYER),
         velocity_map=VelocityVolumeMap(
             tuple(64 for _ in range(128)),
             (VelocityAnchor(50, -20.0, 40), VelocityAnchor(100, -10.0, 64)),  # only the loudest is the reference
@@ -107,11 +112,12 @@ def test_grouping_report_has_the_expected_sections(storage: Storage, reduction: 
     single = ZoneOption(67, EncodingParams(target_rate=11_025, depth_bits=8), 3000, 0.3, 1200)
     plan = GroupedInstrumentPlan(
         instrument_id="piano",
-        budget=split_budget(_MODULE_BYTES / 1024.0, storage),
+        budget=split_budget(_MODULE_BYTES / 1024.0, storage, SINGLE_LAYER),
         velocity_map=VelocityVolumeMap(tuple(64 for _ in range(128)), (VelocityAnchor(100, -10.0, 64),)),
+        layers=_WHOLE_AXIS,
         zones=(
-            Zone((60, 61, 62), SampleKey(61, 100), 3.0, multi, (multi,)),  # a merged, multi-key zone
-            Zone((67,), SampleKey(67, 90), 1.0, single, (single,)),  # a lone single-key zone
+            Zone((60, 61, 62), FIRST_LAYER, SampleKey(61, 100), 3.0, multi, (multi,)),  # a merged, multi-key zone
+            Zone((67,), FIRST_LAYER, SampleKey(67, 90), 1.0, single, (single,)),  # a lone single-key zone
         ),
         total_bytes=9000,
         objective=0.5,
@@ -197,9 +203,10 @@ def test_both_strategies_report_the_reduction(storage: Storage, reduction: Reduc
     grouped = format_grouping_report(
         GroupedInstrumentPlan(
             instrument_id="piano",
-            budget=split_budget(_MODULE_BYTES / 1024.0, storage),
+            budget=split_budget(_MODULE_BYTES / 1024.0, storage, SINGLE_LAYER),
             velocity_map=VelocityVolumeMap(tuple(64 for _ in range(128)), (VelocityAnchor(100, -10.0, 64),)),
-            zones=(Zone((60,), SampleKey(60, 100), 1.0, option, (option,)),),
+            layers=_WHOLE_AXIS,
+            zones=(Zone((60,), FIRST_LAYER, SampleKey(60, 100), 1.0, option, (option,)),),
             total_bytes=6000,
             objective=0.2,
             reduction=reduction,

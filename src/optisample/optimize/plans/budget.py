@@ -12,14 +12,16 @@ def populated_instrument_bytes(storage: Storage) -> int:
     return storage.instrument_bytes(samples=_POPULATED_INSTRUMENT)
 
 
-def instrument_overhead(storage: Storage) -> int:
-    """Every byte a module spends before its first stored sample: the file record plus one instrument.
+def instrument_overhead(storage: Storage, layers: int) -> int:
+    """Every byte a module spends before its first stored sample: the file record plus its instruments.
 
-    The audition patterns and the order list are left out: they are material a module happens to play,
-    while the budget measures what carrying the instrument itself costs. What the written file occupies
-    exactly is reported beside the budget, read from the module's own size.
+    Each velocity layer is written as an instrument of its own, so storing more of them raises what the
+    plan pays before a single frame of audio is kept -- the honest price the layer decision is taken
+    against. The audition patterns and the order list are left out: they are material a module happens
+    to play, while the budget measures what carrying the instrument itself costs. What the written file
+    occupies exactly is reported beside the budget, read from the module's own size.
     """
-    return storage.file + populated_instrument_bytes(storage)
+    return storage.file + layers * populated_instrument_bytes(storage)
 
 
 _WHOLE_BUDGET: Final = 1  # an instrument storing nothing splits its sample budget no further
@@ -30,21 +32,25 @@ class BudgetBreakdown:
     """The byte budget split into the whole module and the part left for stored samples.
 
     ``storage`` is the format cost table the split was taken against, kept so a plan prices what it
-    stored against the same format its budget was drawn from.
+    stored against the same format its budget was drawn from, and ``layers`` how many instruments the
+    split reserved room for, so a plan storing several velocity layers starts from the smaller sample
+    budget its own vocabulary costs.
     """
 
     storage: Storage
+    layers: int
     module_bytes: int
     sample_bytes: int  # module_bytes minus the file and instrument records
 
 
-def split_budget(budget_kb: float, storage: Storage) -> BudgetBreakdown:
+def split_budget(budget_kb: float, storage: Storage, layers: int) -> BudgetBreakdown:
     """Split an instrument's KiB budget into the whole module and the samples part left after records."""
     module_bytes = kib_to_bytes(budget_kb)
     return BudgetBreakdown(
         storage=storage,
+        layers=layers,
         module_bytes=module_bytes,
-        sample_bytes=module_bytes - instrument_overhead(storage),
+        sample_bytes=module_bytes - instrument_overhead(storage, layers),
     )
 
 
@@ -85,4 +91,4 @@ class BudgetedPlanMixin:
 
     @property
     def module_bytes(self) -> int:
-        return self.used_bytes + instrument_overhead(self.budget.storage)
+        return self.used_bytes + instrument_overhead(self.budget.storage, self.budget.layers)

@@ -335,6 +335,7 @@ def _optimize_settings(
     return OptimizeSettings(
         sweep=grid,
         reduce=_reduce_config(config, args),
+        layers=config.layers,
         encode=config.encode,
         metrics=config.metrics,
         velocity=config.velocity,

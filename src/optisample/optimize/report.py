@@ -106,7 +106,7 @@ def format_budget_block(plan: BudgetedPlanMixin, size: SizeReport) -> list[str]:
     return [
         f"Budget:    {bytes_to_kib(plan.module_budget_bytes):7.1f} KiB module  ->  "
         f"{bytes_to_kib(plan.sample_budget_bytes):7.1f} KiB samples  "
-        f"(overhead {instrument_overhead(storage)} B: file {storage.file} + "
+        f"(overhead {instrument_overhead(storage, plan.budget.layers)} B: file {storage.file} + "
         f"instrument {populated_instrument_bytes(storage)})",
         f"Used:      {bytes_to_kib(used):7.1f} KiB samples  ({fraction:6.1%} of budget, "
         f"{bytes_to_kib(headroom):.1f} KiB free)  ->  {bytes_to_kib(plan.module_bytes):.1f} KiB module",

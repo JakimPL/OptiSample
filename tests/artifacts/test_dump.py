@@ -40,6 +40,7 @@ def _settings() -> OptimizeSettings:
     return OptimizeSettings(
         sweep=grid,
         reduce=_CONFIG.reduce,
+        layers=_CONFIG.layers,
         encode=_CONFIG.encode,
         metrics=_CONFIG.metrics,
         velocity=_CONFIG.velocity,

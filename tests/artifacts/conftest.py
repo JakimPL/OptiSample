@@ -9,7 +9,7 @@ from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
 from optisample.io.tracker.target import export_target
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
-from optisample.optimize.grouping import optimize_instrument_grouped
+from optisample.optimize.grouping.optimize import optimize_instrument_grouped
 from optisample.optimize.orchestrate import optimize_instrument, prepare_run
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
@@ -30,6 +30,7 @@ def tiny_settings() -> OptimizeSettings:
     return OptimizeSettings(
         sweep=grid,
         reduce=_CONFIG.reduce,
+        layers=_CONFIG.layers,
         encode=_CONFIG.encode,
         metrics=_CONFIG.metrics,
         velocity=_CONFIG.velocity,

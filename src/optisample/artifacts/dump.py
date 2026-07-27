@@ -28,7 +28,7 @@ from optisample.metrics.base import Signal
 from optisample.model import InstrumentSpec, Manifest, NoteEvent
 from optisample.music import pitch_label
 from optisample.optimize.dp import BudgetInfeasibleError
-from optisample.optimize.grouping import allocate_instrument_grouped
+from optisample.optimize.grouping.optimize import allocate_instrument_grouped
 from optisample.optimize.orchestrate import RunInputs, allocate_instrument, prepare_run
 from optisample.optimize.orchestrate.audio import load_instrument_audio
 from optisample.optimize.orchestrate.settings import OptimizeSettings

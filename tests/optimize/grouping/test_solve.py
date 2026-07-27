@@ -11,16 +11,19 @@ import pytest
 from optisample.dsp.surrogate import EncodingParams
 from optisample.optimize.dp import BudgetInfeasibleError
 from optisample.optimize.grouping import solve_grouping
-from optisample.optimize.grouping.cost_model import zone_starts
+from optisample.optimize.grouping.cost_model import ZoneSegment, zone_starts
 from optisample.optimize.grouping.solve import _cheapest_partition_bytes
 from optisample.optimize.plans import ZoneOption
 from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.tasks import Event, PitchTask
 
+_BYTE_TARGET = 1_000  # what one key of the layer may spend; unread here, the options are already scored
 
-def _fake_tasks(pitches: tuple[int, ...]) -> list[PitchTask]:
+
+def _fake_layer(pitches: tuple[int, ...]) -> tuple[ZoneSegment, ...]:
+    """One velocity layer covering ``pitches``, which is the axis a plain pitch grouping walks."""
     silence = np.zeros(4, dtype=np.float64)
-    return [
+    tasks = tuple(
         PitchTask(
             pitch,
             1.0,
@@ -30,7 +33,8 @@ def _fake_tasks(pitches: tuple[int, ...]) -> list[PitchTask]:
             (Event(SampleKey(pitch, 100), 100, 64, 1.0, 1.0, silence),),
         )
         for pitch in pitches
-    ]
+    )
+    return (ZoneSegment(tasks, _BYTE_TARGET),)
 
 
 def _fake_options(pitches: tuple[int, ...], seed: int) -> dict[tuple[int, int], tuple[ZoneOption, ...]]:
@@ -66,29 +70,41 @@ def _brute_force(
 @pytest.mark.parametrize("seed", [0, 1, 2, 3])
 def test_solve_grouping_is_exact_against_brute_force(seed: int) -> None:
     pitches = (60, 62, 64, 66)
-    tasks = _fake_tasks(pitches)
+    layer = _fake_layer(pitches)
     options = _fake_options(pitches, seed)
     for budget in (200, 400, 700, 1100, 1600):
         expected = _brute_force(pitches, options, budget)
         if math.isinf(expected):
             with pytest.raises(BudgetInfeasibleError):
-                solve_grouping(tasks, options, budget)
+                solve_grouping(layer, [options], budget)
             continue
-        result = solve_grouping(tasks, options, budget)
+        result = solve_grouping(layer, [options], budget)
         assert result.objective == pytest.approx(expected)
         assert result.total_bytes <= budget
         assert [pitch for zone in result.zones for pitch in zone.pitches] == list(pitches)  # contiguous cover
+        assert {zone.layer for zone in result.zones} == {0}  # one segment in, one layer out
 
 
 def test_solve_grouping_raises_when_cheapest_partition_overflows() -> None:
     pitches = (60, 62)
-    tasks = _fake_tasks(pitches)
+    layer = _fake_layer(pitches)
     options = _fake_options(pitches, 0)
     floor = _cheapest_partition_bytes(options, zone_starts(options, len(pitches)))
     with pytest.raises(BudgetInfeasibleError):
-        solve_grouping(tasks, options, floor - 1)
+        solve_grouping(layer, [options], floor - 1)
 
 
 def test_solve_grouping_with_no_pitches_is_empty() -> None:
-    result = solve_grouping([], {}, 1_000)
+    result = solve_grouping([], [], 1_000)
     assert result.zones == () and result.total_bytes == 0 and result.objective == 0.0
+
+
+def test_solve_grouping_names_the_layer_each_zone_came_from() -> None:
+    """Two layers laid end to end partition independently, and each zone states the one it belongs to."""
+    pitches = (60, 62)
+    quiet, loud = _fake_layer(pitches)[0], _fake_layer(pitches)[0]
+    options = _fake_options(pitches, 0)
+    result = solve_grouping([quiet, loud], [options, options], 4_000)
+    assert [pitch for zone in result.zones for pitch in zone.pitches] == list(pitches) * 2
+    layers = [zone.layer for zone in result.zones]
+    assert layers == sorted(layers) and set(layers) == {0, 1}

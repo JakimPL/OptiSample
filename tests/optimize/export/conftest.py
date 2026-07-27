@@ -15,7 +15,7 @@ from optisample.io.tracker.target import ExportTarget
 from optisample.model import NoteEvent
 from optisample.optimize.export import build_module
 from optisample.optimize.export.context import ExportContext
-from optisample.optimize.grouping import optimize_instrument_grouped
+from optisample.optimize.grouping.optimize import optimize_instrument_grouped
 from optisample.optimize.orchestrate import optimize_instrument
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan

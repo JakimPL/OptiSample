@@ -9,7 +9,7 @@ from optisample.music import note_name
 from optisample.optimize.knapsack import Allocation, RDCurvePoint
 from optisample.optimize.operating_points import OperatingPoint
 from optisample.optimize.plans.budget import BudgetBreakdown, BudgetedPlanMixin
-from optisample.optimize.plans.strategy import Method, SampleUnit
+from optisample.optimize.plans.strategy import FIRST_LAYER, Method, SampleUnit
 from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.reduce.summary import ReductionSummary
 from optisample.optimize.velocity_map import VelocityVolumeMap
@@ -53,11 +53,16 @@ class InstrumentPlan(BudgetedPlanMixin):
         return sum(plan.weight for plan in self.pitches)
 
     def sample_units(self) -> tuple[SampleUnit, ...]:
-        """One stored sample per kept pitch, each serving only its own key (an identity note map)."""
+        """One stored sample per kept pitch, each serving only its own key (an identity note map).
+
+        Every key answers every dynamic from the one recording kept for it, so the whole plan is written
+        as the single layer :data:`~optisample.optimize.plans.strategy.FIRST_LAYER` names.
+        """
         return tuple(
             SampleUnit(
                 label=f"p{pitch.pitch:03d}_{note_name(pitch.pitch)}",
                 representative_key=pitch.representative_key,
+                layer=FIRST_LAYER,
                 keys=(pitch.pitch,),
                 params=pitch.chosen.params,
                 frames=pitch.chosen.frames,

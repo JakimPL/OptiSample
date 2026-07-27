@@ -3,6 +3,7 @@ from typing import Literal
 
 from optisample.dsp.surrogate import EncodingParams
 from optisample.music import note_name
+from optisample.optimize.layers.bands import VelocityLayers
 from optisample.optimize.plans.budget import BudgetBreakdown, BudgetedPlanMixin
 from optisample.optimize.plans.strategy import SampleUnit
 from optisample.optimize.reduce.keys import SampleKey
@@ -28,9 +29,14 @@ class ZoneOption:
 
 @dataclass(frozen=True)
 class Zone:
-    """A contiguous run of keys served by one stored sample, with the option the solver chose."""
+    """A contiguous run of keys served by one stored sample, with the option the solver chose.
+
+    ``layer`` is the velocity band the zone answers for, so a key played softly and loudly is covered by
+    one zone in each layer and each of them stores the recording its own dynamics are nearest.
+    """
 
     pitches: tuple[int, ...]
+    layer: int
     representative_key: SampleKey
     weight: float  # total material usage (seconds) across the zone's pitches
     chosen: ZoneOption
@@ -53,11 +59,16 @@ class GroupingResult:
 
 @dataclass(frozen=True)
 class GroupedInstrumentPlan(BudgetedPlanMixin):
-    """A full grouped optimization: the velocity map, the zones, and the budget they fit within."""
+    """A full grouped optimization: the velocity map, the layers and zones, and the budget they fit within.
+
+    ``layers`` is the velocity split the allocation settled on -- one band per stored instrument, in the
+    order the zones are grouped by -- so a note's dynamic names the instrument it is played through.
+    """
 
     instrument_id: str
     budget: BudgetBreakdown
     velocity_map: VelocityVolumeMap
+    layers: VelocityLayers
     zones: tuple[Zone, ...]
     total_bytes: int
     objective: float
@@ -83,6 +94,7 @@ class GroupedInstrumentPlan(BudgetedPlanMixin):
             SampleUnit(
                 label=f"zone{index:02d}_rep{zone.representative:03d}_{note_name(zone.representative)}",
                 representative_key=zone.representative_key,
+                layer=zone.layer,
                 keys=zone.pitches,
                 params=zone.chosen.params,
                 frames=zone.chosen.frames,

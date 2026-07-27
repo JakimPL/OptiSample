@@ -1,0 +1,278 @@
+"""Choosing how many velocity layers to store, and allocating the budget across them (``layers/allocate.py``)."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import replace
+from pathlib import Path
+
+import numpy as np
+import pytest
+from numpy.typing import NDArray
+
+from optisample.config.layers import LayersConfig
+from optisample.config.optimize import SweepConfig
+from optisample.config.tracker import TrackerFormat
+from optisample.dsp.surrogate import EncodingParams
+from optisample.io.tracker.target import ExportTarget
+from optisample.model import InstrumentSpec, NoteEvent, SourceSample
+from optisample.music import MIDI_MAX_VELOCITY
+from optisample.optimize.dp import BudgetInfeasibleError
+from optisample.optimize.grouping.optimize import optimize_instrument_grouped
+from optisample.optimize.layers.allocate import (
+    LayeredAllocation,
+    _Layering,
+    _universe,
+    allocate_layers,
+    fits_format,
+    preference,
+)
+from optisample.optimize.layers.bands import VelocityBand, VelocityLayers, partitions, velocity_cells
+from optisample.optimize.orchestrate import prepare_run
+from optisample.optimize.orchestrate.settings import OptimizeSettings
+from optisample.optimize.plans import FIRST_LAYER, SINGLE_LAYER, Zone, ZoneOption, split_budget
+from optisample.optimize.reduce.keys import SampleKey
+from optisample.optimize.tasks import AudioMap
+
+SR = 44_100  # the rate the shared ``piano_note`` factory renders at
+PITCHES = (60, 64)
+VELOCITIES = (20, 70, 120)
+_NOTE_S = 0.3
+_GENEROUS_KB = 96.0
+_TIGHT_KB = 5.0  # room for one layer's cheapest samples, and not for a second layer's
+_ONE_LAYER = 1
+_THREE_LAYERS = 3
+_WHOLE_AXIS = VelocityBand(0, MIDI_MAX_VELOCITY)
+
+
+@pytest.fixture
+def audio(piano_note: Callable[..., NDArray[np.float64]]) -> AudioMap:
+    """One recording per ``(pitch, velocity)`` -- the grid a layer picks its own representative from."""
+    return {
+        SampleKey(pitch, velocity): piano_note(pitch, velocity, dur=_NOTE_S, seed=pitch * 191 + velocity)
+        for pitch in PITCHES
+        for velocity in VELOCITIES
+    }
+
+
+@pytest.fixture
+def instrument() -> InstrumentSpec:
+    """Every key played at all three dynamics, so each velocity band covers the whole keyboard."""
+    return InstrumentSpec(
+        id="piano",
+        budget_kb=_GENEROUS_KB,
+        samples=[
+            SourceSample(file=Path(f"{pitch}_{velocity}.wav"), pitch=pitch, velocity=velocity)
+            for pitch in PITCHES
+            for velocity in VELOCITIES
+        ],
+        material=[
+            NoteEvent(pitch=pitch, velocity=velocity, duration_s=_NOTE_S, count=2)
+            for pitch in PITCHES
+            for velocity in VELOCITIES
+        ],
+    )
+
+
+@pytest.fixture
+def allocate(
+    audio: AudioMap,
+    optimize_settings: Callable[..., OptimizeSettings],
+    sweep: Callable[..., SweepConfig],
+    layers: Callable[..., LayersConfig],
+) -> Callable[..., LayeredAllocation]:
+    """Factory: run the layered search over ``instrument`` with the layering knobs a test varies."""
+
+    def _allocate(instrument: InstrumentSpec, **overrides: object) -> LayeredAllocation:
+        settings = optimize_settings(
+            sweep=sweep(rates=(11_025,), depths=(8,), dither=False),
+            layers=layers(nodes=len(VELOCITIES), **overrides),
+        )
+        return allocate_layers(instrument, prepare_run(instrument, audio, SR, settings), settings)
+
+    return _allocate
+
+
+def test_one_layer_stores_a_single_band_over_the_whole_axis(
+    instrument: InstrumentSpec,
+    allocate: Callable[..., LayeredAllocation],
+) -> None:
+    """The behaviour freeze: capping the layers at one is the plan pitch grouping produced before."""
+    allocation = allocate(instrument, max_layers=_ONE_LAYER)
+    assert allocation.layers == VelocityLayers((_WHOLE_AXIS,))
+    assert allocation.budget.layers == SINGLE_LAYER
+    assert {zone.layer for zone in allocation.zones} == {FIRST_LAYER}
+    assert [pitch for zone in allocation.zones for pitch in zone.pitches] == list(PITCHES)
+
+
+def test_the_layers_tile_the_axis_and_each_covers_the_keys_it_plays(
+    instrument: InstrumentSpec,
+    allocate: Callable[..., LayeredAllocation],
+) -> None:
+    """A note reaches exactly one layer, and that layer holds a zone for every key it is played at."""
+    allocation = allocate(instrument, max_layers=_THREE_LAYERS, min_gain=0.0)
+    bands = allocation.layers.bands
+    assert bands[0].lowest == 0 and bands[-1].highest == MIDI_MAX_VELOCITY
+    for below, above in zip(bands, bands[1:]):
+        assert above.lowest == below.highest + 1
+
+    for layer in range(allocation.layers.count):
+        covered = [pitch for zone in allocation.zones if zone.layer == layer for pitch in zone.pitches]
+        assert covered == list(PITCHES)
+
+
+def test_layers_buy_what_they_exist_to_buy_on_material_played_at_three_dynamics(
+    instrument: InstrumentSpec,
+    allocate: Callable[..., LayeredAllocation],
+) -> None:
+    """The move layering adds: a quiet note reconstructs from a quiet recording rather than a scaled ff one."""
+    one = allocate(instrument, max_layers=_ONE_LAYER)
+    many = allocate(instrument, max_layers=_THREE_LAYERS)
+    assert many.layers.count > one.layers.count
+    assert many.objective < one.objective  # the single-layer split is in the search space and was beaten
+    stored = {(zone.layer, zone.representative_key.velocity) for zone in many.zones}
+    assert len({velocity for _, velocity in stored}) == many.layers.count  # each layer keeps its own dynamic
+
+
+def test_a_margin_no_gain_can_meet_keeps_the_single_layer_plan(
+    instrument: InstrumentSpec,
+    allocate: Callable[..., LayeredAllocation],
+) -> None:
+    """``min_gain`` is the taste dial: ask an impossible improvement of a layer and none is stored."""
+    demanding = allocate(instrument, max_layers=_THREE_LAYERS, min_gain=100.0)
+    assert demanding.layers.count == _ONE_LAYER
+    assert demanding.objective == pytest.approx(allocate(instrument, max_layers=_ONE_LAYER).objective)
+
+
+def test_what_a_sample_may_spend_follows_from_how_wide_the_whole_split_is(
+    instrument: InstrumentSpec,
+    audio: AudioMap,
+    optimize_settings: Callable[..., OptimizeSettings],
+    sweep: Callable[..., SweepConfig],
+    layers: Callable[..., LayersConfig],
+) -> None:
+    """Layers each covering the keyboard divide the share between them; layers dividing it keep it."""
+    settings = optimize_settings(
+        sweep=sweep(rates=(11_025,), depths=(8,), dither=False),
+        layers=layers(max_layers=_THREE_LAYERS, nodes=len(VELOCITIES)),
+    )
+    inputs = prepare_run(instrument, audio, SR, settings)
+    layering = _Layering(instrument, inputs, settings)
+    splits = tuple(partitions(velocity_cells(instrument.material, len(VELOCITIES)), _THREE_LAYERS))
+    targets = [segment.byte_target for segment in _universe(layering, splits).segments]
+
+    whole = max(targets)  # the single-layer split, whose one band carries every key
+    assert min(targets) == pytest.approx(whole / _THREE_LAYERS, rel=0.05)  # three layers, each the full width
+
+
+def test_the_budget_a_split_is_solved_against_reserves_its_own_instruments(
+    instrument: InstrumentSpec,
+    allocate: Callable[..., LayeredAllocation],
+) -> None:
+    allocation = allocate(instrument, max_layers=_THREE_LAYERS, min_gain=0.0)
+    assert allocation.budget.layers == allocation.layers.count
+    assert allocation.total_bytes <= allocation.budget.sample_bytes
+
+
+def test_the_material_bounds_how_many_layers_are_offered(
+    instrument: InstrumentSpec,
+    allocate: Callable[..., LayeredAllocation],
+) -> None:
+    """A single velocity cuts into one cell, so a cap of three layers still stores one."""
+    one_dynamic = instrument.model_copy(
+        update={"material": [NoteEvent(pitch=pitch, velocity=70, duration_s=_NOTE_S, count=2) for pitch in PITCHES]}
+    )
+    allocation = allocate(one_dynamic, max_layers=_THREE_LAYERS, min_gain=0.0)
+    assert allocation.layers == VelocityLayers((_WHOLE_AXIS,))
+
+
+def test_a_budget_too_small_for_one_layer_fails_as_it_always_did(
+    instrument: InstrumentSpec,
+    allocate: Callable[..., LayeredAllocation],
+) -> None:
+    """The single-layer split is the cheapest floor, so its infeasibility is the whole run's."""
+    with pytest.raises(BudgetInfeasibleError):
+        allocate(instrument.model_copy(update={"budget_kb": 1.0}), max_layers=_THREE_LAYERS)
+
+
+def test_a_split_the_budget_cannot_carry_is_passed_over(
+    instrument: InstrumentSpec,
+    allocate: Callable[..., LayeredAllocation],
+) -> None:
+    """More layers means more mandatory samples, so a budget holding one layer may hold only one."""
+    tight = allocate(instrument.model_copy(update={"budget_kb": _TIGHT_KB}), max_layers=_THREE_LAYERS, min_gain=0.0)
+    assert tight.layers.count == _ONE_LAYER
+    assert tight.total_bytes <= tight.budget.sample_bytes
+
+
+def test_a_split_asking_for_more_samples_than_the_format_numbers_is_passed_over(
+    target: ExportTarget,
+) -> None:
+    """Layers multiply the stored zones, which is how a plan reaches a cap one layer never could."""
+    option = ZoneOption(60, EncodingParams(11_025, 8), 100, 0.0, 20)
+    zone = Zone((60,), FIRST_LAYER, SampleKey(60, 100), 1.0, option, (option,))
+    crowded = LayeredAllocation(
+        layers=VelocityLayers((_WHOLE_AXIS,)),
+        budget=split_budget(_GENEROUS_KB, target.storage, SINGLE_LAYER),
+        zones=(zone,) * (target.max_samples + 1),
+        total_bytes=100,
+        objective=0.0,
+    )
+    assert not fits_format(crowded, target)
+    assert fits_format(replace(crowded, zones=crowded.zones[: target.max_samples]), target)
+
+
+def test_asking_for_more_layers_than_the_format_numbers_is_refused(
+    instrument: InstrumentSpec,
+    audio: AudioMap,
+    optimize_settings: Callable[..., OptimizeSettings],
+    sweep: Callable[..., SweepConfig],
+    layers: Callable[..., LayersConfig],
+    target: ExportTarget,
+) -> None:
+    settings = optimize_settings(
+        sweep=sweep(rates=(11_025,), depths=(8,), dither=False),
+        layers=layers(max_layers=target.max_instruments + 1),
+    )
+    inputs = prepare_run(instrument, audio, SR, settings)
+    with pytest.raises(ValueError, match="velocity layers"):
+        allocate_layers(instrument, inputs, settings)
+
+
+def test_the_plan_carries_the_layers_it_settled_on(
+    instrument: InstrumentSpec,
+    audio: AudioMap,
+    optimize_settings: Callable[..., OptimizeSettings],
+    sweep: Callable[..., SweepConfig],
+) -> None:
+    plan = optimize_instrument_grouped(
+        instrument,
+        audio,
+        SR,
+        optimize_settings(sweep=sweep(rates=(11_025,), depths=(8,), dither=False)),
+    )
+    assert plan.layers.count == plan.budget.layers
+    assert {unit.layer for unit in plan.sample_units()} == {zone.layer for zone in plan.zones}
+
+
+def test_the_format_answers_how_many_layers_and_samples_it_numbers(
+    retarget: Callable[[TrackerFormat], ExportTarget],
+) -> None:
+    """The caps a layered plan is held to come off the same table every other bound is read from."""
+    for tracker in (TrackerFormat.IT, TrackerFormat.XM):
+        target = retarget(tracker)
+        assert target.max_instruments >= _THREE_LAYERS
+        assert target.max_samples >= target.max_instruments
+
+
+@pytest.mark.parametrize(("count", "expected"), [(1, 10.0), (2, 11.0), (3, 12.1)])
+def test_each_extra_layer_raises_what_a_split_has_to_beat(count: int, expected: float) -> None:
+    """A layer earns its place by ``min_gain``, so the mark-up compounds with how many are stored."""
+    allocation = LayeredAllocation(
+        layers=VelocityLayers(tuple(VelocityBand(index, index) for index in range(count))),
+        budget=None,  # type: ignore[arg-type]
+        zones=(),
+        total_bytes=0,
+        objective=10.0,
+    )
+    assert preference(allocation, 0.1) == pytest.approx(expected)

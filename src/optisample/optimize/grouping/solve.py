@@ -6,8 +6,12 @@ from numpy.typing import NDArray
 
 from optisample.optimize.dp import require_feasible
 from optisample.optimize.grouping.cost_model import (
+    ZoneSegment,
     _Range,
     _ZoneOptions,
+    axis_tasks,
+    combined_options,
+    segment_offsets,
     zone_hull,
     zone_starts,
 )
@@ -16,8 +20,8 @@ from optisample.optimize.tasks import PitchTask
 
 
 @dataclass(frozen=True)
-class _Segment:
-    """One recovered zone: the half-open pitch-index range ``[start, stop)`` and its chosen option."""
+class _Recovered:
+    """One recovered zone: the half-open axis-index range ``[start, stop)`` and its chosen option."""
 
     start: int
     stop: int
@@ -81,32 +85,34 @@ def _reconstruct(
     from_option: list[NDArray[np.int64]],
     count: int,
     total: int,
-) -> list[_Segment]:
+) -> list[_Recovered]:
     """Walk the DP backpointers from ``(count, total)`` back to ``(0, 0)`` to recover the zones."""
-    segments: list[_Segment] = []
+    recovered: list[_Recovered] = []
     stop, budget = count, total
     while stop > 0:
         start = int(from_start[stop][budget])
         option = options[(start, stop)][int(from_option[stop][budget])]
-        segments.append(_Segment(start=start, stop=stop, option=option))
+        recovered.append(_Recovered(start=start, stop=stop, option=option))
         budget -= option.stored_bytes
         stop = start
 
-    segments.reverse()
-    return segments
+    recovered.reverse()
+    return recovered
 
 
 def _build_zone(
     tasks: Sequence[PitchTask],
     span: _Range,
+    layer: int,
     chosen: ZoneOption,
     zone_options: Sequence[ZoneOption],
 ) -> Zone:
-    """Attach the covered keys, the representative's stored velocity and the RD hull to a chosen zone."""
+    """Attach the covered keys, the layer, the representative's velocity and the RD hull to a zone."""
     range_tasks = tasks[span[0] : span[1]]
     rep_task = next(task for task in range_tasks if task.pitch == chosen.representative)
     return Zone(
         pitches=tuple(task.pitch for task in range_tasks),
+        layer=layer,
         representative_key=rep_task.representative_key,
         weight=sum(task.weight for task in range_tasks),
         chosen=chosen,
@@ -114,33 +120,45 @@ def _build_zone(
     )
 
 
+def _layer_at(offsets: Sequence[int], position: int) -> int:
+    """Which segment -- and so which layer -- the key at ``position`` on the axis came from."""
+    return int(np.searchsorted(offsets, position, side="right")) - 1
+
+
 def solve_grouping(
-    tasks: Sequence[PitchTask],
-    options: _ZoneOptions,
+    segments: Sequence[ZoneSegment],
+    options: Sequence[_ZoneOptions],
     budget_bytes: int,
 ) -> GroupingResult:
     """Exact partition + allocation: least-distortion set of zones whose bytes fit ``budget_bytes``.
 
-    ``options`` holds the candidate zones the cost model scored, which the span cap leaves sparse, so
-    the passes below step between the range boundaries :func:`zone_starts` reports as connected.
+    The segments' keys are laid end to end into one axis and their option tables offset onto it, so the
+    DP walks every layer in a single pass and the budget is shared across all of them. ``options`` holds
+    the candidate zones the cost model scored, which the span cap and the segment boundaries leave
+    sparse, so the passes below step between the range boundaries :func:`zone_starts` reports as
+    connected.
     """
+    tasks = axis_tasks(segments)
     count = len(tasks)
     if count == 0:
         return GroupingResult(zones=(), total_bytes=0, objective=0.0)
-    starts = zone_starts(options, count)
-    require_feasible(_cheapest_partition_bytes(options, starts), budget_bytes)
-    dp, from_start, from_option = _forward_dp(options, starts, budget_bytes)
+    combined = combined_options(segments, options)
+    offsets = segment_offsets(segments)
+    starts = zone_starts(combined, count)
+    require_feasible(_cheapest_partition_bytes(combined, starts), budget_bytes)
+    dp, from_start, from_option = _forward_dp(combined, starts, budget_bytes)
     reachable = np.flatnonzero(np.isfinite(dp[count]))
     best_bytes = int(reachable[int(np.argmin(dp[count][reachable]))])
-    segments = _reconstruct(options, from_start, from_option, count, best_bytes)
+    chosen = _reconstruct(combined, from_start, from_option, count, best_bytes)
     zones = tuple(
         _build_zone(
             tasks,
-            (segment.start, segment.stop),
-            segment.option,
-            options[(segment.start, segment.stop)],
+            (zone.start, zone.stop),
+            _layer_at(offsets, zone.start),
+            zone.option,
+            combined[(zone.start, zone.stop)],
         )
-        for segment in segments
+        for zone in chosen
     )
     return GroupingResult(
         zones=zones,

@@ -15,12 +15,16 @@ from optisample.dsp.surrogate import EncodingParams, StoredSample
 from optisample.io.render import openmpt123_available, render_module
 from optisample.io.tracker.target import ExportTarget
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
+from optisample.music import MIDI_MAX_VELOCITY
 from optisample.optimize.export import build_module
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.samples import sample_gains, sample_name
+from optisample.optimize.layers.bands import VelocityBand, VelocityLayers
 from optisample.optimize.orchestrate import optimize_instrument
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import (
+    FIRST_LAYER,
+    SINGLE_LAYER,
     BudgetBreakdown,
     GroupedInstrumentPlan,
     InstrumentPlan,
@@ -119,6 +123,7 @@ def _encoded(gain: float, velocity: int = _LOUDEST_VELOCITY) -> tuple[SampleUnit
     unit = SampleUnit(
         label="unit",
         representative_key=SampleKey(60, velocity),
+        layer=FIRST_LAYER,
         keys=(60,),
         params=EncodingParams(22_050, 8),
         frames=8,
@@ -227,6 +232,7 @@ def test_a_grouped_pitch_the_format_does_not_number_raises(
     )
     zone = Zone(
         pitches=(_UNREACHABLE_PITCH,),
+        layer=FIRST_LAYER,
         representative_key=SampleKey(_UNREACHABLE_PITCH, 100),
         weight=1.0,
         chosen=option,
@@ -234,8 +240,9 @@ def test_a_grouped_pitch_the_format_does_not_number_raises(
     )
     plan = GroupedInstrumentPlan(
         instrument_id="x",
-        budget=BudgetBreakdown(storage=storage, module_bytes=64 * 1024, sample_bytes=63 * 1024),
+        budget=BudgetBreakdown(storage=storage, layers=SINGLE_LAYER, module_bytes=64 * 1024, sample_bytes=63 * 1024),
         velocity_map=VelocityVolumeMap(tuple(64 for _ in range(128)), (VelocityAnchor(100, -10.0, 64),)),
+        layers=VelocityLayers((VelocityBand(0, MIDI_MAX_VELOCITY),)),
         zones=(zone,),
         total_bytes=100,
         objective=0.0,

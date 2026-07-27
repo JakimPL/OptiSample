@@ -13,6 +13,8 @@ from optisample.optimize.plans.grouped import (
     ZoneOption,
 )
 from optisample.optimize.plans.strategy import (
+    FIRST_LAYER,
+    SINGLE_LAYER,
     Method,
     SampleUnit,
     Strategy,
@@ -21,6 +23,8 @@ from optisample.optimize.plans.strategy import (
 from optisample.optimize.plans.ungrouped import InstrumentPlan, PitchPlan
 
 __all__ = [
+    "FIRST_LAYER",
+    "SINGLE_LAYER",
     "BudgetBreakdown",
     "BudgetedPlanMixin",
     "GroupedInstrumentPlan",

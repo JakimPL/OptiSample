@@ -13,6 +13,7 @@ from optisample.config.dsp import (
     SpectralConfig,
 )
 from optisample.config.dynamics import DynamicsConfig
+from optisample.config.layers import LayersConfig
 from optisample.config.metrics import MetricsConfig
 from optisample.config.optimize import (
     Method,
@@ -181,6 +182,16 @@ def reduce(config: OptiConfig) -> Callable[..., ReduceConfig]:
 
 
 @pytest.fixture
+def layers(config: OptiConfig) -> Callable[..., LayersConfig]:
+    """Factory: the bundled velocity layering with the given fields overridden (re-validated)."""
+
+    def _build(**overrides: object) -> LayersConfig:
+        return LayersConfig.model_validate({**config.layers.model_dump(), **overrides})
+
+    return _build
+
+
+@pytest.fixture
 def flat_velocity_map() -> VelocityVolumeMap:
     """A map sending every velocity to full volume, so a test can look past the loudness axis."""
     return VelocityVolumeMap(tuple(MAX_VOLUME for _ in range(_MIDI_VELOCITIES)), _ANCHORS)
@@ -197,22 +208,25 @@ def graded_velocity_map() -> VelocityVolumeMap:
 def optimize_settings(config: OptiConfig, target: ExportTarget) -> Callable[..., OptimizeSettings]:
     """Factory: an ``OptimizeSettings`` from the bundled config, overriding the swept grid/method/seed.
 
-    ``sweep`` (a ``SweepConfig``, usually built via the ``sweep`` factory) and ``reduce`` (a
-    ``ReduceConfig``, usually built via the ``reduce`` factory) are the knobs the optimize tests vary;
-    ``encode``, ``metrics``, ``velocity`` and ``target`` come from the bundled config. Every run stays
-    in the calling process, so the suite reads a stage's own timing rather than a pool's startup.
+    ``sweep`` (a ``SweepConfig``, usually built via the ``sweep`` factory), ``reduce`` (a
+    ``ReduceConfig``, usually built via the ``reduce`` factory) and ``layers`` (a ``LayersConfig``,
+    usually built via the ``layers`` factory) are the knobs the optimize tests vary; ``encode``,
+    ``metrics``, ``velocity`` and ``target`` come from the bundled config. Every run stays in the
+    calling process, so the suite reads a stage's own timing rather than a pool's startup.
     """
 
     def _build(
         *,
         sweep: SweepConfig,
         reduce: ReduceConfig | None = None,
+        layers: LayersConfig | None = None,
         method: Method | None = None,
         seed: int = 0,
     ) -> OptimizeSettings:
         return OptimizeSettings(
             sweep=sweep,
             reduce=reduce if reduce is not None else config.reduce,
+            layers=layers if layers is not None else config.layers,
             encode=config.encode,
             metrics=config.metrics,
             velocity=config.velocity,

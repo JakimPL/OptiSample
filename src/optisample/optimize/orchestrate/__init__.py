@@ -9,7 +9,7 @@ from optisample.optimize.orchestrate.cost_model import build_items
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.orchestrate.solve import solve_allocation
 from optisample.optimize.orchestrate.staging import staged_encode
-from optisample.optimize.plans import InstrumentPlan, per_key_bytes, split_budget
+from optisample.optimize.plans import SINGLE_LAYER, InstrumentPlan, per_key_bytes, split_budget
 from optisample.optimize.reduce.grids import GridContext
 from optisample.optimize.reduce.summary import (
     ReductionInputs,
@@ -31,8 +31,11 @@ class RunInputs:
     ``reduction`` is the pre-optimization stage's own outcome: what the recorded grid, the material and
     the encoding grid came down to, and the shortlist each pitch is swept over. Both strategies carry it
     onto their plan, so the report and the artifacts state the search space the allocation was given.
+    ``audio`` is the surviving recordings themselves, which the layered allocation reads to build each
+    velocity band's own view of the instrument.
     """
 
+    audio: AudioMap
     velocity_map: VelocityVolumeMap
     context: EvalContext
     tasks: tuple[PitchTask, ...]
@@ -63,7 +66,7 @@ def prepare_run(
         settings.velocity,
     )
     tasks = build_tasks(instrument, audio, velocity_map, settings.reduce)
-    budget = split_budget(instrument.budget_kb, settings.target.storage)
+    budget = split_budget(instrument.budget_kb, settings.target.storage, SINGLE_LAYER)
     grid = GridContext(
         sample_rate=sample_rate,
         metrics=settings.metrics,
@@ -82,7 +85,6 @@ def prepare_run(
         storage=grid.storage,
         bandwidth=grid.bandwidth,
         grouping=settings.reduce.grouping,
-        byte_target=grid.byte_target,
         seed=settings.seed,
     )
     reduction = summarize_reduction(
@@ -97,7 +99,13 @@ def prepare_run(
             progress=settings.progress,
         ),
     )
-    return RunInputs(velocity_map=velocity_map, context=context, tasks=tuple(tasks), reduction=reduction)
+    return RunInputs(
+        audio=audio,
+        velocity_map=velocity_map,
+        context=context,
+        tasks=tuple(tasks),
+        reduction=reduction,
+    )
 
 
 def allocate_instrument(
@@ -112,7 +120,7 @@ def allocate_instrument(
     """
     items, hulls = build_items(inputs.tasks, inputs.reduction.shortlists(), inputs.context, settings.progress)
 
-    budget = split_budget(instrument.budget_kb, settings.target.storage)
+    budget = split_budget(instrument.budget_kb, settings.target.storage, SINGLE_LAYER)
     allocation, pitches = solve_allocation(inputs.tasks, items, hulls, budget.sample_bytes, settings.method)
 
     return InstrumentPlan(

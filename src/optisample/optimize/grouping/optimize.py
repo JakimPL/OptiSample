@@ -1,10 +1,9 @@
 from optisample.model import InstrumentSpec
-from optisample.optimize.grouping.cost_model import build_zone_options
-from optisample.optimize.grouping.solve import solve_grouping
+from optisample.optimize.layers.allocate import allocate_layers
 from optisample.optimize.orchestrate import RunInputs, prepare_run
 from optisample.optimize.orchestrate.audio import load_run_audio
 from optisample.optimize.orchestrate.settings import OptimizeSettings
-from optisample.optimize.plans import GroupedInstrumentPlan, split_budget
+from optisample.optimize.plans import GroupedInstrumentPlan
 from optisample.optimize.tasks import AudioMap
 
 
@@ -13,30 +12,23 @@ def allocate_instrument_grouped(
     inputs: RunInputs,
     settings: OptimizeSettings,
 ) -> GroupedInstrumentPlan:
-    """Score every candidate pitch zone over the prepared tasks and solve partition and allocation together.
+    """Choose the instrument's velocity layers and solve the pitch partition and allocation across them.
 
     Reads back the run :func:`~optisample.optimize.orchestrate.prepare_run` built, which is the same
-    velocity map and pitch tasks the ungrouped solver allocates over -- that shared derivation is what
+    velocity map and recordings the ungrouped solver allocates over -- that shared derivation is what
     makes the two strategies' objectives comparable. Grouping always solves with the exact DP, so
     ``settings.method`` applies to the ungrouped solver alone.
     """
-    options = build_zone_options(
-        inputs.tasks,
-        inputs.context,
-        workers=settings.workers,
-        progress=settings.progress,
-    )
-
-    budget = split_budget(instrument.budget_kb, settings.target.storage)
-    result = solve_grouping(inputs.tasks, options, budget.sample_bytes)
+    allocation = allocate_layers(instrument, inputs, settings)
 
     return GroupedInstrumentPlan(
         instrument_id=instrument.id,
-        budget=budget,
+        budget=allocation.budget,
         velocity_map=inputs.velocity_map,
-        zones=result.zones,
-        total_bytes=result.total_bytes,
-        objective=result.objective,
+        layers=allocation.layers,
+        zones=allocation.zones,
+        total_bytes=allocation.total_bytes,
+        objective=allocation.objective,
         reduction=inputs.reduction,
     )
 
