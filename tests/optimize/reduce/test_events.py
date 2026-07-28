@@ -1,7 +1,3 @@
-"""Collapsing the material's notes into the classes that score alike (``optimize/reduce/events.py``)."""
-
-from __future__ import annotations
-
 from collections.abc import Callable
 
 import pytest

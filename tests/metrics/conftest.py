@@ -1,7 +1,3 @@
-"""Shared signal degradations for the metrics tests."""
-
-from __future__ import annotations
-
 from collections.abc import Callable
 
 import numpy as np

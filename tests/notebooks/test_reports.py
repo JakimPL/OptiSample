@@ -1,7 +1,3 @@
-"""Tests for the notebook's artifact-reading helpers."""
-
-from __future__ import annotations
-
 from pathlib import Path
 
 import numpy as np
@@ -25,6 +21,7 @@ from optisample.artifacts.serialize import (
     ReducedDocument,
     ReductionDocument,
     RepresentativeEventRecord,
+    ScreenRecord,
     ShortlistedEncodingRecord,
     VelocityMapDocument,
     WrittenSampleRecord,
@@ -98,6 +95,7 @@ def _plan(strategy: str) -> PlanDocument:
     shared = {
         "instrument_id": _INSTRUMENT,
         "objective": 12.3456,
+        "energy_exponent": 0.5,
         "budget": BudgetRecord(
             module_budget_bytes=98_304, sample_budget_bytes=97_000, used_bytes=48_500, module_bytes=49_000
         ),
@@ -195,6 +193,7 @@ def reduced_root(tmp_path: Path) -> Path:
                     index=0, key="p060_C4_v100", file="0000_p060_C4_v100.wav", frames=16_000, duration_s=2.0
                 )
             ],
+            screen=ScreenRecord(silenced=[], unplayable=[], dropped_notes=0),
             reduction=_reduction(),
         ),
     )

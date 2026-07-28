@@ -9,11 +9,6 @@ __pycache__/
 .venv/
 .vscode/
 
-**/*.idea
-**/*.vscode/**
-**/*.ipynb_checkpoints/**
-**/*__pycache__/**
-
 *.pyc
 *.pyo
 *.coverage

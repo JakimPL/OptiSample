@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
@@ -82,7 +80,7 @@ def context(
 @pytest.fixture
 def inputs(context: GridContext, config_dedupe: ReduceConfig, loop_config: LoopConfig) -> ReductionInputs:
     return ReductionInputs(
-        dedupe=config_dedupe.dedupe,
+        reduce=config_dedupe,
         loop=loop_config,
         context=context,
         workers=IN_PROCESS,

@@ -1,7 +1,3 @@
-"""Choosing how many velocity layers to store, and allocating the budget across them (``layers/allocate.py``)."""
-
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -27,10 +23,21 @@ from optisample.optimize.layers.allocate import (
     fits_format,
     preference,
 )
-from optisample.optimize.layers.bands import VelocityBand, VelocityLayers, partitions, velocity_cells
+from optisample.optimize.layers.bands import (
+    VelocityBand,
+    VelocityLayers,
+    partitions,
+    velocity_cells,
+)
 from optisample.optimize.orchestrate import prepare_run
 from optisample.optimize.orchestrate.settings import OptimizeSettings
-from optisample.optimize.plans import FIRST_LAYER, SINGLE_LAYER, Zone, ZoneOption, split_budget
+from optisample.optimize.plans import (
+    FIRST_LAYER,
+    SINGLE_LAYER,
+    Zone,
+    ZoneOption,
+    split_budget,
+)
 from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.tasks import AudioMap
 

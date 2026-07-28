@@ -71,6 +71,7 @@ def _settings(sweep: SweepConfig, **sections: Mapping[str, object]) -> OptimizeS
         metrics=_CONFIG.metrics,
         velocity=_CONFIG.velocity,
         method=_CONFIG.optimize.method,
+        energy_exponent=_CONFIG.optimize.energy_exponent,
         target=export_target(_CONFIG.tracker),
     )
 
@@ -144,7 +145,7 @@ def dithered(audio: dict[SampleKey, NDArray[np.float64]]) -> tuple[list[PitchTas
 def _task(pitch: int, silence: NDArray[np.float64]) -> PitchTask:
     """A one-event task at ``pitch``, the minimum ``_zone_trim`` reads."""
     key = SampleKey(pitch, 100)
-    return PitchTask(pitch, 1.0, key, silence, (key,), (Event(key, 100, 64, 0.5, 1.0, silence),))
+    return PitchTask(pitch, 1.0, key, silence, (key,), (Event(key, 100, 64, 0.5, 1.0, silence, 1.0),))
 
 
 def test_zone_trim_scales_with_upward_transpose() -> None:

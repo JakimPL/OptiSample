@@ -1,7 +1,3 @@
-"""The velocity axis the layers are cut from: cells, bands and the splits over them (``layers/bands.py``)."""
-
-from __future__ import annotations
-
 from math import comb
 
 import pytest

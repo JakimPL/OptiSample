@@ -18,6 +18,7 @@ from optisample.io.subset import write_subset
 from optisample.io.tracker.target import ExportTarget, export_target
 from optisample.model import ProjectSpec
 from optisample.optimize.orchestrate.settings import OptimizeSettings
+from optisample.optimize.reduce.trim import RecordingScreen
 from optisample.progress import ProgressSink, bars_are_watchable, progress_sink
 from optisample.synth import DemoSettings, generate_demo
 
@@ -365,6 +366,7 @@ def _optimize_settings(
         metrics=config.metrics,
         velocity=config.velocity,
         method=config.optimize.method,
+        energy_exponent=config.optimize.energy_exponent,
         target=_export_target(config, args),
         seed=args.seed,
         workers=_workers(config, args),
@@ -424,12 +426,24 @@ def _ingest_settings(args: argparse.Namespace) -> IngestSettings:
     )
 
 
+def _print_screen(screen: RecordingScreen) -> None:
+    """State what the silence screen left out, on the runs where it left anything out."""
+    if screen.admitted_everything:
+        return
+
+    print(
+        f"  {len(screen.silenced)} recordings carried no signal, "
+        f"dropping {screen.dropped_notes} notes at {len(screen.unplayable)} pitches"
+    )
+
+
 def _run_reduce(config: OptiConfig, args: argparse.Namespace) -> None:
     manifest = load_notes(args.notes_json, _samples_dir(args), _ingest_settings(args))
     results = reduce_project(manifest, args.out, _optimize_settings(config, args, config.layers))
     for result in results:
         print(f"{result.instrument_id}: {result.paths.notes_json}  [{result.elapsed_s:.1f}s]")
         print(f"  {result.survivors} samples, {result.notes} notes -> {result.paths.samples_dir}")
+        _print_screen(result.screen)
         print(f"  {result.auditions} auditions -> {result.paths.auditions_dir}")
         print(f"  reduction -> {result.paths.reduction_json}")
 

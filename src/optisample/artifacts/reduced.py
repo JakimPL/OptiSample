@@ -10,19 +10,21 @@ from optisample.artifacts.serialize import (
     ReducedDocument,
     WrittenSampleRecord,
     reduction_document,
+    screen_record,
     write_json,
 )
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode
 from optisample.io.audio import write_wav
 from optisample.io.note_extractor import NoteRecord, dump_notes
 from optisample.metrics.base import Signal
-from optisample.model import InstrumentSpec, Manifest, NoteEvent
+from optisample.model import Manifest, NoteEvent
 from optisample.music import pitch_label
 from optisample.optimize.orchestrate import RunInputs, prepare_run
-from optisample.optimize.orchestrate.audio import load_run_audio
+from optisample.optimize.orchestrate.audio import LoadedInstrument, load_run_audio
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.reduce.keys import SampleKey, nearest_key
 from optisample.optimize.reduce.summary import KeptRecording
+from optisample.optimize.reduce.trim import RecordingScreen
 from optisample.optimize.tasks import (
     AudioMap,
     EvalContext,
@@ -39,13 +41,18 @@ _REFERENCE_FILES: Final = 1  # each pitch's audition folder opens with the recor
 
 @dataclass(frozen=True)
 class ReducedInstrument:
-    """One instrument's reduced dataset: where each part landed and how much of it there is."""
+    """One instrument's reduced dataset: where each part landed and how much of it there is.
+
+    ``screen`` states what admitting the recordings cost, so a reader sees the recordings the dataset
+    leaves out beside the ones it wrote.
+    """
 
     instrument_id: str
     paths: ReducedPaths
     survivors: int
     notes: int
     auditions: int
+    screen: RecordingScreen
     elapsed_s: float
 
 
@@ -200,26 +207,24 @@ def _write_all_auditions(inputs: RunInputs, out_dir: Path, progress: ProgressSin
 
 
 def _reduced_document(
-    instrument_id: str,
-    sample_rate: int,
+    loaded: LoadedInstrument,
     survivors: _Survivors,
     inputs: RunInputs,
     settings: OptimizeSettings,
 ) -> ReducedDocument:
     """What the reduce run decided, as the document written beside the dataset it produced."""
     return ReducedDocument(
-        instrument_id=instrument_id,
+        instrument_id=loaded.instrument.id,
         dedupe_key=settings.reduce.dedupe.key,
-        sample_rate=sample_rate,
+        sample_rate=loaded.sample_rate,
         samples=list(survivors.records),
+        screen=screen_record(loaded.screen),
         reduction=reduction_document(inputs.reduction),
     )
 
 
 def dump_reduced(
-    instrument: InstrumentSpec,
-    audio: AudioMap,
-    sample_rate: int,
+    loaded: LoadedInstrument,
     out_dir: Path | str,
     settings: OptimizeSettings,
 ) -> ReducedInstrument:
@@ -235,8 +240,12 @@ def dump_reduced(
     identity of the recording serving it, so re-running dedup over those recordings keeps the same one
     per slot. A coarser key projects several identities onto one survivor, which then reports the
     identity of the first note reaching it.
+
+    What the written dataset holds is what the screen admitted: the recordings that carried signal,
+    trimmed to the span worth storing, and the notes those recordings can serve.
     """
     started_at = perf_counter()
+    instrument, audio, sample_rate = loaded.instrument, loaded.audio, loaded.sample_rate
     paths = reduced_paths(Path(out_dir), instrument.id)
     inputs = prepare_run(instrument, audio, sample_rate, settings)
     survivors = _write_survivors(audio, inputs.reduction.recordings, sample_rate, paths.samples_dir)
@@ -244,13 +253,14 @@ def dump_reduced(
     dump_notes(notes, paths.notes_json, tracked_ccs=_tracked_ccs(instrument.material))
     auditions = _write_all_auditions(inputs, paths.auditions_dir, settings.progress)
     paths.reduction_json.parent.mkdir(parents=True, exist_ok=True)
-    write_json(paths.reduction_json, _reduced_document(instrument.id, sample_rate, survivors, inputs, settings))
+    write_json(paths.reduction_json, _reduced_document(loaded, survivors, inputs, settings))
     return ReducedInstrument(
         instrument_id=instrument.id,
         paths=paths,
         survivors=len(survivors.records),
         notes=len(notes),
         auditions=auditions,
+        screen=loaded.screen,
         elapsed_s=perf_counter() - started_at,
     )
 
@@ -264,7 +274,6 @@ def reduce_project(manifest: Manifest, out_dir: Path | str, settings: OptimizeSe
     out_dir = Path(out_dir)
     results: list[ReducedInstrument] = []
     for instrument in manifest.instruments:
-        audio, sample_rate = load_run_audio(instrument, settings)
-        results.append(dump_reduced(instrument, audio, sample_rate, out_dir, settings))
+        results.append(dump_reduced(load_run_audio(instrument, settings), out_dir, settings))
 
     return results

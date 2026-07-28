@@ -1,9 +1,3 @@
-"""The byte-budget unit conversion the reports and the budget split share.
-
-What a record or a stored sample costs is a tracker-format fact, so it is read from that format's
-``trackmod`` storage table; what remains here is the KiB scale the budget is expressed in.
-"""
-
 import math
 from typing import Final
 

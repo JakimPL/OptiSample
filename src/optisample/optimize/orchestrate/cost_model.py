@@ -60,7 +60,7 @@ def build_items(
         items.append(
             KnapsackItem(
                 key=str(task.pitch),
-                weight=task.weight,
+                weight=task.objective_weight,
                 points=points,
             ),
         )

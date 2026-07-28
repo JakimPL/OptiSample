@@ -1,8 +1,3 @@
-"""What a plan's stored samples add up to band by band, which is how a split states its own price."""
-
-from __future__ import annotations
-
-from optisample.dsp.surrogate import EncodingParams
 from optisample.music import MIDI_MAX_VELOCITY
 from optisample.optimize.layers.bands import UNSPLIT, VelocityBand, VelocityLayers
 from optisample.optimize.layers.totals import layer_totals

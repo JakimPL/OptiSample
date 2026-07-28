@@ -9,6 +9,7 @@ from numpy.typing import NDArray
 
 from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
+from optisample.config.reduce import ReduceConfig
 from optisample.io.audio import read_wav, write_wav
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.dp import BudgetInfeasibleError
@@ -27,7 +28,7 @@ VELOCITIES = (50, 100)
 # synthesize is a test-signal generator here; its synth config is fixture-independent test data.
 _CONFIG = load_config()
 _SYNTH = _CONFIG.synth
-_DEDUPE = _CONFIG.reduce.dedupe
+_REDUCE = _CONFIG.reduce
 _LOOP = _CONFIG.loop
 
 
@@ -79,7 +80,7 @@ def test_plan_respects_budget_and_covers_every_material_pitch(optimize: Callable
     assert plan.used_bytes <= plan.sample_budget_bytes
     assert plan.module_bytes <= plan.module_budget_bytes
     assert tuple(p.pitch for p in plan.pitches) == PITCHES
-    assert plan.objective == pytest.approx(sum(p.weight * p.chosen.distortion for p in plan.pitches))
+    assert plan.objective == pytest.approx(sum(p.objective_weight * p.chosen.distortion for p in plan.pitches))
 
 
 def test_tighter_budget_costs_fewer_bytes_and_more_distortion(optimize: Callable[..., InstrumentPlan]) -> None:
@@ -176,7 +177,7 @@ def test_load_instrument_audio_decodes_the_recording_dedup_kept(tmp_path: Path) 
         ],
         material=[NoteEvent(pitch=60, velocity=100, duration_s=0.2, count=1)],
     )
-    audio, _ = load_instrument_audio(inst, _DEDUPE, _LOOP, NO_PROGRESS)
+    audio = load_instrument_audio(inst, _REDUCE, _LOOP, NO_PROGRESS).audio
     expected, _ = read_wav(short_path)
     assert list(audio) == [SampleKey(60, 100)]  # both recordings competed for the one key
     np.testing.assert_array_equal(audio[SampleKey(60, 100)], expected)
@@ -193,10 +194,53 @@ def test_load_instrument_audio_trims_lead_in_from_the_front(tmp_path: Path) -> N
         samples=[SourceSample(file=path, pitch=60, velocity=100, lead_in_s=lead_in_s)],
         material=[NoteEvent(pitch=60, velocity=100, duration_s=0.4, count=1)],
     )
-    audio, _ = load_instrument_audio(inst, _DEDUPE, _LOOP, NO_PROGRESS)
+    audio = load_instrument_audio(inst, _REDUCE, _LOOP, NO_PROGRESS).audio
     full, _ = read_wav(path)
     trimmed = round(lead_in_s * SR)
     np.testing.assert_array_equal(audio[SampleKey(60, 100)], full[trimmed:])  # frame 0 lands on the note onset
+
+
+def test_load_instrument_audio_cuts_a_recording_to_the_length_bound(tmp_path: Path) -> None:
+    """A recording running past the trim's bound is decoded down to the span the bound keeps."""
+    path = tmp_path / "0000_p60_v100.wav"
+    write_wav(path, note(60, 100, dur=0.6), SR)
+    inst = InstrumentSpec(
+        id="piano",
+        budget_kb=64.0,
+        samples=[SourceSample(file=path, pitch=60, velocity=100)],
+        material=[NoteEvent(pitch=60, velocity=100, duration_s=0.2, count=1)],
+    )
+    bounded = ReduceConfig.model_validate(
+        {**_REDUCE.model_dump(), "trim": {**_REDUCE.trim.model_dump(), "max_length_s": 0.25}}
+    )
+    audio = load_instrument_audio(inst, bounded, _LOOP, NO_PROGRESS).audio
+    assert audio[SampleKey(60, 100)].size == round(0.25 * SR)
+
+
+def test_load_instrument_audio_turns_away_a_recording_that_never_sounds(tmp_path: Path) -> None:
+    """A failed render carries no signal, so it keeps no slot and the notes it served leave with it."""
+    silent_path = tmp_path / "0000_p60_v100.wav"
+    played_path = tmp_path / "0001_p67_v100.wav"
+    write_wav(silent_path, np.full(round(0.6 * SR), 1.0e-6), SR)
+    write_wav(played_path, note(67, 100, dur=0.6), SR)
+    inst = InstrumentSpec(
+        id="piano",
+        budget_kb=64.0,
+        samples=[
+            SourceSample(file=silent_path, pitch=60, velocity=100),
+            SourceSample(file=played_path, pitch=67, velocity=100),
+        ],
+        material=[
+            NoteEvent(pitch=60, velocity=100, duration_s=0.2, count=3),
+            NoteEvent(pitch=67, velocity=100, duration_s=0.2, count=1),
+        ],
+    )
+    loaded = load_instrument_audio(inst, _REDUCE, _LOOP, NO_PROGRESS)
+    assert list(loaded.audio) == [SampleKey(67, 100)]
+    assert loaded.screen.silenced == (SampleKey(60, 100),)
+    assert loaded.screen.unplayable == (60,)
+    assert loaded.screen.dropped_notes == 3
+    assert [event.pitch for event in loaded.instrument.material] == [67]
 
 
 def test_load_instrument_audio_downmixes_stereo_and_resamples(tmp_path: Path) -> None:
@@ -214,7 +258,8 @@ def test_load_instrument_audio_downmixes_stereo_and_resamples(tmp_path: Path) ->
         ],
         material=[NoteEvent(pitch=60, velocity=100, duration_s=0.4, count=1)],
     )
-    audio, sample_rate = load_instrument_audio(inst, _DEDUPE, _LOOP, NO_PROGRESS)
+    loaded = load_instrument_audio(inst, _REDUCE, _LOOP, NO_PROGRESS)
+    audio, sample_rate = loaded.audio, loaded.sample_rate
     assert sample_rate == SR  # the lowest key's rate wins; the 22 kHz one is resampled up
     assert audio[SampleKey(60, 100)].ndim == 1  # stereo downmixed to mono
     # written as 22.05 kHz, resampled up to 44.1 kHz → twice the frames

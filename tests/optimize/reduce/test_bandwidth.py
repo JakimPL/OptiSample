@@ -1,7 +1,3 @@
-"""Narrowing the stored rate/depth grid before the sweep runs (``optimize/reduce/bandwidth.py``)."""
-
-from __future__ import annotations
-
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 

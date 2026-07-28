@@ -1,7 +1,3 @@
-"""Shared fixtures for the file/format boundary tests: small modules to write, read and render."""
-
-from __future__ import annotations
-
 from collections.abc import Callable, Sequence
 
 import numpy as np

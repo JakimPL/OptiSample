@@ -25,6 +25,7 @@ from optisample.optimize.plans import (
     StrategyPlan,
 )
 from optisample.optimize.reduce.summary import ReductionSummary
+from optisample.optimize.reduce.trim import RecordingScreen
 from optisample.optimize.tasks import EvalContext, PitchTask, score_events
 from optisample.optimize.velocity_map import VelocityVolumeMap
 from trackmod.module.size import SizeReport
@@ -216,18 +217,33 @@ class WrittenSampleRecord(_Frozen):
     duration_s: float
 
 
+class ScreenRecord(_Frozen):
+    """What admitting the recordings cost: the ones left out, and the material that left unplayable.
+
+    ``silenced`` names each recording whose peak stayed under the configured silence floor, so a reader
+    sees which slots the dataset holds no audio for. ``unplayable`` are the pitches those losses stripped
+    of every recording, and ``dropped_notes`` how many played notes went with them.
+    """
+
+    silenced: list[str]
+    unplayable: list[int]
+    dropped_notes: int
+
+
 class ReducedDocument(_Frozen):
     """What one reduce run produced: the dataset it wrote and the decisions that shaped it.
 
     ``dedupe_key`` is the identity the survivors were kept under, so a run reading this dataset back
     states the projection it already stands at. ``sample_rate`` is the analysis rate every survivor was
-    written at, which is the rate the shortlist in ``reduction`` was measured over.
+    written at, which is the rate the shortlist in ``reduction`` was measured over. ``screen`` states
+    what the dataset leaves out, beside the ``samples`` it holds.
     """
 
     instrument_id: str
     dedupe_key: DedupeKey
     sample_rate: int
     samples: list[WrittenSampleRecord]
+    screen: ScreenRecord
     reduction: ReductionDocument
 
 
@@ -238,12 +254,15 @@ class PlanDocument(_Frozen):
     exclusive. The optional-head fields a strategy leaves unset are dropped at serialization, so each
     strategy writes exactly the keys that apply to it. ``layers`` is the velocity split the plan stores,
     one entry per written instrument, so a plan keeping one recording per key reports its single band.
+    ``energy_exponent`` states how steeply each note's own energy scaled its distortion, which is what
+    settles whether two documents' objectives may be compared.
     """
 
     strategy: str
     instrument_id: str
     method: str | None = None
     objective: float
+    energy_exponent: float
     budget: BudgetRecord
     module: ModuleSizeRecord
     reduction: ReductionDocument
@@ -349,6 +368,15 @@ def _velocity_map_document(velocity_map: VelocityVolumeMap) -> VelocityMapDocume
             for anchor in velocity_map.anchors
         ],
         volumes=list(velocity_map.volumes),
+    )
+
+
+def screen_record(screen: RecordingScreen) -> ScreenRecord:
+    """The load-time screen as a document, so a dataset states what it left behind as well as what it holds."""
+    return ScreenRecord(
+        silenced=[key.label for key in screen.silenced],
+        unplayable=list(screen.unplayable),
+        dropped_notes=screen.dropped_notes,
     )
 
 
@@ -491,6 +519,7 @@ def plan_document(
             strategy="grouped",
             instrument_id=plan.instrument_id,
             objective=plan.objective,
+            energy_exponent=plan.energy_exponent,
             budget=budget,
             module=module,
             reduction=reduction,
@@ -503,6 +532,7 @@ def plan_document(
         instrument_id=plan.instrument_id,
         method=plan.method,
         objective=plan.objective,
+        energy_exponent=plan.energy_exponent,
         budget=budget,
         module=module,
         reduction=reduction,
@@ -559,7 +589,7 @@ def note_record(
         served_by=rendered.served_by,
         representative=rendered.representative,
         weight=task.weight,
-        mean_distortion=contribution / task.weight if task.weight > 0.0 else 0.0,
+        mean_distortion=contribution / task.objective_weight if task.objective_weight > 0.0 else 0.0,
         objective_contribution=contribution,
         render_source=rendered.source,
         render_rate=rendered.rate,

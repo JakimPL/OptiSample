@@ -1,7 +1,7 @@
 from enum import StrEnum, unique
-from typing import Annotated
+from typing import Annotated, Self
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from optisample.config.base import ConfigModel
 
@@ -50,6 +50,34 @@ class DedupeConfig(ConfigModel):
     representatives: Representatives
 
 
+class TrimConfig(ConfigModel):
+    """How much of a recording is worth keeping: how long it may run, and where its content ends.
+
+    ``max_length_s`` bounds every kept recording, so one running far past the material it serves is cut to
+    a span the allocation can afford to store. ``tail_floor`` is the amplitude a decay must still reach for
+    the recording to count as carrying it, which is where the kept span ends. ``silence_floor`` is the peak
+    a recording has to reach somewhere to enter the dataset at all, so a take that never sounded is left
+    out; it sits at or above ``tail_floor``, which leaves every kept recording holding content.
+    """
+
+    max_length_s: Annotated[float, Field(gt=0.0)]
+    tail_floor: Annotated[float, Field(gt=0.0)]
+    silence_floor: Annotated[float, Field(gt=0.0)]
+
+    @model_validator(mode="after")
+    def _floors_ordered(self) -> Self:
+        """Hold the two floors in the order that leaves a kept recording with content to trim to.
+
+        Raises:
+            ValueError: when ``silence_floor`` sits under ``tail_floor``, which would admit a recording
+                whose every frame the tail trim then cuts.
+        """
+        if self.silence_floor < self.tail_floor:
+            raise ValueError(f"silence_floor {self.silence_floor} must be at least tail_floor {self.tail_floor}")
+
+        return self
+
+
 class EventsConfig(ConfigModel):
     """How the material's note events collapse before they are scored.
 
@@ -91,6 +119,7 @@ class ReduceConfig(ConfigModel):
     """Every pre-optimization reduction: what survives ingest, and how small the search space starts."""
 
     dedupe: DedupeConfig
+    trim: TrimConfig
     events: EventsConfig
     bandwidth: BandwidthConfig
     grouping: ZoneConfig

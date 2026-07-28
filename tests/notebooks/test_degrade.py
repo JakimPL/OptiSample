@@ -1,7 +1,3 @@
-"""Tests for the notebook degrade helpers."""
-
-from __future__ import annotations
-
 from collections.abc import Callable
 
 import numpy as np

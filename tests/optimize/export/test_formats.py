@@ -1,7 +1,3 @@
-"""What holds across every tracker format the exporter writes, and what each one decides for itself."""
-
-from __future__ import annotations
-
 from collections.abc import Callable
 from pathlib import Path
 

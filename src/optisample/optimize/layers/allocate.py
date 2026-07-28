@@ -50,15 +50,7 @@ class _Layering:
 
     def keys(self, band: VelocityBand) -> tuple[PitchTask, ...]:
         """The keys ``band`` plays and what each of them stores and scores, which the layer count leaves alone."""
-        return tuple(
-            band_tasks(
-                self.instrument,
-                self.inputs.audio,
-                self.inputs.velocity_map,
-                self.settings.reduce,
-                band,
-            )
-        )
+        return tuple(band_tasks(self.instrument, self.inputs.task_inputs, band))
 
     def byte_target(self, split: VelocityLayers, keys: Mapping[VelocityBand, tuple[PitchTask, ...]]) -> int:
         """The share of the budget one stored sample of ``split`` may spend when every key spends the same.

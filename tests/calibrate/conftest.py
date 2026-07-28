@@ -1,7 +1,3 @@
-"""Shared fixtures for the calibrator tests: the calibration context and signal factories."""
-
-from __future__ import annotations
-
 from collections.abc import Callable
 
 import numpy as np

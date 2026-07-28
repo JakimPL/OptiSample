@@ -38,3 +38,13 @@ def peak_amplitude(signal: Signal) -> float:
     """Largest absolute sample in ``signal``; ``0.0`` when it holds none."""
     data = np.asarray(signal, dtype=np.float64)
     return float(np.max(np.abs(data))) if data.size else 0.0
+
+
+def mean_energy(signal: Signal) -> float:
+    """Mean square of ``signal`` -- the energy it carries per frame; ``0.0`` when it holds none.
+
+    Full scale reads 1.0, so the measure states a stretch of audio against the loudest one storable and
+    a level in dB is :func:`gain_to_db` of its square root.
+    """
+    data = np.asarray(signal, dtype=np.float64)
+    return float(np.mean(data**2)) if data.size else 0.0

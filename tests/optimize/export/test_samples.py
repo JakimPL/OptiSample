@@ -259,6 +259,7 @@ def test_a_grouped_pitch_the_format_does_not_number_raises(
         zones=(zone,),
         total_bytes=100,
         objective=0.0,
+        energy_exponent=0.5,
         reduction=reduction,
     )
     audio = {SampleKey(_UNREACHABLE_PITCH, 100): piano_note(60, 100, seed=60 * 200 + 100)}

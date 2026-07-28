@@ -1,7 +1,3 @@
-"""The demo instrument the exporter tests optimize: a 2x2 pitch/velocity grid and the song it plays."""
-
-from __future__ import annotations
-
 from pathlib import Path
 
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample

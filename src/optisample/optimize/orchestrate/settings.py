@@ -20,8 +20,10 @@ class OptimizeSettings:
     """Knobs for one optimization run (bundled to keep the call site small).
 
     Carries the config the run needs -- the encoding sweep grid, the pre-optimization reductions, the
-    velocity layering, the encode config, the fidelity metric's own config, the velocity-map shaping and
-    the solver method -- all sourced from config at the entry point. ``target`` is the tracker format the
+    velocity layering, the encode config, the fidelity metric's own config, the velocity-map shaping, the
+    solver method and how steeply a note's own energy scales what its distortion costs
+    (:func:`~optisample.optimize.weighting.energy_weight`) -- all sourced from config at the entry point.
+    ``target`` is the tracker format the
     plan will be written as, which is what prices every stored sample the allocation considers and how
     many layers it may store. ``seed`` drives the dither RNG, ``workers`` how many processes the stages
     that fan out share their work between, and ``progress`` is where each stage reports how far through
@@ -36,6 +38,7 @@ class OptimizeSettings:
     metrics: MetricsConfig
     velocity: VelocityConfig
     method: Method
+    energy_exponent: float
     target: ExportTarget
     seed: int = DEFAULT_SEED
     workers: int = IN_PROCESS

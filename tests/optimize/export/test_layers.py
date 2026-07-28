@@ -1,7 +1,3 @@
-"""How a plan's velocity layers reach the written module: one instrument each, named per note."""
-
-from __future__ import annotations
-
 from collections.abc import Callable
 
 import numpy as np

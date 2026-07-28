@@ -1,7 +1,3 @@
-"""Shared fixtures for the notebook-helper tests: a demo project and a tone generator."""
-
-from __future__ import annotations
-
 from collections.abc import Callable
 from pathlib import Path
 

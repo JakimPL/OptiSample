@@ -14,6 +14,7 @@ def quantization_step(bits: int) -> float:
     """Grid spacing of a signed ``bits``-bit quantizer over ``[-1, 1)`` (one LSB)."""
     if bits not in VALID_DEPTHS:
         raise ValueError(f"IT samples are 8- or 16-bit, got {bits}")
+
     return 2.0 ** (1 - bits)
 
 
@@ -77,6 +78,7 @@ def _noise_shape(data: Signal, dither: Signal, step: float) -> Signal:
         quantized = float(np.clip(round(desired / step) * step, -1.0, 1.0 - step))
         carry = desired - quantized
         out[index] = quantized
+
     return out
 
 

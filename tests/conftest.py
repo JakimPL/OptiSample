@@ -34,6 +34,7 @@ from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.reduce.grids import NarrowedGrid
 from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.reduce.summary import KeptRecording, ReductionSummary
+from optisample.optimize.tasks import AudioMap, TaskInputs
 from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
 from optisample.synth import NoteSpec, synthesize
 from trackmod.module.storage import Storage
@@ -192,6 +193,33 @@ def layers(config: OptiConfig) -> Callable[..., LayersConfig]:
 
 
 @pytest.fixture
+def task_inputs(config: OptiConfig) -> Callable[..., TaskInputs]:
+    """Factory: the bundle a pitch task is built from, over the bundled reduction and cost weighting.
+
+    ``audio`` and ``velocity_map`` are what a test varies; ``reduce``, ``sample_rate`` and
+    ``energy_exponent`` fall back to the bundled values, so a test states only the knob it is about.
+    """
+
+    def _build(
+        audio: AudioMap,
+        velocity_map: VelocityVolumeMap,
+        *,
+        reduce: ReduceConfig | None = None,
+        sample_rate: int = _NOTE_SR,
+        energy_exponent: float | None = None,
+    ) -> TaskInputs:
+        return TaskInputs(
+            audio=audio,
+            velocity_map=velocity_map,
+            reduce=reduce if reduce is not None else config.reduce,
+            sample_rate=sample_rate,
+            energy_exponent=config.optimize.energy_exponent if energy_exponent is None else energy_exponent,
+        )
+
+    return _build
+
+
+@pytest.fixture
 def flat_velocity_map() -> VelocityVolumeMap:
     """A map sending every velocity to full volume, so a test can look past the loudness axis."""
     return VelocityVolumeMap(tuple(MAX_VOLUME for _ in range(_MIDI_VELOCITIES)), _ANCHORS)
@@ -231,6 +259,7 @@ def optimize_settings(config: OptiConfig, target: ExportTarget) -> Callable[...,
             metrics=config.metrics,
             velocity=config.velocity,
             method=method if method is not None else config.optimize.method,
+            energy_exponent=config.optimize.energy_exponent,
             target=target,
             seed=seed,
         )

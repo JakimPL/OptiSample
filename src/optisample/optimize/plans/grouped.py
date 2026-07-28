@@ -63,6 +63,8 @@ class GroupedInstrumentPlan(BudgetedPlanMixin):
 
     ``layers`` is the velocity split the allocation settled on -- one band per stored instrument, in the
     order the zones are grouped by -- so a note's dynamic names the instrument it is played through.
+    ``energy_exponent`` is how steeply each note's own energy scaled its distortion, which states what
+    the ``objective`` means and so which other plans it may be compared with.
     """
 
     instrument_id: str
@@ -72,6 +74,7 @@ class GroupedInstrumentPlan(BudgetedPlanMixin):
     zones: tuple[Zone, ...]
     total_bytes: int
     objective: float
+    energy_exponent: float
     reduction: ReductionSummary
     strategy: Literal["grouped"] = "grouped"
 

@@ -4,6 +4,10 @@ dedupe:
   cc_quantum: 1.0                  # bucket width turning cc averages into an identity
   transposition_headroom_semitones: 12 # upward transpose a kept recording must still cover in full
   representatives: nearest_loudest # nearest_loudest | all (every survivor at the pitch competes)
+trim:
+  max_length_s: 10.0               # longest span a kept recording holds, however far the file runs on
+  tail_floor: 1.0e-4               # amplitude a decay must still reach for the recording to carry it
+  silence_floor: 1.0e-3            # peak a recording reaches somewhere to enter the dataset at all
 events:
   duration_bucket_ratio: 1.25      # geometric bucket edges notes round up to; 1.0 keeps every duration
 bandwidth:

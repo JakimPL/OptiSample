@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -257,6 +256,22 @@ def test_reduce_command_writes_a_dataset_and_its_reduction(
     assert (out / "reduction" / "piano" / "auditions").is_dir()
     printed = capsys.readouterr().out
     assert "samples" in printed and "auditions" in printed
+
+
+def test_reduce_reports_and_leaves_out_the_recordings_that_never_sound(
+    tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A failed render keeps no slot in the dataset, and the run says so rather than quietly shrinking."""
+    silent = tmp_path / "piano" / f"0000_p{PITCHES[0]}_v100.wav"
+    write_wav(silent, np.full(round(0.6 * SR), 1.0e-6), SR)
+    out = tmp_path / "reduced"
+    main(["reduce", str(tiny_notes), "--budget-kb", "48", "--out", str(out), "--rate", "11025", "--depth", "8"])
+    written = sorted(path.name for path in (out / "piano").glob("*.wav"))
+    assert len(written) == len(PITCHES) - 1
+    assert "carried no signal" in capsys.readouterr().out
+    document = json.loads((out / "reduction" / "piano" / "reduction.json").read_text(encoding="utf-8"))
+    assert document["screen"]["unplayable"] == [PITCHES[0]]
+    assert document["screen"]["dropped_notes"] == 1
 
 
 def test_a_reduced_dataset_optimizes_to_the_same_plan_as_its_source(tmp_path: Path, tiny_notes: Path) -> None:

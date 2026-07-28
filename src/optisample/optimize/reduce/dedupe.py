@@ -6,7 +6,7 @@ from sys import maxsize
 from typing import Final
 
 from optisample.config.dsp import LoopConfig
-from optisample.config.reduce import DedupeConfig
+from optisample.config.reduce import ReduceConfig
 from optisample.io.audio import probe_wav
 from optisample.io.note_extractor import index_of_wav
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
@@ -64,18 +64,19 @@ def holds_material(duration_s: float, required_s: float) -> bool:
     return duration_s >= required_s
 
 
-def required_duration_s(longest_note_s: float, dedupe: DedupeConfig, loop: LoopConfig) -> float:
+def required_duration_s(longest_note_s: float, reduce: ReduceConfig, loop: LoopConfig) -> float:
     """Seconds a kept recording must hold at a pitch for the material there to play in full.
 
-    Two demands set the length, and the larger one wins. A sample serving keys above its own root runs
-    faster by :func:`~optisample.music.semitone_ratio`, consuming stored frames at that rate, so the
-    longest note at the pitch grows by the ratio of ``transposition_headroom_semitones``. Loop detection
-    separately needs room to work in: the attack it skips, the shortest loop it accepts, and the tail it
-    leaves alone.
+    Three demands set the length. A sample serving keys above its own root runs faster by
+    :func:`~optisample.music.semitone_ratio`, consuming stored frames at that rate, so the longest note at
+    the pitch grows by the ratio of ``transposition_headroom_semitones``. The trim's ``max_length_s``
+    bounds that, since a recording is only ever asked for the span the trim keeps. Loop detection
+    separately needs room to work in -- the attack it skips, the shortest loop it accepts, and the tail it
+    leaves alone -- which holds the requirement up wherever the trim would cut under it.
     """
-    transposed = longest_note_s * semitone_ratio(dedupe.transposition_headroom_semitones)
+    transposed = longest_note_s * semitone_ratio(reduce.dedupe.transposition_headroom_semitones)
     loop_floor = loop.attack_skip_s + loop.min_loop_s + loop.tail_skip_s
-    return max(transposed, loop_floor)
+    return max(min(transposed, reduce.trim.max_length_s), loop_floor)
 
 
 def longest_note_by_pitch(material: Sequence[NoteEvent]) -> dict[int, float]:
@@ -106,16 +107,19 @@ def _rank(sample: SourceSample) -> tuple[int, str]:
     return index, sample.file.name
 
 
-def _candidate(sample: SourceSample, dedupe: DedupeConfig) -> Candidate:
+def _candidate(sample: SourceSample, reduce: ReduceConfig) -> Candidate:
     """Turn one listed recording into the identity and onset-aligned length dedup ranks it by.
 
-    The WAV header states the length, so the whole recorded grid is ranked without decoding any PCM.
+    The WAV header states the length, so the whole recorded grid is ranked from the headers alone. The
+    length is read as the trim will leave it, bounded by ``max_length_s``, so recordings are ranked on
+    the span each of them will actually contribute.
     """
     info = probe_wav(sample.file)
+    onset_aligned = max(info.duration_s - sample.lead_in_s, NO_MATERIAL_S)
     return Candidate(
         sample=sample,
-        key=sample_key(sample, dedupe),
-        usable_duration_s=max(info.duration_s - sample.lead_in_s, NO_MATERIAL_S),
+        key=sample_key(sample, reduce.dedupe),
+        usable_duration_s=min(onset_aligned, reduce.trim.max_length_s),
         order=_rank(sample),
     )
 
@@ -131,7 +135,7 @@ def _keep(candidates: Sequence[Candidate], required_s: float) -> Candidate:
 
 def select_recordings(
     instrument: InstrumentSpec,
-    dedupe: DedupeConfig,
+    reduce: ReduceConfig,
     loop: LoopConfig,
     progress: ProgressSink,
 ) -> tuple[Selection, ...]:
@@ -150,12 +154,12 @@ def select_recordings(
     groups: dict[DedupeGroup, list[Candidate]] = {}
     listed = instrument.samples
     for sample in progress.track(listed, label=_PROBE_LABEL, total=len(listed)):
-        candidate = _candidate(sample, dedupe)
-        groups.setdefault(dedupe_group(candidate.key, dedupe.key), []).append(candidate)
+        candidate = _candidate(sample, reduce)
+        groups.setdefault(dedupe_group(candidate.key, reduce.dedupe.key), []).append(candidate)
 
     selections = []
     for group, candidates in groups.items():
-        required_s = required_duration_s(longest.get(group.pitch, NO_MATERIAL_S), dedupe, loop)
+        required_s = required_duration_s(longest.get(group.pitch, NO_MATERIAL_S), reduce, loop)
         kept = _keep(candidates, required_s)
         selections.append(
             Selection(

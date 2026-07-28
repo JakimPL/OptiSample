@@ -1,10 +1,6 @@
-from __future__ import annotations
-
-from optisample.config.reduce import ReduceConfig
 from optisample.model import InstrumentSpec
 from optisample.optimize.layers.bands import VelocityBand, VelocityLayers
-from optisample.optimize.tasks import AudioMap, PitchTask, build_tasks
-from optisample.optimize.velocity_map import VelocityVolumeMap
+from optisample.optimize.tasks import PitchTask, TaskInputs, build_tasks
 
 
 def band_instrument(instrument: InstrumentSpec, band: VelocityBand) -> InstrumentSpec:
@@ -19,27 +15,19 @@ def band_instrument(instrument: InstrumentSpec, band: VelocityBand) -> Instrumen
     return instrument.model_copy(update={"material": played})
 
 
-def band_tasks(
-    instrument: InstrumentSpec,
-    audio: AudioMap,
-    velocity_map: VelocityVolumeMap,
-    reduce: ReduceConfig,
-    band: VelocityBand,
-) -> list[PitchTask]:
+def band_tasks(instrument: InstrumentSpec, inputs: TaskInputs, band: VelocityBand) -> list[PitchTask]:
     """One layer's ordered pitch tasks: the keys ``band`` plays, and what each of them stores and scores.
 
     The whole-instrument rule (:func:`~optisample.optimize.tasks.build_tasks`) runs on the band's own
     material, so one band covering the entire velocity axis yields exactly the tasks a single-layer plan
     is built from, key for key.
     """
-    return build_tasks(band_instrument(instrument, band), audio, velocity_map, reduce)
+    return build_tasks(band_instrument(instrument, band), inputs)
 
 
 def layered_tasks(
     instrument: InstrumentSpec,
-    audio: AudioMap,
-    velocity_map: VelocityVolumeMap,
-    reduce: ReduceConfig,
+    inputs: TaskInputs,
     layers: VelocityLayers,
 ) -> tuple[tuple[PitchTask, ...], ...]:
     """Each layer's tasks in band order -- the ordered axis a layered partition DP segments over.
@@ -48,4 +36,4 @@ def layered_tasks(
     layer holds only the keys the material plays quietly. Every note lands in exactly one layer, so the
     weights across the lists add up to the material's own.
     """
-    return tuple(tuple(band_tasks(instrument, audio, velocity_map, reduce, band)) for band in layers.bands)
+    return tuple(tuple(band_tasks(instrument, inputs, band)) for band in layers.bands)

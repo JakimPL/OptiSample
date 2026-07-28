@@ -1,4 +1,6 @@
-from typing import Literal
+from typing import Annotated, Literal
+
+from pydantic import Field
 
 from optisample.config.base import ConfigModel
 
@@ -19,9 +21,16 @@ class SweepConfig(ConfigModel):
 
 
 class OptimizeConfig(ConfigModel):
-    """Budget-solver settings."""
+    """Budget-solver settings, and what a note's distortion is worth to the objective.
+
+    ``energy_exponent`` raises each note's own energy to a power and scales its distortion by the result,
+    so the objective states the error a listener meets in the mix rather than the error measured against
+    the note alone. Full scale weighs 1.0: ``0.0`` prices every note alike, ``0.5`` follows its amplitude,
+    ``1.0`` its energy, and ``0.3`` the loudness an ear reports for that energy.
+    """
 
     method: Method
+    energy_exponent: Annotated[float, Field(ge=0.0)]
 
 
 class VelocityConfig(ConfigModel):

@@ -65,6 +65,11 @@ every report and artifact tree states what it left behind:
 
 - **Deduplication** keeps one recording per identity — the shortest that still covers its key's longest
   note under the transposition headroom, ranked from the WAV headers alone.
+- **Trimming** bounds every kept recording at `max_length_s` and cuts it where its decay falls under
+  `tail_floor`, so a note recorded into thirty seconds of room tone is stored and scored over the
+  stretch that sounds. A recording whose peak never reaches `silence_floor` never sounded at all: it is
+  left out of the dataset, and any pitch that strips of every recording loses its notes with it, both
+  counted in the run's own output and in `reduction.json`.
 - **Event merging** collapses the notes at a pitch into the classes that reconstruct identically
   (same reference recording, same mapped volume, same scored length), widened onto a geometric duration
   grid by `duration_bucket_ratio`.
@@ -107,6 +112,31 @@ in fidelity. The auditions make the shortlist audible before the sweep is paid f
 A dataset reproduces its survivors exactly under the key it was reduced with; reducing it again under a
 coarser key projects several identities onto one survivor, which then reports the identity of the first
 note that reaches it.
+
+## The objective: what a note's distortion is worth
+
+Every stage above competes for the same number, so it is worth stating exactly what that number counts.
+A reconstruction is scored against the recording it came from with both sides loudness-matched, which
+makes the fidelity a **relative** reading: how wrong the note sounds measured against itself. Left there,
+a pianissimo note's error would count for as much as a fortissimo note's, though one of them is 30 dB
+further down in the mix.
+
+So each class's distortion is scaled by the energy of the stretch of recording it is scored over, raised
+to `energy_exponent` (`src/opticonfig/optimize.yaml`), and by the playing time the material spends on it:
+
+```yaml
+energy_exponent: 0.5   # 0.0 prices every note alike | 0.5 amplitude | 1.0 energy | 0.3 perceived loudness
+```
+
+Full scale weighs 1.0, so the exponent alone fixes how steeply a quiet note counts for less — at the
+shipped `0.5` a note 30 dB down carries 0.032 of the weight the loudest note does, and at `1.0` it carries
+0.001. The two extremes are both defensible and they buy different plans, which is why it is a knob: `1.0`
+is the honest total-error-energy reading and will spend almost nothing on the quiet end; `0.3` follows the
+loudness an ear reports and keeps it in the running. `0.0` reproduces the time-only weighting.
+
+Because the value changes what the objective means, both `report.txt` (`energy^0.5-weighted`, beside the
+objective) and `plan.json` (`energy_exponent`) record it, so two runs are only compared when they were
+measured the same way.
 
 ## Gain staging: storing hot and getting the level back
 

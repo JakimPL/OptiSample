@@ -16,7 +16,13 @@ from optisample.optimize.reduce.summary import (
     ReductionSummary,
     summarize_reduction,
 )
-from optisample.optimize.tasks import AudioMap, EvalContext, PitchTask, build_tasks
+from optisample.optimize.tasks import (
+    AudioMap,
+    EvalContext,
+    PitchTask,
+    TaskInputs,
+    build_tasks,
+)
 from optisample.optimize.velocity_map import (
     VelocityVolumeMap,
     derive_velocity_map,
@@ -31,15 +37,20 @@ class RunInputs:
     ``reduction`` is the pre-optimization stage's own outcome: what the recorded grid, the material and
     the encoding grid came down to, and the shortlist each pitch is swept over. Both strategies carry it
     onto their plan, so the report and the artifacts state the search space the allocation was given.
-    ``audio`` is the surviving recordings themselves, which the layered allocation reads to build each
-    velocity band's own view of the instrument.
+    ``task_inputs`` holds the surviving recordings and the rules a task is built under, which the layered
+    allocation reads back to build each velocity band's own view of the instrument the same way.
     """
 
-    audio: AudioMap
+    task_inputs: TaskInputs
     velocity_map: VelocityVolumeMap
     context: EvalContext
     tasks: tuple[PitchTask, ...]
     reduction: ReductionSummary
+
+    @property
+    def audio(self) -> AudioMap:
+        """The surviving recordings the run works from, which is what every task was built over."""
+        return self.task_inputs.audio
 
 
 def prepare_run(
@@ -65,7 +76,14 @@ def prepare_run(
         loudness_by_velocity([(key.velocity, signal) for key, signal in audio.items()], sample_rate),
         settings.velocity,
     )
-    tasks = build_tasks(instrument, audio, velocity_map, settings.reduce)
+    task_inputs = TaskInputs(
+        audio=audio,
+        velocity_map=velocity_map,
+        reduce=settings.reduce,
+        sample_rate=sample_rate,
+        energy_exponent=settings.energy_exponent,
+    )
+    tasks = build_tasks(instrument, task_inputs)
     budget = split_budget(instrument.budget_kb, settings.target.storage, SINGLE_LAYER)
     grid = GridContext(
         sample_rate=sample_rate,
@@ -92,7 +110,7 @@ def prepare_run(
         tasks,
         audio,
         ReductionInputs(
-            dedupe=settings.reduce.dedupe,
+            reduce=settings.reduce,
             loop=grid.encode.loop,
             context=grid,
             workers=settings.workers,
@@ -100,7 +118,7 @@ def prepare_run(
         ),
     )
     return RunInputs(
-        audio=audio,
+        task_inputs=task_inputs,
         velocity_map=velocity_map,
         context=context,
         tasks=tuple(tasks),
@@ -131,6 +149,7 @@ def allocate_instrument(
         allocation=allocation,
         curve=tuple(rd_curve(items)),
         method=settings.method,
+        energy_exponent=settings.energy_exponent,
         reduction=inputs.reduction,
     )
 
@@ -148,8 +167,8 @@ def optimize_instrument(
 
 def run_instrument(instrument: InstrumentSpec, settings: OptimizeSettings) -> InstrumentPlan:
     """Load an instrument's recordings from disk and optimize it."""
-    audio, sample_rate = load_run_audio(instrument, settings)
-    return optimize_instrument(instrument, audio, sample_rate, settings)
+    loaded = load_run_audio(instrument, settings)
+    return optimize_instrument(loaded.instrument, loaded.audio, loaded.sample_rate, settings)
 
 
 __all__ = [

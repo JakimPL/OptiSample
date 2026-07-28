@@ -223,16 +223,16 @@ def _zone_option(
 ) -> ZoneOption:
     """One way to realize a zone: ``rep_task``'s recording stored as ``params``, serving every key.
 
-    The zone's total distortion is the usage-weighted sum of each covered key's reconstruction from this
-    one stored sample (repitched to that key), so a distant key that the representative serves poorly
-    costs the option here rather than being averaged away.
+    The zone's total distortion is the objective-weighted sum of each covered key's reconstruction from
+    this one stored sample (repitched to that key), so a distant key that the representative serves
+    poorly costs the option here rather than being averaged away.
     """
     start, stop = zone.span
     return ZoneOption(
         rep_task.pitch,
         params,
         score.stored_bytes,
-        sum(axis[position].weight * score.distortions[position] for position in range(start, stop)),
+        sum(axis[position].objective_weight * score.distortions[position] for position in range(start, stop)),
         score.frames,
     )
 

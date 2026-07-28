@@ -35,6 +35,7 @@ def tiny_settings() -> OptimizeSettings:
         metrics=_CONFIG.metrics,
         velocity=_CONFIG.velocity,
         method=_CONFIG.optimize.method,
+        energy_exponent=_CONFIG.optimize.energy_exponent,
         target=export_target(_CONFIG.tracker),
     )
 

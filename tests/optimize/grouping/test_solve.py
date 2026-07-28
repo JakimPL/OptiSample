@@ -1,7 +1,3 @@
-"""The contiguous-partition DP (``grouping/solve.py``), checked exactly against brute force."""
-
-from __future__ import annotations
-
 import math
 from itertools import product
 
@@ -30,7 +26,7 @@ def _fake_layer(pitches: tuple[int, ...]) -> tuple[ZoneSegment, ...]:
             SampleKey(pitch, 100),
             silence,
             (SampleKey(pitch, 100),),
-            (Event(SampleKey(pitch, 100), 100, 64, 1.0, 1.0, silence),),
+            (Event(SampleKey(pitch, 100), 100, 64, 1.0, 1.0, silence, 1.0),),
         )
         for pitch in pitches
     )

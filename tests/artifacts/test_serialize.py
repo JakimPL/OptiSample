@@ -39,6 +39,16 @@ def test_plan_document_grouped_writes_zones_and_drops_method(grouped_plan: Group
     assert "zones" in dumped
 
 
+def test_both_documents_state_the_weighting_their_objective_was_measured_under(
+    ungrouped_plan: InstrumentPlan, grouped_plan: GroupedInstrumentPlan
+) -> None:
+    """A bare objective says nothing on its own, so each document records what scaled the notes into it."""
+    for plan in (ungrouped_plan, grouped_plan):
+        doc = plan_document(plan, [None] * len(plan.sample_units()), _SIZE)
+        assert doc.energy_exponent == plan.energy_exponent
+        assert "energy_exponent" in doc.model_dump()
+
+
 def test_metrics_document_objective_sums_note_contributions() -> None:
     doc = metrics_document("ungrouped", "piano", 44_100, plan_objective=1.5, notes=[])
     assert doc.objective == 0.0  # no notes → no contribution

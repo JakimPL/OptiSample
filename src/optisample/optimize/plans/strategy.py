@@ -1,14 +1,3 @@
-"""The strategy-agnostic surface both instrument plans share.
-
-The ungrouped and grouped plans differ in their internals -- one stored sample per key versus one per
-pitch zone -- but every consumer downstream (the IT exporter, the artifact dumper, the JSON serializer)
-needs the same handful of facts from either: the ordered stored :class:`SampleUnit`s, which strategy
-produced the plan, and its byte/objective summary. Capturing that as the :class:`StrategyPlan` protocol
-lets those consumers work off one shape instead of branching on the concrete plan type.
-"""
-
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Final, Literal, Protocol
 
@@ -88,6 +77,9 @@ class StrategyPlan(Protocol):
 
     @property
     def objective(self) -> float: ...
+
+    @property
+    def energy_exponent(self) -> float: ...
 
     @property
     def used_bytes(self) -> int: ...

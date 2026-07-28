@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import pytest
 
 from optisample.music import midi_to_freq, note_name, pitch_label, semitone_ratio

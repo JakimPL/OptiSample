@@ -1,7 +1,3 @@
-"""The shared per-pitch tasks and the objective scorer both optimizers minimize (``optimize/tasks.py``)."""
-
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,6 +24,7 @@ from optisample.optimize.tasks import (
     AudioMap,
     EvalContext,
     PitchTask,
+    TaskInputs,
     build_tasks,
     render_event,
     score_event,
@@ -40,6 +37,7 @@ SR = 44_100
 PITCHES = (60, 62)
 
 ReduceFactory = Callable[..., ReduceConfig]
+TaskInputsFactory = Callable[..., TaskInputs]
 
 
 # --- task building --------------------------------------------------------------------------------
@@ -54,6 +52,7 @@ def test_build_tasks_orders_by_pitch_and_picks_the_loudest_representative(
     piano_note: Callable[..., NDArray[np.float64]],
     graded_velocity_map: VelocityVolumeMap,
     reduce: ReduceFactory,
+    task_inputs: TaskInputsFactory,
 ) -> None:
     audio: AudioMap = {
         SampleKey(pitch, 100): piano_note(pitch, 100, dur=0.5, seed=pitch * 137 + 100) for pitch in PITCHES
@@ -63,7 +62,7 @@ def test_build_tasks_orders_by_pitch_and_picks_the_loudest_representative(
         NoteEvent(pitch=60, velocity=100, duration_s=0.5, count=2),
         NoteEvent(pitch=60, velocity=40, duration_s=0.5, count=1),
     ]
-    tasks = build_tasks(_instrument(material), audio, graded_velocity_map, reduce())
+    tasks = build_tasks(_instrument(material), task_inputs(audio, graded_velocity_map))
     assert [task.pitch for task in tasks] == [60, 62]  # ascending, the DP's segmentation order
     by_pitch = {task.pitch: task for task in tasks}
     assert by_pitch[60].representative_key == SampleKey(60, 100)  # nearest the loudest velocity played there
@@ -75,10 +74,11 @@ def test_each_note_class_carries_the_volume_it_renders_at(
     piano_note: Callable[..., NDArray[np.float64]],
     graded_velocity_map: VelocityVolumeMap,
     reduce: ReduceFactory,
+    task_inputs: TaskInputsFactory,
 ) -> None:
     audio: AudioMap = {SampleKey(60, 100): piano_note(60, 100, dur=0.5, seed=60 * 137 + 100)}
     material = [NoteEvent(pitch=60, velocity=40, duration_s=0.5, count=1)]
-    task = build_tasks(_instrument(material), audio, graded_velocity_map, reduce())[0]
+    task = build_tasks(_instrument(material), task_inputs(audio, graded_velocity_map))[0]
     assert task.events[0].volume == graded_velocity_map.volume(40)  # scoring reads this, not the velocity
 
 
@@ -86,6 +86,7 @@ def test_notes_sharing_a_reference_and_a_volume_are_scored_once(
     piano_note: Callable[..., NDArray[np.float64]],
     flat_velocity_map: VelocityVolumeMap,
     reduce: ReduceFactory,
+    task_inputs: TaskInputsFactory,
 ) -> None:
     """Two dynamics the map cannot tell apart reconstruct identically, so they become one scored class."""
     audio: AudioMap = {SampleKey(60, 100): piano_note(60, 100, dur=0.5, seed=60 * 137 + 100)}
@@ -94,7 +95,7 @@ def test_notes_sharing_a_reference_and_a_volume_are_scored_once(
         NoteEvent(pitch=60, velocity=40, duration_s=0.5, count=1),  # weight 0.5, same reference and volume
     ]
     exact = reduce(events={"duration_bucket_ratio": 1.0})
-    task = build_tasks(_instrument(material), audio, flat_velocity_map, exact)[0]
+    task = build_tasks(_instrument(material), task_inputs(audio, flat_velocity_map, reduce=exact))[0]
     assert len(task.events) == 1
     assert task.events[0].weight == pytest.approx(1.5)  # the two notes' playing time added up
     assert task.events[0].velocity == 100  # the class is labelled by the loudest note it covers
@@ -104,13 +105,14 @@ def test_duration_bucketing_scores_similar_lengths_as_one_class(
     piano_note: Callable[..., NDArray[np.float64]],
     graded_velocity_map: VelocityVolumeMap,
     reduce: ReduceFactory,
+    task_inputs: TaskInputsFactory,
 ) -> None:
     audio: AudioMap = {SampleKey(60, 100): piano_note(60, 100, dur=0.5, seed=60 * 137 + 100)}
     material = [
         NoteEvent(pitch=60, velocity=100, duration_s=0.52, count=1),
         NoteEvent(pitch=60, velocity=100, duration_s=0.60, count=1),  # within a 1.25 ratio of the above
     ]
-    task = build_tasks(_instrument(material), audio, graded_velocity_map, reduce())[0]
+    task = build_tasks(_instrument(material), task_inputs(audio, graded_velocity_map))[0]
     assert len(task.events) == 1
     assert task.events[0].duration_s >= 0.60  # scored at least as long as the longest note it covers
     assert task.events[0].weight == pytest.approx(0.52 + 0.60)  # weight stays the real playing time
@@ -127,6 +129,7 @@ def test_candidates_offer_the_survivors_the_policy_allows(
     piano_note: Callable[..., NDArray[np.float64]],
     graded_velocity_map: VelocityVolumeMap,
     reduce: ReduceFactory,
+    task_inputs: TaskInputsFactory,
     representatives: Representatives,
     expected: tuple[SampleKey, ...],
 ) -> None:
@@ -135,7 +138,7 @@ def test_candidates_offer_the_survivors_the_policy_allows(
     }
     material = [NoteEvent(pitch=60, velocity=100, duration_s=0.5, count=1)]
     config = reduce(dedupe={"representatives": representatives})
-    tasks = build_tasks(_instrument(material), audio, graded_velocity_map, config)
+    tasks = build_tasks(_instrument(material), task_inputs(audio, graded_velocity_map, reduce=config))
     assert tasks[0].candidates == expected  # the representative always leads
 
 
@@ -143,6 +146,7 @@ def test_a_note_class_names_the_recording_it_is_scored_against(
     piano_note: Callable[..., NDArray[np.float64]],
     graded_velocity_map: VelocityVolumeMap,
     reduce: ReduceFactory,
+    task_inputs: TaskInputsFactory,
 ) -> None:
     """A class carries its reference's identity, so the classes at one pitch stay tellable apart."""
     audio: AudioMap = {
@@ -152,22 +156,70 @@ def test_a_note_class_names_the_recording_it_is_scored_against(
         NoteEvent(pitch=60, velocity=100, duration_s=0.5, count=1),
         NoteEvent(pitch=60, velocity=40, duration_s=0.5, count=1),
     ]
-    task = build_tasks(_instrument(material), audio, graded_velocity_map, reduce())[0]
+    task = build_tasks(_instrument(material), task_inputs(audio, graded_velocity_map))[0]
     assert {event.reference_key for event in task.events} == {SampleKey(60, 100), SampleKey(60, 40)}
     assert len({event.identity for event in task.events}) == len(task.events)
     for event in task.events:
         assert np.array_equal(event.reference, audio[event.reference_key])
 
 
+def test_a_quiet_class_carries_less_of_the_objective_than_a_loud_one(
+    piano_note: Callable[..., NDArray[np.float64]],
+    graded_velocity_map: VelocityVolumeMap,
+    task_inputs: TaskInputsFactory,
+) -> None:
+    """The point of the energy weighting: the same playing time costs less where the note plays softly."""
+    audio: AudioMap = {
+        SampleKey(60, velocity): piano_note(60, velocity, dur=0.5, seed=60 * 137 + velocity) for velocity in (40, 100)
+    }
+    material = [NoteEvent(pitch=60, velocity=velocity, duration_s=0.5, count=1) for velocity in (40, 100)]
+    task = build_tasks(_instrument(material), task_inputs(audio, graded_velocity_map))[0]
+    by_velocity = {event.velocity: event for event in task.events}
+    assert by_velocity[40].weight == pytest.approx(by_velocity[100].weight)  # same playing time
+    assert by_velocity[40].objective_weight < by_velocity[100].objective_weight
+    assert task.objective_weight == pytest.approx(sum(event.objective_weight for event in task.events))
+
+
+def test_an_exponent_of_zero_prices_every_note_by_its_playing_time_alone(
+    piano_note: Callable[..., NDArray[np.float64]],
+    graded_velocity_map: VelocityVolumeMap,
+    task_inputs: TaskInputsFactory,
+) -> None:
+    """The weighting switched off leaves the objective reading exactly the material's own weight."""
+    audio: AudioMap = {
+        SampleKey(60, velocity): piano_note(60, velocity, dur=0.5, seed=60 * 137 + velocity) for velocity in (40, 100)
+    }
+    material = [NoteEvent(pitch=60, velocity=velocity, duration_s=0.5, count=1) for velocity in (40, 100)]
+    inputs = task_inputs(audio, graded_velocity_map, energy_exponent=0.0)
+    task = build_tasks(_instrument(material), inputs)[0]
+    assert task.objective_weight == pytest.approx(task.weight)
+
+
+def test_a_class_is_weighed_over_the_span_it_is_scored_on(
+    piano_note: Callable[..., NDArray[np.float64]],
+    graded_velocity_map: VelocityVolumeMap,
+    reduce: ReduceFactory,
+    task_inputs: TaskInputsFactory,
+) -> None:
+    """A short note off a decaying recording keeps the energy of its own stretch, not the whole file's."""
+    audio: AudioMap = {SampleKey(60, 100): piano_note(60, 100, dur=2.0, seed=60 * 137 + 100)}
+    exact = reduce(events={"duration_bucket_ratio": 1.0})
+    lengths = [NoteEvent(pitch=60, velocity=100, duration_s=duration, count=1) for duration in (0.2, 2.0)]
+    task = build_tasks(_instrument(lengths), task_inputs(audio, graded_velocity_map, reduce=exact))[0]
+    by_length = {event.duration_s: event for event in task.events}
+    assert by_length[0.2].energy_weight > by_length[2.0].energy_weight  # the attack outweighs the decay
+
+
 def test_build_tasks_raises_when_a_material_pitch_has_no_recording(
     piano_note: Callable[..., NDArray[np.float64]],
     graded_velocity_map: VelocityVolumeMap,
     reduce: ReduceFactory,
+    task_inputs: TaskInputsFactory,
 ) -> None:
     audio: AudioMap = {SampleKey(60, 100): piano_note(60, 100, dur=0.5, seed=60 * 137 + 100)}
     material = [NoteEvent(pitch=99, velocity=100, duration_s=0.4, count=1)]  # pitch 99 not recorded
     with pytest.raises(ValueError, match="no recorded sample for pitch 99"):
-        build_tasks(_instrument(material), audio, graded_velocity_map, reduce())
+        build_tasks(_instrument(material), task_inputs(audio, graded_velocity_map))
 
 
 # --- scoring --------------------------------------------------------------------------------------
@@ -205,7 +257,7 @@ def test_score_events_yields_one_weighted_score_per_event(scoring: _Scoring) -> 
     scores = list(score_events(scoring.stored, scoring.task, scoring.context))
     assert len(scores) == len(scoring.task.events)
     for score in scores:
-        assert score.weighted_fidelity == pytest.approx(score.event.weight * score.report.fidelity)
+        assert score.weighted_fidelity == pytest.approx(score.event.objective_weight * score.report.fidelity)
         assert score.report.fidelity >= 0.0
 
 
@@ -219,7 +271,7 @@ def test_scoring_one_class_reads_what_the_whole_pitch_scorer_reads_for_it(scorin
 def test_score_reconstruction_is_the_weight_normalized_mean(scoring: _Scoring) -> None:
     scores = list(score_events(scoring.stored, scoring.task, scoring.context))
     reconstruction = score_reconstruction(scoring.stored, scoring.task, scoring.context)
-    expected = sum(score.weighted_fidelity for score in scores) / scoring.task.weight
+    expected = sum(score.weighted_fidelity for score in scores) / scoring.task.objective_weight
     assert reconstruction == pytest.approx(expected)
     assert reconstruction >= 0.0
 

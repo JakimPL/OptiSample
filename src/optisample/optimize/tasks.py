@@ -14,6 +14,7 @@ from optisample.model import InstrumentSpec, NoteEvent
 from optisample.optimize.reduce.events import MergedEvent, merge_events
 from optisample.optimize.reduce.keys import SampleKey, nearest_key
 from optisample.optimize.velocity_map import VelocityVolumeMap
+from optisample.optimize.weighting import energy_weight
 from trackmod.module.storage import Storage
 
 AudioMap = Mapping[SampleKey, Signal]
@@ -26,10 +27,22 @@ class Event(MergedEvent):
     Everything deciding how the class scores comes from
     :class:`~optisample.optimize.reduce.events.MergedEvent`; what the task layer adds is ``reference``,
     the recording :attr:`~optisample.optimize.reduce.events.MergedEvent.reference_key` names, resolved
-    once here so a scorer reads the audio straight off the class it is scoring.
+    once here so a scorer reads the audio straight off the class it is scoring, and ``energy_weight``,
+    what the notes' own level makes their distortion worth
+    (:func:`~optisample.optimize.weighting.energy_weight`).
     """
 
     reference: Signal
+    energy_weight: float
+
+    @property
+    def objective_weight(self) -> float:
+        """This class's share of the objective's weight: the time it plays for, scaled by how loud it plays.
+
+        The one number an allocation weighs a class's distortion by, so playing time and level reach the
+        objective through a single rule and either can be read back on its own.
+        """
+        return self.weight * self.energy_weight
 
     def scored_reference(self, sample_rate: int) -> Signal:
         """The stretch of the source note a reconstruction of this class is compared against.
@@ -57,6 +70,15 @@ class PitchTask:
     representative: Signal
     candidates: tuple[SampleKey, ...]
     events: tuple[Event, ...]
+
+    @property
+    def objective_weight(self) -> float:
+        """What this pitch carries of the objective's weight, summed over the classes played here.
+
+        The multiplier an allocation prices this pitch's distortion by, so a key the material plays
+        rarely or softly asks less of the budget than one it leans on.
+        """
+        return sum(event.objective_weight for event in self.events)
 
     @property
     def max_duration_s(self) -> float:
@@ -113,12 +135,20 @@ class EvalContext:
 
 
 @dataclass(frozen=True)
-class _TaskInputs:
-    """The instrument-wide inputs every pitch task is built from (bundled to stay under the limit)."""
+class TaskInputs:
+    """The instrument-wide inputs every pitch task is built from (bundled to stay under the limit).
+
+    ``velocity_map`` fixes the volume each note renders at and ``reduce`` how far merging widens a class,
+    which together decide what one scored class stands for. ``sample_rate`` and ``energy_exponent``
+    settle what that class costs: the stretch of its recording it is scored over, and how steeply that
+    stretch's energy scales the distortion measured on it.
+    """
 
     audio: AudioMap
     velocity_map: VelocityVolumeMap
     reduce: ReduceConfig
+    sample_rate: int
+    energy_exponent: float
 
 
 def _group_events_by_pitch(material: Sequence[NoteEvent]) -> dict[int, list[NoteEvent]]:
@@ -151,11 +181,26 @@ def _candidate_keys(
     return (representative_key, *(key for key in available if key != representative_key))
 
 
+def _scored_event(merged: MergedEvent, inputs: TaskInputs) -> Event:
+    """One merged class with the audio it is judged against, and what its level makes that judgement worth."""
+    reference = inputs.audio[merged.reference_key]
+    scored = reference[: seconds_to_frames(merged.duration_s, inputs.sample_rate)]
+    return Event(
+        merged.reference_key,
+        merged.velocity,
+        merged.volume,
+        merged.duration_s,
+        merged.weight,
+        reference,
+        energy_weight(scored, inputs.energy_exponent),
+    )
+
+
 def _build_pitch_task(
     pitch: int,
     events: Sequence[NoteEvent],
     available: Sequence[SampleKey],
-    inputs: _TaskInputs,
+    inputs: TaskInputs,
 ) -> PitchTask:
     """Assemble one pitch's task: its representative recording and the note classes scored against it.
 
@@ -166,14 +211,7 @@ def _build_pitch_task(
     """
     representative_key = nearest_key(available, max(event.velocity for event in events))
     scored = tuple(
-        Event(
-            merged.reference_key,
-            merged.velocity,
-            merged.volume,
-            merged.duration_s,
-            merged.weight,
-            inputs.audio[merged.reference_key],
-        )
+        _scored_event(merged, inputs)
         for merged in merge_events(events, available, inputs.velocity_map, inputs.reduce.events)
     )
     return PitchTask(
@@ -186,25 +224,18 @@ def _build_pitch_task(
     )
 
 
-def build_tasks(
-    instrument: InstrumentSpec,
-    audio: AudioMap,
-    velocity_map: VelocityVolumeMap,
-    reduce: ReduceConfig,
-) -> list[PitchTask]:
+def build_tasks(instrument: InstrumentSpec, inputs: TaskInputs) -> list[PitchTask]:
     """Group the material by pitch and attach each pitch's representative recording and note classes.
 
-    Returned tasks are ordered by pitch -- the order the pitch-zone partitioning DP segments over.
-    ``velocity_map`` fixes the volume each note renders at, which is one of the two things that decide
-    whether two notes score alike; ``reduce`` supplies the rest of the reduction: how far duration
-    bucketing widens a class, and how many of a pitch's survivors are offered as candidate samples.
+    Returned tasks are ordered by pitch -- the order the pitch-zone partitioning DP segments over. What
+    each class stands for and what it costs both come off ``inputs``, so one bundle settles the whole
+    reduction a task carries.
 
     Raises:
         ValueError: when the material plays a pitch the recorded grid has no sample for.
     """
     by_pitch = _group_events_by_pitch(instrument.material or [])
-    keys_at = _keys_by_pitch(audio)
-    inputs = _TaskInputs(audio=audio, velocity_map=velocity_map, reduce=reduce)
+    keys_at = _keys_by_pitch(inputs.audio)
 
     tasks: list[PitchTask] = []
     for pitch, events in sorted(by_pitch.items()):
@@ -226,8 +257,8 @@ class EventScore:
 
     @property
     def weighted_fidelity(self) -> float:
-        """This class's contribution to the objective: its usage weight times its distortion."""
-        return self.event.weight * self.report.fidelity
+        """This class's contribution to the objective: its objective weight times its distortion."""
+        return self.event.objective_weight * self.report.fidelity
 
 
 def score_event(stored: StoredSample, event: Event, *, pitch: int, context: EvalContext) -> QualityReport:
@@ -263,15 +294,15 @@ def score_events(
 
 
 def weighted_distortion(task: PitchTask, fidelity: Callable[[Event], float]) -> float:
-    """``task``'s distortion per unit of material weight, gathered from a per-class ``fidelity``.
+    """``task``'s distortion per unit of objective weight, gathered from a per-class ``fidelity``.
 
     The rule turning per-class scores into the number an allocation compares, held apart from how a
     class is scored so a caller measuring its classes some other way -- reading a score it already took
-    for one -- still weights them the way the objective does. A key the material never plays scores
-    zero.
+    for one -- still weights them the way the objective does. A key the material never plays, or plays
+    only in silence, scores zero.
     """
-    total = sum(event.weight * fidelity(event) for event in task.events)
-    return total / task.weight if task.weight > 0.0 else 0.0
+    total = sum(event.objective_weight * fidelity(event) for event in task.events)
+    return total / task.objective_weight if task.objective_weight > 0.0 else 0.0
 
 
 def score_reconstruction(

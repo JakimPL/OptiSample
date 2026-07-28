@@ -5,7 +5,11 @@ from optisample.dsp.surrogate import EncodingParams
 from optisample.metrics.size import bytes_to_kib
 from optisample.music import note_name
 from optisample.optimize.layers.totals import layer_totals
-from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
+from optisample.optimize.plans import (
+    GroupedInstrumentPlan,
+    InstrumentPlan,
+    StrategyPlan,
+)
 from optisample.optimize.plans.budget import (
     BudgetedPlanMixin,
     instrument_overhead,
@@ -126,12 +130,17 @@ def _format_header(plan: BudgetedPlanMixin, size: SizeReport, title: str, summar
     return "\n".join((title, SECTION_RULE, *format_budget_block(plan, size), summary))
 
 
+def _weighting_note(plan: StrategyPlan) -> str:
+    """How the objective weighed each note, which is what makes two objectives comparable."""
+    return f"energy^{plan.energy_exponent:g}-weighted"
+
+
 def _ungrouped_header(plan: InstrumentPlan, size: SizeReport) -> str:
     return _format_header(
         plan,
         size,
         f"Instrument {plan.instrument_id!r} - budget solver (method: {plan.method})",
-        f"Objective: {plan.objective:8.4f}  (sum of weight x distortion over "
+        f"Objective: {plan.objective:8.4f}  ({_weighting_note(plan)}, over "
         f"{len(plan.pitches)} pitches, {plan.total_weight:.1f} s of material)",
     )
 
@@ -203,7 +212,8 @@ def _grouped_header(plan: GroupedInstrumentPlan, size: SizeReport) -> str:
         f"Instrument {plan.instrument_id!r} - pitch-zone grouping (exact partition + allocation DP)",
         f"Grouping:  {_counted(len(plan.zones), 'zone')} over {_counted(len(plan.pitches), 'key')} and "
         f"{_counted(plan.layers.count, 'velocity layer')}  "
-        f"(objective {plan.objective:.4f} over {plan.total_weight:.1f} s of material)",
+        f"(objective {plan.objective:.4f}, {_weighting_note(plan)}, "
+        f"over {plan.total_weight:.1f} s of material)",
     )
 
 

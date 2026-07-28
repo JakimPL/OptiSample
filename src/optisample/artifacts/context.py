@@ -67,15 +67,7 @@ class DumpContext:
         """
         return {
             (layer, task.pitch): task
-            for layer, tasks in enumerate(
-                layered_tasks(
-                    self.instrument,
-                    self.audio,
-                    self.inputs.velocity_map,
-                    self.settings.optimize.reduce,
-                    layers,
-                )
-            )
+            for layer, tasks in enumerate(layered_tasks(self.instrument, self.inputs.task_inputs, layers))
             for task in tasks
         }
 

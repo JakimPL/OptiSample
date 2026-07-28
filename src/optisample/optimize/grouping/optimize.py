@@ -29,6 +29,7 @@ def allocate_instrument_grouped(
         zones=allocation.zones,
         total_bytes=allocation.total_bytes,
         objective=allocation.objective,
+        energy_exponent=settings.energy_exponent,
         reduction=inputs.reduction,
     )
 
@@ -49,5 +50,5 @@ def run_instrument_grouped(
     settings: OptimizeSettings,
 ) -> GroupedInstrumentPlan:
     """Load an instrument's recordings from disk and optimize it with grouping."""
-    audio, sample_rate = load_run_audio(instrument, settings)
-    return optimize_instrument_grouped(instrument, audio, sample_rate, settings)
+    loaded = load_run_audio(instrument, settings)
+    return optimize_instrument_grouped(loaded.instrument, loaded.audio, loaded.sample_rate, settings)

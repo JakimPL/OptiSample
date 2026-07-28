@@ -22,14 +22,21 @@ from optisample.model import (
     SourceSample,
 )
 from optisample.optimize.orchestrate import prepare_run
+from optisample.optimize.orchestrate.audio import LoadedInstrument
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.reduce.summary import KeptRecording
+from optisample.optimize.reduce.trim import NO_SCREEN
 from optisample.optimize.tasks import AudioMap
 
 SR = 44_100
 PITCHES = (60, 62, 64)
 VELOCITIES = (60, 100)
+
+
+def _loaded(instrument: InstrumentSpec, audio: AudioMap) -> LoadedInstrument:
+    """Recordings handed straight in, standing in for a load that admitted every one of them."""
+    return LoadedInstrument(instrument=instrument, audio=dict(audio), sample_rate=SR, screen=NO_SCREEN)
 
 
 @pytest.fixture
@@ -68,7 +75,7 @@ def reduced(
     no_render_settings: DumpSettings,
     tmp_path: Path,
 ) -> ReducedInstrument:
-    return dump_reduced(graded_instrument, graded_audio, SR, tmp_path, no_render_settings.optimize)
+    return dump_reduced(_loaded(graded_instrument, graded_audio), tmp_path, no_render_settings.optimize)
 
 
 def _document(reduced: ReducedInstrument) -> dict[str, object]:
@@ -187,7 +194,7 @@ def test_a_survivor_longer_than_asked_is_trimmed_to_the_requirement(
     no_render_settings: DumpSettings,
     tmp_path: Path,
 ) -> None:
-    reduced = dump_reduced(graded_instrument, graded_audio, SR, tmp_path, no_render_settings.optimize)
+    reduced = dump_reduced(_loaded(graded_instrument, graded_audio), tmp_path, no_render_settings.optimize)
     inputs = prepare_run(graded_instrument, graded_audio, SR, no_render_settings.optimize)
     required = {recording.key.label: recording.required_duration_s for recording in inputs.reduction.recordings}
     for sample in _document(reduced)["samples"]:  # type: ignore[attr-defined]
@@ -216,7 +223,7 @@ def test_a_reduced_dataset_reloads_into_the_same_survivors(
     tmp_path: Path,
 ) -> None:
     """The point of the dataset: an allocation run reads it back and reduces to exactly what was written."""
-    reduced = dump_reduced(graded_instrument, graded_audio, SR, tmp_path, no_render_settings.optimize)
+    reduced = dump_reduced(_loaded(graded_instrument, graded_audio), tmp_path, no_render_settings.optimize)
     reloaded = load_notes(
         reduced.paths.notes_json,
         reduced.paths.samples_dir,
@@ -250,7 +257,7 @@ def test_a_project_reduces_every_instrument_under_one_root(
 ) -> None:
     monkeypatch.setattr(
         "optisample.artifacts.reduced.load_run_audio",
-        lambda instrument, settings: (graded_audio, SR),
+        lambda instrument, settings: _loaded(instrument, graded_audio),
     )
     manifest = Manifest(project=ProjectSpec(name="demo"), instruments=[graded_instrument])
     results = reduce_project(manifest, tmp_path, no_render_settings.optimize)
@@ -275,9 +282,10 @@ def test_the_dedupe_key_the_dataset_was_reduced_under_reaches_the_document(
         metrics=no_render_settings.optimize.metrics,
         velocity=no_render_settings.optimize.velocity,
         method=no_render_settings.optimize.method,
+        energy_exponent=no_render_settings.optimize.energy_exponent,
         target=no_render_settings.optimize.target,
     )
     loudest = {SampleKey(pitch, 100): graded_audio[SampleKey(pitch, 100)] for pitch in PITCHES}
-    reduced = dump_reduced(graded_instrument, loudest, SR, tmp_path, settings)
+    reduced = dump_reduced(_loaded(graded_instrument, loudest), tmp_path, settings)
     assert reduced.survivors == len(PITCHES)
     assert _document(reduced)["dedupe_key"] == DedupeKey.PITCH.value

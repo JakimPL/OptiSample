@@ -1,7 +1,3 @@
-"""Shared fixtures for the exporter tests: the demo audio grid and the builds both strategies produce."""
-
-from __future__ import annotations
-
 import dataclasses
 from collections.abc import Callable
 
@@ -20,7 +16,13 @@ from optisample.optimize.orchestrate import optimize_instrument
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
 from optisample.optimize.reduce.keys import SampleKey
-from tests.optimize.export.demo import PITCHES, SR, VELOCITIES, demo_instrument, demo_material
+from tests.optimize.export.demo import (
+    PITCHES,
+    SR,
+    VELOCITIES,
+    demo_instrument,
+    demo_material,
+)
 from trackmod.module.protocol import TrackerModule
 
 _GROUPED_BUDGET_KB = 8.0

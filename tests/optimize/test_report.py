@@ -36,6 +36,7 @@ from trackmod.module.storage import Storage
 _MODULE_BYTES = 64 * 1024
 _SIZE = SizeReport(patterns=120, pcm=9000, headers=800, largest_pattern=90)
 _WHOLE_AXIS = VelocityLayers((VelocityBand(0, MIDI_MAX_VELOCITY),))  # one layer answering every dynamic
+_ENERGY_EXPONENT = 0.5  # the weighting these fixtures state; the report only ever echoes it back
 
 
 def _point(rate: int = 22_050, depth: int = 16, size: int = 5000, distortion: float = 0.1) -> OperatingPoint:
@@ -59,6 +60,7 @@ def _ungrouped_plan(
         allocation=Allocation(tuple(Selection(str(p.pitch), p.weight, p.chosen) for p in pitches), 5000, 0.5),
         curve=curve,
         method="lagrangian",
+        energy_exponent=_ENERGY_EXPONENT,
         reduction=reduction,
     )
 
@@ -67,8 +69,8 @@ def test_format_report_has_all_sections(storage: Storage, reduction: ReductionSu
     point = _point()
     plan = _ungrouped_plan(
         pitches=(
-            PitchPlan(60, 5.0, SampleKey(60, 100), point, (point,)),
-            PitchPlan(67, 4.0, SampleKey(67, 100), point, (point,)),
+            PitchPlan(60, 5.0, 5.0, SampleKey(60, 100), point, (point,)),
+            PitchPlan(67, 4.0, 4.0, SampleKey(67, 100), point, (point,)),
         ),
         # one curve point that overflows the sample budget and one that fits, to exercise both the
         # "<= budget" marker and its absence.
@@ -91,6 +93,21 @@ def test_format_report_has_all_sections(storage: Storage, reduction: ReductionSu
     assert report.endswith("\n")
 
 
+def test_a_report_states_the_weighting_its_objective_was_measured_under(
+    storage: Storage, reduction: ReductionSummary
+) -> None:
+    """Two objectives only compare under one weighting, so each report says which one produced it."""
+    point = _point()
+    ungrouped = _ungrouped_plan(
+        pitches=(PitchPlan(60, 5.0, 5.0, SampleKey(60, 100), point, (point,)),),
+        curve=(RDCurvePoint(lam=1.0, total_bytes=6000, objective=8.0, indices=(0,)),),
+        storage=storage,
+        reduction=reduction,
+    )
+    assert f"energy^{_ENERGY_EXPONENT:g}-weighted" in format_report(ungrouped, _SIZE)
+    assert f"energy^{_ENERGY_EXPONENT:g}-weighted" in format_grouping_report(_layered_plan(storage, reduction), _SIZE)
+
+
 def test_report_curve_always_includes_the_final_point(storage: Storage, reduction: ReductionSummary) -> None:
     # A long curve whose display stride (every other vertex) would otherwise skip the last one.
     point = _point()
@@ -98,7 +115,7 @@ def test_report_curve_always_includes_the_final_point(storage: Storage, reductio
         RDCurvePoint(lam=float(12 - i), total_bytes=1000 + 400 * i, objective=20.0 - i, indices=(0,)) for i in range(12)
     )
     plan = _ungrouped_plan(
-        pitches=(PitchPlan(60, 5.0, SampleKey(60, 100), point, (point,)),),
+        pitches=(PitchPlan(60, 5.0, 5.0, SampleKey(60, 100), point, (point,)),),
         curve=curve,
         storage=storage,
         reduction=reduction,
@@ -121,6 +138,7 @@ def _grouped_plan(
         zones=zones,
         total_bytes=sum(zone.chosen.stored_bytes for zone in zones),
         objective=sum(zone.chosen.distortion for zone in zones),
+        energy_exponent=_ENERGY_EXPONENT,
         reduction=reduction,
     )
 
@@ -244,7 +262,7 @@ def test_both_strategies_report_the_reduction(storage: Storage, reduction: Reduc
     point = _point()
     ungrouped = format_report(
         _ungrouped_plan(
-            pitches=(PitchPlan(60, 5.0, SampleKey(60, 100), point, (point,)),),
+            pitches=(PitchPlan(60, 5.0, 5.0, SampleKey(60, 100), point, (point,)),),
             curve=(RDCurvePoint(lam=1.0, total_bytes=6000, objective=8.0, indices=(0,)),),
             storage=storage,
             reduction=reduction,
@@ -261,6 +279,7 @@ def test_both_strategies_report_the_reduction(storage: Storage, reduction: Reduc
             zones=(Zone((60,), FIRST_LAYER, SampleKey(60, 100), 1.0, option, (option,)),),
             total_bytes=6000,
             objective=0.2,
+            energy_exponent=_ENERGY_EXPONENT,
             reduction=reduction,
         ),
         _SIZE,

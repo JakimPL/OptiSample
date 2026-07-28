@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from optisample.config.dsp import LoopConfig
-from optisample.config.reduce import DedupeConfig
+from optisample.config.reduce import ReduceConfig
 from optisample.dsp.surrogate import EncodingParams
 from optisample.metrics.base import Signal
 from optisample.model import InstrumentSpec
@@ -99,12 +99,12 @@ class ReductionSummary:
 class ReductionInputs:
     """The run-wide inputs the summary is measured against (bundled to stay under the argument limit).
 
-    ``dedupe`` and ``loop`` set how long a kept recording has to be; ``context`` is what prices and
+    ``reduce`` and ``loop`` set how long a kept recording has to be; ``context`` is what prices and
     narrows a stored grid; ``workers`` is how many processes share the pitches out between them; and
     ``progress`` is where the pre-pass reports how many pitches it has narrowed so far.
     """
 
-    dedupe: DedupeConfig
+    reduce: ReduceConfig
     loop: LoopConfig
     context: GridContext
     workers: int
@@ -130,7 +130,7 @@ def _kept_recordings(
             duration_s=len(audio[key]) / sample_rate,
             required_duration_s=required_duration_s(
                 longest.get(key.pitch, NO_MATERIAL_S),
-                inputs.dedupe,
+                inputs.reduce,
                 inputs.loop,
             ),
         )
