@@ -16,6 +16,7 @@ from optisample.io.tracker.target import ExportTarget, export_target
 from trackmod.core.effects.effect import Effect
 from trackmod.core.instruments.instrument import Instrument
 from trackmod.core.instruments.keymap import KeyAssignment, routed_keymap
+from trackmod.core.instruments.transfer import extract
 from trackmod.core.notes.command import NoteCommand
 from trackmod.core.notes.pitch import Note
 from trackmod.core.patterns.builder import PatternBuilder
@@ -39,6 +40,9 @@ _FORMATS = tuple(TrackerFormat)
 
 # every format numbers the keyboard from C-0, and each names a different stretch of it
 _KEY_RANGES = ((TrackerFormat.IT, 12, 131), (TrackerFormat.XM, 12, 107))
+
+# what each format calls a standalone instrument on disk
+_INSTRUMENT_EXTENSIONS = ((TrackerFormat.IT, ".iti"), (TrackerFormat.XM, ".xi"))
 
 
 def song(rows: int) -> Song:
@@ -84,6 +88,33 @@ def test_binding_a_song_gives_a_module_that_writes_itself(
     assert module.storage is target.storage
     assert module.extension == f".{tracker_format}"
     assert module.size().total == len(module.to_bytes())
+
+
+@pytest.mark.parametrize(("tracker_format", "extension"), _INSTRUMENT_EXTENSIONS)
+def test_an_instrument_is_bound_as_the_file_its_own_format_writes(
+    tracker_format: TrackerFormat,
+    extension: str,
+    retarget: Callable[[TrackerFormat], ExportTarget],
+) -> None:
+    """One voice out of a song stands on its own, written the way the run's format writes instruments."""
+    target = retarget(tracker_format)
+    written = target.instrument_file(extract(song(target.min_rows), 0))
+    assert written.extension == extension
+    assert written.violations() == ()
+    assert written.size().total == len(written.to_bytes())
+    assert written.limits == target.limits  # the file answers to the bounds the module was graded against
+
+
+@pytest.mark.parametrize("tracker_format", _FORMATS)
+def test_an_instrument_file_carries_the_samples_its_keymap_reaches(
+    tracker_format: TrackerFormat, retarget: Callable[[TrackerFormat], ExportTarget]
+) -> None:
+    """The file is portable because the unit numbers its own samples, so nothing points back at the song."""
+    target = retarget(tracker_format)
+    unit = extract(song(target.min_rows), 0)
+    written = target.instrument_file(unit)
+    assert written.unit.samples == unit.samples
+    assert written.unit.instrument.keymap == unit.instrument.keymap
 
 
 @pytest.mark.parametrize("tracker_format", _FORMATS)

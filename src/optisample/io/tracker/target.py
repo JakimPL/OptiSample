@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Final
 
 from optisample.config.tracker import TrackerConfig, TrackerFormat
+from trackmod.core.instruments.unit import InstrumentUnit
 from trackmod.core.notes.command import NoteCommand
 from trackmod.core.notes.pitch import Note
 from trackmod.core.patterns.cell import Cell
@@ -9,14 +10,17 @@ from trackmod.core.songs.song import Song
 from trackmod.limits.capability import Capability
 from trackmod.limits.compliance import Compliance
 from trackmod.limits.table import Limits
+from trackmod.module.instrument import InstrumentFile
 from trackmod.module.protocol import TrackerModule
 from trackmod.module.storage import Storage
 from trackmod.spec.levels import MAX_VOLUME
+from trackmod.trackers.it.instrument_file import ITInstrumentFile
 from trackmod.trackers.it.limits import it_limits
 from trackmod.trackers.it.module import ITModule
 from trackmod.trackers.it.settings import ITSettings
 from trackmod.trackers.it.spec.storage import IT_STORAGE
 from trackmod.trackers.xm.effects.catalog import XM_EFFECTS
+from trackmod.trackers.xm.instrument_file import XMInstrumentFile
 from trackmod.trackers.xm.limits import xm_limits
 from trackmod.trackers.xm.module import XMModule
 from trackmod.trackers.xm.settings import XMSettings
@@ -46,6 +50,19 @@ class ExportTarget:
                 return ITModule.from_song(song, compliance=self.compliance, settings=self.it)
             case TrackerFormat.XM:
                 return XMModule.from_song(song, compliance=self.compliance, settings=self.xm)
+
+    def instrument_file(self, unit: InstrumentUnit) -> InstrumentFile:
+        """Hand one instrument and its own samples to this format, giving a file that stands on its own.
+
+        A module is the piece the plan auditions itself with; a file of this kind is one voice out of it,
+        which is what a player loading a single instrument reads. Both are graded against the same
+        compliance level, so an instrument written beside a module is held to what that module was.
+        """
+        match self.format:
+            case TrackerFormat.IT:
+                return ITInstrumentFile.from_unit(unit, compliance=self.compliance)
+            case TrackerFormat.XM:
+                return XMInstrumentFile.from_unit(unit, compliance=self.compliance)
 
     @property
     def storage(self) -> Storage:

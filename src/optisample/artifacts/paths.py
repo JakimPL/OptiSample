@@ -84,6 +84,11 @@ class PlanPaths:
         return self.directory / "samples"
 
     @property
+    def instruments_dir(self) -> Path:
+        """Every written instrument as a file of its own, which is what a player loading one voice reads."""
+        return self.directory / "instruments"
+
+    @property
     def compare_dir(self) -> Path:
         """The per-pitch A/B pairs: the recording as scored, beside what the module produces for it."""
         return self.directory / "compare"
@@ -109,6 +114,15 @@ class PlanPaths:
     def module(self, extension: str) -> Path:
         """The written module, named by the format's own ``extension`` (``.it`` / ``.xm``)."""
         return self.directory / f"{_MODULE_STEM}{extension}"
+
+    def instrument_file(self, label: str, extension: str) -> Path:
+        """One written instrument's standalone file, named by the slot it holds and the format's extension.
+
+        The label states the dynamics and the keys the instrument answers
+        (:attr:`~optisample.optimize.layers.slots.InstrumentSlot.file_label`), so the directory reads as
+        the map of which file plays what.
+        """
+        return self.instruments_dir / f"{label}{extension}"
 
     def sample_wav(self, label: str) -> Path:
         """One stored sample's decoded WAV, filed under the label its plan unit carries."""

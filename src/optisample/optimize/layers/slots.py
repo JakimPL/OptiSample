@@ -52,6 +52,21 @@ class InstrumentSlot:
         return f"{note_name(pitches[0])}-{note_name(pitches[-1])}"
 
     @property
+    def file_label(self) -> str:
+        """The name this slot's own instrument file is written under (``v000-v051_p029-p063``).
+
+        Both axes a plan splits are stated, so every written instrument lands under a name of its own: the
+        velocity band it answers for, then the run of keys it owns, in MIDI numbers so the name sorts the
+        way the keyboard runs. A band the allocation stored nothing in is written as its one slot, which
+        the band alone names.
+        """
+        pitches = self.pitches
+        if not pitches:
+            return self.band.label
+
+        return f"{self.band.label}_p{pitches[0]:03d}-p{pitches[-1]:03d}"
+
+    @property
     def stored_bytes(self) -> int:
         """What the slot's recordings occupy, records included."""
         return sum(unit.stored_bytes for unit in self.units)

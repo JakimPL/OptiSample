@@ -10,7 +10,7 @@ from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.coverage import key_coverage, played_keys
 from optisample.optimize.export.samples import encode_plan_units
 from optisample.optimize.layers.bands import VelocityLayers
-from optisample.optimize.layers.slots import plan_slots
+from optisample.optimize.layers.slots import SlotLayout, plan_slots
 from optisample.optimize.plans import (
     GroupedInstrumentPlan,
     InstrumentPlan,
@@ -48,17 +48,22 @@ class PlanKind:
 
     ``module`` is the plan playing the instrument's whole material -- the one the dumper writes and
     renders -- while ``make_module`` rebuilds it over any other material, which is how each pitch gets
-    its own single-note A/B render. ``layers`` names the velocity band each written instrument answers
-    for, which is how the dumper files a unit's artifacts under the layer that plays them.
+    its own single-note A/B render. ``layout`` names the instruments the module numbers, so the dumper
+    writes each one on its own and files a unit's artifacts under the band that plays them.
     """
 
     name: str
-    layers: VelocityLayers
+    layout: SlotLayout
     units: tuple[Unit, ...]
     report_text: str
     plan_document: PlanDocument
     module: TrackerModule
     make_module: Callable[[Sequence[NoteEvent]], TrackerModule]
+
+    @property
+    def layers(self) -> VelocityLayers:
+        """The velocity split the plan stores, which is the bands its written instruments answer for."""
+        return self.layout.layers
 
 
 def build_units(plan: StrategyPlan, dump_context: DumpContext) -> tuple[Unit, ...]:
@@ -133,7 +138,7 @@ def make_kind(plan: InstrumentPlan | GroupedInstrumentPlan, dump_context: DumpCo
         report_text = format_report(plan, size, coverage, layout)
     return PlanKind(
         plan.strategy,
-        plan.layers,
+        layout,
         units,
         report_text,
         plan_document(plan, loops, size, coverage, layout),

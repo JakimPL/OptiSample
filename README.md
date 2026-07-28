@@ -242,6 +242,27 @@ A written instrument names the axes the plan split, inside the 22 bytes FastTrac
 `Piano v000-v051 F1-B4` once keys do as well. Each slot answers the whole keyboard from the samples it
 owns, so every one of them is playable on its own.
 
+## Instrument files: one voice per file
+
+`module.it` is a piece of music — the plan playing its own material, which is how a run is auditioned. An
+instrument is what a producer of sampled instruments ships, so every instrument the module numbers is also
+written on its own under `instruments/`:
+
+```
+artifacts/Piano/grouped/
+├── module.it
+└── instruments/
+    ├── v000-v051_p029-p063.iti
+    └── v052-v127_p029-p063.iti
+```
+
+Each file carries the instrument header, the samples its keymap reaches and their waveforms, with those
+samples renumbered into a table of its own — which is what lets a tracker or a player load one voice and
+leave its own song alone. The name states both axes the plan split, the velocity band and the run of keys,
+so the directory reads as the map of which file plays what. Impulse Tracker writes `.iti` and FastTracker 2
+`.xi`, at the same compliance level the module was graded against; the format is the run's, so
+`--format xm` writes `.xi` beside `module.xm`.
+
 ## The sample cap: asking for fewer, wider zones
 
 A budget in bytes and a count of samples are different asks. `max_samples` is the second one:

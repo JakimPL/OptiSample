@@ -24,6 +24,7 @@ from optisample.artifacts.serialize import (
 from optisample.artifacts.units import PlanKind, Unit, make_kind
 from optisample.io.audio import write_wav
 from optisample.io.render import openmpt123_available, render_module
+from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.base import Signal
 from optisample.model import InstrumentSpec, Manifest, NoteEvent
 from optisample.music import pitch_label
@@ -34,6 +35,7 @@ from optisample.optimize.orchestrate.audio import load_instrument_audio
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
 from optisample.optimize.tasks import AudioMap, Event, PitchTask, render_event
+from trackmod.core.instruments.transfer import extract
 
 _Allocator = Callable[[InstrumentSpec, RunInputs, OptimizeSettings], InstrumentPlan | GroupedInstrumentPlan]
 
@@ -112,11 +114,25 @@ def _write_sample_wavs(kind: PlanKind, paths: PlanPaths) -> None:
         write_wav(paths.sample_wav(unit.label), unit.stored.pcm, unit.stored.sample_rate)
 
 
+def _write_instrument_files(kind: PlanKind, paths: PlanPaths, target: ExportTarget) -> None:
+    """Write every instrument the module numbers as a file of its own, under ``instruments/``.
+
+    Extraction renumbers a slot's samples into a table of its own, which is what lets the file be loaded
+    into a song that knows nothing of the one it was written beside. Each lands under the label naming
+    the dynamics and the keys it answers, so the directory reads as the plan's own map.
+    """
+    paths.instruments_dir.mkdir(parents=True, exist_ok=True)
+    for index, slot in enumerate(kind.layout.slots):
+        written = target.instrument_file(extract(kind.module.song, index))
+        written.save(paths.instrument_file(slot.file_label, written.extension))
+
+
 def _write_module_and_render(kind: PlanKind, paths: PlanPaths, dump_context: DumpContext) -> bool:
     """Write the module in its own format and, when openmpt123 is available and asked for, render it."""
     kind.module.save(paths.module(kind.module.extension))
     if not (dump_context.settings.render_ground_truth and openmpt123_available()):
         return False
+
     paths.render_dir.mkdir(parents=True, exist_ok=True)
     audio, rate = render_module(kind.module, dump_context.settings.render)
     write_wav(paths.module_render, audio, rate)
@@ -133,10 +149,18 @@ def _write_metrics(
     progress = dump_context.settings.progress
     notes = [
         _note_record(kind, unit, task, paths, dump_context)
-        for unit, task in progress.track(covered, label=_NOTE_LABEL, total=len(covered))
+        for unit, task in progress.track(
+            covered,
+            label=_NOTE_LABEL,
+            total=len(covered),
+        )
     ]
     document = metrics_document(
-        kind.name, kind.plan_document.instrument_id, dump_context.sample_rate, kind.plan_document.objective, notes
+        kind.name,
+        kind.plan_document.instrument_id,
+        dump_context.sample_rate,
+        kind.plan_document.objective,
+        notes,
     )
     write_json(paths.metrics_json, document)
 
@@ -158,6 +182,7 @@ def _dump_plan(
 
     _write_plan_docs(kind, paths)
     _write_sample_wavs(kind, paths)
+    _write_instrument_files(kind, paths, dump_context.settings.optimize.target)
     rendered = _write_module_and_render(kind, paths, dump_context)
     _write_metrics(kind, paths, dump_context)
     return PlanArtifacts(
@@ -214,13 +239,27 @@ def dump_instrument(
         settings=settings,
     )
     strategies = [
-        strategy for strategy, enabled in ((_UNGROUPED, settings.ungrouped), (_GROUPED, settings.grouped)) if enabled
+        strategy
+        for strategy, enabled in (
+            (_UNGROUPED, settings.ungrouped),
+            (_GROUPED, settings.grouped),
+        )
+        if enabled
     ]
     plans = [
-        _optimize_and_dump(instrument, plan_paths(out_dir, strategy.name), dump_context, strategy)
+        _optimize_and_dump(
+            instrument,
+            plan_paths(out_dir, strategy.name),
+            dump_context,
+            strategy,
+        )
         for strategy in strategies
     ]
-    return DumpResult(instrument_id=instrument.id, directory=out_dir, plans=tuple(plans))
+    return DumpResult(
+        instrument_id=instrument.id,
+        directory=out_dir,
+        plans=tuple(plans),
+    )
 
 
 def dump_project(

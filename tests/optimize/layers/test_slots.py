@@ -69,6 +69,26 @@ def test_a_band_storing_nothing_still_keeps_the_instrument_its_dynamics_resolve_
     assert len(loud.samples) == 2
 
 
+def test_every_written_instrument_is_named_by_the_dynamics_and_the_keys_it_answers() -> None:
+    """A file per instrument needs a name per instrument, so both axes a plan splits are in the label."""
+    quiet, loud = pack_slots(_LAYERED, _SPLIT, _WHOLE_TABLE).slots
+    assert quiet.file_label == "v000-v050_p060-p061"
+    assert loud.file_label == "v051-v127_p060-p061"
+
+
+def test_the_instruments_a_cut_band_is_written_as_are_named_apart() -> None:
+    slots = pack_slots(tuple(_key(pitch) for pitch in range(60, 100)), UNSPLIT, _PER_INSTRUMENT).slots
+    labels = [slot.file_label for slot in slots]
+    assert labels == ["v000-v127_p060-p075", "v000-v127_p076-p091", "v000-v127_p092-p099"]
+    assert len(set(labels)) == len(labels)  # each instrument lands in a file of its own
+
+
+def test_a_band_storing_nothing_is_named_by_the_band_alone() -> None:
+    """That band is written as one instrument, so its own label is all the name the file needs."""
+    quiet, _ = pack_slots((_LOUD, _ALSO_LOUD), _SPLIT, _WHOLE_TABLE).slots
+    assert quiet.file_label == "v000-v050"
+
+
 def test_an_unlayered_plan_is_written_as_one_instrument_holding_everything() -> None:
     (whole,) = pack_slots((_unit(0, (60, 61, 62), stored_bytes=9000, share=2.0, weight=5.0),), UNSPLIT, 255).slots
     assert whole.band.label == "v000-v127"

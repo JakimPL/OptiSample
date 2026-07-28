@@ -22,6 +22,9 @@ from optisample.model import (
 )
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.reduce.keys import SampleKey
+from trackmod.core.instruments.transfer import extract
+from trackmod.trackers.it.instrument_file import ITInstrumentFile
+from trackmod.trackers.it.module import ITModule
 
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
 
@@ -96,8 +99,36 @@ def test_dump_writes_both_strategy_subtrees(generous: Path) -> None:
         assert (base / "reduction.json").is_file()
         assert (base / "metrics.json").is_file()
         assert list((base / "samples").glob("*.wav"))  # at least one stored sample
+        assert list((base / "instruments").glob("*.iti"))
         assert list((base / "compare").glob("*/*_ref.wav"))
         assert list((base / "compare").glob("*/*_render.wav"))
+
+
+def test_one_instrument_file_is_written_for_each_instrument_the_module_numbers(generous: Path) -> None:
+    """A consumer loads a voice by file, so every instrument the plan was written as has one of its own."""
+    for name in ("ungrouped", "grouped"):
+        plan = _load(generous / name / "plan.json")
+        written = sorted((generous / name / "instruments").iterdir())
+        assert len(written) == len(plan["instruments"])
+        assert {path.suffix for path in written} == {".iti"}
+
+
+def test_a_written_instrument_loads_back_as_the_voice_the_module_plays(generous: Path) -> None:
+    """The file stands alone: it holds the module's own keymap and its samples' own PCM, renumbered."""
+    module = ITModule.load(generous / "grouped" / "module.it")
+    for index, path in enumerate(sorted((generous / "grouped" / "instruments").iterdir())):
+        loaded = ITInstrumentFile.load(path).unit
+        held = extract(module.song, index)
+        assert loaded.instrument.keymap == held.instrument.keymap
+        assert [sample.name for sample in loaded.samples] == [sample.name for sample in held.samples]
+        assert all(np.array_equal(one.pcm, other.pcm) for one, other in zip(loaded.samples, held.samples))
+
+
+def test_an_instrument_file_is_named_by_the_dynamics_and_the_keys_it_answers(generous: Path) -> None:
+    plan = _load(generous / "grouped" / "plan.json")
+    (record,) = plan["instruments"]
+    (written,) = (generous / "grouped" / "instruments").iterdir()
+    assert written.stem == f"{record['band']}_p{record['lowest_pitch']:03d}-p{record['highest_pitch']:03d}"
 
 
 def test_metrics_objective_reproduces_plan_objective(generous: Path) -> None:
@@ -312,6 +343,17 @@ def test_a_layered_plan_scores_each_key_once_per_band_it_is_played_in(layered: P
     covered = [(note["layer"], note["pitch"]) for note in metrics["notes"]]
     assert len(covered) == len(set(covered))  # one record per (layer, pitch), never a silent overwrite
     assert metrics["objective"] == pytest.approx(_load(layered / "grouped" / "plan.json")["objective"], rel=1e-4)
+
+
+def test_a_layered_plan_writes_one_instrument_file_per_band(layered: Path) -> None:
+    """Each band is a voice of its own, so a consumer picks its dynamics by picking a file."""
+    plan = _load(layered / "grouped" / "plan.json")
+    written = sorted(path.stem for path in (layered / "grouped" / "instruments").iterdir())
+    assert written == sorted(
+        f"{record['band']}_p{record['lowest_pitch']:03d}-p{record['highest_pitch']:03d}"
+        for record in plan["instruments"]
+    )
+    assert len({stem.split("_")[0] for stem in written}) > 1  # the material earned a velocity split
 
 
 def test_an_ungrouped_plan_stays_a_single_full_range_layer(layered: Path) -> None:
