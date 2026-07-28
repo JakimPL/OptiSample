@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Final
 
 from optisample.dsp.surrogate import EncodingParams
@@ -8,6 +9,7 @@ from optisample.music import MIDI_MAX_VELOCITY
 from optisample.optimize.export.coverage import KeyCoverage
 from optisample.optimize.knapsack import Allocation, RDCurvePoint, Selection
 from optisample.optimize.layers.bands import VelocityBand, VelocityLayers
+from optisample.optimize.layers.slots import SlotLayout, pack_slots
 from optisample.optimize.operating_points import OperatingPoint
 from optisample.optimize.plans import (
     FIRST_LAYER,
@@ -15,10 +17,12 @@ from optisample.optimize.plans import (
     GroupedInstrumentPlan,
     InstrumentPlan,
     PitchPlan,
+    StrategyPlan,
     Zone,
     ZoneOption,
     split_budget,
 )
+from optisample.optimize.plans.budget import populated_instrument_bytes
 from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.reduce.summary import (
     KeptRecording,
@@ -39,6 +43,14 @@ _SIZE = SizeReport(patterns=120, pcm=9000, headers=800, largest_pattern=90)
 _COVERAGE = KeyCoverage(numbered=120, played=3, answered=120)  # a keyboard answered in full from 3 recordings
 _WHOLE_AXIS = VelocityLayers((VelocityBand(0, MIDI_MAX_VELOCITY),))  # one layer answering every dynamic
 _ENERGY_EXPONENT = 0.5  # the weighting these fixtures state; the report only ever echoes it back
+_WHOLE_TABLE: Final = 255  # samples one instrument reaches in a format numbering them freely
+_ONE_SAMPLE_EACH: Final = 1  # the narrowest format imaginable, which writes every stored zone on its own
+_RESERVED: Final = 4  # instruments a budget held room for, above the two a plan came out as
+
+
+def _layout(plan: StrategyPlan, per_instrument: int = _WHOLE_TABLE) -> SlotLayout:
+    """The instruments the plan is written as, which the report prices one row each."""
+    return pack_slots(plan.sample_units(), plan.layers, per_instrument)
 
 
 def _point(rate: int = 22_050, depth: int = 16, size: int = 5000, distortion: float = 0.1) -> OperatingPoint:
@@ -83,7 +95,7 @@ def test_format_report_has_all_sections(storage: Storage, reduction: ReductionSu
         storage=storage,
         reduction=reduction,
     )
-    report = format_report(plan, _SIZE, _COVERAGE)
+    report = format_report(plan, _SIZE, _COVERAGE, _layout(plan))
     assert "Instrument 'piano'" in report
     assert "Budget:" in report and "Objective:" in report
     assert f"{bytes_to_kib(_SIZE.total):7.1f} KiB module" in report  # the written size sits beside the budget
@@ -106,9 +118,10 @@ def test_a_report_states_the_weighting_its_objective_was_measured_under(
         storage=storage,
         reduction=reduction,
     )
-    assert f"energy^{_ENERGY_EXPONENT:g}-weighted" in format_report(ungrouped, _SIZE, _COVERAGE)
+    assert f"energy^{_ENERGY_EXPONENT:g}-weighted" in format_report(ungrouped, _SIZE, _COVERAGE, _layout(ungrouped))
+    layered = _layered_plan(storage, reduction)
     assert f"energy^{_ENERGY_EXPONENT:g}-weighted" in format_grouping_report(
-        _layered_plan(storage, reduction), _SIZE, _COVERAGE
+        layered, _SIZE, _COVERAGE, _layout(layered)
     )
 
 
@@ -124,7 +137,7 @@ def test_report_curve_always_includes_the_final_point(storage: Storage, reductio
         storage=storage,
         reduction=reduction,
     )
-    report = format_report(plan, _SIZE, _COVERAGE)
+    report = format_report(plan, _SIZE, _COVERAGE, _layout(plan))
     assert f"{bytes_to_kib(curve[-1].total_bytes):7.1f} KiB" in report  # final vertex shown despite the stride
 
 
@@ -159,7 +172,7 @@ def test_grouping_report_has_the_expected_sections(storage: Storage, reduction: 
         storage=storage,
         reduction=reduction,
     )
-    report = format_grouping_report(plan, _SIZE, _COVERAGE)
+    report = format_grouping_report(plan, _SIZE, _COVERAGE, _layout(plan))
     assert "pitch-zone grouping" in report
     assert "Budget:" in report and "Zones" in report
     assert "60-62" in report and " 67 " in report  # multi-key span and single-key span
@@ -183,23 +196,57 @@ def _layered_plan(storage: Storage, reduction: ReductionSummary) -> GroupedInstr
 
 
 def test_a_layered_report_prices_the_split_band_by_band(storage: Storage, reduction: ReductionSummary) -> None:
-    report = format_grouping_report(_layered_plan(storage, reduction), _SIZE, _COVERAGE)
-    assert "Velocity layers" in report
+    plan = _layered_plan(storage, reduction)
+    report = format_grouping_report(plan, _SIZE, _COVERAGE, _layout(plan))
+    assert "Instruments (" in report
     assert "v000-v050" in report and "v051-v127" in report
     assert f"{bytes_to_kib(3000):9.1f}" in report and f"{bytes_to_kib(6000):9.1f}" in report
+
+
+def test_a_band_written_as_several_instruments_prices_each_one(storage: Storage, reduction: ReductionSummary) -> None:
+    """A format numbering few samples per instrument cuts a band, and each row states the keys it owns."""
+    multi = ZoneOption(61, EncodingParams(target_rate=22_050, depth_bits=16), 6000, 0.2, 2400)
+    single = ZoneOption(67, EncodingParams(target_rate=11_025, depth_bits=8), 3000, 0.3, 1200)
+    plan = _grouped_plan(
+        zones=(
+            Zone((60, 61, 62), FIRST_LAYER, SampleKey(61, 100), 3.0, multi, (multi,)),
+            Zone((67,), FIRST_LAYER, SampleKey(67, 90), 1.0, single, (single,)),
+        ),
+        layers=_WHOLE_AXIS,
+        storage=storage,
+        reduction=reduction,
+    )
+    report = format_grouping_report(plan, _SIZE, _COVERAGE, _layout(plan, _ONE_SAMPLE_EACH))
+    assert "C4-D4" in report and "G4-G4" in report
+    assert f"{bytes_to_kib(6000):9.1f}" in report and f"{bytes_to_kib(3000):9.1f}" in report
+
+
+def test_the_header_states_the_instruments_reserved_against_those_written(
+    storage: Storage, reduction: ReductionSummary
+) -> None:
+    """The reserve is taken at the worst case, so a plan coming out smaller says what stayed free."""
+    plan = replace(
+        _layered_plan(storage, reduction),
+        budget=split_budget(_MODULE_BYTES / 1024.0, storage, _RESERVED),
+    )
+    report = format_grouping_report(plan, _SIZE, _COVERAGE, _layout(plan))
+    assert f"Instruments: {_RESERVED:>5} reserved  ->  2 written" in report
+    assert f"{bytes_to_kib(2 * populated_instrument_bytes(storage)):.1f} KiB of the reserve left free" in report
 
 
 def test_a_layered_report_counts_each_key_once_however_many_bands_store_it(
     storage: Storage, reduction: ReductionSummary
 ) -> None:
     """Two layers over the same two keys is a two-key instrument, so the summary line says two."""
-    report = format_grouping_report(_layered_plan(storage, reduction), _SIZE, _COVERAGE)
+    plan = _layered_plan(storage, reduction)
+    report = format_grouping_report(plan, _SIZE, _COVERAGE, _layout(plan))
     assert "2 zones over 2 keys and 2 velocity layers" in report
 
 
 def test_every_zone_states_the_layer_it_answers_for(storage: Storage, reduction: ReductionSummary) -> None:
     """A key served twice appears once per band, so the zone table names which one each row belongs to."""
-    rows = [line for line in format_grouping_report(_layered_plan(storage, reduction), _SIZE, _COVERAGE).splitlines()]
+    plan = _layered_plan(storage, reduction)
+    rows = format_grouping_report(plan, _SIZE, _COVERAGE, _layout(plan)).splitlines()
     zone_rows = [line for line in rows if "60-61 (2)" in line]
     assert [line.split()[0] for line in zone_rows] == ["0", "1"]
 
@@ -264,31 +311,25 @@ def test_an_instrument_playing_nothing_still_reports_its_grid() -> None:
 def test_both_strategies_report_the_reduction(storage: Storage, reduction: ReductionSummary) -> None:
     """The stage runs once per instrument, so either plan's report states the same search space."""
     point = _point()
-    ungrouped = format_report(
-        _ungrouped_plan(
-            pitches=(PitchPlan(60, 5.0, 5.0, SampleKey(60, 100), point, (point,)),),
-            curve=(RDCurvePoint(lam=1.0, total_bytes=6000, objective=8.0, indices=(0,)),),
-            storage=storage,
-            reduction=reduction,
-        ),
-        _SIZE,
-        _COVERAGE,
+    plan = _ungrouped_plan(
+        pitches=(PitchPlan(60, 5.0, 5.0, SampleKey(60, 100), point, (point,)),),
+        curve=(RDCurvePoint(lam=1.0, total_bytes=6000, objective=8.0, indices=(0,)),),
+        storage=storage,
+        reduction=reduction,
     )
+    ungrouped = format_report(plan, _SIZE, _COVERAGE, _layout(plan))
     option = ZoneOption(60, EncodingParams(target_rate=22_050, depth_bits=16), 6000, 0.2, 2400)
-    grouped = format_grouping_report(
-        GroupedInstrumentPlan(
-            instrument_id="piano",
-            budget=split_budget(_MODULE_BYTES / 1024.0, storage, SINGLE_LAYER),
-            velocity_map=VelocityVolumeMap(tuple(64 for _ in range(128)), (VelocityAnchor(100, -10.0, 64),)),
-            layers=_WHOLE_AXIS,
-            zones=(Zone((60,), FIRST_LAYER, SampleKey(60, 100), 1.0, option, (option,)),),
-            total_bytes=6000,
-            objective=0.2,
-            energy_exponent=_ENERGY_EXPONENT,
-            reduction=reduction,
-        ),
-        _SIZE,
-        _COVERAGE,
+    zoned = GroupedInstrumentPlan(
+        instrument_id="piano",
+        budget=split_budget(_MODULE_BYTES / 1024.0, storage, SINGLE_LAYER),
+        velocity_map=VelocityVolumeMap(tuple(64 for _ in range(128)), (VelocityAnchor(100, -10.0, 64),)),
+        layers=_WHOLE_AXIS,
+        zones=(Zone((60,), FIRST_LAYER, SampleKey(60, 100), 1.0, option, (option,)),),
+        total_bytes=6000,
+        objective=0.2,
+        energy_exponent=_ENERGY_EXPONENT,
+        reduction=reduction,
     )
+    grouped = format_grouping_report(zoned, _SIZE, _COVERAGE, _layout(zoned))
     block = format_reduction_block(reduction)
     assert block in ungrouped and block in grouped

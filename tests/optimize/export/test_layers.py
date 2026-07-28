@@ -4,10 +4,13 @@ import numpy as np
 import pytest
 
 from optisample.config.render import RenderConfig
+from optisample.dsp.surrogate.params import EncodingParams
 from optisample.io.render import openmpt123_available, render_module
-from optisample.optimize.export.build import instrument_name
+from optisample.optimize.export.build import _NAME_CHARS, instrument_name
 from optisample.optimize.layers.bands import UNSPLIT, VelocityBand, VelocityLayers
-from optisample.optimize.plans import GroupedInstrumentPlan
+from optisample.optimize.layers.slots import SlotLayout, pack_slots
+from optisample.optimize.plans import GroupedInstrumentPlan, SampleUnit
+from optisample.optimize.reduce.keys import SampleKey
 from tests.optimize.export.demo import demo_material
 from tests.optimize.export.test_material import song_cells
 from trackmod.core.notes.command import NoteCommand
@@ -74,17 +77,69 @@ def test_a_note_of_an_unplayed_dynamic_still_resolves_to_a_layer(
     assert plan.layers.band_index(0) == 0
 
 
+_SPLIT = VelocityLayers((VelocityBand(0, 50), VelocityBand(51, 127)))
+_WHOLE_TABLE = 255  # samples an instrument reaches in a format numbering them freely
+_CUT_AT = 2  # samples one instrument owns in a format numbering few, so a wider band is written as several
+_LONG_ID = "grand piano, close mic, soft pedal"
+
+
+def _unit(layer: int, pitch: int) -> SampleUnit:
+    return SampleUnit(
+        label=f"p{pitch:03d}",
+        representative_key=SampleKey(pitch, 100),
+        layer=layer,
+        keys=(pitch,),
+        params=EncodingParams(target_rate=22_050, depth_bits=16),
+        frames=2400,
+        stored_bytes=1000,
+        distortion=1.0,
+        objective_share=1.0,
+        hull_size=1,
+        weight=1.0,
+    )
+
+
+def _layout(layers: VelocityLayers, per_instrument: int) -> SlotLayout:
+    """One stored key per band per octave, packed as the given format would write them."""
+    units = tuple(_unit(layer, pitch) for layer in range(layers.count) for pitch in (60, 72, 84))
+    return pack_slots(units, layers, per_instrument)
+
+
 @pytest.mark.parametrize(
-    ("layers", "layer", "expected"),
+    ("layers", "per_instrument", "index", "expected"),
     [
-        (UNSPLIT, 0, "piano"),
-        (VelocityLayers((VelocityBand(0, 50), VelocityBand(51, 127))), 0, "piano v000-v050"),
-        (VelocityLayers((VelocityBand(0, 50), VelocityBand(51, 127))), 1, "piano v051-v127"),
+        (UNSPLIT, _WHOLE_TABLE, 0, "piano"),
+        (_SPLIT, _WHOLE_TABLE, 0, "piano v000-v050"),
+        (_SPLIT, _WHOLE_TABLE, 1, "piano v051-v127"),
+        (UNSPLIT, _CUT_AT, 0, "piano C4-C5"),
+        (UNSPLIT, _CUT_AT, 1, "piano C6-C6"),
+        (_SPLIT, _CUT_AT, 1, "piano v000-v050 C6-C6"),
     ],
-    ids=["one-layer-keeps-the-instrument-name", "quiet-band", "loud-band"],
+    ids=[
+        "one-instrument-keeps-the-instrument-name",
+        "quiet-band",
+        "loud-band",
+        "the-low-keys-of-a-cut-band",
+        "the-high-keys-of-a-cut-band",
+        "both-axes-split",
+    ],
 )
-def test_instrument_name_states_the_band_a_split_tells_apart(layers: VelocityLayers, layer: int, expected: str) -> None:
-    assert instrument_name("piano", layers, layer) == expected
+def test_instrument_name_states_each_axis_the_plan_split(
+    layers: VelocityLayers, per_instrument: int, index: int, expected: str
+) -> None:
+    assert instrument_name("piano", _layout(layers, per_instrument), index) == expected
+
+
+def test_a_long_instrument_id_is_shortened_to_leave_the_axes_it_states_room() -> None:
+    """Every format writes the name into a fixed field, so the part telling instruments apart survives."""
+    name = instrument_name(_LONG_ID, _layout(_SPLIT, _CUT_AT), 1)
+    assert name.endswith(" v000-v050 C6-C6")
+    assert len(name) <= _NAME_CHARS
+
+
+def test_a_long_instrument_id_fits_the_field_even_with_nothing_to_state_beside_it() -> None:
+    """A document records the name the module holds, so the fit is settled here rather than at the writer."""
+    assert instrument_name(_LONG_ID, _layout(UNSPLIT, _WHOLE_TABLE), 0) == _LONG_ID[:_NAME_CHARS]
 
 
 @requires_openmpt

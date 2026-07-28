@@ -40,7 +40,7 @@ def test_split_budget_reserves_the_record_overhead(storage: Storage) -> None:
 
 def test_more_layers_leave_fewer_bytes_for_samples(storage: Storage) -> None:
     layered = split_budget(64.0, storage, _LAYERS)
-    assert layered.layers == _LAYERS
+    assert layered.instruments == _LAYERS
     assert layered.module_bytes == split_budget(64.0, storage, SINGLE_LAYER).module_bytes
     assert layered.sample_bytes < split_budget(64.0, storage, SINGLE_LAYER).sample_bytes
 

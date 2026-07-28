@@ -9,6 +9,7 @@ from optisample.optimize.dp import BudgetInfeasibleError
 from optisample.optimize.grouping.cost_model import ZoneSegment, _ZoneOptions, build_zone_options
 from optisample.optimize.grouping.solve import solve_grouping
 from optisample.optimize.layers.bands import VelocityBand, VelocityLayers, partitions, velocity_cells
+from optisample.optimize.layers.slots import reserved_slots
 from optisample.optimize.layers.tasks import band_tasks
 from optisample.optimize.orchestrate import RunInputs
 from optisample.optimize.orchestrate.settings import OptimizeSettings
@@ -44,9 +45,17 @@ class _Layering:
     inputs: RunInputs
     settings: OptimizeSettings
 
-    def budget(self, layers: int) -> BudgetBreakdown:
-        """What the instrument may spend on samples once ``layers`` instrument records are reserved."""
-        return split_budget(self.instrument.budget_kb, self.settings.target.storage, layers)
+    def budget(self, instruments: int) -> BudgetBreakdown:
+        """What the instrument may spend on samples once ``instruments`` records are reserved."""
+        return split_budget(self.instrument.budget_kb, self.settings.target.storage, instruments)
+
+    def instruments(self, widths: Sequence[int]) -> int:
+        """How many instrument records a split reserves, from the keys each of its bands plays.
+
+        The zones a band comes out as are known only after the solve, so the reserve is taken at the most
+        instruments those keys could fill -- a sample per key, cut into the runs the format writes.
+        """
+        return reserved_slots(widths, self.settings.target.max_samples_per_instrument)
 
     def keys(self, band: VelocityBand) -> tuple[PitchTask, ...]:
         """The keys ``band`` plays and what each of them stores and scores, which the layer count leaves alone."""
@@ -58,10 +67,10 @@ class _Layering:
         The keys of every layer share one budget, so what a sample can afford follows from how wide the
         whole split is: layers that each cover the keyboard leave every sample a fraction of what one
         layer would, while layers that divide the keyboard between them leave it very nearly the same.
-        The instrument records the extra layers cost come off the budget first.
+        The instrument records the split reserves come off the budget first.
         """
-        width = sum(len(keys[band]) for band in split.bands)
-        return per_key_bytes(self.budget(split.count), width)
+        widths = [len(keys[band]) for band in split.bands]
+        return per_key_bytes(self.budget(self.instruments(widths)), sum(widths))
 
 
 @dataclass(frozen=True)
@@ -127,7 +136,7 @@ def _allocate(
     Raises:
         BudgetInfeasibleError: when the cheapest sample per key still overruns what the split can spend.
     """
-    budget = layering.budget(split.count)
+    budget = layering.budget(layering.instruments([len(universe.segments[segment].tasks) for segment in place]))
     result = solve_grouping(
         [universe.segments[segment] for segment in place],
         [scored[segment] for segment in place],
@@ -143,13 +152,15 @@ def _allocate(
 
 
 def fits_format(allocation: LayeredAllocation, target: ExportTarget) -> bool:
-    """Whether the target format numbers enough samples for every zone this split stores.
+    """Whether the target format numbers enough samples, and enough instruments, for what this split stores.
 
-    A single layer keeps at most one sample per key the material plays, which every format numbers, so
-    this is what velocity layers add: several layers each holding a zone per key can ask for more
-    samples than the module has slots, and a split that does is one the exporter could not write.
+    A single layer keeps at most one sample per key the material plays and is written as the handful of
+    instruments those samples fill, which every format holds, so this is what velocity layers add:
+    several layers each holding a zone per key can ask for more samples than the module numbers, or for
+    more instruments than it lists once each wide layer is cut to the samples one instrument owns. A
+    split asking for either is one the exporter could not write.
     """
-    return len(allocation.zones) <= target.max_samples
+    return len(allocation.zones) <= target.max_samples and allocation.budget.instruments <= target.max_instruments
 
 
 def _preferred(
@@ -165,6 +176,9 @@ def _preferred(
 
 def _require_instrument_room(instrument: InstrumentSpec, settings: OptimizeSettings) -> None:
     """Check the layer cap against the instruments the target format numbers.
+
+    Every velocity layer is written as at least one instrument, so a cap naming more layers than the
+    format lists instruments leaves no split the exporter could write.
 
     Raises:
         ValueError: when more layers are asked for than the format has instrument slots to write them.

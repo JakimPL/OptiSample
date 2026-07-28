@@ -11,11 +11,15 @@ from optisample.io.tracker.target import ExportTarget
 from optisample.model import NoteEvent
 from optisample.optimize.export import build_module
 from optisample.optimize.export.context import ExportContext
+from optisample.optimize.export.material import Voicing
 from optisample.optimize.grouping.optimize import optimize_instrument_grouped
+from optisample.optimize.layers.bands import UNSPLIT
+from optisample.optimize.layers.slots import pack_slots
 from optisample.optimize.orchestrate import optimize_instrument
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
 from optisample.optimize.reduce.keys import SampleKey
+from optisample.optimize.velocity_map import VelocityVolumeMap
 from tests.optimize.export.demo import (
     PITCHES,
     SR,
@@ -42,6 +46,15 @@ def as_format(
         return dataclasses.replace(export_context, target=retarget(tracker_format))
 
     return _as_format
+
+
+@pytest.fixture
+def plain_voicing(flat_velocity_map: VelocityVolumeMap, target: ExportTarget) -> Voicing:
+    """How an instrument written whole voices a note: one instrument, answering every dynamic and key."""
+    return Voicing(
+        layout=pack_slots((), UNSPLIT, target.max_samples_per_instrument),
+        velocity_map=flat_velocity_map,
+    )
 
 
 @pytest.fixture

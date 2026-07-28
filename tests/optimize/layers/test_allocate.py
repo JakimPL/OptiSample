@@ -107,7 +107,7 @@ def test_one_layer_stores_a_single_band_over_the_whole_axis(
     """The behaviour freeze: capping the layers at one is the plan pitch grouping produced before."""
     allocation = allocate(instrument, max_layers=_ONE_LAYER)
     assert allocation.layers == VelocityLayers((_WHOLE_AXIS,))
-    assert allocation.budget.layers == SINGLE_LAYER
+    assert allocation.budget.instruments == SINGLE_LAYER
     assert {zone.layer for zone in allocation.zones} == {FIRST_LAYER}
     assert [pitch for zone in allocation.zones for pitch in zone.pitches] == list(PITCHES)
 
@@ -177,7 +177,7 @@ def test_the_budget_a_split_is_solved_against_reserves_its_own_instruments(
     allocate: Callable[..., LayeredAllocation],
 ) -> None:
     allocation = allocate(instrument, max_layers=_THREE_LAYERS, min_gain=0.0)
-    assert allocation.budget.layers == allocation.layers.count
+    assert allocation.budget.instruments == allocation.layers.count
     assert allocation.total_bytes <= allocation.budget.sample_bytes
 
 
@@ -258,7 +258,7 @@ def test_the_plan_carries_the_layers_it_settled_on(
         SR,
         optimize_settings(sweep=sweep(rates=(11_025,), depths=(8,), dither=False)),
     )
-    assert plan.layers.count == plan.budget.layers
+    assert plan.layers.count == plan.budget.instruments
     assert {unit.layer for unit in plan.sample_units()} == {zone.layer for zone in plan.zones}
 
 

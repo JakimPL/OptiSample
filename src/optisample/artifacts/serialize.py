@@ -17,8 +17,9 @@ from optisample.config.reduce import DedupeKey
 from optisample.dsp.loop import Loop
 from optisample.dsp.surrogate import StoredSample
 from optisample.music import note_name
+from optisample.optimize.export.build import instrument_name
 from optisample.optimize.export.coverage import KeyCoverage
-from optisample.optimize.layers.totals import LayerTotals, layer_totals
+from optisample.optimize.layers.slots import InstrumentSlot, SlotLayout
 from optisample.optimize.plans import (
     GroupedInstrumentPlan,
     InstrumentPlan,
@@ -126,19 +127,25 @@ class KeyboardRecord(_Frozen):
     answered: int
 
 
-class LayerRecord(_Frozen):
-    """One velocity band the plan stores, summed over the samples written into its instrument.
+class InstrumentRecord(_Frozen):
+    """One instrument the plan is written as, summed over the samples it owns.
 
-    ``index`` is the position in :attr:`PlanDocument.layers` a zone's ``layer`` names, and the instrument
-    number the written pattern plays a note of this band through. ``keys`` counts the keys the band's
-    samples reach between them, and ``objective_share`` what this band's notes carry of the plan's
-    objective, so the records add up to what the whole plan covers, stores and scores.
+    ``index`` is the instrument number the written pattern names for a note this record answers, and
+    ``layer`` the position in the plan's velocity split a zone's own ``layer`` states. A band a format
+    writes as several instruments states each one's own stretch of keyboard in ``lowest_pitch`` and
+    ``highest_pitch``, which are the keys its samples were stored for. ``keys`` counts those keys and
+    ``objective_share`` what their notes carry of the plan's objective, so the records add up to what the
+    whole plan covers, stores and scores.
     """
 
     index: int
+    name: str
+    layer: int
     band: str
     lowest_velocity: int
     highest_velocity: int
+    lowest_pitch: int | None
+    highest_pitch: int | None
     keys: int
     samples: int
     stored_bytes: int
@@ -266,10 +273,10 @@ class PlanDocument(_Frozen):
 
     ``method`` is recorded only for the ungrouped strategy; ``pitches`` and ``zones`` are mutually
     exclusive. The optional-head fields a strategy leaves unset are dropped at serialization, so each
-    strategy writes exactly the keys that apply to it. ``layers`` is the velocity split the plan stores,
-    one entry per written instrument, so a plan keeping one recording per key reports its single band.
-    ``energy_exponent`` states how steeply each note's own energy scaled its distortion, which is what
-    settles whether two documents' objectives may be compared.
+    strategy writes exactly the keys that apply to it. ``instruments`` is what the plan is written as, one
+    entry per instrument the module numbers, so a plan keeping one recording per key in one band reports
+    its single instrument. ``energy_exponent`` states how steeply each note's own energy scaled its
+    distortion, which is what settles whether two documents' objectives may be compared.
     """
 
     strategy: str
@@ -282,7 +289,7 @@ class PlanDocument(_Frozen):
     keyboard: KeyboardRecord
     reduction: ReductionDocument
     velocity_map: VelocityMapDocument
-    layers: list[LayerRecord]
+    instruments: list[InstrumentRecord]
     pitches: list[PitchItemRecord] | None = None
     zones: list[ZoneItemRecord] | None = None
 
@@ -493,18 +500,31 @@ def _pitch_item(unit: SampleUnit, loop: Loop | None) -> PitchItemRecord:
     )
 
 
-def _layer_record(totals: LayerTotals) -> LayerRecord:
-    return LayerRecord(
-        index=totals.layer,
-        band=totals.band.label,
-        lowest_velocity=totals.band.lowest,
-        highest_velocity=totals.band.highest,
-        keys=totals.keys,
-        samples=totals.samples,
-        stored_bytes=totals.stored_bytes,
-        weight=totals.weight,
-        objective_share=totals.objective_share,
+def _instrument_record(index: int, slot: InstrumentSlot, name: str) -> InstrumentRecord:
+    pitches = slot.pitches
+    return InstrumentRecord(
+        index=index,
+        name=name,
+        layer=slot.layer,
+        band=slot.band.label,
+        lowest_velocity=slot.band.lowest,
+        highest_velocity=slot.band.highest,
+        lowest_pitch=pitches[0] if pitches else None,
+        highest_pitch=pitches[-1] if pitches else None,
+        keys=slot.keys,
+        samples=len(slot.samples),
+        stored_bytes=slot.stored_bytes,
+        weight=slot.weight,
+        objective_share=slot.objective_share,
     )
+
+
+def _instrument_records(plan: StrategyPlan, layout: SlotLayout) -> list[InstrumentRecord]:
+    """One record per written instrument, named exactly as the module's own instrument list names it."""
+    return [
+        _instrument_record(index, slot, instrument_name(plan.instrument_id, layout, index))
+        for index, slot in enumerate(layout.slots)
+    ]
 
 
 def _zone_item(unit: SampleUnit, loop: Loop | None) -> ZoneItemRecord:
@@ -524,13 +544,15 @@ def plan_document(
     loops: Sequence[Loop | None],
     size: SizeReport,
     coverage: KeyCoverage,
+    layout: SlotLayout,
 ) -> PlanDocument:
     """One plan document for either strategy; ``loops`` are the per-item *stored* loops, in plan order.
 
     The plan's :meth:`~optisample.optimize.plans.StrategyPlan.sample_units` supplies the shared encoding
     block for every item; only the leading fields (a pitch vs. a zone, and whether a ``method`` is
     recorded) differ, selected by narrowing on the plan's strategy. ``size`` is what the module the plan
-    exports to actually occupies, and ``coverage`` what its keymaps answer of the format's keyboard.
+    exports to actually occupies, ``coverage`` what its keymaps answer of the format's keyboard, and
+    ``layout`` the instruments it was written as.
     """
     units = plan.sample_units()
     budget = _budget_record(plan)
@@ -538,7 +560,7 @@ def plan_document(
     keyboard = _keyboard_record(coverage)
     reduction = reduction_document(plan.reduction)
     velocity_map = _velocity_map_document(plan.velocity_map)
-    layers = [_layer_record(totals) for totals in layer_totals(plan.layers, units)]
+    instruments = _instrument_records(plan, layout)
     if plan.strategy == "grouped":
         return PlanDocument(
             strategy="grouped",
@@ -550,7 +572,7 @@ def plan_document(
             keyboard=keyboard,
             reduction=reduction,
             velocity_map=velocity_map,
-            layers=layers,
+            instruments=instruments,
             zones=[_zone_item(unit, loop) for unit, loop in zip(units, loops)],
         )
     return PlanDocument(
@@ -564,7 +586,7 @@ def plan_document(
         keyboard=keyboard,
         reduction=reduction,
         velocity_map=velocity_map,
-        layers=layers,
+        instruments=instruments,
         pitches=[_pitch_item(unit, loop) for unit, loop in zip(units, loops)],
     )
 

@@ -9,9 +9,9 @@ from optisample.artifacts.paths import plan_paths, reduced_paths
 from optisample.artifacts.serialize import (
     BudgetRecord,
     EventMetricRecord,
+    InstrumentRecord,
     KeptRecordingRecord,
     KeyboardRecord,
-    LayerRecord,
     LoopRecord,
     MetricsDocument,
     ModuleSizeRecord,
@@ -104,12 +104,16 @@ def _plan(strategy: str) -> PlanDocument:
         "keyboard": KeyboardRecord(numbered=120, played=7, answered=120),
         "reduction": _reduction(),
         "velocity_map": VelocityMapDocument(reference_volume=64, anchors=[], volumes=[64] * 128),
-        "layers": [
-            LayerRecord(
+        "instruments": [
+            InstrumentRecord(
                 index=0,
+                name=_INSTRUMENT,
+                layer=0,
                 band=_LAYER,
                 lowest_velocity=0,
                 highest_velocity=127,
+                lowest_pitch=60,
+                highest_pitch=66,
                 keys=7,
                 samples=1,
                 stored_bytes=48_500,
@@ -303,11 +307,11 @@ def test_every_item_names_the_velocity_band_it_was_stored_for(instrument_dir: Pa
     assert rows[0]["band"] == _LAYER
 
 
-def test_the_layer_rows_price_each_stored_band(instrument_dir: Path) -> None:
-    rows = reports.layer_rows(reports.read_plan(plan_paths(instrument_dir, "grouped")))
+def test_the_instrument_rows_price_each_written_instrument(instrument_dir: Path) -> None:
+    rows = reports.instrument_rows(reports.read_plan(plan_paths(instrument_dir, "grouped")))
 
-    assert [row["layer"] for row in rows] == [0]
-    assert (rows[0]["band"], rows[0]["keys"], rows[0]["samples"]) == (_LAYER, 7, 1)
+    assert [row["id"] for row in rows] == [0]
+    assert (rows[0]["name"], rows[0]["band"], rows[0]["keys"], rows[0]["samples"]) == (_INSTRUMENT, _LAYER, 7, 1)
 
 
 def test_the_budget_row_states_what_the_plan_spent(instrument_dir: Path) -> None:

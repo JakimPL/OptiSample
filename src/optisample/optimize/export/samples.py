@@ -10,7 +10,7 @@ from optisample.metrics.base import Signal
 from optisample.music import note_name, sounded_note
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.coverage import covered_routing
-from optisample.optimize.layers.bands import VelocityLayers
+from optisample.optimize.layers.slots import InstrumentSlot, SlotLayout
 from optisample.optimize.plans import SampleUnit, StrategyPlan
 from optisample.optimize.tasks import AudioMap
 from optisample.optimize.velocity_map import VelocityVolumeMap
@@ -116,25 +116,35 @@ def _unit_assignments(unit: SampleUnit, sample: int, target: ExportTarget) -> di
     return {key: KeyAssignment(sample=sample, note=sounded_note(key, root_key)) for key in keys}
 
 
-def _layer_keymaps(units: Sequence[SampleUnit], layers: VelocityLayers, target: ExportTarget) -> tuple[Keymap, ...]:
-    """One key routing per velocity layer, each holding only the samples its own band stores.
+def _slot_routing(slot: InstrumentSlot, target: ExportTarget) -> dict[Note, KeyAssignment]:
+    """Every key one written instrument was given a recording for, routed to the sample holding it.
 
-    A layer is written as its own instrument, and a keymap is keyed by note alone, so the velocity axis
-    lives in the choice of instrument the pattern names. Splitting the routings here is what lets one key
-    play a soft recording at one dynamic and a loud one at another. Samples are numbered across the whole
-    plan, so a routing names its samples by their position in the song's single sample list. Each routing
-    is then widened to the whole keyboard (:func:`~optisample.optimize.export.coverage.covered_routing`),
-    so every layer answers every key the format numbers.
+    Samples are numbered across the whole plan, so a routing names them by the position each takes in the
+    song's single sample list, which is what the slot carries beside the units themselves.
     """
-    assignments: tuple[dict[Note, KeyAssignment], ...] = tuple({} for _ in layers.bands)
-    for index, unit in enumerate(units):
-        assignments[unit.layer].update(_unit_assignments(unit, index, target))
+    routing: dict[Note, KeyAssignment] = {}
+    for sample, unit in zip(slot.samples, slot.units):
+        routing.update(_unit_assignments(unit, sample, target))
 
-    return tuple(routed_keymap(covered_routing(routing, target)) for routing in assignments)
+    return routing
+
+
+def _slot_keymaps(layout: SlotLayout, target: ExportTarget) -> tuple[Keymap, ...]:
+    """One key routing per written instrument, each holding only the samples that instrument owns.
+
+    A keymap is keyed by note alone, so both axes a plan splits live in the choice of instrument the
+    pattern names: the velocity band, and the stretch of keyboard a format numbering few samples per
+    instrument cuts that band into. Splitting the routings here is what lets one key play a soft
+    recording at one dynamic and a loud one at another. Each routing is then widened to the whole
+    keyboard (:func:`~optisample.optimize.export.coverage.covered_routing`) from the samples that
+    instrument holds, so every written instrument answers every key the format numbers on its own.
+    """
+    return tuple(routed_keymap(covered_routing(_slot_routing(slot, target), target)) for slot in layout.slots)
 
 
 def plan_samples(
     plan: StrategyPlan,
+    layout: SlotLayout,
     audio: AudioMap,
     sample_rate: int,
     context: ExportContext,
@@ -144,8 +154,8 @@ def plan_samples(
     Units are encoded in order from one seeded RNG, so the byte layout reproduces the plan exactly. The
     whole set is encoded before any sample is built, because each one's gain is stated against the
     sample asking for the most of it (:func:`sample_gains`), and read alongside the velocity map the
-    same plan writes into the patterns. The routings come back one per velocity layer, in band order, so
-    the caller writes one instrument for each.
+    same plan writes into the patterns. The routings come back one per slot of ``layout``, in the order
+    the module numbers its instruments, so the caller writes one instrument for each.
     """
     encoded = list(
         encode_plan_units(
@@ -168,5 +178,4 @@ def plan_samples(
         )
         for (unit, stored), gain in zip(encoded, gains)
     )
-    keymaps = _layer_keymaps([unit for unit, _ in encoded], plan.layers, context.target)
-    return samples, keymaps
+    return samples, _slot_keymaps(layout, context.target)

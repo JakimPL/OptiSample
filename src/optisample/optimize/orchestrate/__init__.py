@@ -4,12 +4,13 @@ import numpy as np
 
 from optisample.model import InstrumentSpec
 from optisample.optimize.knapsack import rd_curve
+from optisample.optimize.layers.slots import reserved_slots
 from optisample.optimize.orchestrate.audio import load_run_audio
 from optisample.optimize.orchestrate.cost_model import build_items
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.orchestrate.solve import solve_allocation
 from optisample.optimize.orchestrate.staging import staged_encode
-from optisample.optimize.plans import SINGLE_LAYER, InstrumentPlan, per_key_bytes, split_budget
+from optisample.optimize.plans import BudgetBreakdown, InstrumentPlan, per_key_bytes, split_budget
 from optisample.optimize.reduce.grids import GridContext
 from optisample.optimize.reduce.summary import (
     ReductionInputs,
@@ -53,6 +54,17 @@ class RunInputs:
         return self.task_inputs.audio
 
 
+def unlayered_budget(instrument: InstrumentSpec, keys: int, settings: OptimizeSettings) -> BudgetBreakdown:
+    """What one layer covering ``keys`` keys may spend on samples once its instrument records are reserved.
+
+    Keeping a recording per key is what this strategy stores, so the reserve is the runs those samples
+    fill in the format the plan is written as: one instrument where a format lets an instrument reach the
+    whole sample table, and one per run of what an instrument owns where it numbers few.
+    """
+    instruments = reserved_slots((keys,), settings.target.max_samples_per_instrument)
+    return split_budget(instrument.budget_kb, settings.target.storage, instruments)
+
+
 def prepare_run(
     instrument: InstrumentSpec,
     audio: AudioMap,
@@ -84,7 +96,7 @@ def prepare_run(
         energy_exponent=settings.energy_exponent,
     )
     tasks = build_tasks(instrument, task_inputs)
-    budget = split_budget(instrument.budget_kb, settings.target.storage, SINGLE_LAYER)
+    budget = unlayered_budget(instrument, len(tasks), settings)
     grid = GridContext(
         sample_rate=sample_rate,
         metrics=settings.metrics,
@@ -138,7 +150,7 @@ def allocate_instrument(
     """
     items, hulls = build_items(inputs.tasks, inputs.reduction.shortlists(), inputs.context, settings.progress)
 
-    budget = split_budget(instrument.budget_kb, settings.target.storage, SINGLE_LAYER)
+    budget = unlayered_budget(instrument, len(inputs.tasks), settings)
     allocation, pitches = solve_allocation(inputs.tasks, items, hulls, budget.sample_bytes, settings.method)
 
     return InstrumentPlan(
@@ -177,4 +189,5 @@ __all__ = [
     "optimize_instrument",
     "prepare_run",
     "run_instrument",
+    "unlayered_budget",
 ]

@@ -1,11 +1,11 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Final
 
 from optisample.dsp.surrogate import EncodingParams
 from optisample.metrics.size import bytes_to_kib
 from optisample.music import note_name
 from optisample.optimize.export.coverage import KeyCoverage
-from optisample.optimize.layers.totals import layer_totals
+from optisample.optimize.layers.slots import SlotLayout
 from optisample.optimize.plans import (
     GroupedInstrumentPlan,
     InstrumentPlan,
@@ -117,8 +117,8 @@ def format_budget_block(plan: BudgetedPlanMixin, size: SizeReport) -> list[str]:
     return [
         f"Budget:    {bytes_to_kib(plan.module_budget_bytes):7.1f} KiB module  ->  "
         f"{bytes_to_kib(plan.sample_budget_bytes):7.1f} KiB samples  "
-        f"(overhead {instrument_overhead(storage, plan.budget.layers)} B: file {storage.file} + "
-        f"instrument {populated_instrument_bytes(storage)})",
+        f"(overhead {instrument_overhead(storage, plan.budget.instruments)} B: file {storage.file} + "
+        f"{plan.budget.instruments} x instrument {populated_instrument_bytes(storage)})",
         f"Used:      {bytes_to_kib(used):7.1f} KiB samples  ({fraction:6.1%} of budget, "
         f"{bytes_to_kib(headroom):.1f} KiB free)  ->  {bytes_to_kib(plan.module_bytes):.1f} KiB module",
         f"Written:   {bytes_to_kib(size.total):7.1f} KiB module  "
@@ -138,15 +138,29 @@ def format_keyboard_line(coverage: KeyCoverage) -> str:
     )
 
 
-def _format_header(
-    plan: BudgetedPlanMixin,
-    size: SizeReport,
-    coverage: KeyCoverage,
-    title: str,
-    summary: str,
-) -> str:
-    """Title, section rule, the shared budget and keyboard blocks, then a strategy-specific summary."""
-    return "\n".join((title, SECTION_RULE, *format_budget_block(plan, size), format_keyboard_line(coverage), summary))
+def format_instruments_line(plan: BudgetedPlanMixin, layout: SlotLayout) -> str:
+    """How many instruments the budget reserved against how many the plan was written as.
+
+    The reserve is taken before the allocation runs, at the most instruments the layers' keys could fill
+    (:func:`~optisample.optimize.layers.slots.reserved_slots`), so a plan storing zones rather than single
+    keys comes out as fewer and the bytes the difference held back stay free.
+    """
+    reserved = plan.budget.instruments
+    spare = (reserved - layout.count) * populated_instrument_bytes(plan.budget.storage)
+    return (
+        f"Instruments: {reserved:>5} reserved  ->  {layout.count} written  "
+        f"({bytes_to_kib(spare):.1f} KiB of the reserve left free)"
+    )
+
+
+def _format_header(title: str, blocks: Sequence[str], summary: str) -> str:
+    """Title, section rule, the blocks shared by both strategies, then a strategy-specific summary."""
+    return "\n".join((title, SECTION_RULE, *blocks, summary))
+
+
+def _shared_blocks(plan: BudgetedPlanMixin, size: SizeReport, coverage: KeyCoverage, layout: SlotLayout) -> list[str]:
+    """What every report opens with: the byte budget, the keyboard answered and the instruments written."""
+    return [*format_budget_block(plan, size), format_keyboard_line(coverage), format_instruments_line(plan, layout)]
 
 
 def _weighting_note(plan: StrategyPlan) -> str:
@@ -154,12 +168,10 @@ def _weighting_note(plan: StrategyPlan) -> str:
     return f"energy^{plan.energy_exponent:g}-weighted"
 
 
-def _ungrouped_header(plan: InstrumentPlan, size: SizeReport, coverage: KeyCoverage) -> str:
+def _ungrouped_header(plan: InstrumentPlan, size: SizeReport, coverage: KeyCoverage, layout: SlotLayout) -> str:
     return _format_header(
-        plan,
-        size,
-        coverage,
         f"Instrument {plan.instrument_id!r} - budget solver (method: {plan.method})",
+        _shared_blocks(plan, size, coverage, layout),
         f"Objective: {plan.objective:8.4f}  ({_weighting_note(plan)}, over "
         f"{len(plan.pitches)} pitches, {plan.total_weight:.1f} s of material)",
     )
@@ -213,10 +225,10 @@ def _format_curve(plan: InstrumentPlan) -> str:
     return "\n".join(lines)
 
 
-def format_report(plan: InstrumentPlan, size: SizeReport, coverage: KeyCoverage) -> str:
+def format_report(plan: InstrumentPlan, size: SizeReport, coverage: KeyCoverage, layout: SlotLayout) -> str:
     """Render a human-readable summary of an instrument optimization."""
     sections = (
-        _ungrouped_header(plan, size, coverage),
+        _ungrouped_header(plan, size, coverage, layout),
         format_reduction_block(plan.reduction),
         _format_pitches(plan),
         _format_velocity_map(plan),
@@ -225,12 +237,10 @@ def format_report(plan: InstrumentPlan, size: SizeReport, coverage: KeyCoverage)
     return "\n\n".join(sections) + "\n"
 
 
-def _grouped_header(plan: GroupedInstrumentPlan, size: SizeReport, coverage: KeyCoverage) -> str:
+def _grouped_header(plan: GroupedInstrumentPlan, size: SizeReport, coverage: KeyCoverage, layout: SlotLayout) -> str:
     return _format_header(
-        plan,
-        size,
-        coverage,
         f"Instrument {plan.instrument_id!r} - pitch-zone grouping (exact partition + allocation DP)",
+        _shared_blocks(plan, size, coverage, layout),
         f"Grouping:  {_counted(len(plan.zones), 'zone')} over {_counted(len(plan.pitches), 'key')} and "
         f"{_counted(plan.layers.count, 'velocity layer')}  "
         f"(objective {plan.objective:.4f}, {_weighting_note(plan)}, "
@@ -238,24 +248,24 @@ def _grouped_header(plan: GroupedInstrumentPlan, size: SizeReport, coverage: Key
     )
 
 
-def _format_layers(plan: GroupedInstrumentPlan) -> str:
-    """The velocity split the search settled on, priced band by band.
+def _format_instruments(layout: SlotLayout) -> str:
+    """The instruments the plan is written as, priced one row each.
 
-    Each band is written as an instrument of its own, so this table is what the layer decision cost: the
-    dynamics each one answers for, the keys its samples reach, the bytes they spend and the share of the
-    objective they carry. The rows sum to the plan's own totals, which is how a split reads against the
-    plainer plan it beat.
+    A row is what a written instrument answers for and what it cost: the dynamics it holds, the keys its
+    samples were stored for, the bytes they spend and the share of the objective they carry. The rows sum
+    to the plan's own totals, which is how a split reads against the plainer plan it beat, and a band
+    written as several instruments states each one's own stretch of keyboard.
     """
     header = (
-        f"{'layer':>5}  {'band':>9}  {'keys':>5}  {'samples':>7}  {'size(KiB)':>9}  "
+        f"{'id':>3}  {'band':>9}  {'span':>9}  {'keys':>5}  {'samples':>7}  {'size(KiB)':>9}  "
         f"{'weight(s)':>9}  {'objective':>10}"
     )
     rows = [
-        f"{totals.layer:>5}  {totals.band.label:>9}  {totals.keys:>5}  {totals.samples:>7}  "
-        f"{bytes_to_kib(totals.stored_bytes):>9.1f}  {totals.weight:>9.1f}  {totals.objective_share:>10.4f}"
-        for totals in layer_totals(plan.layers, plan.sample_units())
+        f"{index:>3}  {slot.band.label:>9}  {slot.span:>9}  {slot.keys:>5}  {len(slot.samples):>7}  "
+        f"{bytes_to_kib(slot.stored_bytes):>9.1f}  {slot.weight:>9.1f}  {slot.objective_share:>10.4f}"
+        for index, slot in enumerate(layout.slots)
     ]
-    return _format_allocation_table("Velocity layers (one instrument each; a note's dynamic picks it)", header, rows)
+    return _format_allocation_table("Instruments (a note's dynamic and pitch pick the one it plays)", header, rows)
 
 
 def _format_zones(plan: GroupedInstrumentPlan) -> str:
@@ -277,12 +287,14 @@ def _format_zones(plan: GroupedInstrumentPlan) -> str:
     return _format_allocation_table("Zones (one stored sample each, repitched across the zone's keys)", header, rows)
 
 
-def format_grouping_report(plan: GroupedInstrumentPlan, size: SizeReport, coverage: KeyCoverage) -> str:
+def format_grouping_report(
+    plan: GroupedInstrumentPlan, size: SizeReport, coverage: KeyCoverage, layout: SlotLayout
+) -> str:
     """Render a human-readable summary of a grouped optimization."""
     sections = (
-        _grouped_header(plan, size, coverage),
+        _grouped_header(plan, size, coverage, layout),
         format_reduction_block(plan.reduction),
-        _format_layers(plan),
+        _format_instruments(layout),
         _format_zones(plan),
     )
     return "\n\n".join(sections) + "\n"

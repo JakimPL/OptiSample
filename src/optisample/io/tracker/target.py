@@ -86,6 +86,17 @@ class ExportTarget:
         return self.limits.bound(Capability.SAMPLES).maximum
 
     @property
+    def max_samples_per_instrument(self) -> int:
+        """How many samples one instrument of this format owns, which is how wide a written slot may be.
+
+        Impulse Tracker lets an instrument reach the whole sample table, so a velocity band is written as
+        one instrument however many zones it stores. FastTracker 2 gives each instrument sixteen samples
+        of its own, which is what a wide band is cut into slots to fit
+        (:func:`~optisample.optimize.layers.slots.pack_slots`).
+        """
+        return self.limits.bound(Capability.SAMPLES_PER_INSTRUMENT).maximum
+
+    @property
     def min_rows(self) -> int:
         """The shortest pattern this format accepts, which laid-out material is padded up to."""
         return self.limits.bound(Capability.PATTERN_ROWS).minimum

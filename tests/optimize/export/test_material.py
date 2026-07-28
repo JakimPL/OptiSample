@@ -11,9 +11,7 @@ from optisample.io.render import openmpt123_available, render_module
 from optisample.io.tracker.target import ExportTarget
 from optisample.model import NoteEvent
 from optisample.optimize.export.material import Voicing, event_rows, material_patterns
-from optisample.optimize.layers.bands import UNSPLIT
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
-from optisample.optimize.velocity_map import VelocityVolumeMap
 from trackmod.core.notes.command import NoteCommand
 from trackmod.core.notes.pitch import Note
 from trackmod.core.patterns.cell import Cell
@@ -77,33 +75,33 @@ def test_long_material_spills_into_multiple_ordered_patterns(
 
 
 def test_a_short_song_is_padded_up_to_the_compliance_floor(
-    flat_velocity_map: VelocityVolumeMap, playback_config: PlaybackConfig, target: ExportTarget
+    plain_voicing: Voicing, playback_config: PlaybackConfig, target: ExportTarget
 ) -> None:
     seconds_per_row = row_seconds(playback_config.speed, playback_config.tempo)
     material = [NoteEvent(pitch=60, velocity=100, duration_s=seconds_per_row)]
-    patterns, order = material_patterns(material, Voicing(UNSPLIT, flat_velocity_map), playback_config, target)
+    patterns, order = material_patterns(material, plain_voicing, playback_config, target)
     assert order.entries == (0,)
     assert patterns[0].rows == target.min_rows  # one short note still fills a pattern the tracker accepts
 
 
 def test_material_with_no_events_still_yields_one_playable_pattern(
-    flat_velocity_map: VelocityVolumeMap, playback_config: PlaybackConfig, target: ExportTarget
+    plain_voicing: Voicing, playback_config: PlaybackConfig, target: ExportTarget
 ) -> None:
-    patterns, order = material_patterns([], Voicing(UNSPLIT, flat_velocity_map), playback_config, target)
+    patterns, order = material_patterns([], plain_voicing, playback_config, target)
     assert len(patterns) == 1
     assert patterns[0].rows == target.min_rows
     assert order.entries == (0,)
 
 
 def test_notes_are_laid_end_to_end_each_followed_by_its_release(
-    flat_velocity_map: VelocityVolumeMap, playback_config: PlaybackConfig, target: ExportTarget
+    plain_voicing: Voicing, playback_config: PlaybackConfig, target: ExportTarget
 ) -> None:
     seconds_per_row = row_seconds(playback_config.speed, playback_config.tempo)
     material = [
         NoteEvent(pitch=60, velocity=100, duration_s=_THREE_AND_A_HALF_ROWS * seconds_per_row),
         NoteEvent(pitch=67, velocity=100, duration_s=_TWO_AND_A_HALF_ROWS * seconds_per_row),
     ]
-    pattern = material_patterns(material, Voicing(UNSPLIT, flat_velocity_map), playback_config, target)[0][0]
+    pattern = material_patterns(material, plain_voicing, playback_config, target)[0][0]
     assert pattern.cell(0, _CHANNEL).note == Note.from_midi(60)
     assert pattern.cell(4, _CHANNEL).note == NoteCommand.CUT  # 3.5 rows rounds up to 4 held rows
     assert pattern.cell(5, _CHANNEL).note == Note.from_midi(67)  # the next note starts right after the release

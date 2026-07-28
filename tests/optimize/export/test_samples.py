@@ -20,11 +20,11 @@ from optisample.optimize.export import build_module
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.samples import sample_gains, sample_name
 from optisample.optimize.layers.bands import VelocityBand, VelocityLayers
+from optisample.optimize.layers.slots import ONE_SLOT
 from optisample.optimize.orchestrate import optimize_instrument
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import (
     FIRST_LAYER,
-    SINGLE_LAYER,
     BudgetBreakdown,
     GroupedInstrumentPlan,
     InstrumentPlan,
@@ -287,7 +287,7 @@ def test_a_grouped_pitch_the_format_does_not_number_raises(
     )
     plan = GroupedInstrumentPlan(
         instrument_id="x",
-        budget=BudgetBreakdown(storage=storage, layers=SINGLE_LAYER, module_bytes=64 * 1024, sample_bytes=63 * 1024),
+        budget=BudgetBreakdown(storage=storage, instruments=ONE_SLOT, module_bytes=64 * 1024, sample_bytes=63 * 1024),
         velocity_map=VelocityVolumeMap(tuple(64 for _ in range(128)), (VelocityAnchor(100, -10.0, 64),)),
         layers=VelocityLayers((VelocityBand(0, MIDI_MAX_VELOCITY),)),
         zones=(zone,),

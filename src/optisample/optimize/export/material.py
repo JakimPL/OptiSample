@@ -7,7 +7,7 @@ from optisample.config.render import PlaybackConfig
 from optisample.dsp.timebase import row_seconds
 from optisample.io.tracker.target import ExportTarget
 from optisample.model import NoteEvent
-from optisample.optimize.layers.bands import VelocityLayers
+from optisample.optimize.layers.slots import SlotLayout
 from optisample.optimize.velocity_map import VelocityVolumeMap
 from trackmod.core.notes.pitch import Note
 from trackmod.core.patterns.builder import PatternBuilder
@@ -27,16 +27,20 @@ class Voicing:
     """How a plan writes a note's dynamic into a pattern cell.
 
     A tracker reads a dynamic in two columns: which instrument the key is pressed on, and how loud. The
-    velocity layers answer the first -- each band is written as its own instrument, holding the recording
-    stored for those dynamics -- and the velocity map the second.
+    written instruments answer the first -- each holds the recordings stored for one band of dynamics
+    over one stretch of the keyboard -- and the velocity map the second.
     """
 
-    layers: VelocityLayers
+    layout: SlotLayout
     velocity_map: VelocityVolumeMap
 
-    def instrument(self, velocity: int) -> int:
-        """The layer a note struck at ``velocity`` plays through, which is the instrument holding it."""
-        return self.layers.band_index(velocity)
+    def instrument(self, velocity: int, pitch: int) -> int:
+        """The instrument a note struck at ``velocity`` on ``pitch`` is played through.
+
+        The dynamic picks the velocity band the note belongs to and the pitch the slot that band stores
+        it in, which together name one written instrument.
+        """
+        return self.layout.instrument(self.layout.layers.band_index(velocity), pitch)
 
     def volume(self, velocity: int) -> int:
         """The note volume a note struck at ``velocity`` is written with."""
@@ -47,8 +51,8 @@ class Voicing:
 class _Placement:
     """One event laid onto a pattern: where it starts, how many rows it holds, and how it sounds.
 
-    ``instrument`` is the velocity layer the note's dynamic resolves to, which is what routes a soft note
-    to the recording stored for soft playing and a loud one to its own.
+    ``instrument`` is the written instrument the note's dynamic and pitch resolve to, which is what routes
+    a soft note to the recording stored for soft playing and a loud one to its own.
     """
 
     row: int
@@ -104,7 +108,7 @@ def _split_into_patterns(
             row=cursor,
             rows=rows,
             note=target.key(event.pitch),
-            instrument=voicing.instrument(event.velocity),
+            instrument=voicing.instrument(event.velocity, event.pitch),
             volume=voicing.volume(event.velocity),
         )
         current.append(placement)
@@ -143,7 +147,7 @@ def material_patterns(
 
     Each note writes a note-on cell at the current row and a release cell one row past its length, so it
     occupies its duration in rows plus one. Both dynamic columns of that cell come from the
-    :class:`Voicing`: the layer the note plays through, and the volume it plays at.
+    :class:`Voicing`: the instrument the note plays through, and the volume it plays at.
     """
     groups = _split_into_patterns(
         material,

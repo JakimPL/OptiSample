@@ -102,8 +102,10 @@ def covered_routing(routing: Mapping[Note, KeyAssignment], target: ExportTarget)
 def key_coverage(keymaps: Sequence[Keymap], target: ExportTarget, *, played: int) -> KeyCoverage:
     """What the written routings answer of the keyboard, read off the keymaps as they were written.
 
-    Every instrument a plan writes is filled over the same keyboard, so the count reports what the least
-    covered of them answers and a reader takes it as true of all.
+    Each written instrument is filled from the recordings it owns and a recording reaches five octaves
+    either way, so an instrument holding one stretch of the keyboard answers as much of it as that reach
+    allows. The count reports the least covered instrument, which is the figure a reader may take as true
+    of every one of them.
     """
     keys = [target.key(pitch).value for pitch in range(target.min_pitch, target.max_pitch + 1)]
     answered = min((sum(keymap[key] is not None for key in keys) for keymap in keymaps), default=0)

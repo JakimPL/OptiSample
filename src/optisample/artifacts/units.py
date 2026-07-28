@@ -10,6 +10,7 @@ from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.coverage import key_coverage, played_keys
 from optisample.optimize.export.samples import encode_plan_units
 from optisample.optimize.layers.bands import VelocityLayers
+from optisample.optimize.layers.slots import plan_slots
 from optisample.optimize.plans import (
     GroupedInstrumentPlan,
     InstrumentPlan,
@@ -120,15 +121,22 @@ def make_kind(plan: InstrumentPlan | GroupedInstrumentPlan, dump_context: DumpCo
 
     module = make_module(dump_context.material)
     size = module.size()
+    layout = plan_slots(plan, export_context.target)
     coverage = key_coverage(
         [instrument.keymap for instrument in module.song.instruments],
         export_context.target,
         played=played_keys(plan.sample_units()),
     )
     if plan.strategy == "grouped":
-        report_text = format_grouping_report(plan, size, coverage)
+        report_text = format_grouping_report(plan, size, coverage, layout)
     else:
-        report_text = format_report(plan, size, coverage)
+        report_text = format_report(plan, size, coverage, layout)
     return PlanKind(
-        plan.strategy, plan.layers, units, report_text, plan_document(plan, loops, size, coverage), module, make_module
+        plan.strategy,
+        plan.layers,
+        units,
+        report_text,
+        plan_document(plan, loops, size, coverage, layout),
+        module,
+        make_module,
     )

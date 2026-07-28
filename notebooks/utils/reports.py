@@ -135,25 +135,32 @@ def _encoding_cells(encoding: EncodingRecord) -> Row:
     }
 
 
-def layer_rows(plan: PlanDocument) -> list[Row]:
-    """One row per stored velocity band: the dynamics it answers for and what its instrument cost.
+def instrument_rows(plan: PlanDocument) -> list[Row]:
+    """One row per written instrument: the dynamics and keys it answers for, and what it cost.
 
     A key played across several dynamics is stored once per band it is played in, so this is where a
     plan's vocabulary is read: how the budget was divided between velocity resolution and everything
-    else. A plan keeping one recording per key reports the single band covering the whole axis.
+    else. A plan keeping one recording per key in one band reports the single instrument it is written
+    as, and a band a format writes as several instruments reports the stretch of keyboard each holds.
     """
     return [
         {
-            "layer": layer.index,
-            "band": layer.band,
-            "keys": layer.keys,
-            "samples": layer.samples,
-            "kib": round(bytes_to_kib(layer.stored_bytes), 3),
-            "weight_s": round(layer.weight, 2),
-            "objective": round(layer.objective_share, 4),
+            "id": instrument.index,
+            "name": instrument.name,
+            "band": instrument.band,
+            "keys": instrument.keys,
+            "samples": instrument.samples,
+            "kib": round(bytes_to_kib(instrument.stored_bytes), 3),
+            "weight_s": round(instrument.weight, 2),
+            "objective": round(instrument.objective_share, 4),
         }
-        for layer in plan.layers
+        for instrument in plan.instruments
     ]
+
+
+def _bands_by_layer(plan: PlanDocument) -> dict[int, str]:
+    """The velocity band each layer of the split answers for, read off the instruments written for it."""
+    return {instrument.layer: instrument.band for instrument in plan.instruments}
 
 
 def _pitch_row(item: PitchItemRecord, band: str) -> Row:
@@ -189,7 +196,7 @@ def plan_item_rows(plan: PlanDocument) -> list[Row]:
     budget moved between them stays readable. Each row opens with the velocity band it was stored for,
     which is what tells the several rows a layered plan keeps for one key apart.
     """
-    bands = [layer.band for layer in plan.layers]
+    bands = _bands_by_layer(plan)
     if plan.zones is not None:
         return [_zone_row(zone, bands[zone.layer]) for zone in plan.zones]
 

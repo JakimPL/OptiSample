@@ -190,10 +190,10 @@ most `max_layers` runs of cells is solved in full and the best objective wins, p
 plainer plan by `min_gain` per extra layer. A material playing each key at a single dynamic earns no split
 and pays for none. `--max-layers` overrides the cap for one run.
 
-The grouped `report.txt` states the split band by band — the dynamics each band answers for, the keys its
-samples reach, and the bytes and distortion they carry — and both strategies record the same under
-`plan.json`'s `layers`, with every zone naming the layer it belongs to. The A/B renders are filed per band
-under `compare/<band>/`, so a key stored three times is heard three ways.
+The grouped `report.txt` states the written instruments one row each — the dynamics and keys each answers
+for, and the bytes and distortion they carry — and both strategies record the same under `plan.json`'s
+`instruments`, with every zone naming the layer it belongs to. The A/B renders are filed per band under
+`compare/<band>/`, so a key stored three times is heard three ways.
 
 ## The keyboard a written instrument answers
 
@@ -216,6 +216,31 @@ coverage:
 ```
 Keyboard:      120 of 120 keys answered  (5 played, 115 filled from the nearest recording)
 ```
+
+## Instrument slots: what a format numbers inside one instrument
+
+Since a keymap is keyed by note alone, every axis a plan splits becomes a choice of instrument. Velocity
+bands are the first: one instrument each. The format's own sample count is the second. FastTracker 2 gives
+an instrument sixteen samples of its own, where Impulse Tracker lets one reach the whole sample table, so
+a band storing more zones than sixteen is **cut into slots**: its samples in key order, in runs of at most
+sixteen, each run written as an instrument owning a contiguous stretch of the keyboard. Everything the
+allocation paid for stays stored, and the pattern names the slot each note's dynamic and pitch resolve to.
+A format numbering samples freely writes one instrument per band, which is the shape an IT run has always
+had.
+
+The instrument records are reserved before the solve, at the most instruments those keys could fill — a
+sample per key, cut into runs — because the zones a band comes out as are known only afterwards. A plan
+that groups keys into zones then comes out as fewer instruments, and the report says what the reserve left
+free:
+
+```
+Instruments:     4 reserved  ->  2 written  (0.5 KiB of the reserve left free)
+```
+
+A written instrument names the axes the plan split, inside the 22 bytes FastTracker 2 keeps for a name:
+`Piano` while one instrument holds everything, `Piano v000-v051` once dynamics split it, and
+`Piano v000-v051 F1-B4` once keys do as well. Each slot answers the whole keyboard from the samples it
+owns, so every one of them is playable on its own.
 
 ## Usage
 
