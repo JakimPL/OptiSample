@@ -4,6 +4,7 @@ from typing import Final
 from optisample.dsp.surrogate import EncodingParams
 from optisample.metrics.size import bytes_to_kib
 from optisample.music import note_name
+from optisample.optimize.export.coverage import KeyCoverage
 from optisample.optimize.layers.totals import layer_totals
 from optisample.optimize.plans import (
     GroupedInstrumentPlan,
@@ -125,9 +126,27 @@ def format_budget_block(plan: BudgetedPlanMixin, size: SizeReport) -> list[str]:
     ]
 
 
-def _format_header(plan: BudgetedPlanMixin, size: SizeReport, title: str, summary: str) -> str:
-    """Title, section rule, the shared budget block, then a strategy-specific summary line."""
-    return "\n".join((title, SECTION_RULE, *format_budget_block(plan, size), summary))
+def format_keyboard_line(coverage: KeyCoverage) -> str:
+    """What of the keyboard the written instruments answer, and how much of it the fill supplied.
+
+    An instrument is recorded over the keys its material plays and answers the rest from the recording
+    nearest each one, so the line reads as the stretch played against the stretch playable.
+    """
+    return (
+        f"Keyboard:  {coverage.answered:>7} of {coverage.numbered} keys answered  "
+        f"({coverage.played} played, {coverage.filled} filled from the nearest recording)"
+    )
+
+
+def _format_header(
+    plan: BudgetedPlanMixin,
+    size: SizeReport,
+    coverage: KeyCoverage,
+    title: str,
+    summary: str,
+) -> str:
+    """Title, section rule, the shared budget and keyboard blocks, then a strategy-specific summary."""
+    return "\n".join((title, SECTION_RULE, *format_budget_block(plan, size), format_keyboard_line(coverage), summary))
 
 
 def _weighting_note(plan: StrategyPlan) -> str:
@@ -135,10 +154,11 @@ def _weighting_note(plan: StrategyPlan) -> str:
     return f"energy^{plan.energy_exponent:g}-weighted"
 
 
-def _ungrouped_header(plan: InstrumentPlan, size: SizeReport) -> str:
+def _ungrouped_header(plan: InstrumentPlan, size: SizeReport, coverage: KeyCoverage) -> str:
     return _format_header(
         plan,
         size,
+        coverage,
         f"Instrument {plan.instrument_id!r} - budget solver (method: {plan.method})",
         f"Objective: {plan.objective:8.4f}  ({_weighting_note(plan)}, over "
         f"{len(plan.pitches)} pitches, {plan.total_weight:.1f} s of material)",
@@ -193,10 +213,10 @@ def _format_curve(plan: InstrumentPlan) -> str:
     return "\n".join(lines)
 
 
-def format_report(plan: InstrumentPlan, size: SizeReport) -> str:
+def format_report(plan: InstrumentPlan, size: SizeReport, coverage: KeyCoverage) -> str:
     """Render a human-readable summary of an instrument optimization."""
     sections = (
-        _ungrouped_header(plan, size),
+        _ungrouped_header(plan, size, coverage),
         format_reduction_block(plan.reduction),
         _format_pitches(plan),
         _format_velocity_map(plan),
@@ -205,10 +225,11 @@ def format_report(plan: InstrumentPlan, size: SizeReport) -> str:
     return "\n\n".join(sections) + "\n"
 
 
-def _grouped_header(plan: GroupedInstrumentPlan, size: SizeReport) -> str:
+def _grouped_header(plan: GroupedInstrumentPlan, size: SizeReport, coverage: KeyCoverage) -> str:
     return _format_header(
         plan,
         size,
+        coverage,
         f"Instrument {plan.instrument_id!r} - pitch-zone grouping (exact partition + allocation DP)",
         f"Grouping:  {_counted(len(plan.zones), 'zone')} over {_counted(len(plan.pitches), 'key')} and "
         f"{_counted(plan.layers.count, 'velocity layer')}  "
@@ -256,10 +277,10 @@ def _format_zones(plan: GroupedInstrumentPlan) -> str:
     return _format_allocation_table("Zones (one stored sample each, repitched across the zone's keys)", header, rows)
 
 
-def format_grouping_report(plan: GroupedInstrumentPlan, size: SizeReport) -> str:
+def format_grouping_report(plan: GroupedInstrumentPlan, size: SizeReport, coverage: KeyCoverage) -> str:
     """Render a human-readable summary of a grouped optimization."""
     sections = (
-        _grouped_header(plan, size),
+        _grouped_header(plan, size, coverage),
         format_reduction_block(plan.reduction),
         _format_layers(plan),
         _format_zones(plan),

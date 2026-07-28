@@ -9,6 +9,7 @@ from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.base import Signal
 from optisample.music import note_name, sounded_note
 from optisample.optimize.export.context import ExportContext
+from optisample.optimize.export.coverage import covered_routing
 from optisample.optimize.layers.bands import VelocityLayers
 from optisample.optimize.plans import SampleUnit, StrategyPlan
 from optisample.optimize.tasks import AudioMap
@@ -121,13 +122,15 @@ def _layer_keymaps(units: Sequence[SampleUnit], layers: VelocityLayers, target: 
     A layer is written as its own instrument, and a keymap is keyed by note alone, so the velocity axis
     lives in the choice of instrument the pattern names. Splitting the routings here is what lets one key
     play a soft recording at one dynamic and a loud one at another. Samples are numbered across the whole
-    plan, so a routing names its samples by their position in the song's single sample list.
+    plan, so a routing names its samples by their position in the song's single sample list. Each routing
+    is then widened to the whole keyboard (:func:`~optisample.optimize.export.coverage.covered_routing`),
+    so every layer answers every key the format numbers.
     """
     assignments: tuple[dict[Note, KeyAssignment], ...] = tuple({} for _ in layers.bands)
     for index, unit in enumerate(units):
         assignments[unit.layer].update(_unit_assignments(unit, index, target))
 
-    return tuple(routed_keymap(routing) for routing in assignments)
+    return tuple(routed_keymap(covered_routing(routing, target)) for routing in assignments)
 
 
 def plan_samples(

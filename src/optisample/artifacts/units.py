@@ -7,6 +7,7 @@ from optisample.dsp.surrogate import StoredSample
 from optisample.model import NoteEvent
 from optisample.optimize.export import build_module
 from optisample.optimize.export.context import ExportContext
+from optisample.optimize.export.coverage import key_coverage, played_keys
 from optisample.optimize.export.samples import encode_plan_units
 from optisample.optimize.layers.bands import VelocityLayers
 from optisample.optimize.plans import (
@@ -119,10 +120,15 @@ def make_kind(plan: InstrumentPlan | GroupedInstrumentPlan, dump_context: DumpCo
 
     module = make_module(dump_context.material)
     size = module.size()
+    coverage = key_coverage(
+        [instrument.keymap for instrument in module.song.instruments],
+        export_context.target,
+        played=played_keys(plan.sample_units()),
+    )
     if plan.strategy == "grouped":
-        report_text = format_grouping_report(plan, size)
+        report_text = format_grouping_report(plan, size, coverage)
     else:
-        report_text = format_report(plan, size)
+        report_text = format_report(plan, size, coverage)
     return PlanKind(
-        plan.strategy, plan.layers, units, report_text, plan_document(plan, loops, size), module, make_module
+        plan.strategy, plan.layers, units, report_text, plan_document(plan, loops, size, coverage), module, make_module
     )

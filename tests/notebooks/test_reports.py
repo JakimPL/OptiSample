@@ -10,6 +10,7 @@ from optisample.artifacts.serialize import (
     BudgetRecord,
     EventMetricRecord,
     KeptRecordingRecord,
+    KeyboardRecord,
     LayerRecord,
     LoopRecord,
     MetricsDocument,
@@ -100,6 +101,7 @@ def _plan(strategy: str) -> PlanDocument:
             module_budget_bytes=98_304, sample_budget_bytes=97_000, used_bytes=48_500, module_bytes=49_000
         ),
         "module": ModuleSizeRecord(total_bytes=50_000, header_bytes=800, pcm_bytes=48_500, pattern_bytes=700),
+        "keyboard": KeyboardRecord(numbered=120, played=7, answered=120),
         "reduction": _reduction(),
         "velocity_map": VelocityMapDocument(reference_volume=64, anchors=[], volumes=[64] * 128),
         "layers": [

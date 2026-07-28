@@ -17,6 +17,7 @@ from optisample.config.reduce import DedupeKey
 from optisample.dsp.loop import Loop
 from optisample.dsp.surrogate import StoredSample
 from optisample.music import note_name
+from optisample.optimize.export.coverage import KeyCoverage
 from optisample.optimize.layers.totals import LayerTotals, layer_totals
 from optisample.optimize.plans import (
     GroupedInstrumentPlan,
@@ -110,6 +111,19 @@ class _PitchHead(_Frozen):
     note: str
     weight: float
     representative_velocity: int
+
+
+class KeyboardRecord(_Frozen):
+    """What of the format's keyboard the written instruments answer.
+
+    ``numbered`` is the keys the format offers, ``played`` the keys the material reached, and
+    ``answered`` how many resolve to a sample once the rest are filled from the recording nearest them,
+    so a reader sees the stretch an instrument plays over beside the stretch it was recorded over.
+    """
+
+    numbered: int
+    played: int
+    answered: int
 
 
 class LayerRecord(_Frozen):
@@ -265,6 +279,7 @@ class PlanDocument(_Frozen):
     energy_exponent: float
     budget: BudgetRecord
     module: ModuleSizeRecord
+    keyboard: KeyboardRecord
     reduction: ReductionDocument
     velocity_map: VelocityMapDocument
     layers: list[LayerRecord]
@@ -446,6 +461,14 @@ def _module_size_record(size: SizeReport) -> ModuleSizeRecord:
     )
 
 
+def _keyboard_record(coverage: KeyCoverage) -> KeyboardRecord:
+    return KeyboardRecord(
+        numbered=coverage.numbered,
+        played=coverage.played,
+        answered=coverage.answered,
+    )
+
+
 def _encoding_record(unit: SampleUnit, loop: Loop | None) -> EncodingRecord:
     return EncodingRecord(
         target_rate=unit.params.target_rate,
@@ -500,17 +523,19 @@ def plan_document(
     plan: InstrumentPlan | GroupedInstrumentPlan,
     loops: Sequence[Loop | None],
     size: SizeReport,
+    coverage: KeyCoverage,
 ) -> PlanDocument:
     """One plan document for either strategy; ``loops`` are the per-item *stored* loops, in plan order.
 
     The plan's :meth:`~optisample.optimize.plans.StrategyPlan.sample_units` supplies the shared encoding
     block for every item; only the leading fields (a pitch vs. a zone, and whether a ``method`` is
     recorded) differ, selected by narrowing on the plan's strategy. ``size`` is what the module the plan
-    exports to actually occupies.
+    exports to actually occupies, and ``coverage`` what its keymaps answer of the format's keyboard.
     """
     units = plan.sample_units()
     budget = _budget_record(plan)
     module = _module_size_record(size)
+    keyboard = _keyboard_record(coverage)
     reduction = reduction_document(plan.reduction)
     velocity_map = _velocity_map_document(plan.velocity_map)
     layers = [_layer_record(totals) for totals in layer_totals(plan.layers, units)]
@@ -522,6 +547,7 @@ def plan_document(
             energy_exponent=plan.energy_exponent,
             budget=budget,
             module=module,
+            keyboard=keyboard,
             reduction=reduction,
             velocity_map=velocity_map,
             layers=layers,
@@ -535,6 +561,7 @@ def plan_document(
         energy_exponent=plan.energy_exponent,
         budget=budget,
         module=module,
+        keyboard=keyboard,
         reduction=reduction,
         velocity_map=velocity_map,
         layers=layers,

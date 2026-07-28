@@ -36,6 +36,7 @@ from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.reduce.summary import ReductionSummary
 from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
 from tests.optimize.export.demo import SR
+from trackmod.core.instruments.keymap import KeyAssignment
 from trackmod.core.notes.pitch import Note
 from trackmod.module.protocol import TrackerModule
 from trackmod.module.storage import Storage
@@ -207,6 +208,39 @@ def test_the_written_module_grades_its_samples_against_the_one_needing_most(
     gains = [sample.gain for sample in module.song.samples]
     assert max(gains) == MAX_VOLUME
     assert all(0 < gain <= MAX_VOLUME for gain in gains)
+
+
+def _assignment(module: TrackerModule, target: ExportTarget, pitch: int) -> KeyAssignment | None:
+    """What the written instrument plays at ``pitch``, as the module itself states it."""
+    return module.song.instruments[0].assignment(target.key(pitch))
+
+
+def test_a_written_instrument_answers_far_past_the_keys_it_was_recorded_over(
+    build: Callable[..., tuple[InstrumentPlan, TrackerModule]],
+    target: ExportTarget,
+) -> None:
+    """End to end: a note reaching a key the material never played sounds the recording nearest it."""
+    plan, module = build()
+    answered = [pitch for pitch in range(target.min_pitch, target.max_pitch + 1) if _assignment(module, target, pitch)]
+    played = sorted(pitch_plan.pitch for pitch_plan in plan.pitches)
+    assert set(played) <= set(answered)  # every recording still answers its own key
+    assert answered == list(range(answered[0], answered[-1] + 1))  # one unbroken stretch, no key left inside it
+    assert answered[0] < played[0] and answered[-1] > played[-1]  # reaching past the keys that were recorded
+
+
+def test_a_filled_key_sounds_its_sample_at_the_same_offset_its_own_keys_do(
+    build: Callable[..., tuple[InstrumentPlan, TrackerModule]],
+    target: ExportTarget,
+) -> None:
+    """One sample is tuned once for every key reaching it, which is what FastTracker 2 asks of it."""
+    _, module = build()
+    offsets: dict[int, set[int]] = {}
+    for pitch in range(target.min_pitch, target.max_pitch + 1):
+        assignment = _assignment(module, target, pitch)
+        if assignment is not None:
+            offsets.setdefault(assignment.sample, set()).add(target.key(pitch).value - assignment.note.value)
+
+    assert all(len(spread) == 1 for spread in offsets.values())
 
 
 def test_grouped_module_shares_one_sample_across_a_merged_zone(

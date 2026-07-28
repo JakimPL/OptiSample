@@ -195,6 +195,28 @@ samples reach, and the bytes and distortion they carry — and both strategies r
 `plan.json`'s `layers`, with every zone naming the layer it belongs to. The A/B renders are filed per band
 under `compare/<band>/`, so a key stored three times is heard three ways.
 
+## The keyboard a written instrument answers
+
+An instrument is recorded over the keys its material plays, which on a real slice is a stretch in the
+middle of the keyboard. Every other key is answered too, from the recording nearest it: the lowest
+recording reaches down toward the bottom key, the highest up toward the top, and each stretch between two
+of them is served by whichever side is closer, with an equal distance handed to the lower one — the
+direction `transposition_headroom_semitones` already reserved bandwidth for. A tracker states a
+transposition as the note it sounds, so a recording reaches five octaves below its own key and just under
+five above; a key past that goes to the next recording that can name it. The keys the material played keep
+their own recording exactly as the plan allocated it, and a filled key sounds its sample at the same
+interval its own keys do, so one sample stays tuned once however many keys reach it.
+
+This is what makes a written instrument playable outside the material it was measured on. It also settles
+a format asymmetry: Impulse Tracker sounds silence at a key naming no sample, while FastTracker 2, whose
+keymap numbers every key to a real slot, would otherwise sound the instrument's first sample there at that
+sample's own tuning. Both now answer with the nearest recording. The report and `plan.json` state the
+coverage:
+
+```
+Keyboard:      120 of 120 keys answered  (5 played, 115 filled from the nearest recording)
+```
+
 ## Usage
 
 Optimize a `.notes.json` into an inspectable artifact tree:
