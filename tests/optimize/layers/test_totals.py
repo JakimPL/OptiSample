@@ -1,3 +1,4 @@
+from optisample.dsp.surrogate.params import EncodingParams
 from optisample.music import MIDI_MAX_VELOCITY
 from optisample.optimize.layers.bands import UNSPLIT, VelocityBand, VelocityLayers
 from optisample.optimize.layers.totals import layer_totals

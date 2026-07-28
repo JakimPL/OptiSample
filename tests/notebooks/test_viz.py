@@ -1,5 +1,6 @@
 from collections.abc import Callable
 
+import numpy as np
 import pytest
 from numpy.typing import NDArray
 

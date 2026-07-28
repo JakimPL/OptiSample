@@ -13,9 +13,3 @@ __pycache__/
 *.pyo
 *.coverage
 *.coverage.*
-
-notebooks/_demo/
-notebooks/_runs/
-/artifacts/
-/reduced/
-/subset/

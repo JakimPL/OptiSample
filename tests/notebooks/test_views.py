@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from pathlib import Path
 
+import numpy as np
 import pytest
 from numpy.typing import NDArray
 
