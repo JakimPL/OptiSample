@@ -49,6 +49,25 @@ def test_plan_document_grouped_writes_zones_and_drops_method(grouped_plan: Group
     assert "zones" in dumped
 
 
+def test_a_grouped_document_records_the_sample_cap_it_was_held_to(
+    ungrouped_plan: InstrumentPlan, grouped_plan: GroupedInstrumentPlan
+) -> None:
+    """The cap and its charge belong to the strategy that meets them, so only that document states them."""
+    grouped = plan_document(
+        grouped_plan, [None] * len(grouped_plan.sample_units()), _SIZE, _COVERAGE, _layout(grouped_plan)
+    )
+    assert grouped.reserve is not None
+    assert grouped.reserve.cap == grouped_plan.reserve.cap
+    assert grouped.reserve.bytes_per_sample == grouped_plan.reserve.bytes_per_sample
+    assert grouped.reserve.objective_uncapped == grouped_plan.reserve.objective_uncapped
+    assert len(grouped.zones or []) <= grouped.reserve.cap
+
+    ungrouped = plan_document(
+        ungrouped_plan, [None] * len(ungrouped_plan.sample_units()), _SIZE, _COVERAGE, _layout(ungrouped_plan)
+    )
+    assert "reserve" not in ungrouped.model_dump()
+
+
 def test_both_documents_state_the_weighting_their_objective_was_measured_under(
     ungrouped_plan: InstrumentPlan, grouped_plan: GroupedInstrumentPlan
 ) -> None:

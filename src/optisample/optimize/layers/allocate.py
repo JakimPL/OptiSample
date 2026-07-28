@@ -5,15 +5,15 @@ from dataclasses import dataclass
 
 from optisample.io.tracker.target import ExportTarget
 from optisample.model import InstrumentSpec
-from optisample.optimize.dp import BudgetInfeasibleError
+from optisample.optimize.dp import AllocationInfeasibleError
 from optisample.optimize.grouping.cost_model import ZoneSegment, _ZoneOptions, build_zone_options
-from optisample.optimize.grouping.solve import solve_grouping
+from optisample.optimize.grouping.reserve import solve_within_cap
 from optisample.optimize.layers.bands import VelocityBand, VelocityLayers, partitions, velocity_cells
 from optisample.optimize.layers.slots import reserved_slots
 from optisample.optimize.layers.tasks import band_tasks
 from optisample.optimize.orchestrate import RunInputs
 from optisample.optimize.orchestrate.settings import OptimizeSettings
-from optisample.optimize.plans import BudgetBreakdown, Zone, per_key_bytes, split_budget
+from optisample.optimize.plans import BudgetBreakdown, SampleReserve, Zone, per_key_bytes, split_budget
 from optisample.optimize.tasks import PitchTask
 
 
@@ -23,7 +23,8 @@ class LayeredAllocation:
 
     ``layers`` names the band each stored instrument answers for and ``budget`` the split those layers
     were priced against, so a plan built from this states both what it stores and what carrying that
-    many instruments cost it before the first frame of audio.
+    many instruments cost it before the first frame of audio. ``reserve`` states the sample cap the
+    zones were held to and the charge per stored sample that held them there.
     """
 
     layers: VelocityLayers
@@ -31,6 +32,7 @@ class LayeredAllocation:
     zones: tuple[Zone, ...]
     total_bytes: int
     objective: float
+    reserve: SampleReserve
 
 
 @dataclass(frozen=True)
@@ -133,34 +135,40 @@ def _allocate(
 ) -> LayeredAllocation:
     """Partition and allocate one candidate split over the layers it stores, sharing one budget.
 
+    The split is held to the run's sample cap, which every layer's zones are counted against together,
+    so what the layers store stays inside one instrument's worth of samples however they divide the keys.
+
     Raises:
         BudgetInfeasibleError: when the cheapest sample per key still overruns what the split can spend.
+        SampleCapInfeasibleError: when the charge meeting the cap leaves the budget carrying no partition.
     """
     budget = layering.budget(layering.instruments([len(universe.segments[segment].tasks) for segment in place]))
-    result = solve_grouping(
+    capped = solve_within_cap(
         [universe.segments[segment] for segment in place],
         [scored[segment] for segment in place],
         budget.sample_bytes,
+        layering.settings.sample_cap,
     )
     return LayeredAllocation(
         layers=split,
         budget=budget,
-        zones=result.zones,
-        total_bytes=result.total_bytes,
-        objective=result.objective,
+        zones=capped.result.zones,
+        total_bytes=capped.result.total_bytes,
+        objective=capped.result.objective,
+        reserve=capped.reserve,
     )
 
 
 def fits_format(allocation: LayeredAllocation, target: ExportTarget) -> bool:
-    """Whether the target format numbers enough samples, and enough instruments, for what this split stores.
+    """Whether the target format lists enough instruments for what this split reserves.
 
     A single layer keeps at most one sample per key the material plays and is written as the handful of
-    instruments those samples fill, which every format holds, so this is what velocity layers add:
-    several layers each holding a zone per key can ask for more samples than the module numbers, or for
-    more instruments than it lists once each wide layer is cut to the samples one instrument owns. A
-    split asking for either is one the exporter could not write.
+    instruments those samples fill, which every format holds, so this is what velocity layers add: each
+    wide layer is cut to the samples one instrument owns, and several of them together can reserve more
+    instruments than the module lists. The samples themselves are settled during the solve, which holds
+    every split to the cap the format's own sample count bounds.
     """
-    return len(allocation.zones) <= target.max_samples and allocation.budget.instruments <= target.max_instruments
+    return allocation.budget.instruments <= target.max_instruments
 
 
 def _preferred(
@@ -207,6 +215,7 @@ def allocate_layers(
 
     Raises:
         BudgetInfeasibleError: when even a single layer of the cheapest samples overruns the budget.
+        SampleCapInfeasibleError: when a single layer within the sample cap overruns the budget.
         ValueError: when the layer cap asks for more instruments than the format numbers.
     """
     _require_instrument_room(instrument, settings)
@@ -225,7 +234,7 @@ def allocate_layers(
     for split, place in zip(splits[1:], universe.placement[1:]):
         try:
             candidate = _allocate(layering, universe, scored, place, split)
-        except BudgetInfeasibleError:
+        except AllocationInfeasibleError:
             continue
 
         if _preferred(candidate, best, settings):

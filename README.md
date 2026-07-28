@@ -242,6 +242,34 @@ A written instrument names the axes the plan split, inside the 22 bytes FastTrac
 `Piano v000-v051 F1-B4` once keys do as well. Each slot answers the whole keyboard from the samples it
 owns, so every one of them is playable on its own.
 
+## The sample cap: asking for fewer, wider zones
+
+A budget in bytes and a count of samples are different asks. `max_samples` is the second one:
+
+```yaml
+# src/opticonfig/optimize.yaml
+max_samples: 0 # stored samples a grouped plan may keep, met by storing wider zones; 0 keeps what the format numbers
+```
+
+Pitch-zone grouping meets it by **charging every stored sample** a reserve on top of the bytes it
+occupies. A charge makes a partition of many narrow zones expensive and one of few wide zones cheap, so
+the same exact DP that spends the byte budget also answers the count. The run walks once for free: a plan
+already inside its cap is the plan the budget alone chose, at no extra cost. Where the cap bites, the
+search starts from the charge that prices every wider partition out of the budget and narrows back toward
+the smallest charge that still holds, since a smaller charge leaves more of the budget for the samples
+themselves. The report states what it settled on:
+
+```
+Samples:         8 stored of 8 allowed  (2371 B charged per sample, objective 24.8130 against 20.9520 uncapped)
+```
+
+This is a Lagrangian relaxation of a count constraint, and it behaves like one: it answers with the best
+plan a charge induces, which the byte-vs-distortion frontier may leave a hair off the best plan of exactly
+N samples. The exact alternative — a zone-count axis in the DP — multiplies a table already ~1.5 GB at
+512 KiB by the cap. `--max-samples` overrides the cap for one run, and the cap a run works to is always
+held inside what the target format numbers. The ungrouped strategy keeps a recording per key it plays, so
+the cap is the grouped strategy's to meet.
+
 ## Usage
 
 Optimize a `.notes.json` into an inspectable artifact tree:
@@ -258,8 +286,8 @@ defaults to the `.notes.json` base name. `--pre-roll-ms` / `--post-roll-ms` mirr
 padding (the pre-roll is trimmed as each sample's lead-in so frame 0 lands on the note onset). Other
 flags: `--format {it,xm}`, `--strategy {both,grouped,ungrouped}`, `--no-render`, `--rate`/`--depth`
 (repeatable sweep values), `--no-loop`, `--interpolation`, `--seed`. `--dedupe-key` and `--candidates`
-override the two reduction knobs worth varying per run (see below), and `--max-layers` the velocity
-bands a key may store.
+override the two reduction knobs worth varying per run (see below), `--max-layers` the velocity bands a
+key may store and `--max-samples` how many samples a grouped plan may keep.
 
 Each long stage draws a labelled progress bar on stderr, carrying the count it will reach and an ETA, so
 a large instrument states how long it needs while it runs:

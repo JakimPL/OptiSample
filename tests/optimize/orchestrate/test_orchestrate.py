@@ -8,7 +8,7 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.config import load_config
-from optisample.config.optimize import SweepConfig
+from optisample.config.optimize import EVERY_SAMPLE, SweepConfig
 from optisample.config.reduce import ReduceConfig
 from optisample.io.audio import read_wav, write_wav
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
@@ -270,3 +270,29 @@ def test_every_stored_sample_states_its_share_of_the_objective(optimize: Callabl
     """One reading every consumer can add up, whichever scale the strategy searched its hulls at."""
     plan = optimize(64.0)
     assert sum(unit.objective_share for unit in plan.sample_units()) == pytest.approx(plan.objective)
+
+
+@pytest.mark.parametrize(
+    ("asked", "expected"),
+    [(EVERY_SAMPLE, None), (8, 8)],
+    ids=["every-sample-the-format-numbers", "a-cap-the-format-has-room-for"],
+)
+def test_the_sample_cap_a_run_works_to(
+    asked: int,
+    expected: int | None,
+    grid: SweepConfig,
+    optimize_settings: Callable[..., OptimizeSettings],
+) -> None:
+    """What a run may store is what it asked for, and the format answers when it asked for everything."""
+    settings = optimize_settings(sweep=grid, max_samples=asked)
+    assert settings.sample_cap == (settings.target.max_samples if expected is None else expected)
+
+
+def test_a_cap_above_what_the_format_numbers_is_held_to_the_format(
+    grid: SweepConfig, optimize_settings: Callable[..., OptimizeSettings]
+) -> None:
+    """No plan the format could write holds more samples than it numbers, so that bound wins."""
+    settings = optimize_settings(sweep=grid, max_samples=1)
+    assert settings.sample_cap < optimize_settings(sweep=grid, max_samples=EVERY_SAMPLE).sample_cap
+    beyond = optimize_settings(sweep=grid, max_samples=settings.target.max_samples + 1)
+    assert beyond.sample_cap == beyond.target.max_samples

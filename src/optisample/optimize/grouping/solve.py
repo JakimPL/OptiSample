@@ -28,26 +28,59 @@ class _Recovered:
     option: ZoneOption
 
 
-def _cheapest_partition_bytes(options: _ZoneOptions, starts: Sequence[Sequence[int]]) -> int:
-    """Fewest bytes any partition can use (each zone at its smallest option) -- the feasibility floor."""
+@dataclass(frozen=True)
+class _Walk:
+    """What the forward pass reached, and how it got there.
+
+    ``distortion[stop][total]`` is the least distortion covering the first ``stop`` keys of the axis for
+    exactly ``total`` charged bytes; the two backpointer tables name the zone the walk arrived through --
+    where it started, and which of that span's options it took.
+    """
+
+    distortion: list[NDArray[np.float64]]
+    from_start: list[NDArray[np.int64]]
+    from_option: list[NDArray[np.int64]]
+
+    @property
+    def covered(self) -> NDArray[np.float64]:
+        """The distortion each charged byte total reaches once every key on the axis is covered."""
+        return self.distortion[-1]
+
+
+def _charged(option: ZoneOption, reserve: int) -> int:
+    """What one zone costs the walk: the bytes it stores plus the reserve each stored sample is charged.
+
+    Charging every stored sample above its own bytes is how a cap on the sample count is met: the walk
+    then prefers fewer and wider zones, and the bytes the plan truly spends are read back off the options
+    it chose (:func:`solve_grouping`).
+    """
+    return option.stored_bytes + reserve
+
+
+def _cheapest_partition_bytes(options: _ZoneOptions, starts: Sequence[Sequence[int]], reserve: int) -> int:
+    """Fewest charged bytes any partition can use (each zone at its smallest option) -- the feasibility floor."""
     count = len(starts) - 1
     dp = [0] + [np.iinfo(np.int64).max] * count
     for stop in range(1, count + 1):
         for start in starts[stop]:
-            cheapest = min(option.stored_bytes for option in options[(start, stop)])
+            cheapest = min(_charged(option, reserve) for option in options[(start, stop)])
             dp[stop] = min(dp[stop], dp[start] + cheapest)
 
     return int(dp[count])
 
 
-def _relax(dp_from: NDArray[np.float64], dp_to: NDArray[np.float64], option: ZoneOption) -> NDArray[np.bool_]:
-    """Extend every byte total reached in ``dp_from`` by one more zone stored as ``option``.
+def _relax(
+    dp_from: NDArray[np.float64],
+    dp_to: NDArray[np.float64],
+    cost: int,
+    distortion: float,
+) -> NDArray[np.bool_]:
+    """Extend every byte total reached in ``dp_from`` by one more zone costing ``cost`` at ``distortion``.
 
     Writes the improved distortions into ``dp_to`` in place and reports where they landed, so the caller
     can point those same byte totals back at the zone that reached them.
     """
-    cost = option.stored_bytes
-    candidate = dp_from[: dp_to.size - cost] + option.distortion
+    candidate = dp_from[: dp_to.size - cost] + distortion
     target = dp_to[cost:]
     improved = candidate < target
     target[improved] = candidate[improved]
@@ -58,42 +91,41 @@ def _forward_dp(
     options: _ZoneOptions,
     starts: Sequence[Sequence[int]],
     budget_bytes: int,
-) -> tuple[list[NDArray[np.float64]], list[NDArray[np.int64]], list[NDArray[np.int64]]]:
-    """Fill ``dp[j][b]`` = least distortion covering the first ``j`` pitches in exactly ``b`` bytes."""
+    reserve: int,
+) -> _Walk:
+    """Fill the walk: least distortion covering the first ``j`` pitches in exactly ``b`` charged bytes."""
     count = len(starts) - 1
     size = budget_bytes + 1
-    dp = [np.full(size, np.inf, dtype=np.float64) for _ in range(count + 1)]
-    dp[0][0] = 0.0
-    from_start = [np.full(size, -1, dtype=np.int64) for _ in range(count + 1)]
-    from_option = [np.full(size, -1, dtype=np.int64) for _ in range(count + 1)]
+    distortion = [np.full(size, np.inf, dtype=np.float64) for _ in range(count + 1)]
+    distortion[0][0] = 0.0
+    walk = _Walk(
+        distortion=distortion,
+        from_start=[np.full(size, -1, dtype=np.int64) for _ in range(count + 1)],
+        from_option=[np.full(size, -1, dtype=np.int64) for _ in range(count + 1)],
+    )
     for stop in range(1, count + 1):
         for start in starts[stop]:
             for index, option in enumerate(options[(start, stop)]):
-                if option.stored_bytes > budget_bytes:
+                cost = _charged(option, reserve)
+                if cost > budget_bytes:
                     continue
 
-                improved = _relax(dp[start], dp[stop], option)
-                from_start[stop][option.stored_bytes :][improved] = start
-                from_option[stop][option.stored_bytes :][improved] = index
+                improved = _relax(walk.distortion[start], walk.distortion[stop], cost, option.distortion)
+                walk.from_start[stop][cost:][improved] = start
+                walk.from_option[stop][cost:][improved] = index
 
-    return dp, from_start, from_option
+    return walk
 
 
-def _reconstruct(
-    options: _ZoneOptions,
-    from_start: list[NDArray[np.int64]],
-    from_option: list[NDArray[np.int64]],
-    count: int,
-    total: int,
-) -> list[_Recovered]:
-    """Walk the DP backpointers from ``(count, total)`` back to ``(0, 0)`` to recover the zones."""
+def _reconstruct(options: _ZoneOptions, walk: _Walk, total: int, reserve: int) -> list[_Recovered]:
+    """Walk the backpointers from the fully covered axis at ``total`` charged bytes back to the start."""
     recovered: list[_Recovered] = []
-    stop, budget = count, total
+    stop, budget = len(walk.distortion) - 1, total
     while stop > 0:
-        start = int(from_start[stop][budget])
-        option = options[(start, stop)][int(from_option[stop][budget])]
+        start = int(walk.from_start[stop][budget])
+        option = options[(start, stop)][int(walk.from_option[stop][budget])]
         recovered.append(_Recovered(start=start, stop=stop, option=option))
-        budget -= option.stored_bytes
+        budget -= _charged(option, reserve)
         stop = start
 
     recovered.reverse()
@@ -129,14 +161,24 @@ def solve_grouping(
     segments: Sequence[ZoneSegment],
     options: Sequence[_ZoneOptions],
     budget_bytes: int,
+    *,
+    reserve: int,
 ) -> GroupingResult:
-    """Exact partition + allocation: least-distortion set of zones whose bytes fit ``budget_bytes``.
+    """Exact partition + allocation: least-distortion set of zones whose charged bytes fit ``budget_bytes``.
 
     The segments' keys are laid end to end into one axis and their option tables offset onto it, so the
     DP walks every layer in a single pass and the budget is shared across all of them. ``options`` holds
     the candidate zones the cost model scored, which the span cap and the segment boundaries leave
     sparse, so the passes below step between the range boundaries :func:`zone_starts` reports as
     connected.
+
+    ``reserve`` is what each stored sample is charged on top of the bytes it occupies (:func:`_charged`),
+    which is the price a caller raises to draw the walk toward fewer zones; :data:`NO_RESERVE` leaves
+    every option at its own size. The zones answered are the ones the walk chose and ``total_bytes`` the
+    bytes they truly store, so the reserve shapes the partition and the plan reports what it holds.
+
+    Raises:
+        BudgetInfeasibleError: when the cheapest partition's charged bytes overrun ``budget_bytes``.
     """
     tasks = axis_tasks(segments)
     count = len(tasks)
@@ -145,11 +187,11 @@ def solve_grouping(
     combined = combined_options(segments, options)
     offsets = segment_offsets(segments)
     starts = zone_starts(combined, count)
-    require_feasible(_cheapest_partition_bytes(combined, starts), budget_bytes)
-    dp, from_start, from_option = _forward_dp(combined, starts, budget_bytes)
-    reachable = np.flatnonzero(np.isfinite(dp[count]))
-    best_bytes = int(reachable[int(np.argmin(dp[count][reachable]))])
-    chosen = _reconstruct(combined, from_start, from_option, count, best_bytes)
+    require_feasible(_cheapest_partition_bytes(combined, starts, reserve), budget_bytes)
+    walk = _forward_dp(combined, starts, budget_bytes, reserve)
+    reachable = np.flatnonzero(np.isfinite(walk.covered))
+    best_bytes = int(reachable[int(np.argmin(walk.covered[reachable]))])
+    chosen = _reconstruct(combined, walk, best_bytes, reserve)
     zones = tuple(
         _build_zone(
             tasks,
@@ -162,6 +204,6 @@ def solve_grouping(
     )
     return GroupingResult(
         zones=zones,
-        total_bytes=best_bytes,
-        objective=float(dp[count][best_bytes]),
+        total_bytes=sum(zone.option.stored_bytes for zone in chosen),
+        objective=float(walk.covered[best_bytes]),
     )

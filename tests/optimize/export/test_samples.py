@@ -25,9 +25,11 @@ from optisample.optimize.orchestrate import optimize_instrument
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import (
     FIRST_LAYER,
+    NO_RESERVE,
     BudgetBreakdown,
     GroupedInstrumentPlan,
     InstrumentPlan,
+    SampleReserve,
     SampleUnit,
     Zone,
     ZoneOption,
@@ -47,6 +49,8 @@ from trackmod.trackers.xm.spec.sizes import NAME_BYTES as _NARROWEST_NAME_BYTES
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
 
 _UNREACHABLE_PITCH = 5  # below MIDI 12, so no tracker keyboard numbers it
+_WHOLE_TABLE = 255  # samples a format numbering them freely lets one plan store
+_UNCHARGED = SampleReserve(cap=_WHOLE_TABLE, bytes_per_sample=NO_RESERVE, objective_uncapped=0.0)
 _LOUDEST_VELOCITY = 100  # the velocity a graded map puts at full volume
 _SOFTER_VELOCITY = 50  # ... and one it puts at half, so the pattern carries a dynamic of its own
 
@@ -293,6 +297,7 @@ def test_a_grouped_pitch_the_format_does_not_number_raises(
         zones=(zone,),
         total_bytes=100,
         objective=0.0,
+        reserve=_UNCHARGED,
         energy_exponent=0.5,
         reduction=reduction,
     )

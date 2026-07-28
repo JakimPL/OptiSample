@@ -9,7 +9,7 @@ from optisample.optimize.dp import BudgetInfeasibleError
 from optisample.optimize.grouping import solve_grouping
 from optisample.optimize.grouping.cost_model import ZoneSegment, zone_starts
 from optisample.optimize.grouping.solve import _cheapest_partition_bytes
-from optisample.optimize.plans import ZoneOption
+from optisample.optimize.plans import NO_RESERVE, ZoneOption
 from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.tasks import Event, PitchTask
 
@@ -72,9 +72,9 @@ def test_solve_grouping_is_exact_against_brute_force(seed: int) -> None:
         expected = _brute_force(pitches, options, budget)
         if math.isinf(expected):
             with pytest.raises(BudgetInfeasibleError):
-                solve_grouping(layer, [options], budget)
+                solve_grouping(layer, [options], budget, reserve=NO_RESERVE)
             continue
-        result = solve_grouping(layer, [options], budget)
+        result = solve_grouping(layer, [options], budget, reserve=NO_RESERVE)
         assert result.objective == pytest.approx(expected)
         assert result.total_bytes <= budget
         assert [pitch for zone in result.zones for pitch in zone.pitches] == list(pitches)  # contiguous cover
@@ -85,13 +85,13 @@ def test_solve_grouping_raises_when_cheapest_partition_overflows() -> None:
     pitches = (60, 62)
     layer = _fake_layer(pitches)
     options = _fake_options(pitches, 0)
-    floor = _cheapest_partition_bytes(options, zone_starts(options, len(pitches)))
+    floor = _cheapest_partition_bytes(options, zone_starts(options, len(pitches)), NO_RESERVE)
     with pytest.raises(BudgetInfeasibleError):
-        solve_grouping(layer, [options], floor - 1)
+        solve_grouping(layer, [options], floor - 1, reserve=NO_RESERVE)
 
 
 def test_solve_grouping_with_no_pitches_is_empty() -> None:
-    result = solve_grouping([], [], 1_000)
+    result = solve_grouping([], [], 1_000, reserve=NO_RESERVE)
     assert result.zones == () and result.total_bytes == 0 and result.objective == 0.0
 
 
@@ -100,7 +100,7 @@ def test_solve_grouping_names_the_layer_each_zone_came_from() -> None:
     pitches = (60, 62)
     quiet, loud = _fake_layer(pitches)[0], _fake_layer(pitches)[0]
     options = _fake_options(pitches, 0)
-    result = solve_grouping([quiet, loud], [options, options], 4_000)
+    result = solve_grouping([quiet, loud], [options, options], 4_000, reserve=NO_RESERVE)
     assert [pitch for zone in result.zones for pitch in zone.pitches] == list(pitches) * 2
     layers = [zone.layer for zone in result.zones]
     assert layers == sorted(layers) and set(layers) == {0, 1}

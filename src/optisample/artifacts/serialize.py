@@ -23,6 +23,7 @@ from optisample.optimize.layers.slots import InstrumentSlot, SlotLayout
 from optisample.optimize.plans import (
     GroupedInstrumentPlan,
     InstrumentPlan,
+    SampleReserve,
     SampleUnit,
     StrategyPlan,
 )
@@ -32,7 +33,7 @@ from optisample.optimize.tasks import EvalContext, PitchTask, score_events
 from optisample.optimize.velocity_map import VelocityVolumeMap
 from trackmod.module.size import SizeReport
 
-_OPTIONAL_HEAD: Final = ("method", "pitches", "zones")
+_OPTIONAL_HEAD: Final = ("method", "pitches", "reserve", "zones")
 
 
 class _Frozen(BaseModel):
@@ -153,6 +154,19 @@ class InstrumentRecord(_Frozen):
     objective_share: float
 
 
+class ReserveRecord(_Frozen):
+    """The sample cap a grouped plan was held to, and the charge per stored sample that held it there.
+
+    ``bytes_per_sample`` is what each stored sample was priced above the bytes it occupies, so a plan
+    already inside its cap records nothing charged. ``objective_uncapped`` is what the same budget scored
+    at that price, which states what meeting the cap was worth.
+    """
+
+    cap: int
+    bytes_per_sample: int
+    objective_uncapped: float
+
+
 class _ZoneHead(_Frozen):
     """The leading fields of a grouped item: the velocity band it answers for and the keys it covers."""
 
@@ -271,9 +285,11 @@ class ReducedDocument(_Frozen):
 class PlanDocument(_Frozen):
     """One optimized plan for either strategy: budgets, the velocity map, the layers and the kept items.
 
-    ``method`` is recorded only for the ungrouped strategy; ``pitches`` and ``zones`` are mutually
-    exclusive. The optional-head fields a strategy leaves unset are dropped at serialization, so each
-    strategy writes exactly the keys that apply to it. ``instruments`` is what the plan is written as, one
+    ``method`` is recorded only for the ungrouped strategy, ``reserve`` only for the grouped one, and
+    ``pitches`` and ``zones`` are mutually exclusive. The optional-head fields a strategy leaves unset are
+    dropped at serialization, so each strategy writes exactly the keys that apply to it. A grouped plan's
+    ``reserve`` states the sample cap it was held to and what holding it there cost.
+    ``instruments`` is what the plan is written as, one
     entry per instrument the module numbers, so a plan keeping one recording per key in one band reports
     its single instrument. ``energy_exponent`` states how steeply each note's own energy scaled its
     distortion, which is what settles whether two documents' objectives may be compared.
@@ -291,6 +307,7 @@ class PlanDocument(_Frozen):
     velocity_map: VelocityMapDocument
     instruments: list[InstrumentRecord]
     pitches: list[PitchItemRecord] | None = None
+    reserve: ReserveRecord | None = None
     zones: list[ZoneItemRecord] | None = None
 
     @model_serializer(mode="wrap")
@@ -527,6 +544,14 @@ def _instrument_records(plan: StrategyPlan, layout: SlotLayout) -> list[Instrume
     ]
 
 
+def _reserve_record(reserve: SampleReserve) -> ReserveRecord:
+    return ReserveRecord(
+        cap=reserve.cap,
+        bytes_per_sample=reserve.bytes_per_sample,
+        objective_uncapped=reserve.objective_uncapped,
+    )
+
+
 def _zone_item(unit: SampleUnit, loop: Loop | None) -> ZoneItemRecord:
     return ZoneItemRecord(
         layer=unit.layer,
@@ -573,6 +598,7 @@ def plan_document(
             reduction=reduction,
             velocity_map=velocity_map,
             instruments=instruments,
+            reserve=_reserve_record(plan.reserve),
             zones=[_zone_item(unit, loop) for unit, loop in zip(units, loops)],
         )
     return PlanDocument(

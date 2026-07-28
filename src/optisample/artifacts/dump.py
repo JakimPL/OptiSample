@@ -27,7 +27,7 @@ from optisample.io.render import openmpt123_available, render_module
 from optisample.metrics.base import Signal
 from optisample.model import InstrumentSpec, Manifest, NoteEvent
 from optisample.music import pitch_label
-from optisample.optimize.dp import BudgetInfeasibleError
+from optisample.optimize.dp import AllocationInfeasibleError
 from optisample.optimize.grouping.optimize import allocate_instrument_grouped
 from optisample.optimize.orchestrate import RunInputs, allocate_instrument, prepare_run
 from optisample.optimize.orchestrate.audio import load_instrument_audio
@@ -176,13 +176,13 @@ def _optimize_and_dump(
     dump_context: DumpContext,
     strategy: _Strategy,
 ) -> PlanArtifacts:
-    """Allocate one strategy and dump it; on an infeasible budget, record why instead of raising."""
+    """Allocate one strategy and dump it; on an allocation out of reach, record why instead of raising."""
     paths.directory.mkdir(parents=True, exist_ok=True)
     started_at = perf_counter()
     try:
         plan = strategy.allocate(instrument, dump_context.inputs, dump_context.settings.optimize)
         kind = make_kind(plan, dump_context)
-    except BudgetInfeasibleError as exc:
+    except AllocationInfeasibleError as exc:
         write_text(paths.infeasible, f"{strategy.name} allocation is infeasible at this budget:\n{exc}\n")
         return PlanArtifacts(
             strategy.name,

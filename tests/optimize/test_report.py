@@ -13,10 +13,12 @@ from optisample.optimize.layers.slots import SlotLayout, pack_slots
 from optisample.optimize.operating_points import OperatingPoint
 from optisample.optimize.plans import (
     FIRST_LAYER,
+    NO_RESERVE,
     SINGLE_LAYER,
     GroupedInstrumentPlan,
     InstrumentPlan,
     PitchPlan,
+    SampleReserve,
     StrategyPlan,
     Zone,
     ZoneOption,
@@ -46,6 +48,8 @@ _ENERGY_EXPONENT = 0.5  # the weighting these fixtures state; the report only ev
 _WHOLE_TABLE: Final = 255  # samples one instrument reaches in a format numbering them freely
 _ONE_SAMPLE_EACH: Final = 1  # the narrowest format imaginable, which writes every stored zone on its own
 _RESERVED: Final = 4  # instruments a budget held room for, above the two a plan came out as
+_UNCHARGED: Final = SampleReserve(cap=_WHOLE_TABLE, bytes_per_sample=NO_RESERVE, objective_uncapped=0.0)
+_CHARGED: Final = SampleReserve(cap=1, bytes_per_sample=512, objective_uncapped=0.05)  # a cap that decided the plan
 
 
 def _layout(plan: StrategyPlan, per_instrument: int = _WHOLE_TABLE) -> SlotLayout:
@@ -146,6 +150,7 @@ def _grouped_plan(
     layers: VelocityLayers,
     storage: Storage,
     reduction: ReductionSummary,
+    reserve: SampleReserve = _UNCHARGED,
 ) -> GroupedInstrumentPlan:
     return GroupedInstrumentPlan(
         instrument_id="piano",
@@ -155,6 +160,7 @@ def _grouped_plan(
         zones=zones,
         total_bytes=sum(zone.chosen.stored_bytes for zone in zones),
         objective=sum(zone.chosen.distortion for zone in zones),
+        reserve=reserve,
         energy_exponent=_ENERGY_EXPONENT,
         reduction=reduction,
     )
@@ -319,17 +325,33 @@ def test_both_strategies_report_the_reduction(storage: Storage, reduction: Reduc
     )
     ungrouped = format_report(plan, _SIZE, _COVERAGE, _layout(plan))
     option = ZoneOption(60, EncodingParams(target_rate=22_050, depth_bits=16), 6000, 0.2, 2400)
-    zoned = GroupedInstrumentPlan(
-        instrument_id="piano",
-        budget=split_budget(_MODULE_BYTES / 1024.0, storage, SINGLE_LAYER),
-        velocity_map=VelocityVolumeMap(tuple(64 for _ in range(128)), (VelocityAnchor(100, -10.0, 64),)),
-        layers=_WHOLE_AXIS,
+    zoned = _grouped_plan(
         zones=(Zone((60,), FIRST_LAYER, SampleKey(60, 100), 1.0, option, (option,)),),
-        total_bytes=6000,
-        objective=0.2,
-        energy_exponent=_ENERGY_EXPONENT,
+        layers=_WHOLE_AXIS,
+        storage=storage,
         reduction=reduction,
     )
     grouped = format_grouping_report(zoned, _SIZE, _COVERAGE, _layout(zoned))
     block = format_reduction_block(reduction)
     assert block in ungrouped and block in grouped
+
+
+def test_a_grouped_report_states_the_sample_cap_it_was_held_to(storage: Storage, reduction: ReductionSummary) -> None:
+    """A cap the plan already meets is stated as met, so a reader sees the room the format still has."""
+    option = ZoneOption(60, EncodingParams(target_rate=22_050, depth_bits=16), 6000, 0.2, 2400)
+    zones = (Zone((60,), FIRST_LAYER, SampleKey(60, 100), 1.0, option, (option,)),)
+    free = _grouped_plan(zones=zones, layers=_WHOLE_AXIS, storage=storage, reduction=reduction)
+    report = format_grouping_report(free, _SIZE, _COVERAGE, _layout(free))
+    assert f"1 stored of {_WHOLE_TABLE} allowed" in report
+    assert "priced at the bytes it stores" in report
+
+
+def test_a_grouped_report_prices_the_cap_that_decided_the_plan(storage: Storage, reduction: ReductionSummary) -> None:
+    """A cap met by charging states the charge and the objective the same budget reached without it."""
+    option = ZoneOption(60, EncodingParams(target_rate=22_050, depth_bits=16), 6000, 0.2, 2400)
+    zones = (Zone((60, 61), FIRST_LAYER, SampleKey(60, 100), 1.0, option, (option,)),)
+    capped = _grouped_plan(zones=zones, layers=_WHOLE_AXIS, storage=storage, reduction=reduction, reserve=_CHARGED)
+    report = format_grouping_report(capped, _SIZE, _COVERAGE, _layout(capped))
+    assert f"1 stored of {_CHARGED.cap} allowed" in report
+    assert f"{_CHARGED.bytes_per_sample} B charged per sample" in report
+    assert f"{_CHARGED.objective_uncapped:.4f} uncapped" in report

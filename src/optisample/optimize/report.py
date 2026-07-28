@@ -153,6 +153,25 @@ def format_instruments_line(plan: BudgetedPlanMixin, layout: SlotLayout) -> str:
     )
 
 
+def format_samples_line(plan: GroupedInstrumentPlan) -> str:
+    """What the plan stored against the sample cap it was held to, and what holding it there cost.
+
+    A cap the plan already stays under is met by pricing each sample at the bytes it occupies, and the
+    line says so. A cap that decided what the plan stores states the charge per stored sample the search
+    settled on and the objective the same budget reached with nothing charged, which is what the samples
+    given up were worth.
+    """
+    reserve = plan.reserve
+    stored = f"Samples:   {len(plan.zones):>7} stored of {reserve.cap} allowed"
+    if not reserve.binding:
+        return f"{stored}  (each priced at the bytes it stores)"
+
+    return (
+        f"{stored}  ({reserve.bytes_per_sample} B charged per sample, "
+        f"objective {plan.objective:.4f} against {reserve.objective_uncapped:.4f} uncapped)"
+    )
+
+
 def _format_header(title: str, blocks: Sequence[str], summary: str) -> str:
     """Title, section rule, the blocks shared by both strategies, then a strategy-specific summary."""
     return "\n".join((title, SECTION_RULE, *blocks, summary))
@@ -240,7 +259,7 @@ def format_report(plan: InstrumentPlan, size: SizeReport, coverage: KeyCoverage,
 def _grouped_header(plan: GroupedInstrumentPlan, size: SizeReport, coverage: KeyCoverage, layout: SlotLayout) -> str:
     return _format_header(
         f"Instrument {plan.instrument_id!r} - pitch-zone grouping (exact partition + allocation DP)",
-        _shared_blocks(plan, size, coverage, layout),
+        [*_shared_blocks(plan, size, coverage, layout), format_samples_line(plan)],
         f"Grouping:  {_counted(len(plan.zones), 'zone')} over {_counted(len(plan.pitches), 'key')} and "
         f"{_counted(plan.layers.count, 'velocity layer')}  "
         f"(objective {plan.objective:.4f}, {_weighting_note(plan)}, "

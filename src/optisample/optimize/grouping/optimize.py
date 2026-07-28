@@ -29,6 +29,7 @@ def allocate_instrument_grouped(
         zones=allocation.zones,
         total_bytes=allocation.total_bytes,
         objective=allocation.objective,
+        reserve=allocation.reserve,
         energy_exponent=settings.energy_exponent,
         reduction=inputs.reduction,
     )

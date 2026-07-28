@@ -239,8 +239,9 @@ def optimize_settings(config: OptiConfig, target: ExportTarget) -> Callable[...,
     ``sweep`` (a ``SweepConfig``, usually built via the ``sweep`` factory), ``reduce`` (a
     ``ReduceConfig``, usually built via the ``reduce`` factory) and ``layers`` (a ``LayersConfig``,
     usually built via the ``layers`` factory) are the knobs the optimize tests vary; ``encode``,
-    ``metrics``, ``velocity`` and ``target`` come from the bundled config. Every run stays in the
-    calling process, so the suite reads a stage's own timing rather than a pool's startup.
+    ``metrics``, ``velocity`` and ``target`` come from the bundled config, and ``max_samples`` caps what
+    a grouped plan may store. Every run stays in the calling process, so the suite reads a stage's own
+    timing rather than a pool's startup.
     """
 
     def _build(
@@ -249,6 +250,7 @@ def optimize_settings(config: OptiConfig, target: ExportTarget) -> Callable[...,
         reduce: ReduceConfig | None = None,
         layers: LayersConfig | None = None,
         method: Method | None = None,
+        max_samples: int | None = None,
         seed: int = 0,
     ) -> OptimizeSettings:
         return OptimizeSettings(
@@ -260,6 +262,7 @@ def optimize_settings(config: OptiConfig, target: ExportTarget) -> Callable[...,
             velocity=config.velocity,
             method=method if method is not None else config.optimize.method,
             energy_exponent=config.optimize.energy_exponent,
+            max_samples=config.optimize.max_samples if max_samples is None else max_samples,
             target=target,
             seed=seed,
         )

@@ -7,8 +7,10 @@ from optisample.optimize.plans.budget import (
     split_budget,
 )
 from optisample.optimize.plans.grouped import (
+    NO_RESERVE,
     GroupedInstrumentPlan,
     GroupingResult,
+    SampleReserve,
     Zone,
     ZoneOption,
 )
@@ -24,6 +26,7 @@ from optisample.optimize.plans.ungrouped import InstrumentPlan, PitchPlan
 
 __all__ = [
     "FIRST_LAYER",
+    "NO_RESERVE",
     "SINGLE_LAYER",
     "BudgetBreakdown",
     "BudgetedPlanMixin",
@@ -32,6 +35,7 @@ __all__ = [
     "InstrumentPlan",
     "Method",
     "PitchPlan",
+    "SampleReserve",
     "SampleUnit",
     "Strategy",
     "StrategyPlan",

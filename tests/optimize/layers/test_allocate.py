@@ -9,7 +9,6 @@ from numpy.typing import NDArray
 from optisample.config.layers import LayersConfig
 from optisample.config.optimize import SweepConfig
 from optisample.config.tracker import TrackerFormat
-from optisample.dsp.surrogate import EncodingParams
 from optisample.io.tracker.target import ExportTarget
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.music import MIDI_MAX_VELOCITY
@@ -33,9 +32,9 @@ from optisample.optimize.orchestrate import prepare_run
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import (
     FIRST_LAYER,
+    NO_RESERVE,
     SINGLE_LAYER,
-    Zone,
-    ZoneOption,
+    SampleReserve,
     split_budget,
 )
 from optisample.optimize.reduce.keys import SampleKey
@@ -50,6 +49,8 @@ _TIGHT_KB = 5.0  # room for one layer's cheapest samples, and not for a second l
 _ONE_LAYER = 1
 _THREE_LAYERS = 3
 _WHOLE_AXIS = VelocityBand(0, MIDI_MAX_VELOCITY)
+_ONE_SAMPLE = 1  # the tightest cap there is, which only a plan of one zone per layer meets
+_UNCHARGED = SampleReserve(cap=_THREE_LAYERS, bytes_per_sample=NO_RESERVE, objective_uncapped=0.0)
 
 
 @pytest.fixture
@@ -88,12 +89,19 @@ def allocate(
     sweep: Callable[..., SweepConfig],
     layers: Callable[..., LayersConfig],
 ) -> Callable[..., LayeredAllocation]:
-    """Factory: run the layered search over ``instrument`` with the layering knobs a test varies."""
+    """Factory: run the layered search over ``instrument`` with the layering knobs a test varies.
 
-    def _allocate(instrument: InstrumentSpec, **overrides: object) -> LayeredAllocation:
+    ``max_samples`` caps what the split may store between its layers; the rest of the overrides are the
+    layering config's own.
+    """
+
+    def _allocate(
+        instrument: InstrumentSpec, *, max_samples: int | None = None, **overrides: object
+    ) -> LayeredAllocation:
         settings = optimize_settings(
             sweep=sweep(rates=(11_025,), depths=(8,), dither=False),
             layers=layers(nodes=len(VELOCITIES), **overrides),
+            max_samples=max_samples,
         )
         return allocate_layers(instrument, prepare_run(instrument, audio, SR, settings), settings)
 
@@ -212,21 +220,45 @@ def test_a_split_the_budget_cannot_carry_is_passed_over(
     assert tight.total_bytes <= tight.budget.sample_bytes
 
 
-def test_a_split_asking_for_more_samples_than_the_format_numbers_is_passed_over(
+def test_a_split_reserving_more_instruments_than_the_format_numbers_is_passed_over(
     target: ExportTarget,
 ) -> None:
-    """Layers multiply the stored zones, which is how a plan reaches a cap one layer never could."""
-    option = ZoneOption(60, EncodingParams(11_025, 8), 100, 0.0, 20)
-    zone = Zone((60,), FIRST_LAYER, SampleKey(60, 100), 1.0, option, (option,))
+    """Layers each cut into the samples one instrument owns is how a split reaches the instrument count."""
     crowded = LayeredAllocation(
         layers=VelocityLayers((_WHOLE_AXIS,)),
-        budget=split_budget(_GENEROUS_KB, target.storage, SINGLE_LAYER),
-        zones=(zone,) * (target.max_samples + 1),
+        budget=split_budget(_GENEROUS_KB, target.storage, target.max_instruments + 1),
+        zones=(),
         total_bytes=100,
         objective=0.0,
+        reserve=_UNCHARGED,
     )
     assert not fits_format(crowded, target)
-    assert fits_format(replace(crowded, zones=crowded.zones[: target.max_samples]), target)
+    listed = split_budget(_GENEROUS_KB, target.storage, target.max_instruments)
+    assert fits_format(replace(crowded, budget=listed), target)
+
+
+def test_the_sample_cap_counts_every_layer_together(
+    instrument: InstrumentSpec,
+    allocate: Callable[..., LayeredAllocation],
+) -> None:
+    """One stored sample between them leaves one layer holding one zone, and prices the richer splits out."""
+    capped = allocate(instrument, max_layers=_THREE_LAYERS, min_gain=0.0, max_samples=_ONE_SAMPLE)
+    assert capped.reserve.cap == _ONE_SAMPLE
+    assert len(capped.zones) == _ONE_SAMPLE
+    assert capped.layers.count == _ONE_LAYER
+    assert [pitch for zone in capped.zones for pitch in zone.pitches] == list(PITCHES)  # one sample, both keys
+    assert capped.total_bytes <= capped.budget.sample_bytes
+
+
+def test_a_split_the_layers_alone_would_earn_is_given_up_to_the_cap(
+    instrument: InstrumentSpec,
+    allocate: Callable[..., LayeredAllocation],
+) -> None:
+    """A layer costs a sample of its own, so the cap decides how much vocabulary the plan can afford."""
+    free = allocate(instrument, max_layers=_THREE_LAYERS, min_gain=0.0)
+    capped = allocate(instrument, max_layers=_THREE_LAYERS, min_gain=0.0, max_samples=_ONE_SAMPLE)
+    assert free.layers.count > capped.layers.count
+    assert capped.objective > free.objective  # storing fewer samples costs fidelity
 
 
 def test_asking_for_more_layers_than_the_format_numbers_is_refused(
@@ -281,5 +313,6 @@ def test_each_extra_layer_raises_what_a_split_has_to_beat(count: int, expected: 
         zones=(),
         total_bytes=0,
         objective=10.0,
+        reserve=_UNCHARGED,
     )
     assert preference(allocation, 0.1) == pytest.approx(expected)

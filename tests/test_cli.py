@@ -123,6 +123,26 @@ def test_a_layer_cap_below_one_is_refused_by_the_schema(config: OptiConfig) -> N
         _dump_settings(config, args)
 
 
+def test_the_max_samples_flag_overrides_the_configured_cap(config: OptiConfig) -> None:
+    args = build_parser().parse_args(["optimize", "m.notes.json", "--budget-kb", "48", "--max-samples", "8"])
+    settings = _dump_settings(config, args).optimize
+    assert settings.max_samples == 8
+    assert settings.sample_cap == 8
+    assert settings.method == config.optimize.method  # only the cap moves
+    assert settings.energy_exponent == config.optimize.energy_exponent
+
+
+def test_the_sample_cap_stays_configured_when_no_flag_names_it(config: OptiConfig) -> None:
+    args = build_parser().parse_args(["optimize", "m.notes.json", "--budget-kb", "48"])
+    assert _dump_settings(config, args).optimize.max_samples == config.optimize.max_samples
+
+
+def test_a_sample_cap_below_zero_is_refused_by_the_schema(config: OptiConfig) -> None:
+    args = build_parser().parse_args(["optimize", "m.notes.json", "--budget-kb", "48", "--max-samples", "-1"])
+    with pytest.raises(ValidationError):
+        _dump_settings(config, args)
+
+
 def test_optimize_command_writes_artifacts(
     tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -314,20 +334,20 @@ def test_the_reduce_command_reads_the_same_ingest_flags_as_optimize(config: Opti
     argv = ["m.notes.json", "--budget-kb", "48", "--dedupe-key", "pitch", "--candidates", "7", "--seed", "3"]
     reduced = build_parser().parse_args(["reduce", *argv])
     optimized = build_parser().parse_args(["optimize", *argv])
-    assert _optimize_settings(config, reduced, config.layers).reduce == (
-        _optimize_settings(config, optimized, config.layers).reduce
+    assert _optimize_settings(config, reduced, config.layers, config.optimize).reduce == (
+        _optimize_settings(config, optimized, config.layers, config.optimize).reduce
     )
-    assert _optimize_settings(config, reduced, config.layers).seed == 3
+    assert _optimize_settings(config, reduced, config.layers, config.optimize).seed == 3
 
 
 def test_the_workers_flag_sets_how_far_a_run_fans_out(config: OptiConfig) -> None:
     args = build_parser().parse_args(["optimize", "m.notes.json", "--budget-kb", "48", "--workers", "3"])
-    assert _optimize_settings(config, args, config.layers).workers == 3
+    assert _optimize_settings(config, args, config.layers, config.optimize).workers == 3
 
 
 def test_a_run_fans_out_the_configured_way_when_no_flag_names_a_count(config: OptiConfig) -> None:
     args = build_parser().parse_args(["optimize", "m.notes.json", "--budget-kb", "48"])
-    assert _optimize_settings(config, args, config.layers).workers == config.runtime.workers
+    assert _optimize_settings(config, args, config.layers, config.optimize).workers == config.runtime.workers
 
 
 def test_the_demo_reads_the_same_fan_out_flag_as_a_run(config: OptiConfig) -> None:

@@ -9,7 +9,7 @@ from typing import Final, get_args
 from optisample.artifacts import DumpSettings, dump_project, reduce_project
 from optisample.config import OptiConfig, load_config
 from optisample.config.layers import LayersConfig
-from optisample.config.optimize import SweepConfig
+from optisample.config.optimize import OptimizeConfig, SweepConfig
 from optisample.config.reduce import DedupeKey, ReduceConfig
 from optisample.config.render import Interpolation
 from optisample.config.tracker import TrackerConfig, TrackerFormat
@@ -202,6 +202,12 @@ def _describe_optimize(parser: argparse.ArgumentParser) -> None:
         help="Velocity bands a key may store, one written instrument each (default: the config's)",
     )
     parser.add_argument(
+        "--max-samples",
+        type=int,
+        default=None,
+        help="Samples a grouped plan may store, met by wider zones; 0 keeps what the format numbers",
+    )
+    parser.add_argument(
         "--no-render",
         action="store_true",
         help="Skip openmpt123 ground-truth renders",
@@ -323,6 +329,19 @@ def _layers_config(config: OptiConfig, args: argparse.Namespace) -> LayersConfig
     return LayersConfig.model_validate({**config.layers.model_dump(), "max_layers": args.max_layers})
 
 
+def _optimize_config(config: OptiConfig, args: argparse.Namespace) -> OptimizeConfig:
+    """The solver config with ``--max-samples`` applied over the loaded values.
+
+    The override goes through a dump-and-revalidate so the schema settles what a sample cap may be in one
+    place, whichever side supplied it. Allocating is the only stage that reads it, which is why the flag
+    sits on ``optimize`` alone.
+    """
+    if args.max_samples is None:
+        return config.optimize
+
+    return OptimizeConfig.model_validate({**config.optimize.model_dump(), "max_samples": args.max_samples})
+
+
 def _workers(config: OptiConfig, args: argparse.Namespace) -> int:
     """How many processes the run's fanned-out stages share: ``--workers`` over the configured count."""
     if args.workers is None:
@@ -344,11 +363,13 @@ def _optimize_settings(
     config: OptiConfig,
     args: argparse.Namespace,
     layers: LayersConfig,
+    optimize: OptimizeConfig,
 ) -> OptimizeSettings:
     """Build the optimization settings from ``config``, applying the sweep/reduce/format/seed overrides.
 
-    ``layers`` arrives from the caller because only the allocating command declares ``--max-layers``,
-    so reducing alone states the configured split and optimizing states the one the flags asked for.
+    ``layers`` and ``optimize`` arrive from the caller because only the allocating command declares
+    ``--max-layers`` and ``--max-samples``, so reducing alone states the configured split and cap and
+    optimizing states the ones the flags asked for.
     """
     grid = SweepConfig.model_validate(
         {
@@ -365,8 +386,9 @@ def _optimize_settings(
         encode=config.encode,
         metrics=config.metrics,
         velocity=config.velocity,
-        method=config.optimize.method,
-        energy_exponent=config.optimize.energy_exponent,
+        method=optimize.method,
+        energy_exponent=optimize.energy_exponent,
+        max_samples=optimize.max_samples,
         target=_export_target(config, args),
         seed=args.seed,
         workers=_workers(config, args),
@@ -380,7 +402,7 @@ def _dump_settings(
 ) -> DumpSettings:
     """Assemble the artifact-dump settings from ``config`` and the CLI flags."""
     return DumpSettings(
-        optimize=_optimize_settings(config, args, _layers_config(config, args)),
+        optimize=_optimize_settings(config, args, _layers_config(config, args), _optimize_config(config, args)),
         render=config.render,
         playback=config.playback,
         render_ground_truth=not args.no_render,
@@ -439,7 +461,7 @@ def _print_screen(screen: RecordingScreen) -> None:
 
 def _run_reduce(config: OptiConfig, args: argparse.Namespace) -> None:
     manifest = load_notes(args.notes_json, _samples_dir(args), _ingest_settings(args))
-    results = reduce_project(manifest, args.out, _optimize_settings(config, args, config.layers))
+    results = reduce_project(manifest, args.out, _optimize_settings(config, args, config.layers, config.optimize))
     for result in results:
         print(f"{result.instrument_id}: {result.paths.notes_json}  [{result.elapsed_s:.1f}s]")
         print(f"  {result.survivors} samples, {result.notes} notes -> {result.paths.samples_dir}")

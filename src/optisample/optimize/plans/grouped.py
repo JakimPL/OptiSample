@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Literal
+from typing import Final, Literal
 
 from optisample.dsp.surrogate import EncodingParams
 from optisample.music import note_name
@@ -57,6 +57,29 @@ class GroupingResult:
     objective: float
 
 
+NO_RESERVE: Final = 0  # what a stored sample is charged beyond its own bytes while the cap leaves room
+
+
+@dataclass(frozen=True)
+class SampleReserve:
+    """The cap on stored samples a solve was held to, and the charge per sample that held it there.
+
+    A cap is met by pricing every stored sample above the bytes it occupies, which moves the partition
+    toward fewer and wider zones. ``cap`` is the most samples the plan may keep, ``bytes_per_sample``
+    the charge the search settled on, and ``objective_uncapped`` what the same budget scored when each
+    sample paid its own bytes alone -- the three together state what meeting the cap was worth.
+    """
+
+    cap: int
+    bytes_per_sample: int
+    objective_uncapped: float
+
+    @property
+    def binding(self) -> bool:
+        """Whether meeting the cap took a charge, which is when the cap decided what the plan stores."""
+        return self.bytes_per_sample > NO_RESERVE
+
+
 @dataclass(frozen=True)
 class GroupedInstrumentPlan(BudgetedPlanMixin):
     """A full grouped optimization: the velocity map, the layers and zones, and the budget they fit within.
@@ -64,7 +87,8 @@ class GroupedInstrumentPlan(BudgetedPlanMixin):
     ``layers`` is the velocity split the allocation settled on -- one band per stored instrument, in the
     order the zones are grouped by -- so a note's dynamic names the instrument it is played through.
     ``energy_exponent`` is how steeply each note's own energy scaled its distortion, which states what
-    the ``objective`` means and so which other plans it may be compared with.
+    the ``objective`` means and so which other plans it may be compared with. ``reserve`` states the
+    sample cap the solve was held to and what holding it there cost.
     """
 
     instrument_id: str
@@ -74,6 +98,7 @@ class GroupedInstrumentPlan(BudgetedPlanMixin):
     zones: tuple[Zone, ...]
     total_bytes: int
     objective: float
+    reserve: SampleReserve
     energy_exponent: float
     reduction: ReductionSummary
     strategy: Literal["grouped"] = "grouped"
