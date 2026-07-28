@@ -14,6 +14,7 @@ from optisample.artifacts.serialize import (
     BudgetRecord,
     EventMetricRecord,
     KeptRecordingRecord,
+    LayerRecord,
     LoopRecord,
     MetricsDocument,
     ModuleSizeRecord,
@@ -103,12 +104,26 @@ def _plan(strategy: str) -> PlanDocument:
         "module": ModuleSizeRecord(total_bytes=50_000, header_bytes=800, pcm_bytes=48_500, pattern_bytes=700),
         "reduction": _reduction(),
         "velocity_map": VelocityMapDocument(reference_volume=64, anchors=[], volumes=[64] * 128),
+        "layers": [
+            LayerRecord(
+                index=0,
+                band=_LAYER,
+                lowest_velocity=0,
+                highest_velocity=127,
+                keys=7,
+                samples=1,
+                stored_bytes=48_500,
+                weight=4.0,
+                objective_share=12.3456,
+            )
+        ],
     }
     if strategy == "grouped":
         return PlanDocument(
             strategy="grouped",
             zones=[
                 ZoneItemRecord(
+                    layer=0,
                     keys=[60, 66],
                     pitches=list(range(60, 67)),
                     representative=63,
@@ -278,6 +293,20 @@ def test_both_strategies_read_through_the_same_cells(instrument_dir: Path) -> No
     grouped = reports.plan_item_rows(reports.read_plan(plan_paths(instrument_dir, "grouped")))
 
     assert list(ungrouped[0]) == list(grouped[0])
+
+
+def test_every_item_names_the_velocity_band_it_was_stored_for(instrument_dir: Path) -> None:
+    """A layered plan keeps a row per band for one key, so the band is what tells those rows apart."""
+    rows = reports.plan_item_rows(reports.read_plan(plan_paths(instrument_dir, "grouped")))
+
+    assert rows[0]["band"] == _LAYER
+
+
+def test_the_layer_rows_price_each_stored_band(instrument_dir: Path) -> None:
+    rows = reports.layer_rows(reports.read_plan(plan_paths(instrument_dir, "grouped")))
+
+    assert [row["layer"] for row in rows] == [0]
+    assert (rows[0]["band"], rows[0]["keys"], rows[0]["samples"]) == (_LAYER, 7, 1)
 
 
 def test_the_budget_row_states_what_the_plan_spent(instrument_dir: Path) -> None:

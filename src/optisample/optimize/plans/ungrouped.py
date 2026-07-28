@@ -74,6 +74,7 @@ class InstrumentPlan(BudgetedPlanMixin):
                 frames=pitch.chosen.frames,
                 stored_bytes=pitch.chosen.stored_bytes,
                 distortion=pitch.chosen.distortion,
+                objective_share=pitch.weight * pitch.chosen.distortion,
                 hull_size=len(pitch.hull),
                 weight=pitch.weight,
             )

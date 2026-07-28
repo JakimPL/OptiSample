@@ -1,8 +1,11 @@
 # OptiSample
 
 OptiSample turns an instrument's recorded sample grid into a byte-budgeted tracker module — Impulse
-Tracker (`.it`) or FastTracker 2 (`.xm`): it stores one sample per key, collapses the velocity axis to
-one representative per pitch, and reproduces dynamics through a velocity→volume map.
+Tracker (`.it`) or FastTracker 2 (`.xm`): it stores a recording per key per velocity band, writes one
+instrument for each band so a note's dynamic names the one it plays through, and reproduces the
+dynamics within a band through a velocity→volume map. How many bands a budget is worth spending on is
+the optimizer's decision, taken against the same objective everything else is (see
+[Velocity layers](#velocity-layers-trading-samples-for-dynamics)).
 
 ## Requirements
 
@@ -129,6 +132,39 @@ same way, and the objective picks. A 16-bit encoding is enumerated uncompressed,
 already sits below anything compression could protect. The `comp` column in `report.txt` and the `_c` in an
 audition filename say which way each sample went.
 
+## Velocity layers: trading samples for dynamics
+
+A piano's timbre changes further with how hard a key is struck than its level does, so reconstructing a
+pianissimo note by scaling a fortissimo recording down is the largest distortion left once the encoding
+is settled. A **velocity layer** is the move that answers it: the velocity axis is cut into bands, each
+band stores its own recording of the keys played in it, and a note sounds through the band its dynamic
+falls in.
+
+The tracker formats make that an instrument-level split — an IT or XM keymap is keyed by note alone — so
+each band is written as one instrument and the pattern names the instrument beside the note. The price is
+paid honestly: every layer adds an instrument record to the budget before a frame of audio is stored, so a
+three-layer plan starts from fewer sample bytes than a one-layer plan of the same size.
+
+Which split to buy is the optimizer's decision, taken against the objective the whole pipeline shares.
+`src/opticonfig/layers.yaml` sets the terms:
+
+```yaml
+max_layers: 3    # velocity bands stored per key == instruments written; 1 keeps one recording per key
+nodes: 6         # elementary velocity cells bands are assembled from; the cost dial ((nodes+1)/2)
+min_gain: 0.02   # relative objective gain an extra layer must buy to be preferred to fewer
+```
+
+The cells are cut on the material's own playing time, so the axis is resolved finely where the instrument
+spends it, and each band keeps the recording nearest the loudest dynamic *it* covers. Every split into at
+most `max_layers` runs of cells is solved in full and the best objective wins, provided it beats the
+plainer plan by `min_gain` per extra layer. A material playing each key at a single dynamic earns no split
+and pays for none. `--max-layers` overrides the cap for one run.
+
+The grouped `report.txt` states the split band by band — the dynamics each band answers for, the keys its
+samples reach, and the bytes and distortion they carry — and both strategies record the same under
+`plan.json`'s `layers`, with every zone naming the layer it belongs to. The A/B renders are filed per band
+under `compare/<band>/`, so a key stored three times is heard three ways.
+
 ## Usage
 
 Optimize a `.notes.json` into an inspectable artifact tree:
@@ -145,7 +181,8 @@ defaults to the `.notes.json` base name. `--pre-roll-ms` / `--post-roll-ms` mirr
 padding (the pre-roll is trimmed as each sample's lead-in so frame 0 lands on the note onset). Other
 flags: `--format {it,xm}`, `--strategy {both,grouped,ungrouped}`, `--no-render`, `--rate`/`--depth`
 (repeatable sweep values), `--no-loop`, `--interpolation`, `--seed`. `--dedupe-key` and `--candidates`
-override the two reduction knobs worth varying per run (see below).
+override the two reduction knobs worth varying per run (see below), and `--max-layers` the velocity
+bands a key may store.
 
 Each long stage draws a labelled progress bar on stderr, carrying the count it will reach and an ETA, so
 a large instrument states how long it needs while it runs:

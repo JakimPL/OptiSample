@@ -35,6 +35,12 @@ class SampleUnit:
     dumper's per-sample WAV filename and ``served_by`` reference), ``representative_key`` names the
     surviving recording in the audio map that the unit re-encodes, and ``layer`` the velocity band it
     answers for, which is the instrument the written pattern plays its keys through.
+
+    ``distortion`` is the reconstruction cost the unit's own rate-distortion hull was ranked on, which
+    each strategy states at the scale it searched: per key for a single key, usage-weighted and summed
+    over the zone for a zone. ``objective_share`` is the one comparable reading -- what this unit adds
+    to the plan's objective -- so the shares of a plan's units sum to :attr:`StrategyPlan.objective`
+    whichever strategy built it.
     """
 
     label: str
@@ -45,6 +51,7 @@ class SampleUnit:
     frames: int
     stored_bytes: int
     distortion: float
+    objective_share: float
     hull_size: int
     weight: float
 

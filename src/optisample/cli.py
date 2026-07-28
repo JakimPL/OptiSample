@@ -8,6 +8,7 @@ from typing import Final, get_args
 
 from optisample.artifacts import DumpSettings, dump_project, reduce_project
 from optisample.config import OptiConfig, load_config
+from optisample.config.layers import LayersConfig
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import DedupeKey, ReduceConfig
 from optisample.config.render import Interpolation
@@ -194,6 +195,12 @@ def _describe_optimize(parser: argparse.ArgumentParser) -> None:
         default="both",
     )
     parser.add_argument(
+        "--max-layers",
+        type=int,
+        default=None,
+        help="Velocity bands a key may store, one written instrument each (default: the config's)",
+    )
+    parser.add_argument(
         "--no-render",
         action="store_true",
         help="Skip openmpt123 ground-truth renders",
@@ -302,6 +309,19 @@ def _reduce_config(config: OptiConfig, args: argparse.Namespace) -> ReduceConfig
     return ReduceConfig.model_validate(data)
 
 
+def _layers_config(config: OptiConfig, args: argparse.Namespace) -> LayersConfig:
+    """The layering config with ``--max-layers`` applied over the loaded values.
+
+    The override goes through a dump-and-revalidate so the schema settles what a layer count may be in
+    one place, whichever side supplied it. Allocating is the only stage that reads it, which is why the
+    flag sits on ``optimize`` alone.
+    """
+    if args.max_layers is None:
+        return config.layers
+
+    return LayersConfig.model_validate({**config.layers.model_dump(), "max_layers": args.max_layers})
+
+
 def _workers(config: OptiConfig, args: argparse.Namespace) -> int:
     """How many processes the run's fanned-out stages share: ``--workers`` over the configured count."""
     if args.workers is None:
@@ -322,8 +342,13 @@ def _progress(args: argparse.Namespace) -> ProgressSink:
 def _optimize_settings(
     config: OptiConfig,
     args: argparse.Namespace,
+    layers: LayersConfig,
 ) -> OptimizeSettings:
-    """Build the optimization settings from ``config``, applying the sweep/reduce/format/seed overrides."""
+    """Build the optimization settings from ``config``, applying the sweep/reduce/format/seed overrides.
+
+    ``layers`` arrives from the caller because only the allocating command declares ``--max-layers``,
+    so reducing alone states the configured split and optimizing states the one the flags asked for.
+    """
     grid = SweepConfig.model_validate(
         {
             **config.sweep.model_dump(),
@@ -335,7 +360,7 @@ def _optimize_settings(
     return OptimizeSettings(
         sweep=grid,
         reduce=_reduce_config(config, args),
-        layers=config.layers,
+        layers=layers,
         encode=config.encode,
         metrics=config.metrics,
         velocity=config.velocity,
@@ -353,7 +378,7 @@ def _dump_settings(
 ) -> DumpSettings:
     """Assemble the artifact-dump settings from ``config`` and the CLI flags."""
     return DumpSettings(
-        optimize=_optimize_settings(config, args),
+        optimize=_optimize_settings(config, args, _layers_config(config, args)),
         render=config.render,
         playback=config.playback,
         render_ground_truth=not args.no_render,
@@ -401,7 +426,7 @@ def _ingest_settings(args: argparse.Namespace) -> IngestSettings:
 
 def _run_reduce(config: OptiConfig, args: argparse.Namespace) -> None:
     manifest = load_notes(args.notes_json, _samples_dir(args), _ingest_settings(args))
-    results = reduce_project(manifest, args.out, _optimize_settings(config, args))
+    results = reduce_project(manifest, args.out, _optimize_settings(config, args, config.layers))
     for result in results:
         print(f"{result.instrument_id}: {result.paths.notes_json}  [{result.elapsed_s:.1f}s]")
         print(f"  {result.survivors} samples, {result.notes} notes -> {result.paths.samples_dir}")

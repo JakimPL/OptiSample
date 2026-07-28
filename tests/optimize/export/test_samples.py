@@ -141,6 +141,7 @@ def _encoded(gain: float, velocity: int = _LOUDEST_VELOCITY) -> tuple[SampleUnit
         frames=8,
         stored_bytes=8,
         distortion=0.0,
+        objective_share=0.0,
         hull_size=1,
         weight=1.0,
     )

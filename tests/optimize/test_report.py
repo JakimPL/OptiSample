@@ -107,27 +107,79 @@ def test_report_curve_always_includes_the_final_point(storage: Storage, reductio
     assert f"{bytes_to_kib(curve[-1].total_bytes):7.1f} KiB" in report  # final vertex shown despite the stride
 
 
+def _grouped_plan(
+    zones: tuple[Zone, ...],
+    layers: VelocityLayers,
+    storage: Storage,
+    reduction: ReductionSummary,
+) -> GroupedInstrumentPlan:
+    return GroupedInstrumentPlan(
+        instrument_id="piano",
+        budget=split_budget(_MODULE_BYTES / 1024.0, storage, layers.count),
+        velocity_map=VelocityVolumeMap(tuple(64 for _ in range(128)), (VelocityAnchor(100, -10.0, 64),)),
+        layers=layers,
+        zones=zones,
+        total_bytes=sum(zone.chosen.stored_bytes for zone in zones),
+        objective=sum(zone.chosen.distortion for zone in zones),
+        reduction=reduction,
+    )
+
+
 def test_grouping_report_has_the_expected_sections(storage: Storage, reduction: ReductionSummary) -> None:
     multi = ZoneOption(61, EncodingParams(target_rate=22_050, depth_bits=16), 6000, 0.2, 2400)
     single = ZoneOption(67, EncodingParams(target_rate=11_025, depth_bits=8), 3000, 0.3, 1200)
-    plan = GroupedInstrumentPlan(
-        instrument_id="piano",
-        budget=split_budget(_MODULE_BYTES / 1024.0, storage, SINGLE_LAYER),
-        velocity_map=VelocityVolumeMap(tuple(64 for _ in range(128)), (VelocityAnchor(100, -10.0, 64),)),
-        layers=_WHOLE_AXIS,
+    plan = _grouped_plan(
         zones=(
             Zone((60, 61, 62), FIRST_LAYER, SampleKey(61, 100), 3.0, multi, (multi,)),  # a merged, multi-key zone
             Zone((67,), FIRST_LAYER, SampleKey(67, 90), 1.0, single, (single,)),  # a lone single-key zone
         ),
-        total_bytes=9000,
-        objective=0.5,
+        layers=_WHOLE_AXIS,
+        storage=storage,
         reduction=reduction,
     )
     report = format_grouping_report(plan, _SIZE)
     assert "pitch-zone grouping" in report
     assert "Budget:" in report and "Zones" in report
     assert "60-62" in report and " 67 " in report  # multi-key span and single-key span
+    assert "2 zones over 4 keys and 1 velocity layer" in report
     assert report.endswith("\n")
+
+
+def _layered_plan(storage: Storage, reduction: ReductionSummary) -> GroupedInstrumentPlan:
+    """Two keys stored twice over: once for the dynamics under v50 and once for those above it."""
+    quiet = ZoneOption(60, EncodingParams(target_rate=11_025, depth_bits=8), 3000, 0.4, 1200)
+    loud = ZoneOption(61, EncodingParams(target_rate=22_050, depth_bits=16), 6000, 0.2, 2400)
+    return _grouped_plan(
+        zones=(
+            Zone((60, 61), 0, SampleKey(60, 50), 2.0, quiet, (quiet,)),
+            Zone((60, 61), 1, SampleKey(61, 100), 4.0, loud, (loud,)),
+        ),
+        layers=VelocityLayers((VelocityBand(0, 50), VelocityBand(51, MIDI_MAX_VELOCITY))),
+        storage=storage,
+        reduction=reduction,
+    )
+
+
+def test_a_layered_report_prices_the_split_band_by_band(storage: Storage, reduction: ReductionSummary) -> None:
+    report = format_grouping_report(_layered_plan(storage, reduction), _SIZE)
+    assert "Velocity layers" in report
+    assert "v000-v050" in report and "v051-v127" in report
+    assert f"{bytes_to_kib(3000):9.1f}" in report and f"{bytes_to_kib(6000):9.1f}" in report
+
+
+def test_a_layered_report_counts_each_key_once_however_many_bands_store_it(
+    storage: Storage, reduction: ReductionSummary
+) -> None:
+    """Two layers over the same two keys is a two-key instrument, so the summary line says two."""
+    report = format_grouping_report(_layered_plan(storage, reduction), _SIZE)
+    assert "2 zones over 2 keys and 2 velocity layers" in report
+
+
+def test_every_zone_states_the_layer_it_answers_for(storage: Storage, reduction: ReductionSummary) -> None:
+    """A key served twice appears once per band, so the zone table names which one each row belongs to."""
+    rows = [line for line in format_grouping_report(_layered_plan(storage, reduction), _SIZE).splitlines()]
+    zone_rows = [line for line in rows if "60-61 (2)" in line]
+    assert [line.split()[0] for line in zone_rows] == ["0", "1"]
 
 
 # --- the reduction block --------------------------------------------------------------------------

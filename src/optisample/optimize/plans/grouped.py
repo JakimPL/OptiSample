@@ -81,8 +81,8 @@ class GroupedInstrumentPlan(BudgetedPlanMixin):
 
     @property
     def pitches(self) -> tuple[int, ...]:
-        """Every covered key, ascending (the zones already partition them in order)."""
-        return tuple(pitch for zone in self.zones for pitch in zone.pitches)
+        """Every covered key, ascending and named once however many layers store a recording for it."""
+        return tuple(sorted({pitch for zone in self.zones for pitch in zone.pitches}))
 
     @property
     def total_weight(self) -> float:
@@ -100,6 +100,7 @@ class GroupedInstrumentPlan(BudgetedPlanMixin):
                 frames=zone.chosen.frames,
                 stored_bytes=zone.chosen.stored_bytes,
                 distortion=zone.chosen.distortion,
+                objective_share=zone.chosen.distortion,
                 hull_size=len(zone.hull),
                 weight=zone.weight,
             )

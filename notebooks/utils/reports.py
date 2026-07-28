@@ -17,6 +17,7 @@ from optisample.artifacts.serialize import (
 )
 from optisample.metrics import bytes_to_kib
 from optisample.music import labelled_pitch, note_name
+from optisample.optimize.plans import FIRST_LAYER
 
 _STRATEGIES: Final = ("ungrouped", "grouped")
 _REFERENCE_STEM: Final = "reference"
@@ -134,9 +135,31 @@ def _encoding_cells(encoding: EncodingRecord) -> Row:
     }
 
 
-def _pitch_row(item: PitchItemRecord) -> Row:
+def layer_rows(plan: PlanDocument) -> list[Row]:
+    """One row per stored velocity band: the dynamics it answers for and what its instrument cost.
+
+    A key played across several dynamics is stored once per band it is played in, so this is where a
+    plan's vocabulary is read: how the budget was divided between velocity resolution and everything
+    else. A plan keeping one recording per key reports the single band covering the whole axis.
+    """
+    return [
+        {
+            "layer": layer.index,
+            "band": layer.band,
+            "keys": layer.keys,
+            "samples": layer.samples,
+            "kib": round(bytes_to_kib(layer.stored_bytes), 3),
+            "weight_s": round(layer.weight, 2),
+            "objective": round(layer.objective_share, 4),
+        }
+        for layer in plan.layers
+    ]
+
+
+def _pitch_row(item: PitchItemRecord, band: str) -> Row:
     """One kept pitch, holding the single key it was recorded at."""
     return {
+        "band": band,
         "keys": str(item.pitch),
         "span": 1,
         "note": item.note,
@@ -146,9 +169,10 @@ def _pitch_row(item: PitchItemRecord) -> Row:
     }
 
 
-def _zone_row(item: ZoneItemRecord) -> Row:
+def _zone_row(item: ZoneItemRecord, band: str) -> Row:
     """One pitch zone, holding every key its representative is transposed across."""
     return {
+        "band": band,
         "keys": f"{item.keys[0]}-{item.keys[-1]}",
         "span": len(item.pitches),
         "note": note_name(item.representative),
@@ -162,12 +186,14 @@ def plan_item_rows(plan: PlanDocument) -> list[Row]:
     """One row per item the plan kept: the keys it serves, and the encoding it spends its bytes on.
 
     Both strategies read through the same cells, so the two plans line up column for column and a
-    budget moved between them stays readable.
+    budget moved between them stays readable. Each row opens with the velocity band it was stored for,
+    which is what tells the several rows a layered plan keeps for one key apart.
     """
+    bands = [layer.band for layer in plan.layers]
     if plan.zones is not None:
-        return [_zone_row(zone) for zone in plan.zones]
+        return [_zone_row(zone, bands[zone.layer]) for zone in plan.zones]
 
-    return [_pitch_row(pitch) for pitch in plan.pitches or []]
+    return [_pitch_row(pitch, bands[FIRST_LAYER]) for pitch in plan.pitches or []]
 
 
 def budget_rows(plan: PlanDocument) -> list[Row]:

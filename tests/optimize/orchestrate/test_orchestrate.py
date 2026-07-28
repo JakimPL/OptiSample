@@ -219,3 +219,9 @@ def test_load_instrument_audio_downmixes_stereo_and_resamples(tmp_path: Path) ->
     assert audio[SampleKey(60, 100)].ndim == 1  # stereo downmixed to mono
     # written as 22.05 kHz, resampled up to 44.1 kHz → twice the frames
     assert audio[SampleKey(67, 100)].size == pytest.approx(mono.size * 2, abs=2)
+
+
+def test_every_stored_sample_states_its_share_of_the_objective(optimize: Callable[..., InstrumentPlan]) -> None:
+    """One reading every consumer can add up, whichever scale the strategy searched its hulls at."""
+    plan = optimize(64.0)
+    assert sum(unit.objective_share for unit in plan.sample_units()) == pytest.approx(plan.objective)

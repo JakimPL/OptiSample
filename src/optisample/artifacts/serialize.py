@@ -17,6 +17,7 @@ from optisample.config.reduce import DedupeKey
 from optisample.dsp.loop import Loop
 from optisample.dsp.surrogate import StoredSample
 from optisample.music import note_name
+from optisample.optimize.layers.totals import LayerTotals, layer_totals
 from optisample.optimize.plans import (
     GroupedInstrumentPlan,
     InstrumentPlan,
@@ -110,9 +111,30 @@ class _PitchHead(_Frozen):
     representative_velocity: int
 
 
-class _ZoneHead(_Frozen):
-    """The leading fields of a grouped item: the key span the zone covers and its representative."""
+class LayerRecord(_Frozen):
+    """One velocity band the plan stores, summed over the samples written into its instrument.
 
+    ``index`` is the position in :attr:`PlanDocument.layers` a zone's ``layer`` names, and the instrument
+    number the written pattern plays a note of this band through. ``keys`` counts the keys the band's
+    samples reach between them, and ``objective_share`` what this band's notes carry of the plan's
+    objective, so the records add up to what the whole plan covers, stores and scores.
+    """
+
+    index: int
+    band: str
+    lowest_velocity: int
+    highest_velocity: int
+    keys: int
+    samples: int
+    stored_bytes: int
+    weight: float
+    objective_share: float
+
+
+class _ZoneHead(_Frozen):
+    """The leading fields of a grouped item: the velocity band it answers for and the keys it covers."""
+
+    layer: int
     keys: list[int]
     pitches: list[int]
     representative: int
@@ -210,11 +232,12 @@ class ReducedDocument(_Frozen):
 
 
 class PlanDocument(_Frozen):
-    """One optimized plan for either strategy: budgets, the velocity map, and the kept items.
+    """One optimized plan for either strategy: budgets, the velocity map, the layers and the kept items.
 
     ``method`` is recorded only for the ungrouped strategy; ``pitches`` and ``zones`` are mutually
     exclusive. The optional-head fields a strategy leaves unset are dropped at serialization, so each
-    strategy writes exactly the keys that apply to it.
+    strategy writes exactly the keys that apply to it. ``layers`` is the velocity split the plan stores,
+    one entry per written instrument, so a plan keeping one recording per key reports its single band.
     """
 
     strategy: str
@@ -225,6 +248,7 @@ class PlanDocument(_Frozen):
     module: ModuleSizeRecord
     reduction: ReductionDocument
     velocity_map: VelocityMapDocument
+    layers: list[LayerRecord]
     pitches: list[PitchItemRecord] | None = None
     zones: list[ZoneItemRecord] | None = None
 
@@ -418,8 +442,23 @@ def _pitch_item(unit: SampleUnit, loop: Loop | None) -> PitchItemRecord:
     )
 
 
+def _layer_record(totals: LayerTotals) -> LayerRecord:
+    return LayerRecord(
+        index=totals.layer,
+        band=totals.band.label,
+        lowest_velocity=totals.band.lowest,
+        highest_velocity=totals.band.highest,
+        keys=totals.keys,
+        samples=totals.samples,
+        stored_bytes=totals.stored_bytes,
+        weight=totals.weight,
+        objective_share=totals.objective_share,
+    )
+
+
 def _zone_item(unit: SampleUnit, loop: Loop | None) -> ZoneItemRecord:
     return ZoneItemRecord(
+        layer=unit.layer,
         keys=[unit.keys[0], unit.keys[-1]],
         pitches=list(unit.keys),
         representative=unit.representative,
@@ -446,6 +485,7 @@ def plan_document(
     module = _module_size_record(size)
     reduction = reduction_document(plan.reduction)
     velocity_map = _velocity_map_document(plan.velocity_map)
+    layers = [_layer_record(totals) for totals in layer_totals(plan.layers, units)]
     if plan.strategy == "grouped":
         return PlanDocument(
             strategy="grouped",
@@ -455,6 +495,7 @@ def plan_document(
             module=module,
             reduction=reduction,
             velocity_map=velocity_map,
+            layers=layers,
             zones=[_zone_item(unit, loop) for unit, loop in zip(units, loops)],
         )
     return PlanDocument(
@@ -466,6 +507,7 @@ def plan_document(
         module=module,
         reduction=reduction,
         velocity_map=velocity_map,
+        layers=layers,
         pitches=[_pitch_item(unit, loop) for unit, loop in zip(units, loops)],
     )
 

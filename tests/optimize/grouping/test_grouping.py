@@ -331,6 +331,11 @@ def test_zones_partition_all_pitches_and_bytes_add_up(plan48: GroupedInstrumentP
     assert plan48.used_bytes == sum(zone.chosen.stored_bytes for zone in plan48.zones)
 
 
+def test_every_stored_sample_states_its_share_of_the_objective(plan48: GroupedInstrumentPlan) -> None:
+    """One reading every consumer can add up, whichever scale the strategy searched its hulls at."""
+    assert sum(unit.objective_share for unit in plan48.sample_units()) == pytest.approx(plan48.objective)
+
+
 def test_a_span_cap_below_the_key_spacing_leaves_every_key_its_own_zone(
     audio: dict[SampleKey, NDArray[np.float64]],
 ) -> None:

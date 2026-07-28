@@ -4,6 +4,7 @@ from typing import Final
 from optisample.dsp.surrogate import EncodingParams
 from optisample.metrics.size import bytes_to_kib
 from optisample.music import note_name
+from optisample.optimize.layers.totals import layer_totals
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
 from optisample.optimize.plans.budget import (
     BudgetedPlanMixin,
@@ -22,6 +23,11 @@ _SHORTFALL_ROWS: Final = 3  # shortfalls named in full before the rest are count
 _HZ_PER_KHZ: Final = 1000.0
 _COMPRESSED: Final = "on"
 _UNCOMPRESSED: Final = "-"
+
+
+def _counted(count: int, noun: str) -> str:
+    """``count`` beside its noun, taking the plural ``s`` where the count asks for one."""
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
 
 def _format_allocation_table(title: str, header: str, rows: Iterable[str]) -> str:
@@ -195,14 +201,35 @@ def _grouped_header(plan: GroupedInstrumentPlan, size: SizeReport) -> str:
         plan,
         size,
         f"Instrument {plan.instrument_id!r} - pitch-zone grouping (exact partition + allocation DP)",
-        f"Grouping:  {len(plan.zones)} zones cover {len(plan.pitches)} keys  "
+        f"Grouping:  {_counted(len(plan.zones), 'zone')} over {_counted(len(plan.pitches), 'key')} and "
+        f"{_counted(plan.layers.count, 'velocity layer')}  "
         f"(objective {plan.objective:.4f} over {plan.total_weight:.1f} s of material)",
     )
 
 
+def _format_layers(plan: GroupedInstrumentPlan) -> str:
+    """The velocity split the search settled on, priced band by band.
+
+    Each band is written as an instrument of its own, so this table is what the layer decision cost: the
+    dynamics each one answers for, the keys its samples reach, the bytes they spend and the share of the
+    objective they carry. The rows sum to the plan's own totals, which is how a split reads against the
+    plainer plan it beat.
+    """
+    header = (
+        f"{'layer':>5}  {'band':>9}  {'keys':>5}  {'samples':>7}  {'size(KiB)':>9}  "
+        f"{'weight(s)':>9}  {'objective':>10}"
+    )
+    rows = [
+        f"{totals.layer:>5}  {totals.band.label:>9}  {totals.keys:>5}  {totals.samples:>7}  "
+        f"{bytes_to_kib(totals.stored_bytes):>9.1f}  {totals.weight:>9.1f}  {totals.objective_share:>10.4f}"
+        for totals in layer_totals(plan.layers, plan.sample_units())
+    ]
+    return _format_allocation_table("Velocity layers (one instrument each; a note's dynamic picks it)", header, rows)
+
+
 def _format_zones(plan: GroupedInstrumentPlan) -> str:
     header = (
-        f"{'keys':>11}  {'rep':>4}  {'rep.vel':>7}  {'rate(Hz)':>8}  {'depth':>5}  "
+        f"{'layer':>5}  {'keys':>11}  {'rep':>4}  {'rep.vel':>7}  {'rate(Hz)':>8}  {'depth':>5}  "
         f"{'comp':>4}  {'size(KiB)':>9}  {'distortion':>10}  {'options':>7}"
     )
     rows = []
@@ -211,7 +238,7 @@ def _format_zones(plan: GroupedInstrumentPlan) -> str:
         keys = f"{zone.pitches[0]}-{zone.pitches[-1]}" if len(zone.pitches) > 1 else str(zone.pitches[0])
         span = f"{keys} ({len(zone.pitches)})"
         rows.append(
-            f"{span:>11}  {zone.representative:>4}  {zone.representative_key.velocity:>7}  "
+            f"{zone.layer:>5}  {span:>11}  {zone.representative:>4}  {zone.representative_key.velocity:>7}  "
             f"{option.params.target_rate:>8}  {option.params.depth_bits:>5}  "
             f"{_compression_mark(option.params):>4}  {bytes_to_kib(option.stored_bytes):>9.1f}  "
             f"{option.distortion:>10.4f}  {len(zone.hull):>7}"
@@ -221,5 +248,10 @@ def _format_zones(plan: GroupedInstrumentPlan) -> str:
 
 def format_grouping_report(plan: GroupedInstrumentPlan, size: SizeReport) -> str:
     """Render a human-readable summary of a grouped optimization."""
-    sections = (_grouped_header(plan, size), format_reduction_block(plan.reduction), _format_zones(plan))
+    sections = (
+        _grouped_header(plan, size),
+        format_reduction_block(plan.reduction),
+        _format_layers(plan),
+        _format_zones(plan),
+    )
     return "\n\n".join(sections) + "\n"

@@ -373,6 +373,8 @@ def _(fields, mo, plan_paths, plan_strategy, reports, viz):
     mo.vstack(
         [
             mo.ui.table(reports.budget_rows(plan), selection=None),
+            mo.md("**Velocity layers** — the bands stored, one written instrument each:"),
+            mo.ui.table(reports.layer_rows(plan), selection=None),
             mo.md("**Per-item allocation** — the encoding each kept item spends its bytes on:"),
             mo.ui.table(items, selection=None, page_size=15),
             mo.image(viz.figure_png(viz.rd_scatter(items, title=f"{plan.strategy}: what the budget bought"))),
