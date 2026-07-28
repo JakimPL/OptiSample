@@ -4,6 +4,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Final
 
+from optisample.artifacts.bank import write_bank
 from optisample.artifacts.context import (
     DumpContext,
     DumpResult,
@@ -114,17 +115,23 @@ def _write_sample_wavs(kind: PlanKind, paths: PlanPaths) -> None:
         write_wav(paths.sample_wav(unit.label), unit.stored.pcm, unit.stored.sample_rate)
 
 
-def _write_instrument_files(kind: PlanKind, paths: PlanPaths, target: ExportTarget) -> None:
+def _write_instrument_files(kind: PlanKind, paths: PlanPaths, target: ExportTarget) -> tuple[Path, ...]:
     """Write every instrument the module numbers as a file of its own, under ``instruments/``.
 
     Extraction renumbers a slot's samples into a table of its own, which is what lets the file be loaded
     into a song that knows nothing of the one it was written beside. Each lands under the label naming
-    the dynamics and the keys it answers, so the directory reads as the plan's own map.
+    the keys and the dynamics it answers, so the directory reads as the plan's own map. The paths come
+    back in slot order, which is what the bank manifest names its layers by.
     """
     paths.instruments_dir.mkdir(parents=True, exist_ok=True)
+    landed: list[Path] = []
     for index, slot in enumerate(kind.layout.slots):
         written = target.instrument_file(extract(kind.module.song, index))
-        written.save(paths.instrument_file(slot.file_label, written.extension))
+        path = paths.instrument_file(slot.file_label, written.extension)
+        written.save(path)
+        landed.append(path)
+
+    return tuple(landed)
 
 
 def _write_module_and_render(kind: PlanKind, paths: PlanPaths, dump_context: DumpContext) -> bool:
@@ -182,7 +189,8 @@ def _dump_plan(
 
     _write_plan_docs(kind, paths)
     _write_sample_wavs(kind, paths)
-    _write_instrument_files(kind, paths, dump_context.settings.optimize.target)
+    written = _write_instrument_files(kind, paths, dump_context.settings.optimize.target)
+    write_bank(kind.plan_document.instrument_id, kind.layout, written, paths)
     rendered = _write_module_and_render(kind, paths, dump_context)
     _write_metrics(kind, paths, dump_context)
     return PlanArtifacts(

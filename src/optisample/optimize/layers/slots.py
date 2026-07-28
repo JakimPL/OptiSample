@@ -53,18 +53,18 @@ class InstrumentSlot:
 
     @property
     def file_label(self) -> str:
-        """The name this slot's own instrument file is written under (``v000-v051_p029-p063``).
+        """The name this slot's own instrument file is written under (``p029-p063_v000-v051``).
 
         Both axes a plan splits are stated, so every written instrument lands under a name of its own: the
-        velocity band it answers for, then the run of keys it owns, in MIDI numbers so the name sorts the
-        way the keyboard runs. A band the allocation stored nothing in is written as its one slot, which
-        the band alone names.
+        run of keys it owns, in MIDI numbers so the name sorts the way the keyboard runs, then the velocity
+        band it answers for. A band the allocation stored nothing in is written as its one slot, which the
+        band alone names.
         """
         pitches = self.pitches
         if not pitches:
             return self.band.label
 
-        return f"{self.band.label}_p{pitches[0]:03d}-p{pitches[-1]:03d}"
+        return f"p{pitches[0]:03d}-p{pitches[-1]:03d}_{self.band.label}"
 
     @property
     def stored_bytes(self) -> int:
@@ -107,6 +107,15 @@ class SlotLayout:
     def count(self) -> int:
         """How many instruments the module carries."""
         return len(self.slots)
+
+    @property
+    def split_by_keys(self) -> bool:
+        """Whether a band is written as several instruments, which a reader tells apart by the keys they own.
+
+        A band the format has room to write whole leaves its dynamics naming the instrument on their own,
+        which is what lets a consumer choosing by velocity reach every note the plan stored.
+        """
+        return self.count > self.layers.count
 
     def layer_slots(self, layer: int) -> tuple[int, ...]:
         """Which instruments one velocity band is written as, in ascending key order."""

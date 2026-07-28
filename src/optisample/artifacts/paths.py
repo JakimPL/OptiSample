@@ -69,6 +69,16 @@ class PlanPaths:
         return self.directory / _REDUCTION_JSON
 
     @property
+    def bank_json(self) -> Path:
+        """The manifest naming the written instruments, which is what a player loads the whole plan through."""
+        return self.directory / "bank.json"
+
+    @property
+    def unbanked(self) -> Path:
+        """The note left beside instruments a manifest picking a layer by dynamics leaves the keys of."""
+        return self.directory / "NO_BANK.txt"
+
+    @property
     def metrics_json(self) -> Path:
         """Per-note surrogate fidelity, summing back to the plan's objective."""
         return self.directory / "metrics.json"
@@ -123,6 +133,14 @@ class PlanPaths:
         the map of which file plays what.
         """
         return self.instruments_dir / f"{label}{extension}"
+
+    def reference(self, path: Path) -> str:
+        """How a document written in this directory names one of the files beside it.
+
+        A bank manifest resolves every path it states against the directory it sits in, so naming the
+        files this way keeps the tree playable wherever it is copied to.
+        """
+        return path.relative_to(self.directory).as_posix()
 
     def sample_wav(self, label: str) -> Path:
         """One stored sample's decoded WAV, filed under the label its plan unit carries."""

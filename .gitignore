@@ -9,7 +9,7 @@ __pycache__/
 .venv/
 .vscode/
 
-artifacts/
+/artifacts/
 
 *.pyc
 *.pyo

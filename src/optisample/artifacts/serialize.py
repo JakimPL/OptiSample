@@ -36,20 +36,20 @@ from trackmod.module.size import SizeReport
 _OPTIONAL_HEAD: Final = ("method", "pitches", "reserve", "zones")
 
 
-class _Frozen(BaseModel):
+class Frozen(BaseModel):
     """Base for every artifact document: immutable and rejecting unknown fields."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
-class LoopRecord(_Frozen):
+class LoopRecord(Frozen):
     """The loop actually stored after re-encoding: a half-open ``[start, end)`` frame range."""
 
     start: int
     end: int
 
 
-class AnchorRecord(_Frozen):
+class AnchorRecord(Frozen):
     """One measured velocity anchor of the loudness-matched velocity->volume map."""
 
     velocity: int
@@ -57,7 +57,7 @@ class AnchorRecord(_Frozen):
     volume: int
 
 
-class VelocityMapDocument(_Frozen):
+class VelocityMapDocument(Frozen):
     """The velocity->volume map: its anchors and the full 0..127 lookup table."""
 
     reference_volume: int
@@ -65,7 +65,7 @@ class VelocityMapDocument(_Frozen):
     volumes: list[int]
 
 
-class BudgetRecord(_Frozen):
+class BudgetRecord(Frozen):
     """The byte accounting for one plan: the budgets it was given and what it spent."""
 
     module_budget_bytes: int
@@ -74,7 +74,7 @@ class BudgetRecord(_Frozen):
     module_bytes: int
 
 
-class ModuleSizeRecord(_Frozen):
+class ModuleSizeRecord(Frozen):
     """What the written module occupies, split by what spends the bytes.
 
     The budget accounts for the instrument's footprint alone, so these totals also carry the audition
@@ -87,7 +87,7 @@ class ModuleSizeRecord(_Frozen):
     pattern_bytes: int
 
 
-class EncodingRecord(_Frozen):
+class EncodingRecord(Frozen):
     """The stored-encoding block both strategies share: chosen params, geometry, cost and hull size.
 
     ``loop`` is the loop *actually stored* after re-encoding (not merely the one the sweep requested).
@@ -106,7 +106,7 @@ class EncodingRecord(_Frozen):
     hull_size: int
 
 
-class _PitchHead(_Frozen):
+class _PitchHead(Frozen):
     """The leading fields of an ungrouped item: one kept key and how much it is played."""
 
     pitch: int
@@ -115,7 +115,7 @@ class _PitchHead(_Frozen):
     representative_velocity: int
 
 
-class KeyboardRecord(_Frozen):
+class KeyboardRecord(Frozen):
     """What of the format's keyboard the written instruments answer.
 
     ``numbered`` is the keys the format offers, ``played`` the keys the material reached, and
@@ -128,7 +128,7 @@ class KeyboardRecord(_Frozen):
     answered: int
 
 
-class InstrumentRecord(_Frozen):
+class InstrumentRecord(Frozen):
     """One instrument the plan is written as, summed over the samples it owns.
 
     ``index`` is the instrument number the written pattern names for a note this record answers, and
@@ -154,7 +154,7 @@ class InstrumentRecord(_Frozen):
     objective_share: float
 
 
-class ReserveRecord(_Frozen):
+class ReserveRecord(Frozen):
     """The sample cap a grouped plan was held to, and the charge per stored sample that held it there.
 
     ``bytes_per_sample`` is what each stored sample was priced above the bytes it occupies, so a plan
@@ -167,7 +167,7 @@ class ReserveRecord(_Frozen):
     objective_uncapped: float
 
 
-class _ZoneHead(_Frozen):
+class _ZoneHead(Frozen):
     """The leading fields of a grouped item: the velocity band it answers for and the keys it covers."""
 
     layer: int
@@ -188,7 +188,7 @@ class ZoneItemRecord(EncodingRecord, _ZoneHead):
     """One pitch zone: the keys it serves and the encoding chosen for its representative sample."""
 
 
-class KeptRecordingRecord(_Frozen):
+class KeptRecordingRecord(Frozen):
     """One recording that survived deduplication, measured against the material its pitch plays.
 
     ``covers_material`` is false when the survivor runs shorter than its pitch's longest note, in which
@@ -203,7 +203,7 @@ class KeptRecordingRecord(_Frozen):
     covers_material: bool
 
 
-class ShortlistedEncodingRecord(_Frozen):
+class ShortlistedEncodingRecord(Frozen):
     """One encoding the bandwidth pre-pass left in the running for a pitch's stored sample."""
 
     target_rate: int
@@ -212,7 +212,7 @@ class ShortlistedEncodingRecord(_Frozen):
     loop: bool
 
 
-class NarrowedGridRecord(_Frozen):
+class NarrowedGridRecord(Frozen):
     """What the pre-pass left of one pitch's encoding grid, and the stored band that bounds it."""
 
     pitch: int
@@ -221,7 +221,7 @@ class NarrowedGridRecord(_Frozen):
     shortlist: list[ShortlistedEncodingRecord]
 
 
-class ReductionDocument(_Frozen):
+class ReductionDocument(Frozen):
     """The pre-optimization stage's decisions: what survived ingest and how small the search space got.
 
     The three ``*_recordings``/``*_notes``/``grid_size`` counts are the before side of each reduction
@@ -237,7 +237,7 @@ class ReductionDocument(_Frozen):
     grids: list[NarrowedGridRecord]
 
 
-class WrittenSampleRecord(_Frozen):
+class WrittenSampleRecord(Frozen):
     """One survivor as a reduced dataset holds it: the file written and the index its notes join on.
 
     ``index`` leads the filename, which is what a later ingest reads to route each note back to this
@@ -252,7 +252,7 @@ class WrittenSampleRecord(_Frozen):
     duration_s: float
 
 
-class ScreenRecord(_Frozen):
+class ScreenRecord(Frozen):
     """What admitting the recordings cost: the ones left out, and the material that left unplayable.
 
     ``silenced`` names each recording whose peak stayed under the configured silence floor, so a reader
@@ -265,7 +265,7 @@ class ScreenRecord(_Frozen):
     dropped_notes: int
 
 
-class ReducedDocument(_Frozen):
+class ReducedDocument(Frozen):
     """What one reduce run produced: the dataset it wrote and the decisions that shaped it.
 
     ``dedupe_key`` is the identity the survivors were kept under, so a run reading this dataset back
@@ -282,7 +282,7 @@ class ReducedDocument(_Frozen):
     reduction: ReductionDocument
 
 
-class PlanDocument(_Frozen):
+class PlanDocument(Frozen):
     """One optimized plan for either strategy: budgets, the velocity map, the layers and the kept items.
 
     ``method`` is recorded only for the ungrouped strategy, ``reserve`` only for the grouped one, and
@@ -316,14 +316,14 @@ class PlanDocument(_Frozen):
         return {key: value for key, value in data.items() if not (key in _OPTIONAL_HEAD and value is None)}
 
 
-class RepresentativeEventRecord(_Frozen):
+class RepresentativeEventRecord(Frozen):
     """The single event chosen as a pitch's audible representative (the A/B render)."""
 
     velocity: int
     duration_s: float
 
 
-class EventMetricRecord(_Frozen):
+class EventMetricRecord(Frozen):
     """One scored note class of a pitch: its stored volume and the surrogate fidelity + sub-scores it earned.
 
     ``velocity`` names the loudest note the class covers and ``duration_s`` the length it was scored
@@ -341,7 +341,7 @@ class EventMetricRecord(_Frozen):
     diagnostics: Mapping[str, float | None]
 
 
-class NoteMetricRecord(_Frozen):
+class NoteMetricRecord(Frozen):
     """Every scored event of one covered pitch, plus which sample served it and its objective share.
 
     ``layer`` names the velocity band these events fall in, so a key played across several dynamics
@@ -363,7 +363,7 @@ class NoteMetricRecord(_Frozen):
     events: list[EventMetricRecord]
 
 
-class MetricsDocument(_Frozen):
+class MetricsDocument(Frozen):
     """Per-note surrogate fidelity for one strategy; ``objective`` reproduces the plan's objective."""
 
     strategy: str

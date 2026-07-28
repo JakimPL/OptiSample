@@ -251,17 +251,58 @@ written on its own under `instruments/`:
 ```
 artifacts/Piano/grouped/
 ├── module.it
+├── bank.json
+├── velocity_map.json
 └── instruments/
-    ├── v000-v051_p029-p063.iti
-    └── v052-v127_p029-p063.iti
+    ├── p029-p063_v000-v051.iti
+    └── p029-p063_v052-v127.iti
 ```
 
 Each file carries the instrument header, the samples its keymap reaches and their waveforms, with those
 samples renumbered into a table of its own — which is what lets a tracker or a player load one voice and
-leave its own song alone. The name states both axes the plan split, the velocity band and the run of keys,
-so the directory reads as the map of which file plays what. Impulse Tracker writes `.iti` and FastTracker 2
+leave its own song alone. The name states both axes the plan split, the run of keys and then the velocity
+band, so the directory sorts by keyboard position and reads as the map of which file plays what. Impulse Tracker writes `.iti` and FastTracker 2
 `.xi`, at the same compliance level the module was graded against; the format is the run's, so
 `--format xm` writes `.xi` beside `module.xm`.
+
+## The bank manifest: the whole plan as one voice
+
+A file per band ships the voices; `bank.json` says which one a note reaches. It states every band the
+allocation chose, in order, each naming its instrument file and the velocity map the plan measured:
+
+```json
+{
+  "version": 1,
+  "name": "Piano",
+  "layers": [
+    {
+      "source": { "file": "instruments/p029-p063_v000-v051.iti" },
+      "select": { "velocity": { "low": 0, "high": 51 } },
+      "velocity_map": "velocity_map.json"
+    },
+    {
+      "source": { "file": "instruments/p029-p063_v052-v127.iti" },
+      "select": { "velocity": { "low": 52, "high": 127 } },
+      "velocity_map": "velocity_map.json"
+    }
+  ]
+}
+```
+
+Every path is read against the directory the manifest sits in, so the strategy directory is the unit that
+travels: copy it anywhere and it still plays. Each band states its own velocities rather than the last one
+catching whatever fell through, so the manifest says out loud what the allocation decided. This is what
+[MIDIToTracker](https://github.com/JakimPL/MIDIToTracker) reads:
+
+```bash
+midi2tracker song.mid --bank artifacts/Piano/grouped/bank.json --out song.it
+```
+
+A note picks its layer by the dynamic it was struck at, and that instrument's own keymap then picks the
+sample — the same two steps `module.it` takes internally. Where a format has room for a band only in
+several instruments, the keys tell those apart as well as the dynamics, which a manifest selecting by
+velocity states no way to; the run writes `NO_BANK.txt` there, naming how many files are to be loaded one
+at a time.
 
 ## The sample cap: asking for fewer, wider zones
 

@@ -98,6 +98,7 @@ def test_dump_writes_both_strategy_subtrees(generous: Path) -> None:
         assert (base / "velocity_map.json").is_file()
         assert (base / "reduction.json").is_file()
         assert (base / "metrics.json").is_file()
+        assert (base / "bank.json").is_file()
         assert list((base / "samples").glob("*.wav"))  # at least one stored sample
         assert list((base / "instruments").glob("*.iti"))
         assert list((base / "compare").glob("*/*_ref.wav"))
@@ -124,11 +125,32 @@ def test_a_written_instrument_loads_back_as_the_voice_the_module_plays(generous:
         assert all(np.array_equal(one.pcm, other.pcm) for one, other in zip(loaded.samples, held.samples))
 
 
-def test_an_instrument_file_is_named_by_the_dynamics_and_the_keys_it_answers(generous: Path) -> None:
+def test_an_instrument_file_is_named_by_the_keys_and_the_dynamics_it_answers(generous: Path) -> None:
     plan = _load(generous / "grouped" / "plan.json")
     (record,) = plan["instruments"]
     (written,) = (generous / "grouped" / "instruments").iterdir()
-    assert written.stem == f"{record['band']}_p{record['lowest_pitch']:03d}-p{record['highest_pitch']:03d}"
+    assert written.stem == f"p{record['lowest_pitch']:03d}-p{record['highest_pitch']:03d}_{record['band']}"
+
+
+def test_the_bank_names_the_instrument_files_that_landed_beside_it(generous: Path) -> None:
+    """A player is handed the manifest alone, so every path it states resolves from where it sits."""
+    for name in ("ungrouped", "grouped"):
+        base = generous / name
+        bank = _load(base / "bank.json")
+        assert bank["version"] == 1
+        assert bank["name"] == "piano"
+        assert len(bank["layers"]) == len(_load(base / "plan.json")["instruments"])
+        for layer in bank["layers"]:
+            assert (base / layer["source"]["file"]).is_file()
+            assert (base / layer["velocity_map"]).is_file()
+
+
+def test_the_bank_hands_every_dynamic_to_the_band_the_plan_stored_it_in(generous: Path) -> None:
+    plan = _load(generous / "grouped" / "plan.json")
+    bank = _load(generous / "grouped" / "bank.json")
+    stored = [(record["lowest_velocity"], record["highest_velocity"]) for record in plan["instruments"]]
+    selected = [(layer["select"]["velocity"]["low"], layer["select"]["velocity"]["high"]) for layer in bank["layers"]]
+    assert selected == stored
 
 
 def test_metrics_objective_reproduces_plan_objective(generous: Path) -> None:
@@ -350,10 +372,19 @@ def test_a_layered_plan_writes_one_instrument_file_per_band(layered: Path) -> No
     plan = _load(layered / "grouped" / "plan.json")
     written = sorted(path.stem for path in (layered / "grouped" / "instruments").iterdir())
     assert written == sorted(
-        f"{record['band']}_p{record['lowest_pitch']:03d}-p{record['highest_pitch']:03d}"
+        f"p{record['lowest_pitch']:03d}-p{record['highest_pitch']:03d}_{record['band']}"
         for record in plan["instruments"]
     )
-    assert len({stem.split("_")[0] for stem in written}) > 1  # the material earned a velocity split
+    assert len({stem.split("_")[-1] for stem in written}) > 1  # the material earned a velocity split
+
+
+def test_a_layered_bank_states_a_layer_per_band_and_tiles_the_dynamics(layered: Path) -> None:
+    """A note of any dynamic reaches the instrument the allocation stored its band in."""
+    bank = _load(layered / "grouped" / "bank.json")
+    bands = [layer["select"]["velocity"] for layer in bank["layers"]]
+    assert len(bands) > 1  # the material earned a velocity split
+    for velocity in range(128):
+        assert len([band for band in bands if band["low"] <= velocity <= band["high"]]) == 1
 
 
 def test_an_ungrouped_plan_stays_a_single_full_range_layer(layered: Path) -> None:

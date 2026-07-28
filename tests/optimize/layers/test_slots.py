@@ -69,17 +69,17 @@ def test_a_band_storing_nothing_still_keeps_the_instrument_its_dynamics_resolve_
     assert len(loud.samples) == 2
 
 
-def test_every_written_instrument_is_named_by_the_dynamics_and_the_keys_it_answers() -> None:
+def test_every_written_instrument_is_named_by_the_keys_and_the_dynamics_it_answers() -> None:
     """A file per instrument needs a name per instrument, so both axes a plan splits are in the label."""
     quiet, loud = pack_slots(_LAYERED, _SPLIT, _WHOLE_TABLE).slots
-    assert quiet.file_label == "v000-v050_p060-p061"
-    assert loud.file_label == "v051-v127_p060-p061"
+    assert quiet.file_label == "p060-p061_v000-v050"
+    assert loud.file_label == "p060-p061_v051-v127"
 
 
 def test_the_instruments_a_cut_band_is_written_as_are_named_apart() -> None:
     slots = pack_slots(tuple(_key(pitch) for pitch in range(60, 100)), UNSPLIT, _PER_INSTRUMENT).slots
     labels = [slot.file_label for slot in slots]
-    assert labels == ["v000-v127_p060-p075", "v000-v127_p076-p091", "v000-v127_p092-p099"]
+    assert labels == ["p060-p075_v000-v127", "p076-p091_v000-v127", "p092-p099_v000-v127"]
     assert len(set(labels)) == len(labels)  # each instrument lands in a file of its own
 
 
@@ -148,6 +148,12 @@ def test_a_note_plays_through_its_own_band_before_its_own_keys() -> None:
     assert layout.instrument(_SECOND_LAYER, 60) == 1
     assert layout.count == 2
     assert layout.layer_slots(_SECOND_LAYER) == (1,)
+
+
+def test_a_band_the_format_writes_whole_leaves_the_dynamics_naming_the_instrument() -> None:
+    """A consumer picking a layer by velocity reaches every note exactly while each band is one file."""
+    assert pack_slots(_LAYERED, _SPLIT, _WHOLE_TABLE).split_by_keys is False
+    assert pack_slots(tuple(_key(pitch) for pitch in range(60, 100)), UNSPLIT, _PER_INSTRUMENT).split_by_keys is True
 
 
 def test_a_reserve_cuts_each_band_into_the_runs_the_format_writes() -> None:
