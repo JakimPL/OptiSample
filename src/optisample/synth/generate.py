@@ -12,9 +12,9 @@ from optisample.io.audio import write_wav
 from optisample.io.note_extractor import NoteRecord, dump_notes
 from optisample.parallel import IN_PROCESS, map_workers
 from optisample.progress import NO_PROGRESS, ProgressSink
+from optisample.seed import DEFAULT_SEED
 from optisample.synth.archetypes import Archetype, NoteSpec, draw_phases, render_sample
 
-DEFAULT_SEED: Final = 137
 _NO_CONTROLLER: Final = 0.0
 
 

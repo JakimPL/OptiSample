@@ -7,6 +7,7 @@ from optisample.config.synth import SynthConfig
 from optisample.io.audio import read_wav
 from optisample.io.note_extractor import NOTES_SUFFIX, IngestSettings, load_notes
 from optisample.model import InstrumentSpec, Manifest, ProjectSpec, SourceSample
+from optisample.seed import DEFAULT_SEED
 from optisample.synth import DemoSettings, generate_demo
 
 Signal = NDArray[np.float64]
@@ -14,11 +15,21 @@ Signal = NDArray[np.float64]
 _DEMO_BUDGET_KB = 128.0
 
 
-def ensure_demo(root: Path | str, config: SynthConfig, *, seed: int = 0) -> Path:
+def ensure_demo(
+    root: Path | str,
+    config: SynthConfig,
+    *,
+    seed: int = DEFAULT_SEED,
+) -> Path:
     """Return the demo directory under ``root``, generating the synthetic dataset (from ``config``) if absent."""
     root = Path(root)
     if not sorted(root.glob(f"*{NOTES_SUFFIX}")):
-        generate_demo(root, config, DemoSettings(sample_rate=config.sample_rate, seed=seed))
+        generate_demo(
+            root,
+            config,
+            DemoSettings(sample_rate=config.sample_rate, seed=seed),
+        )
+
     return root
 
 
@@ -29,7 +40,11 @@ def load(demo_dir: Path | str) -> Manifest:
     instruments: list[InstrumentSpec] = []
     for notes_json in sorted(demo_dir.glob(f"*{NOTES_SUFFIX}")):
         instrument_id = notes_json.name[: -len(NOTES_SUFFIX)]
-        settings = IngestSettings(instrument_id=instrument_id, budget_kb=_DEMO_BUDGET_KB, project=project)
+        settings = IngestSettings(
+            instrument_id=instrument_id,
+            budget_kb=_DEMO_BUDGET_KB,
+            project=project,
+        )
         manifest = load_notes(notes_json, demo_dir / instrument_id, settings)
         instruments.append(manifest.instruments[0])
     return Manifest(project=project, instruments=instruments)

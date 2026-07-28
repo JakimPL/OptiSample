@@ -20,9 +20,9 @@ from optisample.model import ProjectSpec
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.reduce.trim import RecordingScreen
 from optisample.progress import ProgressSink, bars_are_watchable, progress_sink
+from optisample.seed import DEFAULT_SEED
 from optisample.synth import DemoSettings, generate_demo
 
-DEFAULT_SEED: Final = 0
 _PROFILE_TOP_FUNCTIONS: Final = 20
 _MS_PER_S: Final = 1000.0
 _INTERPOLATIONS: Final = get_args(Interpolation)

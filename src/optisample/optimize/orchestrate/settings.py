@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Final
 
 from optisample.config.dsp import EncodeConfig
 from optisample.config.layers import LayersConfig
@@ -11,8 +10,7 @@ from optisample.metrics.composite import CompositeFidelity, build_composite
 from optisample.optimize.plans import Method
 from optisample.parallel import IN_PROCESS
 from optisample.progress import NO_PROGRESS, ProgressSink
-
-DEFAULT_SEED: Final = 137
+from optisample.seed import DEFAULT_SEED
 
 
 @dataclass(frozen=True)

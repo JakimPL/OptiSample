@@ -4,6 +4,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from optisample.dsp.levels import db_to_gain, peak_amplitude
+from optisample.seed import SURROGATE_SEED
 
 Signal = NDArray[np.float64]
 
@@ -99,7 +100,7 @@ def requantize(
     if data.size == 0:
         return data.copy()
 
-    generator = rng if rng is not None else np.random.default_rng(0)
+    generator = rng if rng is not None else np.random.default_rng(SURROGATE_SEED)
     noise = (
         _tpdf_dither(data.size, step, generator)
         if dither

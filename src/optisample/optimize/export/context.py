@@ -1,11 +1,9 @@
 from dataclasses import dataclass
-from typing import Final
 
 from optisample.config.dsp import EncodeConfig
 from optisample.config.render import PlaybackConfig
 from optisample.io.tracker.target import ExportTarget
-
-DEFAULT_SEED: Final = 137
+from optisample.seed import DEFAULT_SEED
 
 
 @dataclass(frozen=True)

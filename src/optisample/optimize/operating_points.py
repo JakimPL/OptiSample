@@ -15,6 +15,7 @@ from optisample.dsp.surrogate import (
 )
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.metrics.composite import CompositeFidelity, evaluate
+from optisample.metrics.size import bytes_to_kib
 from trackmod.module.storage import Storage
 
 _HULL_EPS: Final = 1e-12
@@ -57,7 +58,7 @@ class OperatingPoint:
 
     @property
     def kib(self) -> float:
-        return self.stored_bytes / 1024.0
+        return bytes_to_kib(self.stored_bytes)
 
 
 def default_rates(
