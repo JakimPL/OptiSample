@@ -1,3 +1,7 @@
+from typing import Annotated
+
+from pydantic import Field
+
 from optisample.config.base import ConfigModel
 from optisample.config.dynamics import DynamicsConfig
 
@@ -46,13 +50,16 @@ class LoopConfig(ConfigModel):
 
 
 class QuantizeConfig(ConfigModel):
-    """Requantization shaping: how far under full scale a sample is normalized before storing.
+    """How a span is shaped for storage: the level it is stored at, and the way it ends.
 
     Storing hot spends the whole depth on the recording; ``headroom_db`` is what the dither is left to
-    move in above that peak (see :func:`~optisample.dsp.quantize.headroom_peak`).
+    move in above that peak (see :func:`~optisample.dsp.quantize.headroom_peak`). ``release_fade_s`` ramps
+    the last stretch of a stored span to silence, so a sample cut at the length its material asks for ends
+    on silence and a tracker plays it out rather than stepping off it.
     """
 
     headroom_db: float
+    release_fade_s: Annotated[float, Field(ge=0.0)]
 
 
 class EncodeConfig(ConfigModel):
@@ -66,4 +73,5 @@ class EncodeConfig(ConfigModel):
     loop: LoopConfig
     dynamics: DynamicsConfig
     headroom_db: float
+    release_fade_s: float
     peak_reference: float | None = None

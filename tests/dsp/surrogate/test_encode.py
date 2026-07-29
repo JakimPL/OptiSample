@@ -57,6 +57,31 @@ def test_encode_loop_stores_attack_plus_loop_and_drops_the_tail(
     assert stored.frames < int(SR)  # ... attack + a ~0.5 s loop, well under the 2 s recording
 
 
+def test_a_trimmed_sample_closes_on_the_release_ramp(
+    sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
+) -> None:
+    """A cut at the length the material asks for lands mid-tone, so the stored span ends on silence."""
+    params = EncodingParams(target_rate=SR, depth_bits=16, trim_s=_HALF_S, loop=False)
+    faded = encode(sine(440.0, dur=2.0), SR, params, make_encode_ctx(60))
+    stepped = encode(sine(440.0, dur=2.0), SR, params, make_encode_ctx(60, release_fade_s=0.0))
+
+    assert abs(float(faded.pcm[-1])) < abs(float(stepped.pcm[-1]))
+    assert float(faded.pcm[-1]) == pytest.approx(0.0, abs=headroom_peak(0.0) * 2.0**-15)
+    assert faded.frames == stepped.frames  # the ramp shapes the span it is given and costs no bytes
+
+
+def test_a_looped_sample_keeps_the_wrap_point_the_crossfade_made(
+    sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
+) -> None:
+    """A loop ends where playback returns to its start, so the span is stored as the crossfade left it."""
+    params = EncodingParams(target_rate=SR, depth_bits=16, loop=True)
+    faded = encode(sine(440.0, dur=2.0), SR, params, make_encode_ctx(60))
+    unfaded = encode(sine(440.0, dur=2.0), SR, params, make_encode_ctx(60, release_fade_s=0.0))
+
+    assert faded.loop is not None
+    assert np.array_equal(faded.pcm, unfaded.pcm)
+
+
 def test_loop_falls_back_to_trim_on_non_periodic_material(make_encode_ctx: Callable[..., EncodeContext]) -> None:
     rng = np.random.default_rng(0)
     noise = rng.standard_normal(SR)

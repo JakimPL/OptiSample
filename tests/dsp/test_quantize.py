@@ -11,12 +11,14 @@ from optisample.dsp.quantize import (
     headroom_peak,
     normalize_peak,
     quantization_step,
+    release_fade,
     requantize,
 )
 from optisample.dsp.spectral import band_energy
 from optisample.metrics.diagnostics import snr
 
 SR = 44_100
+_FADE_FRAMES = 441  # 10 ms at the test rate, the shipped ramp
 
 
 def test_quantization_step_values() -> None:
@@ -68,6 +70,37 @@ def test_headroom_leaves_the_peak_that_far_under_full_scale() -> None:
 def test_apply_gain_scales_linearly(sine: Callable[..., NDArray[np.float64]]) -> None:
     signal = sine(440.0)
     assert np.allclose(apply_gain(signal, 0.5), 0.5 * signal)
+
+
+def test_a_release_ramp_closes_a_span_on_silence(sine: Callable[..., NDArray[np.float64]]) -> None:
+    """The last frame lands on zero, which is what a tracker reaching the end of the sample plays."""
+    signal = sine(440.0)
+    faded = release_fade(signal, _FADE_FRAMES)
+
+    assert faded[-1] == pytest.approx(0.0)
+    assert np.allclose(faded[: signal.size - _FADE_FRAMES], signal[: signal.size - _FADE_FRAMES])
+
+
+def test_a_release_ramp_descends_over_the_frames_it_is_given() -> None:
+    """The ramp is linear, so each frame of the closing stretch keeps a smaller share of what it held."""
+    ramp_frames = 8
+    faded = release_fade(np.ones(64, dtype=np.float64), ramp_frames)
+
+    assert np.allclose(faded[-ramp_frames:], np.linspace(1.0, 0.0, ramp_frames))
+    assert np.all(np.diff(faded[-ramp_frames:]) < 0.0)
+
+
+def test_a_span_shorter_than_the_ramp_is_faded_over_its_whole_length() -> None:
+    faded = release_fade(np.ones(4, dtype=np.float64), _FADE_FRAMES)
+
+    assert faded[0] == pytest.approx(1.0)
+    assert faded[-1] == pytest.approx(0.0)
+
+
+def test_a_ramp_of_no_frames_leaves_the_span_as_it_stands(sine: Callable[..., NDArray[np.float64]]) -> None:
+    signal = sine(440.0)
+
+    assert np.array_equal(release_fade(signal, 0), signal)
 
 
 @pytest.mark.parametrize("bits", [8, 16])

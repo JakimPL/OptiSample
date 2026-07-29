@@ -36,6 +36,28 @@ against each WAV filename's leading index token. Reducing the grid to one record
 optimizer's job: it keeps the shortest recording that still covers the notes that key has to play,
 under the identity `reduce.yaml` names (`pitch`, `pitch_velocity`, or `pitch_velocity_cc`).
 
+### Input: a directory of recordings
+
+Every command also takes a directory of WAVs in place of a manifest, so a set of samples with no
+performance behind it runs as it stands:
+
+```bash
+optisample optimize path/to/Samples/Piano --budget-kb 512 --out artifacts
+```
+
+The filenames carry what the manifest would have said. A `p<number>` token states the key and a
+`v<number>` token the dynamic, which is how every dataset this project writes names them
+(`0000_p029_v018_cc0-0_cc1-0.wav`, `0000_p029_F1_v018.wav`, `0000_p60_v100.wav`); `cc<number>-<average>`
+tokens carry controller averages. A note name is read where no `p<number>` token appears, so a sample
+library named `C4.wav`, `Bb2.wav`, `Grand_F#3_take.wav` resolves too, in either capitalisation and in
+either spelling of a black key.
+
+A directory states which keys were recorded and how hard, and says nothing of a song, so **each take is
+read as one note held for as long as its recording sounds**. Usage weight then follows take length and
+the recorded grid itself is what the allocation is optimized over. Where the filenames name no velocity
+at all, every take shares one dynamic and the whole keyboard routes to it — one band is the most such a
+set says about itself.
+
 ### Taking a slice first
 
 A thousand-note instrument is worth iterating on at a tenth of its size before it is run whole, and
@@ -45,6 +67,10 @@ A thousand-note instrument is worth iterating on at a tenth of its size before i
 optisample subset path/to/Piano.notes.json --fraction 0.1 --out subset
 optisample reduce subset/Piano.notes.json --budget-kb 512      # picks up from there
 ```
+
+A slice is written in the shape it was taken from: slicing a manifest dataset gives a manifest dataset,
+and slicing a directory of recordings gives a directory of recordings, so the stage after it reads the
+slice the way it would have read the whole.
 
 Notes are grouped by pitch, each pitch is allotted a share, and the notes it contributes are the ones
 its velocities spread evenly over — so a slice covers the keyboard the source plays and, within each
@@ -81,6 +107,11 @@ every report and artifact tree states what it left behind:
 Each strategy's `report.txt` opens with a `Reduction (pre-optimization)` block reading `before -> after`
 per axis, and `reduction.json` records every kept recording (with the material it covers) and every
 pitch's shortlist. A recording too short for its notes is named there rather than quietly truncated.
+
+Reduction is also where a pack's quality is decided, since it settles how long each stored sample may be
+and which encodings the allocation ever gets to choose from. [`docs/tuning.md`](docs/tuning.md) is the
+guide to that trade: which number picks the stored rate, what 8-bit costs, and which knob to reach for
+when a run comes back lo-fi.
 
 ### Reducing on its own
 
@@ -384,7 +415,7 @@ the cap is the grouped strategy's to meet.
 
 ## Usage
 
-Optimize a `.notes.json` into an inspectable artifact tree:
+Optimize a `.notes.json` — or a directory of recordings — into an inspectable artifact tree:
 
 ```bash
 optisample optimize path/to/Piano.notes.json \
@@ -393,8 +424,9 @@ optisample optimize path/to/Piano.notes.json \
     --out artifacts
 ```
 
-`--samples-dir` defaults to the notes file's sibling `<name>/` directory, and `--instrument-id`
-defaults to the `.notes.json` base name. `--pre-roll-ms` / `--post-roll-ms` mirror the trimmer's
+`--samples-dir` names where a manifest's recordings live, defaulting to the notes file's sibling
+`<name>/` directory; a directory source holds its own. `--instrument-id` defaults to the `.notes.json`
+base name, or to the directory's own name. `--pre-roll-ms` / `--post-roll-ms` mirror the trimmer's
 padding (the pre-roll is trimmed as each sample's lead-in so frame 0 lands on the note onset). Other
 flags: `--format {it,xm}`, `--strategy {both,grouped,ungrouped}`, `--no-render`, `--rate`/`--depth`
 (repeatable sweep values), `--no-loop`, `--interpolation`, `--seed`. `--dedupe-key` and `--candidates`

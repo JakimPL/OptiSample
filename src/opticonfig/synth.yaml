@@ -32,7 +32,7 @@ presets:
     archetype: sustained
     pitches: [48, 55, 60, 67, 72]
     velocities: [40, 80, 115]
-    sample_dur: 4.5         # >= the longest material note (4.0 s), so a real sustain exists to loop/match
+    sample_duration: 4.5         # >= the longest material note (4.0 s), so a real sustain exists to loop/match
     budget_kb: 128.0
     material:
       - {pitch: 60, velocity: 80, duration_s: 2.5, count: 10}
@@ -45,7 +45,7 @@ presets:
     archetype: piano
     pitches: [48, 55, 60, 67, 72]
     velocities: [50, 100]
-    sample_dur: 1.6
+    sample_duration: 1.6
     budget_kb: 96.0
     material:
       - {pitch: 60, velocity: 100, duration_s: 0.8, count: 12}
@@ -57,7 +57,7 @@ presets:
     archetype: piano
     pitches: [48, 60, 72]
     velocities: [20, 55, 90, 125]
-    sample_dur: 1.2
+    sample_duration: 1.2
     budget_kb: 192.0
     material:
       - {pitch: 48, velocity: 20, duration_s: 0.5, count: 2}

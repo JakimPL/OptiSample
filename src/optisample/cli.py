@@ -11,7 +11,6 @@ from optisample.artifacts import (
     DumpSettings,
     PipelineSettings,
     ReducedInstrument,
-    SourceDataset,
     dump_project,
     reduce_project,
     run_pipeline,
@@ -22,8 +21,9 @@ from optisample.config.optimize import OptimizeConfig, SweepConfig
 from optisample.config.reduce import DedupeKey, ReduceConfig
 from optisample.config.render import Interpolation
 from optisample.config.tracker import TrackerConfig, TrackerFormat
-from optisample.io.note_extractor import NOTES_SUFFIX, IngestSettings, load_notes
-from optisample.io.subset import SubsetDataset, write_subset
+from optisample.io.dataset import SourceDataset, SubsetDataset, instrument_name
+from optisample.io.note_extractor import IngestSettings
+from optisample.io.source import load_source, write_source_subset
 from optisample.io.tracker.target import ExportTarget, export_target
 from optisample.model import ProjectSpec
 from optisample.optimize.orchestrate.settings import OptimizeSettings
@@ -80,15 +80,15 @@ def _ingest_parser() -> argparse.ArgumentParser:
     """
     ingest = argparse.ArgumentParser(add_help=False)
     ingest.add_argument(
-        "notes_json",
+        "source",
         type=Path,
-        help="Path to a NoteExtractor .notes.json manifest",
+        help="A NoteExtractor .notes.json manifest, or a directory of recordings named by what they hold",
     )
     ingest.add_argument(
         "--samples-dir",
         type=Path,
         default=None,
-        help="Per-note WAV directory (default: notes_json's sibling <name>/)",
+        help="Per-note WAV directory for a manifest source (default: the manifest's sibling <name>/)",
     )
     ingest.add_argument(
         "--budget-kb",
@@ -99,7 +99,7 @@ def _ingest_parser() -> argparse.ArgumentParser:
     ingest.add_argument(
         "--instrument-id",
         default=None,
-        help="Instrument id (default: the .notes.json base name)",
+        help="Instrument id (default: the manifest's base name, or the directory's own name)",
     )
     ingest.add_argument(
         "--format",
@@ -155,6 +155,12 @@ def _ingest_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Stored encodings shortlisted per sample; at or above the grid size keeps every one",
+    )
+    ingest.add_argument(
+        "--content-floor-db",
+        type=float,
+        default=None,
+        help="How far under its loudest band a recording still carries content, which bounds its stored rate",
     )
     ingest.add_argument(
         "--seed",
@@ -252,9 +258,9 @@ def _describe_pipeline(parser: argparse.ArgumentParser) -> None:
 def _describe_subset(parser: argparse.ArgumentParser) -> None:
     """Add what carving a smaller dataset out of a larger one asks for."""
     parser.add_argument(
-        "notes_json",
+        "source",
         type=Path,
-        help="Path to the NoteExtractor .notes.json manifest to take a subset of",
+        help="The .notes.json manifest or directory of recordings to take a subset of",
     )
     parser.add_argument(
         "--fraction",
@@ -266,12 +272,12 @@ def _describe_subset(parser: argparse.ArgumentParser) -> None:
         "--samples-dir",
         type=Path,
         default=None,
-        help="Per-note WAV directory (default: notes_json's sibling <name>/)",
+        help="Per-note WAV directory for a manifest source (default: the manifest's sibling <name>/)",
     )
     parser.add_argument(
         "--instrument-id",
         default=None,
-        help="Instrument id naming the written dataset (default: the .notes.json base name)",
+        help="Instrument id naming the written dataset (default: the source's own name)",
     )
     parser.add_argument(
         "--out",
@@ -344,10 +350,11 @@ def _export_target(config: OptiConfig, args: argparse.Namespace) -> ExportTarget
 
 
 def _reduce_config(config: OptiConfig, args: argparse.Namespace) -> ReduceConfig:
-    """The reduction config with ``--dedupe-key`` and ``--candidates`` applied over the loaded values.
+    """The reduction config with the flags that vary per run applied over the loaded values.
 
-    Both flags reach nested sections, so the override goes through a dump-and-revalidate: the schema
-    settles what a key or a candidate count may be, in one place, whichever side supplied it.
+    Each flag reaches a nested section, so the override goes through a dump-and-revalidate: the schema
+    settles what a key, a candidate count or a content floor may be, in one place, whichever side
+    supplied it.
     """
     data = config.reduce.model_dump()
     if args.dedupe_key is not None:
@@ -355,6 +362,9 @@ def _reduce_config(config: OptiConfig, args: argparse.Namespace) -> ReduceConfig
 
     if args.candidates is not None:
         data["bandwidth"]["candidates"] = args.candidates
+
+    if args.content_floor_db is not None:
+        data["bandwidth"]["content_floor_db"] = args.content_floor_db
 
     return ReduceConfig.model_validate(data)
 
@@ -454,26 +464,14 @@ def _dump_settings(
     )
 
 
-def _instrument_base(notes_json: Path) -> str:
-    """The instrument name behind a ``.notes.json`` path (its ``.notes.json`` suffix stripped)."""
-    name = notes_json.name
-    if name.endswith(NOTES_SUFFIX):
-        return name[: -len(NOTES_SUFFIX)]
-
-    return notes_json.stem
-
-
-def _samples_dir(args: argparse.Namespace) -> Path:
-    """The per-note WAV directory: the ``--samples-dir`` override, else the notes file's sibling ``<name>/``."""
-    if args.samples_dir is not None:
-        return Path(args.samples_dir)
-
-    return Path(args.notes_json.parent / _instrument_base(args.notes_json))
+def _source(args: argparse.Namespace) -> SourceDataset:
+    """Where the run reads its recordings: the positional source, with ``--samples-dir`` where it is given."""
+    return SourceDataset(path=args.source, samples_dir=args.samples_dir)
 
 
 def _project(args: argparse.Namespace) -> ProjectSpec:
     """Build the project settings from the flags; ``--interpolation`` overrides the ``ProjectSpec`` default."""
-    name = _instrument_base(args.notes_json)
+    name = instrument_name(args.source)
     if args.interpolation is None:
         return ProjectSpec(name=name)
 
@@ -481,9 +479,9 @@ def _project(args: argparse.Namespace) -> ProjectSpec:
 
 
 def _ingest_settings(args: argparse.Namespace) -> IngestSettings:
-    """The manifest fields the notes file leaves to the caller, read off the shared ingest flags."""
+    """The manifest fields a source leaves to the caller, read off the shared ingest flags."""
     return IngestSettings(
-        instrument_id=args.instrument_id or _instrument_base(args.notes_json),
+        instrument_id=args.instrument_id or instrument_name(args.source),
         budget_kb=args.budget_kb,
         project=_project(args),
         pre_roll_s=args.pre_roll_ms / _MS_PER_S,
@@ -519,12 +517,12 @@ def _print_screen(screen: RecordingScreen) -> None:
 
 def _print_subset(dataset: SubsetDataset) -> None:
     """State where a slice landed and how much of its source it holds."""
-    print(f"{dataset.notes_json}")
+    print(f"{dataset.source.path}")
     print(f"  {dataset.kept_notes} of {dataset.source_notes} notes, {dataset.recordings} recordings")
     print(
         f"  pitches {dataset.pitches[0]}-{dataset.pitches[1]}, velocities {dataset.velocities[0]}-{dataset.velocities[1]}"
     )
-    print(f"  samples -> {dataset.samples_dir}")
+    print(f"  samples -> {dataset.source.recordings_dir}")
 
 
 def _print_reduced(result: ReducedInstrument) -> None:
@@ -555,25 +553,24 @@ def _plan_total(results: Sequence[DumpResult]) -> float:
 
 
 def _run_reduce(config: OptiConfig, args: argparse.Namespace) -> None:
-    manifest = load_notes(args.notes_json, _samples_dir(args), _ingest_settings(args))
+    manifest = load_source(_source(args), _ingest_settings(args))
     for result in reduce_project(manifest, args.out, _optimize_settings(config, args, config.layers, config.optimize)):
         _print_reduced(result)
 
 
 def _run_subset(args: argparse.Namespace) -> None:
     _print_subset(
-        write_subset(
-            args.notes_json,
-            _samples_dir(args),
+        write_source_subset(
+            _source(args),
             args.out,
-            instrument_id=args.instrument_id or _instrument_base(args.notes_json),
+            instrument_id=args.instrument_id or instrument_name(args.source),
             fraction=args.fraction,
         )
     )
 
 
 def _run_optimize(config: OptiConfig, args: argparse.Namespace) -> None:
-    manifest = load_notes(args.notes_json, _samples_dir(args), _ingest_settings(args))
+    manifest = load_source(_source(args), _ingest_settings(args))
     results = dump_project(manifest, args.out, _dump_settings(config, args))
     for result in results:
         _print_plans(result)
@@ -582,8 +579,7 @@ def _run_optimize(config: OptiConfig, args: argparse.Namespace) -> None:
 
 
 def _run_pipeline(config: OptiConfig, args: argparse.Namespace) -> None:
-    source = SourceDataset(notes_json=args.notes_json, samples_dir=_samples_dir(args))
-    run = run_pipeline(source, args.out, _pipeline_settings(config, args))
+    run = run_pipeline(_source(args), args.out, _pipeline_settings(config, args))
     if run.subset is not None:
         _print_subset(run.subset)
 

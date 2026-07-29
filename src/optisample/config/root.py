@@ -42,4 +42,5 @@ class OptiConfig(ConfigModel):
             loop=self.loop,
             dynamics=self.dynamics,
             headroom_db=self.quantize.headroom_db,
+            release_fade_s=self.quantize.release_fade_s,
         )

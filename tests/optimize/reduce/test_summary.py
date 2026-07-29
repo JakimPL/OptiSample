@@ -29,8 +29,10 @@ from trackmod.module.storage import Storage
 SR = 22_050
 _PITCHES = (60, 67)
 _NOTE_S = 0.4
-_RATES = (16_000, 8_000, 4_000)  # an explicit grid, so a test states the size it expects back
-_FULL_GRID = 9  # those rates once at 16 bits and twice at 8, under the one configured loop setting
+_RATES = (16_000, 8_000, 4_000)  # an explicit ladder, so a test states the size it expects back
+_GRID_RATES = len(_RATES) + 1  # the ladder, plus the clip's own rate, which every clip is also offered
+_ENCODINGS_PER_RATE = 3  # one 16-bit entry and both compressions of the 8-bit one, at one loop setting
+_FULL_GRID = _ENCODINGS_PER_RATE * _GRID_RATES
 _NO_TRANSPOSE = 0
 _RATE_PER_BANDWIDTH = 2.0  # Nyquist, which turns a content-edge tolerance into a rate tolerance
 _SHARED = 2  # workers, enough to run the pre-pass apart without asking the machine for every core

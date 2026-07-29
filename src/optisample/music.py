@@ -1,3 +1,4 @@
+import re
 from typing import Final
 
 from trackmod.core.notes.pitch import Note
@@ -15,10 +16,37 @@ NOTE_NAMES: Final = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#",
 _LABEL_PREFIX: Final = "p"
 _LABEL_SEPARATOR: Final = "_"
 
+_LOWEST_OCTAVE: Final = -1  # MIDI 0 is C-1, so an octave number counts from one below the lowest C
+_ACCIDENTAL_STEPS: Final = {"": 0, "#": 1, "b": -1}
+_NOTE_NAME_PATTERN: Final = re.compile(r"^([A-Ga-g])([#b]?)(-?\d+)$")
+
 
 def note_name(pitch: int) -> str:
     """MIDI note number -> scientific pitch name (60 -> ``C4``)."""
     return f"{NOTE_NAMES[pitch % SEMITONES_PER_OCTAVE]}{pitch // SEMITONES_PER_OCTAVE - 1}"
+
+
+def named_pitch(name: str) -> int:
+    """The MIDI note number a scientific pitch name spells (``C4`` -> 60, ``Bb2`` -> 46).
+
+    Both spellings of a black key are read, so a set of recordings named with flats resolves the same
+    keys a set named with sharps does, and the letter is read in either case so a name is recognised
+    however its writer capitalised it.
+
+    Raises:
+        ValueError: when ``name`` spells no pitch name, or spells one outside the MIDI range.
+    """
+    match = _NOTE_NAME_PATTERN.match(name)
+    if match is None:
+        raise ValueError(f"{name!r} spells no scientific pitch name")
+
+    letter, accidental, octave = match.groups()
+    semitone = NOTE_NAMES.index(letter.upper()) + _ACCIDENTAL_STEPS[accidental]
+    pitch = semitone + (int(octave) - _LOWEST_OCTAVE) * SEMITONES_PER_OCTAVE
+    if not MIDI_LOWEST_PITCH <= pitch <= MIDI_HIGHEST_PITCH:
+        raise ValueError(f"pitch name {name!r} lands outside the MIDI range")
+
+    return pitch
 
 
 def pitch_label(pitch: int) -> str:

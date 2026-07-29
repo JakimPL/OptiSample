@@ -91,11 +91,14 @@ def test_the_reduction_flags_override_their_configured_sections(config: OptiConf
             "pitch",
             "--candidates",
             "7",
+            "--content-floor-db",
+            "45",
         ]
     )
     reduce = _dump_settings(config, args).optimize.reduce
     assert reduce.dedupe.key is DedupeKey.PITCH
     assert reduce.bandwidth.candidates == 7
+    assert reduce.bandwidth.content_floor_db == 45.0
     assert reduce.events == config.reduce.events  # only the named sections move
     assert reduce.dedupe.cc_quantum == config.reduce.dedupe.cc_quantum
 
@@ -328,6 +331,53 @@ def test_the_subset_command_names_its_output_after_the_instrument(tmp_path: Path
 
     assert (tmp_path / "s" / "Grand.notes.json").is_file()
     assert len(list((tmp_path / "s" / "Grand").glob("*.wav"))) == len(PITCHES)
+
+
+def test_a_directory_of_recordings_optimizes_with_no_manifest_naming_them(
+    tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Pointing a command at the recordings alone is how a set of samples with no song behind it runs."""
+    main(
+        ["optimize", str(tiny_notes.parent / "piano"), "--budget-kb", "48", "--out", str(tmp_path / "a"), "--no-render"]
+    )
+
+    assert (tmp_path / "a" / "piano" / "ungrouped" / "plan.json").is_file()
+    assert "objective" in capsys.readouterr().out
+
+
+def test_a_chained_run_takes_a_directory_of_recordings_the_whole_way(
+    tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The slice a directory takes is a directory, so every stage downstream reads the shape it was given."""
+    out = tmp_path / "artifacts"
+    main(
+        [
+            "pipeline",
+            str(tiny_notes.parent / "piano"),
+            "--fraction",
+            "0.67",
+            "--budget-kb",
+            "48",
+            "--strategy",
+            "ungrouped",
+            "--no-render",
+            "--out",
+            str(out),
+        ]
+    )
+
+    assert len(list((out / "0_subset" / "piano").glob("*.wav"))) == 2
+    assert not (out / "0_subset" / "piano.notes.json").exists()
+    assert (out / "2_optimized" / "piano" / "ungrouped" / "plan.json").is_file()
+    assert "2 of 3 notes" in capsys.readouterr().out
+
+
+def test_the_subset_command_slices_a_directory_of_recordings_into_a_directory(tmp_path: Path, tiny_notes: Path) -> None:
+    out = tmp_path / "subset"
+    main(["subset", str(tiny_notes.parent / "piano"), "--fraction", "0.67", "--out", str(out)])
+
+    assert len(list((out / "piano").glob("*.wav"))) == 2
+    assert not (out / "piano.notes.json").exists()
 
 
 def test_pipeline_command_writes_a_directory_per_stage_it_ran(

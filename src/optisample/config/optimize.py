@@ -10,11 +10,14 @@ EVERY_SAMPLE: Final = 0  # the ``max_samples`` value that keeps whatever the tar
 
 
 class SweepConfig(ConfigModel):
-    """The encoding axes to sweep for one clip, and how candidate stored rates are derived."""
+    """The encoding axes to sweep for one clip.
 
-    rates: tuple[int, ...] | None
-    rate_divisors: tuple[int, ...]
-    min_rate: int
+    ``rates`` is the ladder of reduced stored rates every clip is offered. A clip is also always offered
+    its own rate, so the ladder states the rates worth stepping down to and leaves "store it as recorded"
+    to follow from the recording itself.
+    """
+
+    rates: Annotated[tuple[int, ...], Field(min_length=1)]
     depths: tuple[int, ...]
     dither: bool
     noise_shaping: bool

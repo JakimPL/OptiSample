@@ -275,12 +275,18 @@ def make_encode_ctx(config: OptiConfig) -> Callable[..., EncodeContext]:
     """Factory: an ``EncodeContext`` at ``root_pitch`` using the bundled encode config.
 
     ``seed`` (when given) seeds the dither RNG; the default leaves it ``None`` so encoding uses the
-    surrogate's own fixed-seed fallback -- matching the pre-config call sites.
+    surrogate's own fixed-seed fallback -- matching the pre-config call sites. ``release_fade_s``
+    overrides the ramp closing a stored span, which is what a test isolating the codec alone sets to zero.
     """
 
-    def _build(root_pitch: int, *, seed: int | None = None) -> EncodeContext:
+    def _build(root_pitch: int, *, seed: int | None = None, release_fade_s: float | None = None) -> EncodeContext:
         rng = np.random.default_rng(seed) if seed is not None else None
-        return EncodeContext(root_pitch=root_pitch, config=config.encode, rng=rng)
+        encode = (
+            config.encode
+            if release_fade_s is None
+            else config.encode.model_copy(update={"release_fade_s": release_fade_s})
+        )
+        return EncodeContext(root_pitch=root_pitch, config=encode, rng=rng)
 
     return _build
 

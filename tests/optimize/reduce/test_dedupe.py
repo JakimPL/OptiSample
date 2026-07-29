@@ -50,7 +50,7 @@ def one_note(pitch: int = 60, velocity: int = 100, duration_s: float = NOTE_S) -
 def test_required_duration_scales_the_longest_note_by_the_transposition_headroom(
     reduce: ReduceFactory, loop_config: LoopConfig
 ) -> None:
-    config = reduce(dedupe={"transposition_headroom_semitones": 12})
+    config = reduce(dedupe={"transposition_headroom_semitones": 12}, trim={"max_length_s": 30.0})
     # An octave up runs the sample at twice the speed, so it has to hold twice the seconds.
     assert required_duration_s(4.0, config, loop_config) == pytest.approx(8.0)
 

@@ -3,13 +3,12 @@ from __future__ import annotations
 import json
 import shutil
 from collections.abc import Sequence
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Protocol
 
+from optisample.io.dataset import SourceDataset, SubsetDataset
 from optisample.io.note_extractor import (
     NOTES_SUFFIX,
-    ManifestNote,
     NotesManifest,
     index_of_wav,
 )
@@ -20,21 +19,18 @@ _NOTE_COUNT_FIELD: Final = "note_count"
 _WHOLE: Final = 1.0
 
 
-@dataclass(frozen=True)
-class SubsetDataset:
-    """Where a subset dataset landed and how much of its source it holds.
+class Played(Protocol):
+    """A recorded note as the selection reads it: the two axes a representative slice has to span.
 
-    ``pitches`` and ``velocities`` are the closed ranges the kept notes span, which is what says
-    whether a subset small enough to iterate on still exercises the whole instrument.
+    Stated as a protocol so the same rule slices both shapes of dataset -- the notes a manifest lists
+    and the takes a directory of recordings names -- from one implementation.
     """
 
-    notes_json: Path
-    samples_dir: Path
-    kept_notes: int
-    source_notes: int
-    recordings: int
-    pitches: tuple[int, int]
-    velocities: tuple[int, int]
+    @property
+    def pitch(self) -> int: ...
+
+    @property
+    def velocity(self) -> int: ...
 
 
 def even_ranks(count: int, picks: int) -> tuple[int, ...]:
@@ -85,7 +81,7 @@ def _allotments(sizes: Sequence[int], keep: int) -> tuple[int, ...]:
     return tuple(allotted)
 
 
-def _velocity_ordered_pitches(notes: Sequence[ManifestNote]) -> list[list[int]]:
+def _velocity_ordered_pitches(notes: Sequence[Played]) -> list[list[int]]:
     """The positions of every note, grouped by ascending pitch and sorted by velocity within a pitch.
 
     Both axes arrive sorted, so a share taken at even ranks of a group spans that pitch's dynamics and
@@ -100,7 +96,7 @@ def _velocity_ordered_pitches(notes: Sequence[ManifestNote]) -> list[list[int]]:
     ]
 
 
-def select_positions(notes: Sequence[ManifestNote], fraction: float) -> tuple[int, ...]:
+def select_positions(notes: Sequence[Played], fraction: float) -> tuple[int, ...]:
     """Positions of the notes a subset holding ``fraction`` of ``notes`` keeps, in source order.
 
     Notes are grouped by pitch, each pitch is allotted a share of the subset, and the notes a pitch
@@ -178,8 +174,7 @@ def write_subset(
     pitches = [note.pitch for note in kept]
     velocities = [note.velocity for note in kept]
     return SubsetDataset(
-        notes_json=target,
-        samples_dir=out_dir / instrument_id,
+        source=SourceDataset(path=target, samples_dir=out_dir / instrument_id),
         kept_notes=len(kept),
         source_notes=len(parsed.notes),
         recordings=recordings,

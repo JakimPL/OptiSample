@@ -61,26 +61,15 @@ class OperatingPoint:
         return bytes_to_kib(self.stored_bytes)
 
 
-def default_rates(
-    sample_rate: int,
-    divisors: Sequence[int],
-    min_rate: int,
-) -> list[int]:
-    """Candidate stored rates: ``sample_rate`` divided by ``divisors``, floored at ``min_rate``, deduped."""
-    rates = {min(sample_rate, max(min_rate, round(sample_rate / divisor))) for divisor in divisors}
-    return sorted(rates, reverse=True)
-
-
 def sweep_rates(sweep: SweepConfig, sample_rate: int) -> list[int]:
-    """Stored rates to try: the explicit ``sweep.rates`` override, else derived from ``sample_rate``."""
-    if sweep.rates is not None:
-        return list(sweep.rates)
+    """Stored rates a clip recorded at ``sample_rate`` is swept over, highest first.
 
-    return default_rates(
-        sample_rate,
-        sweep.rate_divisors,
-        sweep.min_rate,
-    )
+    The configured ladder states the rates worth stepping down to, and ``sample_rate`` joins them so
+    storing the recording as it stands is always among the candidates. A listed rate above the recording
+    would resample it upward, spending bytes on a band the recording never held, so the ladder is read as
+    far as the recording reaches and no further.
+    """
+    return sorted({rate for rate in sweep.rates if rate < sample_rate} | {sample_rate}, reverse=True)
 
 
 def compression_at(sweep: SweepConfig, depth: int) -> tuple[bool, ...]:

@@ -16,10 +16,11 @@ SR = 44_100
 def test_encode_render_round_trip_is_near_lossless(
     sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
 ) -> None:
-    # Native rate, 16-bit, no dither, no transpose → only 16-bit quantization noise.
+    # Native rate, 16-bit, no dither, no transpose, no release ramp → only 16-bit quantization noise.
     source = sine(440.0)
     normalized = source / float(np.max(np.abs(source)))
-    stored = encode(source, SR, EncodingParams(target_rate=SR, depth_bits=16, dither=False), make_encode_ctx(60))
+    context = make_encode_ctx(60, release_fade_s=0.0)
+    stored = encode(source, SR, EncodingParams(target_rate=SR, depth_bits=16, dither=False), context)
     rendered = render(stored, SR, pitch=60)
     length = min(rendered.size, normalized.size)
     assert snr(normalized[:length], rendered[:length]) > 80.0

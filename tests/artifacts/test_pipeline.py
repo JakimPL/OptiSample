@@ -9,9 +9,10 @@ from numpy.typing import NDArray
 from optisample.artifacts.context import DumpSettings
 from optisample.artifacts.dump import dump_project
 from optisample.artifacts.paths import pipeline_paths
-from optisample.artifacts.pipeline import PipelineSettings, SourceDataset, run_pipeline
+from optisample.artifacts.pipeline import PipelineSettings, run_pipeline
 from optisample.config import OptiConfig
 from optisample.io.audio import write_wav
+from optisample.io.dataset import SourceDataset
 from optisample.io.note_extractor import (
     IngestSettings,
     NoteRecord,
@@ -47,7 +48,7 @@ def source(tmp_path: Path, piano_note: Callable[..., NDArray[np.float64]]) -> So
 
     notes_json = tmp_path / "source" / f"{_INSTRUMENT}.notes.json"
     dump_notes(records, notes_json)
-    return SourceDataset(notes_json=notes_json, samples_dir=samples_dir)
+    return SourceDataset(path=notes_json, samples_dir=samples_dir)
 
 
 @pytest.fixture
@@ -93,7 +94,7 @@ def test_a_chained_run_writes_each_stage_under_the_directory_that_names_it(
     out = tmp_path / "chained"
     run = run_pipeline(source, out, sliced)
     paths = pipeline_paths(out)
-    assert run.subset is not None and run.subset.notes_json.parent == paths.subset_dir
+    assert run.subset is not None and run.subset.source.path.parent == paths.subset_dir
     assert run.reduced.paths.notes_json.parent == paths.reduced_dir
     assert run.optimized.directory.parent == paths.optimized_dir
     assert (run.optimized.directory / _STRATEGY / "plan.json").is_file()

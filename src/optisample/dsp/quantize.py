@@ -59,6 +59,24 @@ def apply_gain(signal: Signal, gain: float) -> Signal:
     return np.asarray(np.asarray(signal, dtype=np.float64) * gain, dtype=np.float64)
 
 
+def release_fade(signal: Signal, fade_frames: int) -> Signal:
+    """``signal`` with its last ``fade_frames`` ramped linearly to silence; returns a copy.
+
+    A stored span is cut at the length its material asks for, which lands mid-decay wherever the note was
+    let go before the sound was. Closing on a ramp puts the last frame at silence, so a tracker reaching
+    the end of the sample plays it out. A span shorter than the ramp is faded over its whole length, and a
+    ramp of no frames leaves the span as it stands.
+    """
+    data = np.asarray(signal, dtype=np.float64)
+    fade = min(fade_frames, data.size)
+    if fade <= 0:
+        return data.copy()
+
+    faded = data.copy()
+    faded[data.size - fade :] *= np.linspace(1.0, 0.0, fade, endpoint=True)
+    return faded
+
+
 def _tpdf_dither(size: int, step: float, rng: np.random.Generator) -> Signal:
     """Triangular-PDF dither in ``(-step, step)`` = the difference of two uniform LSBs."""
     return np.asarray(step * (rng.random(size) - rng.random(size)), dtype=np.float64)

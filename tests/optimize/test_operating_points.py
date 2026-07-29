@@ -15,12 +15,12 @@ from optisample.optimize.operating_points import (
     SourceClip,
     SweepContext,
     compression_at,
-    default_rates,
     evaluate_encoding,
     lower_convex_hull,
     rd_frontier,
     sample_operating_points,
     sweep_param_grid,
+    sweep_rates,
 )
 from optisample.synth import NoteSpec, synthesize
 from trackmod.core.samples.depth import BitDepth
@@ -79,11 +79,25 @@ def test_looping_is_pareto_optimal_on_the_frontier_when_it_helps(
     assert any(op.params.loop for op in hull)  # a looped config survives onto the rate-distortion hull
 
 
-def test_default_rates_are_capped_floored_and_sorted(sweep_config: SweepConfig) -> None:
-    divisors, floor = sweep_config.rate_divisors, sweep_config.min_rate
-    assert default_rates(44_100, divisors, floor) == [44_100, 22_050, 14_700, 11_025, 7_350, 5_512]
-    assert default_rates(8_000, divisors, floor) == [8_000, 4_000]  # low divisors clamp to the floor and dedupe
-    assert all(rate <= 44_100 for rate in default_rates(44_100, divisors, floor))
+def test_the_swept_rates_are_the_ladder_a_recording_reaches_down_to(sweep: Callable[..., SweepConfig]) -> None:
+    """A clip is offered the listed rates it can reach, highest first, its own among them."""
+    ladder = sweep(rates=(8_000, 16_000, 22_050, 44_100))
+
+    assert sweep_rates(ladder, 48_000) == [48_000, 44_100, 22_050, 16_000, 8_000]
+
+
+def test_a_recording_is_offered_no_rate_above_its_own(sweep: Callable[..., SweepConfig]) -> None:
+    """Resampling upward spends bytes on a band the recording never held, so the ladder stops at it."""
+    ladder = sweep(rates=(8_000, 16_000, 22_050, 44_100))
+
+    assert sweep_rates(ladder, 22_050) == [22_050, 16_000, 8_000]
+
+
+def test_a_recording_at_a_listed_rate_is_offered_it_once(sweep: Callable[..., SweepConfig]) -> None:
+    """The clip's own rate and the ladder's entry for it are one candidate, so the grid holds no duplicate."""
+    ladder = sweep(rates=(8_000, 16_000, 22_050))
+
+    assert sweep_rates(ladder, 16_000) == [16_000, 8_000]
 
 
 def test_evaluate_encoding_lossless_beats_aggressive(sweep_context: SweepContext) -> None:
@@ -119,7 +133,7 @@ def test_a_deep_depth_is_swept_uncompressed_once(sweep: Callable[..., SweepConfi
 
 
 def test_the_grid_enumerates_compression_only_where_it_is_swept(sweep: Callable[..., SweepConfig]) -> None:
-    grid = sweep(rates=(22_050,), depths=(16, 8), compress=(False, True))
+    grid = sweep(rates=(SR,), depths=(16, 8), compress=(False, True))
     params = list(sweep_param_grid(grid, SR, trim_s=None))
     assert [(point.depth_bits, point.compress) for point in params] == [(16, False), (8, False), (8, True)]
 

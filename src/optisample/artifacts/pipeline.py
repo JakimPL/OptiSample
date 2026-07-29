@@ -9,17 +9,10 @@ from optisample.artifacts.context import DumpResult, DumpSettings
 from optisample.artifacts.dump import dump_project
 from optisample.artifacts.paths import pipeline_paths
 from optisample.artifacts.reduced import ReducedInstrument, reduce_project
-from optisample.io.note_extractor import IngestSettings, load_notes
-from optisample.io.subset import SubsetDataset, write_subset
+from optisample.io.dataset import SourceDataset, SubsetDataset
+from optisample.io.note_extractor import IngestSettings
+from optisample.io.source import load_source, write_source_subset
 from optisample.optimize.orchestrate.settings import OptimizeSettings
-
-
-@dataclass(frozen=True)
-class SourceDataset:
-    """A NoteExtractor dataset as a stage reads it: the manifest and the recordings it joins to."""
-
-    notes_json: Path
-    samples_dir: Path
 
 
 @dataclass(frozen=True)
@@ -58,9 +51,8 @@ def _sliced(source: SourceDataset, out_dir: Path, settings: PipelineSettings) ->
     if settings.fraction is None:
         return None
 
-    return write_subset(
-        source.notes_json,
-        source.samples_dir,
+    return write_source_subset(
+        source,
         out_dir,
         instrument_id=settings.ingest.instrument_id,
         fraction=settings.fraction,
@@ -75,7 +67,7 @@ def _next_source(source: SourceDataset, subset: SubsetDataset | None) -> SourceD
     if subset is None:
         return source
 
-    return SourceDataset(notes_json=subset.notes_json, samples_dir=subset.samples_dir)
+    return subset.source
 
 
 def _one_instrument[ResultT](results: Sequence[ResultT]) -> ResultT:
@@ -94,14 +86,14 @@ def _one_instrument[ResultT](results: Sequence[ResultT]) -> ResultT:
 
 def _reduced(source: SourceDataset, out_dir: Path, settings: PipelineSettings) -> ReducedInstrument:
     """What the pre-optimization stage reduces ``source`` to, as the dataset the allocation reads back."""
-    manifest = load_notes(source.notes_json, source.samples_dir, settings.ingest)
+    manifest = load_source(source, settings.ingest)
     return _one_instrument(reduce_project(manifest, out_dir, settings.reduce))
 
 
 def _optimized(reduced: ReducedInstrument, out_dir: Path, settings: PipelineSettings) -> DumpResult:
     """The artifacts allocated from a reduced dataset, one directory per strategy the run asked for."""
-    manifest = load_notes(reduced.paths.notes_json, reduced.paths.samples_dir, settings.ingest)
-    return _one_instrument(dump_project(manifest, out_dir, settings.dump))
+    source = SourceDataset(path=reduced.paths.notes_json, samples_dir=reduced.paths.samples_dir)
+    return _one_instrument(dump_project(load_source(source, settings.ingest), out_dir, settings.dump))
 
 
 def run_pipeline(source: SourceDataset, out_dir: Path, settings: PipelineSettings) -> PipelineRun:

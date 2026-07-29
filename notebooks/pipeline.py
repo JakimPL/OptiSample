@@ -32,7 +32,7 @@ def _(get_args):
     from optisample.config.render import Interpolation
     from optisample.config.tracker import TrackerFormat
     from optisample.io.audio import read_wav
-    from optisample.optimize.operating_points import default_rates
+    from optisample.optimize.operating_points import sweep_rates
 
     config = load_config()
     interpolations = list(get_args(Interpolation))
@@ -40,10 +40,10 @@ def _(get_args):
         DedupeKey,
         TrackerFormat,
         config,
-        default_rates,
         interpolations,
         plan_paths,
         read_wav,
+        sweep_rates,
     )
 
 
@@ -79,8 +79,8 @@ def _(Path, mo, root, runs):
 
 
 @app.cell
-def _(DedupeKey, TrackerFormat, config, default_rates, interpolations, mo):
-    _rates = [str(rate) for rate in default_rates(48_000, config.sweep.rate_divisors, config.sweep.min_rate)]
+def _(DedupeKey, TrackerFormat, config, interpolations, mo, sweep_rates):
+    _rates = [str(rate) for rate in sweep_rates(config.sweep, 48_000)]
 
     fraction = mo.ui.slider(0.05, 1.0, step=0.05, value=0.1, label="subset fraction", show_value=True)
     budget_kb = mo.ui.number(16.0, 8192.0, step=16.0, value=512.0, label="budget (KiB)")
@@ -100,7 +100,7 @@ def _(DedupeKey, TrackerFormat, config, default_rates, interpolations, mo):
         1, 18, value=config.reduce.bandwidth.candidates, label="shortlist per key", show_value=True
     )
 
-    rates = mo.ui.multiselect(_rates, value=[], label="stored rates — empty derives them per clip")
+    rates = mo.ui.multiselect(_rates, value=[], label="stored rates — empty takes the config's")
     depths = mo.ui.multiselect(["16", "8"], value=[], label="bit depths — empty takes the config's")
     loop = mo.ui.checkbox(value=True, label="allow looping")
     render = mo.ui.checkbox(value=True, label="openmpt123 ground-truth render")

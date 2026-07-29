@@ -53,7 +53,7 @@ class PresetConfig(ConfigModel):
     archetype: Archetype
     pitches: tuple[int, ...]
     velocities: tuple[int, ...]
-    sample_dur: float
+    sample_duration: float
     budget_kb: float
     material: tuple[MaterialEvent, ...]
 

@@ -350,7 +350,7 @@ def test_looped_plan_carries_loop_points_into_the_module(
     sample = module.song.samples[0]
     assert sample.loop is not None
     assert 0 <= sample.loop.begin < sample.loop.end <= sample.frames  # the loop lies inside the stored sample
-    assert sample.loop.end < _LOOP_RATE  # storage is attack + a ~0.5 s loop, not the whole 3 s recording
+    assert sample.loop.end / sample.rate < 1.0  # storage is attack + a ~0.5 s loop, not the whole 3 s recording
 
 
 @requires_openmpt

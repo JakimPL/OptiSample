@@ -152,15 +152,15 @@ def test_a_fraction_outside_the_unit_interval_is_rejected(source: Path, fraction
 def test_the_written_subset_is_a_dataset_ingest_reads_back(source: Path, tmp_path: Path) -> None:
     dataset = write_subset(source, source.parent / "Piano", tmp_path / "out", instrument_id="Piano", fraction=0.2)
 
-    assert (dataset.notes_json, dataset.samples_dir) == (
+    assert (dataset.source.path, dataset.source.recordings_dir) == (
         tmp_path / "out" / "Piano.notes.json",
         tmp_path / "out" / "Piano",
     )
     assert dataset.recordings == dataset.kept_notes == round(0.2 * _TOTAL)
     assert dataset.source_notes == _TOTAL
     manifest = load_notes(
-        dataset.notes_json,
-        dataset.samples_dir,
+        dataset.source.path,
+        dataset.source.recordings_dir,
         IngestSettings(instrument_id="Piano", budget_kb=64.0, project=ProjectSpec(name="song")),
     )
     assert len(manifest.instruments[0].samples) == dataset.kept_notes
@@ -169,7 +169,7 @@ def test_the_written_subset_is_a_dataset_ingest_reads_back(source: Path, tmp_pat
 def test_a_kept_note_is_written_exactly_as_the_source_states_it(source: Path, tmp_path: Path) -> None:
     """The subset measures the same material at the same lengths, so every field carries over verbatim."""
     dataset = write_subset(source, source.parent / "Piano", tmp_path / "out", instrument_id="Piano", fraction=0.2)
-    written = json.loads(dataset.notes_json.read_text(encoding="utf-8"))
+    written = json.loads(dataset.source.path.read_text(encoding="utf-8"))
     original = {note["render"]["index"]: note for note in json.loads(source.read_text(encoding="utf-8"))["notes"]}
 
     assert all(note == original[note["render"]["index"]] for note in written["notes"])
@@ -193,6 +193,6 @@ def test_one_note_a_pitch_keeps_the_velocity_most_typical_of_it(source: Path, tm
 
 def test_recordings_no_note_reaches_stay_behind(source: Path, tmp_path: Path) -> None:
     dataset = write_subset(source, source.parent / "Piano", tmp_path / "out", instrument_id="Piano", fraction=0.2)
-    kept = {note["render"]["index"] for note in json.loads(dataset.notes_json.read_text(encoding="utf-8"))["notes"]}
+    kept = {note["render"]["index"] for note in json.loads(dataset.source.path.read_text(encoding="utf-8"))["notes"]}
 
-    assert {int(wav.name.split("_", 1)[0]) for wav in dataset.samples_dir.glob("*.wav")} == kept
+    assert {int(wav.name.split("_", 1)[0]) for wav in dataset.source.recordings_dir.glob("*.wav")} == kept

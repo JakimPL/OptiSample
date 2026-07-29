@@ -8,12 +8,7 @@ from optisample.artifacts.paths import (
     plan_paths,
     reduced_paths,
 )
-from optisample.artifacts.pipeline import (
-    PipelineRun,
-    PipelineSettings,
-    SourceDataset,
-    run_pipeline,
-)
+from optisample.artifacts.pipeline import PipelineRun, PipelineSettings, run_pipeline
 from optisample.artifacts.reduced import (
     ReducedInstrument,
     dump_reduced,
@@ -30,7 +25,6 @@ __all__ = [
     "PlanPaths",
     "ReducedInstrument",
     "ReducedPaths",
-    "SourceDataset",
     "dump_instrument",
     "dump_project",
     "dump_reduced",
