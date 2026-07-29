@@ -5,17 +5,12 @@ from pathlib import Path
 from typing import Final
 
 from optisample.artifacts.paths import PlanPaths
-from optisample.artifacts.serialize import Frozen, write_json, write_text
-from optisample.optimize.layers.slots import InstrumentSlot, SlotLayout
+from optisample.artifacts.serialize import Frozen, write_json
+from optisample.optimize.layers.slots import ONE_SLOT, SlotLayout
 
 MANIFEST_VERSION: Final = 1  # the manifest shape stated out loud, so a consumer reads the one it knows
 _VELOCITY_AXIS: Final = "velocity"  # the axis name a selector spells its velocity band under
-_KEYS_TELL_APART: Final = (
-    "{count} instruments written where the velocity split states {bands}: a note finds its own by the key "
-    "it plays as well as by the dynamic it was struck at.\n"
-    "A bank manifest picks its layer by dynamics, so these instruments are reached a file at a time under "
-    "{directory}/.\n"
-)
+_PITCH_AXIS: Final = "pitch"  # the axis name a selector spells its run of keys under
 
 
 class BandRecord(Frozen):
@@ -58,46 +53,45 @@ class BankDocument(Frozen):
     layers: list[LayerRecord]
 
 
-def _layer_record(slot: InstrumentSlot, written: Path, paths: PlanPaths) -> LayerRecord:
+def _selector(layout: SlotLayout, index: int) -> dict[str, BandRecord]:
+    """The bands one written instrument is picked by: its dynamics, and its keys where a band was split.
+
+    A velocity band written as one instrument owns the whole keyboard, so its dynamics name it on their
+    own and the selector states them alone. A band the format had room for only in several instruments
+    states the run of keys each of them owns as well, since every one of those files answers every key it
+    was filled over and the keymaps alone no longer tell them apart.
+    """
+    slot = layout.slots[index]
+    select = {_VELOCITY_AXIS: BandRecord(low=slot.band.lowest, high=slot.band.highest)}
+    if len(layout.layer_slots(slot.layer)) > ONE_SLOT:
+        keys = layout.key_band(index)
+        select[_PITCH_AXIS] = BandRecord(low=keys.lowest, high=keys.highest)
+
+    return select
+
+
+def _layer_record(layout: SlotLayout, index: int, written: Path, paths: PlanPaths) -> LayerRecord:
     return LayerRecord(
         source=SourceRecord(file=paths.reference(written)),
-        select={_VELOCITY_AXIS: BandRecord(low=slot.band.lowest, high=slot.band.highest)},
+        select=_selector(layout, index),
         velocity_map=paths.reference(paths.velocity_map_json),
     )
 
 
 def bank_document(name: str, layout: SlotLayout, written: Sequence[Path], paths: PlanPaths) -> BankDocument:
-    """The bank ``layout`` is played through: one layer per written instrument, in band order.
+    """The bank ``layout`` is played through: one layer per written instrument, in the order they were written.
 
-    ``written`` are the files the instruments landed as, in the same order as the slots. Every band the
-    plan split states its own velocities, so a note picks the layer the allocation meant for its dynamic
-    and the manifest says out loud what the split decided.
+    ``written`` are the files the instruments landed as, in the same order as the slots. Each states the
+    dynamics and, where its band was split across several files, the keys it answers, so the manifest
+    says out loud what the allocation decided and a note reaches the instrument meant for it.
     """
     return BankDocument(
         version=MANIFEST_VERSION,
         name=name,
-        layers=[_layer_record(slot, path, paths) for slot, path in zip(layout.slots, written)],
-    )
-
-
-def _keys_tell_apart(layout: SlotLayout, paths: PlanPaths) -> str:
-    """The note left beside instruments the keys tell apart, saying how many files are to be loaded."""
-    return _KEYS_TELL_APART.format(
-        count=layout.count,
-        bands=layout.layers.count,
-        directory=paths.reference(paths.instruments_dir),
+        layers=[_layer_record(layout, index, path, paths) for index, path in enumerate(written)],
     )
 
 
 def write_bank(name: str, layout: SlotLayout, written: Sequence[Path], paths: PlanPaths) -> None:
-    """Write the manifest a player loads the whole plan through, or the note saying how its files are reached.
-
-    A bank picks its layer by the dynamic a note was struck at, so a plan written as one instrument per
-    band is stated whole. A band the format had room for only in several instruments is reached by
-    loading those files one at a time, which the note beside them says.
-    """
-    if layout.split_by_keys:
-        write_text(paths.unbanked, _keys_tell_apart(layout, paths))
-        return
-
+    """Write the manifest a player loads the whole plan through, beside the instruments it names."""
     write_json(paths.bank_json, bank_document(name, layout, written, paths))

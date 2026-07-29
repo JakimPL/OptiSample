@@ -6,8 +6,8 @@ from math import ceil
 from typing import Final
 
 from optisample.io.tracker.target import ExportTarget
-from optisample.music import note_name
-from optisample.optimize.layers.bands import VelocityBand, VelocityLayers
+from optisample.music import MIDI_HIGHEST_PITCH, MIDI_LOWEST_PITCH, note_name
+from optisample.optimize.layers.bands import Band, VelocityBand, VelocityLayers
 from optisample.optimize.plans.strategy import SampleUnit, StrategyPlan
 
 ONE_SLOT: Final = 1  # instruments a band is written as while every sample it stores fits inside one
@@ -81,15 +81,10 @@ class InstrumentSlot:
         """What this slot's notes carry of the plan's objective, which is the reading a split is judged on."""
         return sum(unit.objective_share for unit in self.units)
 
-    def answers(self, pitch: int) -> bool:
-        """Whether ``pitch`` reaches no further than the top of the run this slot owns.
-
-        Slots are asked in key order, so the first one answering a pitch is the one that owns it and a
-        key below every stored run falls to the lowest slot, which is the instrument whose keymap was
-        filled down to it.
-        """
-        pitches = self.pitches
-        return bool(pitches) and pitch <= pitches[-1]
+    @property
+    def highest_pitch(self) -> int:
+        """The top of the run of keys this slot stores recordings for."""
+        return self.pitches[-1]
 
 
 @dataclass(frozen=True)
@@ -108,31 +103,28 @@ class SlotLayout:
         """How many instruments the module carries."""
         return len(self.slots)
 
-    @property
-    def split_by_keys(self) -> bool:
-        """Whether a band is written as several instruments, which a reader tells apart by the keys they own.
-
-        A band the format has room to write whole leaves its dynamics naming the instrument on their own,
-        which is what lets a consumer choosing by velocity reach every note the plan stored.
-        """
-        return self.count > self.layers.count
-
     def layer_slots(self, layer: int) -> tuple[int, ...]:
         """Which instruments one velocity band is written as, in ascending key order."""
         return tuple(index for index, slot in enumerate(self.slots) if slot.layer == layer)
 
-    def instrument(self, layer: int, pitch: int) -> int:
-        """Which written instrument plays ``pitch`` at the dynamics ``layer`` answers for.
+    def key_band(self, index: int) -> Band:
+        """The stretch of keyboard the instrument at ``index`` owns among the ones its band was written as.
 
-        A key above every run the band stores is played through its topmost slot, which is the instrument
-        whose keymap was filled up to it.
+        Each slot reaches from just above the run below it up to the top of its own, and the outermost two
+        reach the ends of the keyboard, so the bands tile every key the format numbers and a note outside
+        the stored runs plays through the instrument whose keymap was filled towards it. A band written as
+        one instrument owns the whole axis, which is how a plan the format had room for states that its
+        dynamics alone name the instrument.
         """
-        written = self.layer_slots(layer)
-        for index in written:
-            if self.slots[index].answers(pitch):
-                return index
+        written = self.layer_slots(self.slots[index].layer)
+        position = written.index(index)
+        below = MIDI_LOWEST_PITCH if position == 0 else self.slots[written[position - 1]].highest_pitch + 1
+        above = MIDI_HIGHEST_PITCH if position == len(written) - 1 else self.slots[index].highest_pitch
+        return Band(below, above)
 
-        return written[-1]
+    def instrument(self, layer: int, pitch: int) -> int:
+        """Which written instrument plays ``pitch`` at the dynamics ``layer`` answers for."""
+        return next(index for index in self.layer_slots(layer) if self.key_band(index).covers(pitch))
 
 
 def _runs(positions: Sequence[int], per_instrument: int) -> Iterator[tuple[int, ...]]:

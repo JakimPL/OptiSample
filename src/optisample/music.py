@@ -7,6 +7,8 @@ SEMITONES_PER_OCTAVE: Final = 12
 MIDI_A4: Final = 69
 A4_FREQ_HZ: Final = 440.0
 MIDI_MAX_VELOCITY: Final = 127
+MIDI_LOWEST_PITCH: Final = 0
+MIDI_HIGHEST_PITCH: Final = 127
 
 NOTE_NAMES: Final = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
 

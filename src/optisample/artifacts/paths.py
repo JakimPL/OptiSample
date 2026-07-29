@@ -74,11 +74,6 @@ class PlanPaths:
         return self.directory / "bank.json"
 
     @property
-    def unbanked(self) -> Path:
-        """The note left beside instruments a manifest picking a layer by dynamics leaves the keys of."""
-        return self.directory / "NO_BANK.txt"
-
-    @property
     def metrics_json(self) -> Path:
         """Per-note surrogate fidelity, summing back to the plan's objective."""
         return self.directory / "metrics.json"

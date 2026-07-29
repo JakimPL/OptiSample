@@ -13,15 +13,24 @@ _SOFTEST_VELOCITY: Final = 0  # the quietest cell reaches down to silence, so ev
 
 
 @dataclass(frozen=True, order=True)
-class VelocityBand:
-    """A run of velocities one stored recording answers for, ``lowest`` and ``highest`` both inside it."""
+class Band:
+    """A run of one axis a written instrument answers for, ``lowest`` and ``highest`` both inside it.
+
+    Velocity and pitch are both split into runs a note resolves to exactly one of, and a bank manifest
+    states either the same way, so both axes are read off this one shape.
+    """
 
     lowest: int
     highest: int
 
-    def covers(self, velocity: int) -> bool:
-        """Whether a note struck at ``velocity`` is served by this band."""
-        return self.lowest <= velocity <= self.highest
+    def covers(self, value: int) -> bool:
+        """Whether a note falling at ``value`` along this axis is served by this band."""
+        return self.lowest <= value <= self.highest
+
+
+@dataclass(frozen=True, order=True)
+class VelocityBand(Band):
+    """A run of velocities one stored recording answers for."""
 
     @property
     def label(self) -> str:

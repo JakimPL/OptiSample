@@ -1,5 +1,5 @@
 from optisample.dsp.surrogate.params import EncodingParams
-from optisample.music import MIDI_MAX_VELOCITY
+from optisample.music import MIDI_HIGHEST_PITCH, MIDI_LOWEST_PITCH, MIDI_MAX_VELOCITY
 from optisample.optimize.layers.bands import UNSPLIT, VelocityBand, VelocityLayers
 from optisample.optimize.layers.slots import pack_slots, reserved_slots
 from optisample.optimize.plans import SampleUnit
@@ -150,10 +150,38 @@ def test_a_note_plays_through_its_own_band_before_its_own_keys() -> None:
     assert layout.layer_slots(_SECOND_LAYER) == (1,)
 
 
-def test_a_band_the_format_writes_whole_leaves_the_dynamics_naming_the_instrument() -> None:
-    """A consumer picking a layer by velocity reaches every note exactly while each band is one file."""
-    assert pack_slots(_LAYERED, _SPLIT, _WHOLE_TABLE).split_by_keys is False
-    assert pack_slots(tuple(_key(pitch) for pitch in range(60, 100)), UNSPLIT, _PER_INSTRUMENT).split_by_keys is True
+def test_the_instruments_a_cut_band_is_written_as_own_key_bands_that_tile_the_keyboard() -> None:
+    """A bank picks a file by these bands, so every key the format numbers reaches exactly one of them."""
+    layout = pack_slots(tuple(_key(pitch) for pitch in range(60, 100)), UNSPLIT, _PER_INSTRUMENT)
+    bands = [layout.key_band(index) for index in range(layout.count)]
+    assert [(band.lowest, band.highest) for band in bands] == [(0, 75), (76, 91), (92, 127)]
+    for pitch in range(MIDI_LOWEST_PITCH, MIDI_HIGHEST_PITCH + 1):
+        assert len([band for band in bands if band.covers(pitch)]) == 1
+
+
+def test_a_band_the_format_writes_whole_owns_the_keyboard_its_dynamics_answer_for() -> None:
+    """One instrument per band means the dynamics name it on their own, which the whole-axis band states."""
+    layout = pack_slots(_LAYERED, _SPLIT, _WHOLE_TABLE)
+    assert [(layout.key_band(index).lowest, layout.key_band(index).highest) for index in range(2)] == [
+        (MIDI_LOWEST_PITCH, MIDI_HIGHEST_PITCH),
+        (MIDI_LOWEST_PITCH, MIDI_HIGHEST_PITCH),
+    ]
+
+
+def test_a_band_storing_nothing_owns_the_keyboard_its_dynamics_answer_for() -> None:
+    """That band is written as its one instrument, so no key of it is left for another to claim."""
+    layout = pack_slots((_LOUD, _ALSO_LOUD), _SPLIT, _WHOLE_TABLE)
+    assert (layout.key_band(0).lowest, layout.key_band(0).highest) == (MIDI_LOWEST_PITCH, MIDI_HIGHEST_PITCH)
+
+
+def test_each_band_cuts_its_own_keys_apart_from_the_others() -> None:
+    """Two bands split by the format each tile the keyboard, since a note picks its dynamics first."""
+    units = tuple(_key(pitch, layer) for layer in (_FIRST_LAYER, _SECOND_LAYER) for pitch in range(60, 92))
+    layout = pack_slots(units, _SPLIT, _PER_INSTRUMENT)
+    quiet = [layout.key_band(index) for index in layout.layer_slots(_FIRST_LAYER)]
+    loud = [layout.key_band(index) for index in layout.layer_slots(_SECOND_LAYER)]
+    assert [(band.lowest, band.highest) for band in quiet] == [(0, 75), (76, 127)]
+    assert [(band.lowest, band.highest) for band in loud] == [(0, 75), (76, 127)]
 
 
 def test_a_reserve_cuts_each_band_into_the_runs_the_format_writes() -> None:

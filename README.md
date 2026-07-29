@@ -299,10 +299,32 @@ midi2tracker song.mid --bank artifacts/Piano/grouped/bank.json --out song.it
 ```
 
 A note picks its layer by the dynamic it was struck at, and that instrument's own keymap then picks the
-sample — the same two steps `module.it` takes internally. Where a format has room for a band only in
-several instruments, the keys tell those apart as well as the dynamics, which a manifest selecting by
-velocity states no way to; the run writes `NO_BANK.txt` there, naming how many files are to be loaded one
-at a time.
+sample — the same two steps `module.it` takes internally.
+
+Where a format has room for a band only in several instruments, the keys tell those apart as well as the
+dynamics, and the manifest states that too. Each of those files answers every key it was filled over, so
+the keymaps alone can no longer say which one owns a key and a `pitch` band says it instead:
+
+```json
+"layers": [
+  {
+    "source": { "file": "instruments/p029-p060_v000-v127.xi" },
+    "select": { "velocity": { "low": 0, "high": 127 }, "pitch": { "low": 0, "high": 60 } },
+    "velocity_map": "velocity_map.json"
+  },
+  {
+    "source": { "file": "instruments/p061-p101_v000-v127.xi" },
+    "select": { "velocity": { "low": 0, "high": 127 }, "pitch": { "low": 61, "high": 127 } },
+    "velocity_map": "velocity_map.json"
+  }
+]
+```
+
+The key bands tile the whole keyboard rather than stopping at the runs each file stores, so a note below
+or above the recorded stretch reaches the instrument whose keymap was filled towards it — the same note a
+single-instrument bank sounds. A band written as one instrument therefore owns the whole keyboard, which
+is why it states its velocities alone: every plan is reachable through one manifest, whichever axes its
+instruments were split along.
 
 ## The sample cap: asking for fewer, wider zones
 
