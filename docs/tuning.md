@@ -288,19 +288,20 @@ the note's end alone would read as "no ramp here" for most of the ladder.
 Three things read as "a tail after the piano decays":
 
 1. **8-bit dither noise** (§4) running at −41.6 dB for the rest of the sample's length.
-2. **A loop on decaying material.** The gate ([`_is_sustained`](../src/optisample/dsp/loop.py)) compares
-   the last third of the analysed region to the first and accepts at `sustain_decay_ratio: 0.5`. A *short
-   recording* of a low struck note passes it: over 1.3–1.8 s a bass note has fallen only 5.7–5.8 dB, which
-   is a ratio of 0.513–0.516 — barely over the gate. Both loops were then placed at the shortest length
-   allowed (`min_loop_s: 0.5`), and the exported instrument carries no volume envelope, so the note rings
-   until the next one cuts it.
+2. **A loop on decaying material.** The run above was taken under a sustain gate that let short recordings
+   of low struck notes through — over 1.3–1.8 s a bass note has fallen only 5.7–5.8 dB — and stored them
+   as the shortest loop allowed, ringing at that level until the next note cut them. Struck material is
+   loopable by design now: the decline is carried beside the PCM as a
+   [`LinearDecay`](../src/optisample/dsp/decay.py), fitted from the level the loop holds and the levels
+   the recording falls to past it, and [`render`](../src/optisample/dsp/surrogate/render.py) plays a held
+   note down it. So the objective scores a piano note as attack + loop + decline, which is what makes a
+   long note cheap.
 
-   The third looped zone is more interesting: on its own, that recording fails the gate at **0.351**
-   (−9.1 dB). It only loops because `compress: true` was chosen for it — compression is applied *before*
-   loop detection ([`_stored_span`](../src/optisample/dsp/surrogate/encode.py)), and lifting the decayed
-   tail raises the ratio to **0.643**. So the encoding choice made for the quantizer's benefit is what made
-   a struck note look sustained. `--no-loop`, or dropping 8-bit (which is the only depth compression is
-   swept at), both remove that path.
+   **The written module does not carry that envelope yet.** `optimize/export/build.py` writes each
+   `Instrument` with no `volume_envelope` and no `fadeout`, so an exported looped note holds the loop's
+   level while its score says it declines: the module sounds worse than the number. While that gap is
+   open, `--no-loop` is what closes it — and it costs bytes, since the trimmed sample stores every second
+   it sounds for.
 3. **A neighbouring note inside the take.** One 10.16 s source take decays to −52 dB and then re-attacks to
    −19 dB, 0.29 s before it ends — the following event in the performance, captured inside this note's take.
    the 10 s cap in force at the time cut right at that onset, so the stored sample ended *on* the
@@ -314,8 +315,8 @@ floor every candidate clears, which is what keeps a loop from shrinking to the s
 stored. `loop.placements` spreads the starts through the sustain and `loop.length_multiples` offers each
 start at several lengths, so a note that changes as it rings can be looped where it has settled;
 `reduction.json` states each candidate's seam and timbre distance, and the notebook's **Loop candidates**
-table reads them back. `loop.sustain_decay_ratio: 0.7` keeps looping available for genuinely sustained
-material while declining all three loops this run took, whose ratios are 0.513, 0.516 and 0.643.
+table reads them back. What a loop settles at is then brought down by the fitted decay rather than by a
+gate refusing the loop, so the lever for "this rings on" is the export gap above, not a looping threshold.
 
 For *where* the cut lands, `max_length_s` is no help — it is a ceiling, and the clicking samples sit far
 under it. The knob that reaches `trim_s` is `reduce.events.duration_bucket_ratio`, which rounds every
@@ -370,7 +371,6 @@ as the format numbers. Each extra sample is charged a reserve, so the run states
 | `--no-loop` | CLI (`optimize/sweep.yaml: loop_choices`) | Looped decays ring on. |
 | `loop.min_loop_s` | `codec/loop.yaml` | Loops are short enough to buzz at their own rate. |
 | `loop.placements`, `loop.length_multiples` | `codec/loop.yaml` | The loop sits where the note has not settled yet. |
-| `loop.sustain_decay_ratio` | `codec/loop.yaml` | Struck notes are being judged loopable. |
 
 `--config` takes a **directory** laid out the way the bundled one is -- a stage per directory, a group per
 file -- so copy the whole `src/opticonfig/` tree and edit the copy.

@@ -156,6 +156,7 @@ def _encoding_cells(encoding: EncodingRecord) -> Row:
         "depth": encoding.depth_bits,
         "comp": _ON if encoding.compress else _OFF,
         "loop": _ON if encoding.loop is not None else _OFF,
+        "decay_to": _OFF if encoding.decay is None else round(encoding.decay.final_gain, 3),
         "frames": encoding.frames,
         "kib": round(bytes_to_kib(encoding.stored_bytes), 3),
         "distortion": round(encoding.distortion, 4),

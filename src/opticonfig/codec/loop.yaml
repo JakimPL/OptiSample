@@ -9,5 +9,4 @@ length_multiples: [1, 2] # loop lengths offered at each start, as multiples of t
 attack_skip_s: 0.05      # onset skipped before period estimation / loop placement
 tail_skip_s: 0.02        # tail skipped at the end of the steady region
 max_estimation_s: 1.0    # cap on the autocorrelation window
-sustain_decay_ratio: 0.5 # late/early RMS below this = decaying (declines to loop)
 crossfade_s: 0.01        # loop-seam crossfade length in seconds

@@ -1,0 +1,94 @@
+from __future__ import annotations
+
+import numpy as np
+import pytest
+from numpy.typing import NDArray
+
+from optisample.dsp.decay import LinearDecay, fit_linear_decay
+from optisample.dsp.loop import Loop
+
+SR = 8_000
+FREQ = 200.0
+FRAMES = 3 * SR
+LOOP = Loop(start=SR // 2, end=SR)
+
+
+def _sine(envelope: NDArray[np.float64] | float, frames: int = FRAMES) -> NDArray[np.float64]:
+    return envelope * np.sin(2.0 * np.pi * FREQ * np.arange(frames, dtype=np.float64) / SR)
+
+
+def _level(signal: NDArray[np.float64]) -> float:
+    return float(np.sqrt(np.mean(signal**2)))
+
+
+# --- the ramp itself --------------------------------------------------------------------------------
+
+
+def test_the_ramp_holds_the_stored_material_and_falls_away_past_it() -> None:
+    decay = LinearDecay(start_s=1.0, end_s=3.0, final_gain=0.25)
+
+    envelope = decay.envelope(4 * SR, SR)
+
+    assert decay.span_s == pytest.approx(2.0)
+    assert float(np.min(envelope[: SR + 1])) == 1.0  # unit gain over everything the sample stores
+    assert float(envelope[2 * SR]) == pytest.approx(0.625)  # halfway down the ramp
+    assert float(envelope[3 * SR]) == pytest.approx(0.25)
+    assert float(envelope[-1]) == pytest.approx(0.25)  # held for as long as the note runs on
+
+
+# --- what the recording says a loop should decline to -------------------------------------------------
+
+
+def test_a_struck_note_declines_to_the_level_its_recording_ends_on() -> None:
+    signal = _sine(np.linspace(1.0, 0.1, FRAMES))
+
+    decay = fit_linear_decay(signal, SR, LOOP)
+
+    assert decay is not None
+    assert decay.start_s == pytest.approx(LOOP.end / SR)
+    assert decay.end_s == pytest.approx(FRAMES / SR)
+    held = _level(signal[LOOP.start : LOOP.end])
+    ends_on = _level(signal[-round(0.05 * SR) :])
+    assert decay.final_gain * held == pytest.approx(ends_on, rel=0.1)
+
+
+def test_a_note_falling_further_is_played_further_down() -> None:
+    gentle = fit_linear_decay(_sine(np.linspace(1.0, 0.6, FRAMES)), SR, LOOP)
+    steep = fit_linear_decay(_sine(np.linspace(1.0, 0.1, FRAMES)), SR, LOOP)
+
+    assert gentle is not None and steep is not None
+    assert steep.final_gain < gentle.final_gain
+
+
+def test_a_note_held_to_a_short_release_reports_the_fall_its_length_made() -> None:
+    # The body of the material sets the line, so a release at the very end tilts it rather than owning it.
+    release = round(0.15 * SR)
+    envelope = np.concatenate([np.ones(FRAMES - release), np.linspace(1.0, 0.0, release)])
+
+    decay = fit_linear_decay(_sine(envelope), SR, LOOP)
+
+    assert decay is not None
+    assert decay.final_gain > 0.8
+
+
+@pytest.mark.parametrize(
+    ("name", "envelope"),
+    [
+        pytest.param("steady", np.ones(FRAMES), id="material holding its level asks for no ramp"),
+        pytest.param("rising", np.linspace(0.2, 1.0, FRAMES), id="material still growing asks for no ramp"),
+    ],
+)
+def test_material_stating_no_decline_carries_no_decay(name: str, envelope: NDArray[np.float64]) -> None:
+    assert fit_linear_decay(_sine(envelope), SR, LOOP) is None
+
+
+def test_a_loop_reaching_the_end_of_its_recording_has_nothing_left_to_decline_through() -> None:
+    signal = _sine(np.linspace(1.0, 0.1, FRAMES))
+
+    assert fit_linear_decay(signal, SR, Loop(start=SR, end=FRAMES)) is None
+
+
+def test_a_silent_loop_region_holds_no_level_to_decline_from() -> None:
+    signal = np.concatenate([np.zeros(SR), _sine(np.linspace(1.0, 0.1, 2 * SR), frames=2 * SR)])
+
+    assert fit_linear_decay(signal, SR, Loop(start=100, end=SR)) is None

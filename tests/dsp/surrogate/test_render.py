@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -93,6 +94,45 @@ def test_render_loop_sustains_a_note_held_past_the_stored_length(
     held = render(stored, SR, pitch=60, duration_s=3.0)  # far longer than the ~0.1 s stored
     assert held.size == pytest.approx(int(round(3.0 * SR)), abs=1)
     assert float(np.sqrt(np.mean(held[-SR:] ** 2))) > 0.1  # the last second still sounds (loop sustained it)
+
+
+def _decaying(sine: Callable[..., NDArray[np.float64]], *, half_life_s: float) -> NDArray[np.float64]:
+    """Two seconds of a struck note: a steady pitch under an amplitude that falls away as it rings."""
+    tone = sine(440.0, dur=2.0)
+    return np.exp(-np.arange(tone.size, dtype=np.float64) / (half_life_s * SR)) * tone
+
+
+def _tail_level(signal: NDArray[np.float64]) -> float:
+    """Level of the last quarter second of ``signal`` -- where a held note's decline shows."""
+    return float(np.sqrt(np.mean(signal[-SR // 4 :] ** 2)))
+
+
+def test_a_held_loop_declines_the_way_the_recording_it_stands_for_did(
+    sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
+) -> None:
+    """A struck note stored as attack plus loop ends near the level its recording ended at."""
+    source = _decaying(sine, half_life_s=0.6)
+    params = EncodingParams(target_rate=SR, depth_bits=16, loop_choice=0)
+    stored = encode(source, SR, params, make_encode_ctx(_ROOT))
+    assert stored.decay is not None
+
+    held = render(stored, SR, pitch=_ROOT, duration_s=2.0)
+    ringing = render(replace(stored, decay=None), SR, pitch=_ROOT, duration_s=2.0)
+    stored_frames = output_frame(stored, stored.frames, SR, _ROOT)
+
+    assert np.allclose(held[:stored_frames], ringing[:stored_frames])  # the stored material sounds as stored
+    assert _tail_level(held) == pytest.approx(_tail_level(source), rel=0.5)
+    assert _tail_level(ringing) > 5.0 * _tail_level(source)  # the same loop, left to ring at its own level
+
+
+def test_a_sample_carrying_no_decay_plays_at_the_level_it_was_stored_at(
+    sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
+) -> None:
+    """A steady recording states no decline, so nothing is put over the loop that sustains it."""
+    params = EncodingParams(target_rate=SR, depth_bits=16, loop_choice=0)
+    stored = encode(sine(440.0, dur=2.0), SR, params, make_encode_ctx(_ROOT))
+
+    assert stored.decay is None
 
 
 # --- the ground truth a stored sample is measured against -------------------------------------------

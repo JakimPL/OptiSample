@@ -224,6 +224,26 @@ same way, and the objective picks. A 16-bit encoding is enumerated uncompressed,
 already sits below anything compression could protect. The `comp` column in `report.txt` and the `_c` in an
 audition filename say which way each sample went.
 
+## Looping: a held note that declines
+
+A looped sample is stored as the attack plus one loop region, and playback wraps that region for as long
+as the note is held. On its own that holds one level forever, which suits an organ and lies about a piano.
+So the encoder fits a **linear decay** beside the PCM (`src/optisample/dsp/decay.py`): the level the loop
+region holds, the levels the recording falls to past it read in short windows, and a least-squares line
+through them saying where the material ends up. `render` plays a held note down that ramp, so a struck
+note stored as attack plus loop declines the way its recording did — which is what lets a note held for a
+minute cost a second of PCM. Material that holds its level to the end states no decline and carries no
+ramp.
+
+The ramp begins exactly where the stored material ends, so every stored frame sounds as it was stored;
+only what the loop repeats is brought down. Its seconds run on the played timeline, which is the clock a
+tracker's volume envelope runs on, so every key sounding the sample declines over the same stretch of time.
+
+**The written module does not carry that envelope yet.** `optimize/export/build.py` writes each
+`Instrument` with no `volume_envelope` and no `fadeout`, so an exported looped note rings at the loop's
+level while the objective scores it declining. Until the envelope is written, `--no-loop` is the lever that
+closes the gap.
+
 ## Velocity layers: trading samples for dynamics
 
 A piano's timbre changes further with how hard a key is struck than its level does, so reconstructing a

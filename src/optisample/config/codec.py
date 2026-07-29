@@ -8,7 +8,7 @@ from optisample.config.stage import StageConfig
 
 
 class LoopConfig(ConfigModel):
-    """Loop-point detection: search band, periodicity/sustain gates, placement, and seam crossfade.
+    """Loop-point detection: search band, periodicity gate, placement, and seam crossfade.
 
     ``min_periods`` and ``min_loop_s`` together set the shortest loop that may be stored, which is the
     floor every candidate clears. ``placements`` is how many starts are spread through the steady region
@@ -26,7 +26,6 @@ class LoopConfig(ConfigModel):
     attack_skip_s: float
     tail_skip_s: float
     max_estimation_s: float
-    sustain_decay_ratio: float
     crossfade_s: float
 
 

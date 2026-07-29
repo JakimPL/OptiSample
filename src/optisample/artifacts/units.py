@@ -112,14 +112,14 @@ def _export_context(dump_context: DumpContext) -> ExportContext:
 def make_kind(plan: InstrumentPlan | GroupedInstrumentPlan, dump_context: DumpContext) -> PlanKind:
     """Package a plan (ungrouped or grouped) as the strategy-agnostic pieces the dumper serializes.
 
-    ``build_units`` yields units in plan order, so the stored loops line up with the plan's items when
-    :func:`plan_document` zips them together. The module is built here so the report and the plan
+    ``build_units`` yields units in plan order, so the re-encoded samples line up with the plan's items
+    when :func:`plan_document` zips them together. The module is built here so the report and the plan
     document can state what the written file actually occupies. Only the report formatter is
     strategy-specific.
     """
     units = build_units(plan, dump_context)
     export_context = _export_context(dump_context)
-    loops = [unit.stored.loop for unit in units]
+    encoded = [unit.stored for unit in units]
 
     def make_module(material: Sequence[NoteEvent]) -> TrackerModule:
         return build_module(plan, dump_context.audio, dump_context.sample_rate, list(material), export_context)
@@ -141,7 +141,7 @@ def make_kind(plan: InstrumentPlan | GroupedInstrumentPlan, dump_context: DumpCo
         layout,
         units,
         report_text,
-        plan_document(plan, loops, size, coverage, layout),
+        plan_document(plan, encoded, size, coverage, layout),
         module,
         make_module,
     )

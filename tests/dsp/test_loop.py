@@ -6,12 +6,10 @@ from numpy.typing import NDArray
 
 from optisample.config.codec import LoopConfig
 from optisample.dsp.loop import (
-    _MIN_SUSTAIN_FRAMES,
     _QUALITY_FFT,
     Loop,
     _autocorrelation,
     _estimate_period,
-    _is_sustained,
     crossfade_loop,
     detect_loop,
     loop_candidates,
@@ -47,10 +45,14 @@ def test_detect_loop_declines_on_noise(loop_config: LoopConfig) -> None:
     assert detect_loop(rng.standard_normal(SR), SR, loop_config) is None
 
 
-def test_detect_loop_declines_on_a_decaying_tone(loop_config: LoopConfig) -> None:
-    # A struck note is pitched but decays; looping it would make it ring forever at the loop's level.
-    decay = np.exp(-np.arange(SR, dtype=np.float64) / (0.15 * SR))
-    assert detect_loop(decay * _sine(SR), SR, loop_config) is None
+def test_a_decaying_tone_loops_where_it_holds_a_period(loop_config: LoopConfig) -> None:
+    # A struck note is pitched throughout its decay, and the level its loop settles on is brought down
+    # outside the PCM (optisample.dsp.decay), so it is stored as attack plus loop like any other tone.
+    decay = np.exp(-np.arange(2 * SR, dtype=np.float64) / (0.6 * SR))
+    loop = detect_loop(decay * _sine(2 * SR), SR, loop_config)
+
+    assert loop is not None
+    assert loop.length % PERIOD == 0
 
 
 def test_detect_loop_declines_on_a_too_short_signal(loop_config: LoopConfig) -> None:
@@ -93,12 +95,6 @@ def test_crossfade_is_a_noop_without_room_before_the_loop() -> None:
 
 def test_autocorrelation_of_silence_is_zero() -> None:
     assert np.array_equal(_autocorrelation(np.zeros(64)), np.zeros(64))
-
-
-def test_is_sustained_rejects_a_region_too_short_to_judge() -> None:
-    # Below the minimum span there are too few frames to compare early- vs late-energy, so it cannot loop.
-    tiny = np.ones(_MIN_SUSTAIN_FRAMES - 1, dtype=np.float64)
-    assert _is_sustained(tiny, decay_ratio=0.5) is False
 
 
 def test_estimate_period_rejects_short_and_degenerate_bands(loop_config: LoopConfig) -> None:

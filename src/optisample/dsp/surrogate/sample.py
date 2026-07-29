@@ -4,6 +4,7 @@ from typing import Final
 import numpy as np
 from numpy.typing import NDArray
 
+from optisample.dsp.decay import NO_DECAY, LinearDecay
 from optisample.dsp.loop import Loop
 from trackmod.core.samples.depth import BitDepth
 
@@ -17,7 +18,10 @@ class StoredSample:
     """An encoded, tracker-ready sample: its PCM, stored rate/depth, natural pitch, gain, and how it ends.
 
     ``release_frames`` is how many of its last frames the ramp closing it covers, which the encoder
-    applies and a score against its source puts over the source as well.
+    applies and a score against its source puts over the source as well. ``decay`` is the ramp a looped
+    sample is played down by: the loop holds one level for as long as a note runs, and the decay is what
+    brings that level down the way the recording's own did. It belongs to the slot rather than the
+    waveform, so the PCM stays the material as it was stored.
     """
 
     pcm: Signal
@@ -27,6 +31,7 @@ class StoredSample:
     gain: float = 1.0
     loop: Loop | None = None
     release_frames: int = NO_RELEASE_RAMP
+    decay: LinearDecay | None = NO_DECAY
 
     @property
     def frames(self) -> int:

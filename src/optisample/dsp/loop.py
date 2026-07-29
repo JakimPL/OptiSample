@@ -12,8 +12,6 @@ from optisample.dsp.spectral import stft_magnitude
 Signal = NDArray[np.float64]
 
 _MIN_STEADY_FRAMES: Final = 8
-_MIN_SUSTAIN_FRAMES: Final = 6
-_ENERGY_THIRDS: Final = 3
 _QUALITY_FFT: Final = 1024  # window the loop region and the stretch it stands for are compared over
 _QUALITY_HOP: Final = 512
 _AMPLITUDE_DB: Final = 20.0  # decibels per decade of amplitude
@@ -97,22 +95,6 @@ def _estimate_period(
     return lag
 
 
-def _is_sustained(region: Signal, decay_ratio: float) -> bool:
-    """Whether ``region`` holds a level, loopable tone.
-
-    A looped sample repeats its region forever, so looping suits steady material: we compare the
-    energy of the region's last third to its first third and accept the region when the late energy
-    holds within ``decay_ratio`` of the early energy. A struck note (piano) decays below that, so the
-    caller stores it whole.
-    """
-    if region.size < _MIN_SUSTAIN_FRAMES:
-        return False
-    third = region.size // _ENERGY_THIRDS
-    early = float(np.sqrt(np.mean(region[:third] ** 2)))
-    late = float(np.sqrt(np.mean(region[-third:] ** 2)))
-    return early > 0.0 and late / early >= decay_ratio
-
-
 def _snap_ascending_zero(signal: Signal, index: int, radius: int) -> int:
     """Nearest ascending zero crossing (``-`` -> ``+``) to ``index`` within ``radius`` (else ``index``)."""
     low = max(1, index - radius)
@@ -143,15 +125,15 @@ def _steady_region(
 ) -> _SteadyRegion | None:
     """The window a loop may be placed in, together with the period it repeats at.
 
+    Material that declines as it rings is placed in just as steady material is: the level a loop settles
+    on is brought down outside the PCM by :class:`~optisample.dsp.decay.LinearDecay`, so a struck note is
+    stored as attack plus loop and declines from there.
+
     Returns ``None`` for material a loop has no purchase on: a steady window shorter than
-    ``_MIN_STEADY_FRAMES``, a region that decays instead of sustaining, or one carrying no reliable
-    period.
+    ``_MIN_STEADY_FRAMES``, or one carrying no reliable period.
     """
     attack, tail = _steady_bounds(signal, sample_rate, config)
     if tail - attack < _MIN_STEADY_FRAMES:
-        return None
-
-    if not _is_sustained(signal[attack:tail], config.sustain_decay_ratio):
         return None
 
     window = signal[attack : min(tail, attack + int(config.max_estimation_s * sample_rate))]
@@ -223,8 +205,7 @@ def loop_candidates(
     the note is long enough to hold it.
 
     Returns an empty tuple for material a loop has no purchase on: a steady region too short to analyse,
-    one that decays instead of sustaining, one carrying no reliable period, or one with room for less
-    than the shortest accepted loop.
+    one carrying no reliable period, or one with room for less than the shortest accepted loop.
     """
     region = _steady_region(signal, sample_rate, config)
     if region is None:

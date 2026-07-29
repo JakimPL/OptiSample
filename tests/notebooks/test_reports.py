@@ -8,6 +8,7 @@ from notebooks.utils.reports import ComparedNote
 from optisample.artifacts.paths import plan_paths, reduced_paths
 from optisample.artifacts.serialize import (
     BudgetRecord,
+    DecayRecord,
     EventMetricRecord,
     InstrumentRecord,
     KeptRecordingRecord,
@@ -41,6 +42,7 @@ _ENCODING = {
     "compress": True,
     "trim_s": 1.5,
     "loop": LoopRecord(start=100, end=900),
+    "decay": DecayRecord(start_s=0.11, end_s=1.5, final_gain=0.2),
     "frames": 16_538,
     "stored_bytes": 16_538,
     "distortion": 2.5,
@@ -302,6 +304,7 @@ def test_an_ungrouped_item_holds_the_one_pitch_it_was_recorded_at(instrument_dir
 
     assert (rows[0]["keys"], rows[0]["span"], rows[0]["note"]) == ("60", 1, "C4")
     assert (rows[0]["rate_hz"], rows[0]["depth"], rows[0]["comp"], rows[0]["loop"]) == (11_025, 8, "on", "on")
+    assert rows[0]["decay_to"] == 0.2  # the share of the loop's level the note is played down to
 
 
 def test_a_grouped_item_holds_the_whole_zone_its_representative_serves(instrument_dir: Path) -> None:

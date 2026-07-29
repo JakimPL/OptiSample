@@ -14,6 +14,7 @@ from pydantic import (
 )
 
 from optisample.config.reduce import DedupeKey
+from optisample.dsp.decay import LinearDecay
 from optisample.dsp.loop import Loop
 from optisample.dsp.surrogate import StoredSample
 from optisample.music import note_name
@@ -48,6 +49,18 @@ class LoopRecord(Frozen):
 
     start: int
     end: int
+
+
+class DecayRecord(Frozen):
+    """The ramp a looped sample is played down by: when it falls, and how far.
+
+    Seconds run from the note's onset, ``start_s`` sitting where the stored material ends, and
+    ``final_gain`` is the share of the loop's own level a note still sounds at once the ramp is through.
+    """
+
+    start_s: float
+    end_s: float
+    final_gain: float
 
 
 class AnchorRecord(Frozen):
@@ -91,8 +104,9 @@ class ModuleSizeRecord(Frozen):
 class EncodingRecord(Frozen):
     """The stored-encoding block both strategies share: chosen params, geometry, cost and hull size.
 
-    ``loop`` is the loop *actually stored* after re-encoding (not merely the one the sweep requested).
-    The plan items (:class:`PitchItemRecord`, :class:`ZoneItemRecord`) inherit these fields so the block
+    ``loop`` and ``decay`` are read off the sample as re-encoding actually stored it, so they state the
+    loop a player wraps on and the ramp it is brought down by rather than what the sweep asked for. The
+    plan items (:class:`PitchItemRecord`, :class:`ZoneItemRecord`) inherit these fields so the block
     appears once per item, flattened alongside the item's own leading fields.
     """
 
@@ -101,6 +115,7 @@ class EncodingRecord(Frozen):
     compress: bool
     trim_s: float | None
     loop: LoopRecord | None
+    decay: DecayRecord | None
     frames: int
     stored_bytes: int
     distortion: float
@@ -493,8 +508,16 @@ def reduction_document(reduction: ReductionSummary) -> ReductionDocument:
 
 
 def _loop_record(loop: Loop | None) -> LoopRecord | None:
-    """The loop actually stored (``{start, end}``), or ``None`` when the sample was not looped."""
+    """The loop a stored sample wraps on (``{start, end}``), where it holds one."""
     return None if loop is None else LoopRecord(start=loop.start, end=loop.end)
+
+
+def _decay_record(decay: LinearDecay | None) -> DecayRecord | None:
+    """The ramp a stored sample is played down by, where the recording states one to make."""
+    if decay is None:
+        return None
+
+    return DecayRecord(start_s=decay.start_s, end_s=decay.end_s, final_gain=decay.final_gain)
 
 
 def _budget_record(plan: StrategyPlan) -> BudgetRecord:
@@ -523,13 +546,14 @@ def _keyboard_record(coverage: KeyCoverage) -> KeyboardRecord:
     )
 
 
-def _encoding_record(unit: SampleUnit, loop: Loop | None) -> EncodingRecord:
+def _encoding_record(unit: SampleUnit, stored: StoredSample) -> EncodingRecord:
     return EncodingRecord(
         target_rate=unit.params.target_rate,
         depth_bits=unit.params.depth_bits,
         compress=unit.params.compress,
         trim_s=unit.params.trim_s,
-        loop=_loop_record(loop),
+        loop=_loop_record(stored.loop),
+        decay=_decay_record(stored.decay),
         frames=unit.frames,
         stored_bytes=unit.stored_bytes,
         distortion=unit.distortion,
@@ -537,13 +561,13 @@ def _encoding_record(unit: SampleUnit, loop: Loop | None) -> EncodingRecord:
     )
 
 
-def _pitch_item(unit: SampleUnit, loop: Loop | None) -> PitchItemRecord:
+def _pitch_item(unit: SampleUnit, stored: StoredSample) -> PitchItemRecord:
     return PitchItemRecord(
         pitch=unit.representative,
         note=note_name(unit.representative),
         weight=unit.weight,
         representative_velocity=unit.representative_key.velocity,
-        **_encoding_record(unit, loop).model_dump(),
+        **_encoding_record(unit, stored).model_dump(),
     )
 
 
@@ -582,7 +606,7 @@ def _reserve_record(reserve: SampleReserve) -> ReserveRecord:
     )
 
 
-def _zone_item(unit: SampleUnit, loop: Loop | None) -> ZoneItemRecord:
+def _zone_item(unit: SampleUnit, stored: StoredSample) -> ZoneItemRecord:
     return ZoneItemRecord(
         layer=unit.layer,
         keys=[unit.keys[0], unit.keys[-1]],
@@ -590,18 +614,18 @@ def _zone_item(unit: SampleUnit, loop: Loop | None) -> ZoneItemRecord:
         representative=unit.representative,
         representative_velocity=unit.representative_key.velocity,
         weight=unit.weight,
-        **_encoding_record(unit, loop).model_dump(),
+        **_encoding_record(unit, stored).model_dump(),
     )
 
 
 def plan_document(
     plan: InstrumentPlan | GroupedInstrumentPlan,
-    loops: Sequence[Loop | None],
+    encoded: Sequence[StoredSample],
     size: SizeReport,
     coverage: KeyCoverage,
     layout: SlotLayout,
 ) -> PlanDocument:
-    """One plan document for either strategy; ``loops`` are the per-item *stored* loops, in plan order.
+    """One plan document for either strategy; ``encoded`` holds the re-encoded samples, in plan order.
 
     The plan's :meth:`~optisample.optimize.plans.StrategyPlan.sample_units` supplies the shared encoding
     block for every item; only the leading fields (a pitch vs. a zone, and whether a ``method`` is
@@ -629,7 +653,7 @@ def plan_document(
             velocity_map=velocity_map,
             instruments=instruments,
             reserve=_reserve_record(plan.reserve),
-            zones=[_zone_item(unit, loop) for unit, loop in zip(units, loops)],
+            zones=[_zone_item(unit, stored) for unit, stored in zip(units, encoded)],
         )
     return PlanDocument(
         strategy="ungrouped",
@@ -643,7 +667,7 @@ def plan_document(
         reduction=reduction,
         velocity_map=velocity_map,
         instruments=instruments,
-        pitches=[_pitch_item(unit, loop) for unit, loop in zip(units, loops)],
+        pitches=[_pitch_item(unit, stored) for unit, stored in zip(units, encoded)],
     )
 
 

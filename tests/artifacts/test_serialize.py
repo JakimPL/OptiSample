@@ -5,6 +5,8 @@ import math
 import numpy as np
 
 from optisample.artifacts.serialize import _json_safe, metrics_document, plan_document
+from optisample.dsp.decay import LinearDecay
+from optisample.dsp.surrogate import StoredSample
 from optisample.optimize.export.coverage import KeyCoverage
 from optisample.optimize.layers.slots import SlotLayout, pack_slots
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan, StrategyPlan
@@ -21,6 +23,20 @@ def _layout(plan: StrategyPlan, per_instrument: int = _WHOLE_TABLE) -> SlotLayou
     return pack_slots(plan.sample_units(), plan.layers, per_instrument)
 
 
+def _encoded(plan: StrategyPlan, *, decay: LinearDecay | None = None) -> list[StoredSample]:
+    """One re-encoded sample per plan item, which is where the document reads a loop and a decay off."""
+    return [
+        StoredSample(
+            pcm=np.zeros(unit.frames, dtype=np.float64),
+            sample_rate=unit.params.target_rate,
+            depth_bits=unit.params.depth_bits,
+            root_pitch=unit.representative,
+            decay=decay,
+        )
+        for unit in plan.sample_units()
+    ]
+
+
 def test_json_safe_coerces_numpy_and_non_finite() -> None:
     out = _json_safe({"a": np.float64(1.5), "b": np.int64(3), "c": math.inf, "d": [-math.inf, 2.0]})
     assert out == {"a": 1.5, "b": 3, "c": None, "d": [None, 2.0]}
@@ -28,8 +44,7 @@ def test_json_safe_coerces_numpy_and_non_finite() -> None:
 
 
 def test_plan_document_ungrouped_writes_pitches_and_method(ungrouped_plan: InstrumentPlan) -> None:
-    units = ungrouped_plan.sample_units()
-    doc = plan_document(ungrouped_plan, [None] * len(units), _SIZE, _COVERAGE, _layout(ungrouped_plan))
+    doc = plan_document(ungrouped_plan, _encoded(ungrouped_plan), _SIZE, _COVERAGE, _layout(ungrouped_plan))
     assert doc.strategy == "ungrouped"
     assert doc.method is not None and doc.pitches is not None and doc.zones is None
     assert doc.budget.used_bytes == ungrouped_plan.used_bytes
@@ -40,8 +55,7 @@ def test_plan_document_ungrouped_writes_pitches_and_method(ungrouped_plan: Instr
 
 
 def test_plan_document_grouped_writes_zones_and_drops_method(grouped_plan: GroupedInstrumentPlan) -> None:
-    units = grouped_plan.sample_units()
-    doc = plan_document(grouped_plan, [None] * len(units), _SIZE, _COVERAGE, _layout(grouped_plan))
+    doc = plan_document(grouped_plan, _encoded(grouped_plan), _SIZE, _COVERAGE, _layout(grouped_plan))
     assert doc.strategy == "grouped"
     assert doc.zones is not None and doc.method is None and doc.pitches is None
     dumped = doc.model_dump()
@@ -53,18 +67,14 @@ def test_a_grouped_document_records_the_sample_cap_it_was_held_to(
     ungrouped_plan: InstrumentPlan, grouped_plan: GroupedInstrumentPlan
 ) -> None:
     """The cap and its charge belong to the strategy that meets them, so only that document states them."""
-    grouped = plan_document(
-        grouped_plan, [None] * len(grouped_plan.sample_units()), _SIZE, _COVERAGE, _layout(grouped_plan)
-    )
+    grouped = plan_document(grouped_plan, _encoded(grouped_plan), _SIZE, _COVERAGE, _layout(grouped_plan))
     assert grouped.reserve is not None
     assert grouped.reserve.cap == grouped_plan.reserve.cap
     assert grouped.reserve.bytes_per_sample == grouped_plan.reserve.bytes_per_sample
     assert grouped.reserve.objective_uncapped == grouped_plan.reserve.objective_uncapped
     assert len(grouped.zones or []) <= grouped.reserve.cap
 
-    ungrouped = plan_document(
-        ungrouped_plan, [None] * len(ungrouped_plan.sample_units()), _SIZE, _COVERAGE, _layout(ungrouped_plan)
-    )
+    ungrouped = plan_document(ungrouped_plan, _encoded(ungrouped_plan), _SIZE, _COVERAGE, _layout(ungrouped_plan))
     assert "reserve" not in ungrouped.model_dump()
 
 
@@ -73,9 +83,22 @@ def test_both_documents_state_the_weighting_their_objective_was_measured_under(
 ) -> None:
     """A bare objective says nothing on its own, so each document records what scaled the notes into it."""
     for plan in (ungrouped_plan, grouped_plan):
-        doc = plan_document(plan, [None] * len(plan.sample_units()), _SIZE, _COVERAGE, _layout(plan))
+        doc = plan_document(plan, _encoded(plan), _SIZE, _COVERAGE, _layout(plan))
         assert doc.energy_exponent == plan.energy_exponent
         assert "energy_exponent" in doc.model_dump()
+
+
+def test_an_item_states_the_ramp_its_looped_sample_is_played_down_by(grouped_plan: GroupedInstrumentPlan) -> None:
+    """A looped sample holds one level, so the plan records what brings it down beside the loop itself."""
+    ramp = LinearDecay(start_s=0.6, end_s=3.0, final_gain=0.15)
+
+    doc = plan_document(grouped_plan, _encoded(grouped_plan, decay=ramp), _SIZE, _COVERAGE, _layout(grouped_plan))
+    plain = plan_document(grouped_plan, _encoded(grouped_plan), _SIZE, _COVERAGE, _layout(grouped_plan))
+
+    zone = (doc.zones or [])[0]
+    assert zone.decay is not None
+    assert (zone.decay.start_s, zone.decay.end_s, zone.decay.final_gain) == (0.6, 3.0, 0.15)
+    assert (plain.zones or [])[0].decay is None  # a sample the recording states no decline for
 
 
 def test_metrics_document_objective_sums_note_contributions() -> None:
@@ -88,7 +111,7 @@ def test_metrics_document_objective_sums_note_contributions() -> None:
 def test_the_document_holds_one_record_per_written_instrument(grouped_plan: GroupedInstrumentPlan) -> None:
     """A consumer reads the written instruments off this list, so each is named and placed as written."""
     units = grouped_plan.sample_units()
-    doc = plan_document(grouped_plan, [None] * len(units), _SIZE, _COVERAGE, _layout(grouped_plan, _ONE_SAMPLE_EACH))
+    doc = plan_document(grouped_plan, _encoded(grouped_plan), _SIZE, _COVERAGE, _layout(grouped_plan, _ONE_SAMPLE_EACH))
     assert [record.index for record in doc.instruments] == list(range(len(units)))
     assert [record.samples for record in doc.instruments] == [1] * len(units)
     assert all(record.name.startswith(grouped_plan.instrument_id) for record in doc.instruments)
@@ -97,7 +120,7 @@ def test_the_document_holds_one_record_per_written_instrument(grouped_plan: Grou
 
 def test_an_instrument_record_states_the_keys_it_was_stored_for(grouped_plan: GroupedInstrumentPlan) -> None:
     units = grouped_plan.sample_units()
-    doc = plan_document(grouped_plan, [None] * len(units), _SIZE, _COVERAGE, _layout(grouped_plan))
+    doc = plan_document(grouped_plan, _encoded(grouped_plan), _SIZE, _COVERAGE, _layout(grouped_plan))
     (record,) = [entry for entry in doc.instruments if entry.keys > 0]
     assert record.lowest_pitch == min(key for unit in units for key in unit.keys)
     assert record.highest_pitch == max(key for unit in units for key in unit.keys)
@@ -107,12 +130,8 @@ def test_plan_document_carries_the_reduction_both_strategies_share(
     ungrouped_plan: InstrumentPlan, grouped_plan: GroupedInstrumentPlan
 ) -> None:
     """The pre-optimization stage runs once per instrument, so both documents record the same outcome."""
-    ungrouped = plan_document(
-        ungrouped_plan, [None] * len(ungrouped_plan.sample_units()), _SIZE, _COVERAGE, _layout(ungrouped_plan)
-    )
-    grouped = plan_document(
-        grouped_plan, [None] * len(grouped_plan.sample_units()), _SIZE, _COVERAGE, _layout(grouped_plan)
-    )
+    ungrouped = plan_document(ungrouped_plan, _encoded(ungrouped_plan), _SIZE, _COVERAGE, _layout(ungrouped_plan))
+    grouped = plan_document(grouped_plan, _encoded(grouped_plan), _SIZE, _COVERAGE, _layout(grouped_plan))
     assert ungrouped.reduction == grouped.reduction
     assert ungrouped.reduction.kept_recordings == len(ungrouped.reduction.recordings)
     assert "reduction" in ungrouped.model_dump()
@@ -122,7 +141,7 @@ def test_the_reduction_document_records_every_kept_recording_and_narrowed_grid(
     ungrouped_plan: InstrumentPlan,
 ) -> None:
     reduction = plan_document(
-        ungrouped_plan, [None] * len(ungrouped_plan.sample_units()), _SIZE, _COVERAGE, _layout(ungrouped_plan)
+        ungrouped_plan, _encoded(ungrouped_plan), _SIZE, _COVERAGE, _layout(ungrouped_plan)
     ).reduction
     assert reduction.listed_recordings >= reduction.kept_recordings
     assert reduction.played_notes >= reduction.scored_classes

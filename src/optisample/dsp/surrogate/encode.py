@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from optisample.config.codec import EncodeConfig, LoopConfig
+from optisample.dsp.decay import NO_DECAY, LinearDecay, fit_linear_decay
 from optisample.dsp.dynamics import compress
 from optisample.dsp.loop import Loop, crossfade_loop, loop_candidates
 from optisample.dsp.quantize import headroom_peak, normalize_peak, release_fade, requantize
@@ -56,25 +57,33 @@ def _loop_or_trim(
 
 @dataclass(frozen=True)
 class _Span:
-    """The stretch a sample holds and how it ends: its loop, and the frames its closing ramp covers."""
+    """The stretch a sample holds and how it carries on: its loop, its closing ramp, and its decay."""
 
     signal: Signal
     loop: Loop | None
     release_frames: int
+    decay: LinearDecay | None
 
 
-def _closed(span: Signal, loop: Loop | None, rate: int, config: EncodeConfig) -> _Span:
+def _looped(span: Signal, material: Signal, loop: Loop, rate: int) -> _Span:
+    """A looped span, kept as it stands, beside the decline the material past it goes on making.
+
+    The wrap point is where :func:`~optisample.dsp.loop.crossfade_loop` has already made the seam
+    continuous, so the span reaches its end at the level it holds there. What the loop then repeats is
+    played down by the fitted decay, which is how a held note declines while the PCM stays the material.
+    """
+    return _Span(span, loop, NO_RELEASE_RAMP, fit_linear_decay(material, rate, loop))
+
+
+def _closed(span: Signal, rate: int, config: EncodeConfig) -> _Span:
     """``span`` with the ramp closing a sample that plays to its end, and how far that ramp reaches.
 
-    A looped span ends at its wrap point, where :func:`~optisample.dsp.loop.crossfade_loop` has already
-    made the seam continuous, so it is stored as it stands. Every other span is played out and stops, and
-    the ramp is what it stops on -- over its whole length where the span is the shorter of the two.
+    A span with no loop is played out and stops, and the ramp is what it stops on -- over its whole
+    length where the span is the shorter of the two. Its PCM runs to where the material does, so it
+    carries every level it plays at and asks for no decay beside it.
     """
-    if loop is not None:
-        return _Span(span, loop, NO_RELEASE_RAMP)
-
     frames = min(round(config.release_fade_s * rate), span.size)
-    return _Span(release_fade(span, frames), None, frames)
+    return _Span(release_fade(span, frames), None, frames, NO_DECAY)
 
 
 def _stored_span(
@@ -86,13 +95,17 @@ def _stored_span(
     """The stretch of ``signal`` a sample holds: resampled, shaped where asked, then looped or trimmed.
 
     Compression runs on the resampled waveform, ahead of loop detection, so the seam is crossfaded over
-    exactly the audio that will be stored and stays continuous. The release ramp closes what the trim
-    leaves, measured over the span the sample keeps.
+    exactly the audio that will be stored and stays continuous. It is also what the decay is fitted from,
+    for the same reason: the level a loop repeats and the levels the material falls to past it are read
+    off the waveform actually being stored.
     """
     resampled = resample_to(signal, sample_rate, params.target_rate)
     shaped = compress(resampled, params.target_rate, config.dynamics) if params.compress else resampled
     span, loop = _loop_or_trim(shaped, params, config.loop)
-    return _closed(span, loop, params.target_rate, config)
+    if loop is not None:
+        return _looped(span, shaped, loop, params.target_rate)
+
+    return _closed(span, params.target_rate, config)
 
 
 def encode(
@@ -111,7 +124,9 @@ def encode(
 
     With ``params.loop_choice`` naming a candidate the material offers, storage is trimmed to the attack
     plus that looped region and the loop sustains notes held past the stored length -- cheap to store,
-    and true to the recording as far as the loop's own timbre holds. Storing the trimmed sample keeps
+    and true to the recording as far as the loop's own timbre holds. The decline the recording goes on
+    making past that point is carried beside the PCM as a :class:`~optisample.dsp.decay.LinearDecay`, so
+    a held note falls away rather than ringing at the loop's level. Storing the trimmed sample keeps
     ``trim_s`` worth of the recording as it was played and ends a longer note there, closing on the
     release ramp (:func:`~optisample.dsp.quantize.release_fade`) so the sample plays out. Which of the
     two a note is better served by is the sweep's to price, and it enumerates both.
@@ -137,4 +152,5 @@ def encode(
         gain=gain,
         loop=span.loop,
         release_frames=span.release_frames,
+        decay=span.decay,
     )
