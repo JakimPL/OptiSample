@@ -2,26 +2,35 @@ from dataclasses import dataclass
 
 from optisample.config.codec import EncodeConfig, LoopConfig
 from optisample.dsp.dynamics import compress
-from optisample.dsp.loop import Loop, crossfade_loop, detect_loop
+from optisample.dsp.loop import Loop, crossfade_loop, loop_candidates
 from optisample.dsp.quantize import headroom_peak, normalize_peak, release_fade, requantize
 from optisample.dsp.resample import resample_to
 from optisample.dsp.surrogate.params import EncodeContext, EncodingParams
 from optisample.dsp.surrogate.sample import NO_RELEASE_RAMP, Signal, StoredSample
 
 
-def _apply_loop(
+def _chosen_loop(
     resampled: Signal,
-    rate: int,
+    params: EncodingParams,
     config: LoopConfig,
-) -> tuple[Signal, Loop | None]:
-    """Detect a loop, crossfade its seam, and trim storage to attack + loop (or leave the signal be)."""
-    detected = detect_loop(resampled, rate, config)
-    if detected is None:
-        return resampled, None
+) -> Loop | None:
+    """The candidate ``params.loop_choice`` names, as the resampled waveform lays them out.
 
-    fade_len = round(config.crossfade_s * rate)
-    faded = crossfade_loop(resampled, detected, fade_len=fade_len)
-    return faded[: detected.end], detected
+    Candidates are found at the stored rate, so the loop is placed on exactly the audio being stored and
+    its bounds are the frames a player wraps between. Material offering fewer candidates than the choice
+    counts to answers with ``None``, which stores the trimmed sample.
+    """
+    if params.loop_choice is None:
+        return None
+
+    candidates = loop_candidates(resampled, params.target_rate, config)
+    return candidates[params.loop_choice] if params.loop_choice < len(candidates) else None
+
+
+def _apply_loop(resampled: Signal, rate: int, loop: Loop, config: LoopConfig) -> Signal:
+    """Crossfade the loop's seam and trim storage to attack + loop, which is the span a loop keeps."""
+    faded = crossfade_loop(resampled, loop, fade_len=round(config.crossfade_s * rate))
+    return faded[: loop.end]
 
 
 def _loop_or_trim(
@@ -29,17 +38,15 @@ def _loop_or_trim(
     params: EncodingParams,
     config: LoopConfig,
 ) -> tuple[Signal, Loop | None]:
-    """Bound stored length by looping *or* trimming, whichever the config selects.
+    """Bound stored length by looping *or* trimming, whichever the params select.
 
-    A detected loop already trims storage to ``[0, loop.end)`` (attack + one loop region), so it sets
-    the full stored length itself. Trimming to ``trim_s`` governs the remaining cases: a config that
-    requests trimming, and a loop request that falls back to trimming when the material is too
-    aperiodic to loop.
+    A chosen loop already trims storage to ``[0, loop.end)`` (attack + one loop region), so it sets the
+    full stored length itself. Trimming to ``trim_s`` governs the remaining cases: params asking for the
+    trimmed sample, and a loop choice reaching past what the material offers.
     """
-    if params.loop:
-        looped, loop = _apply_loop(resampled, params.target_rate, config)
-        if loop is not None:
-            return looped, loop
+    loop = _chosen_loop(resampled, params, config)
+    if loop is not None:
+        return _apply_loop(resampled, params.target_rate, loop, config), loop
 
     if params.trim_s is not None:
         return resampled[: max(0, round(params.trim_s * params.target_rate))], None
@@ -102,11 +109,12 @@ def encode(
     range under the material. :attr:`StoredSample.gain` records what the normalization applied, which
     playback undoes.
 
-    With ``params.loop`` set, storage is trimmed to the attack plus a looped sustain region (when the
-    signal is periodic enough); the loop then sustains notes held past the stored length. For a plain
-    config, storage is trimmed to ``trim_s`` and a longer note ends there, closing on the release ramp
-    (:func:`~optisample.dsp.quantize.release_fade`) so the sample plays out. A loop request on aperiodic
-    material falls back to the trimmed sample, so a looped config always matches or beats its plain twin.
+    With ``params.loop_choice`` naming a candidate the material offers, storage is trimmed to the attack
+    plus that looped region and the loop sustains notes held past the stored length -- cheap to store,
+    and true to the recording as far as the loop's own timbre holds. Storing the trimmed sample keeps
+    ``trim_s`` worth of the recording as it was played and ends a longer note there, closing on the
+    release ramp (:func:`~optisample.dsp.quantize.release_fade`) so the sample plays out. Which of the
+    two a note is better served by is the sweep's to price, and it enumerates both.
     """
     span = _stored_span(signal, sample_rate, params, context.config)
     normalized, gain = normalize_peak(

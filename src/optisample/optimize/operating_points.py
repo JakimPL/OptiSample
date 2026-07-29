@@ -7,6 +7,7 @@ import numpy as np
 from optisample.config.codec import EncodeConfig
 from optisample.config.optimize import SweepConfig
 from optisample.dsp.surrogate import (
+    TRIMMED,
     EncodeContext,
     EncodingParams,
     Signal,
@@ -87,20 +88,30 @@ def compression_at(sweep: SweepConfig, depth: int) -> tuple[bool, ...]:
     return (False,)
 
 
+def loop_choices(sweep: SweepConfig) -> tuple[int | None, ...]:
+    """What a clip may be stored around: the trimmed sample, then each loop candidate ``sweep`` reaches.
+
+    Leading with :data:`~optisample.dsp.surrogate.params.TRIMMED` puts storing the recording as played on
+    the grid beside the loops, so the frontier decides between them on what each costs and scores rather
+    than on a setting.
+    """
+    return (TRIMMED, *range(sweep.loop_choices))
+
+
 def sweep_param_grid(
     sweep: SweepConfig,
     sample_rate: int,
     *,
     trim_s: float | None,
 ) -> Iterator[EncodingParams]:
-    """Yield every ``(loop, depth, compress, rate)`` configuration in ``sweep``, trimmed to ``trim_s``.
+    """Yield every ``(loop choice, depth, compress, rate)`` configuration in ``sweep``, trimmed to ``trim_s``.
 
     Iterating loop-major, then depth, then compression, then rate fixes the single order in which every
     cost model enumerates and scores encodings, so the per-sample, per-pitch and per-zone sweeps stay
     identical.
     """
     rates = sweep_rates(sweep, sample_rate)
-    for loop in sweep.loops:
+    for loop_choice in loop_choices(sweep):
         for depth in sweep.depths:
             for compress in compression_at(sweep, depth):
                 for rate in rates:
@@ -110,7 +121,7 @@ def sweep_param_grid(
                         trim_s=trim_s,
                         dither=sweep.dither,
                         noise_shaping=sweep.noise_shaping,
-                        loop=loop,
+                        loop_choice=loop_choice,
                         compress=compress,
                     )
 

@@ -21,6 +21,7 @@ from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.config.spectral import SpectralConfig
 from optisample.config.synth import SynthConfig
 from optisample.config.tracker import TrackerFormat
+from optisample.dsp.loop import LoopQuality
 from optisample.dsp.surrogate import EncodeContext, EncodingParams
 from optisample.io.note_extractor import IngestSettings
 from optisample.io.tracker.target import ExportTarget, export_target
@@ -29,7 +30,7 @@ from optisample.model import ProjectSpec
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.operating_points import SweepContext
 from optisample.optimize.orchestrate.settings import OptimizeSettings
-from optisample.optimize.reduce.grids import NarrowedGrid
+from optisample.optimize.reduce.grids import MeasuredLoop, NarrowedGrid
 from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.reduce.summary import KeptRecording, ReductionSummary
 from optisample.optimize.tasks import AudioMap, TaskInputs
@@ -349,5 +350,12 @@ def reduction() -> ReductionSummary:
             KeptRecording(SampleKey(60, 100), duration_s=1.0, required_duration_s=0.8),
             KeptRecording(SampleKey(67, 100), duration_s=0.4, required_duration_s=0.8),
         ),
-        grids=(NarrowedGrid(60, 11_025.0, (EncodingParams(target_rate=11_025, depth_bits=16),)),),
+        grids=(
+            NarrowedGrid(
+                pitch=60,
+                useful_rate_hz=11_025.0,
+                shortlist=(EncodingParams(target_rate=11_025, depth_bits=16),),
+                loops=(MeasuredLoop(choice=0, start_s=0.05, end_s=0.55, quality=LoopQuality(1.2, 3.4)),),
+            ),
+        ),
     )

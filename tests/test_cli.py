@@ -17,6 +17,7 @@ from optisample.cli import (
     main,
 )
 from optisample.config import OptiConfig
+from optisample.config.optimize import TRIMMED_ONLY
 from optisample.config.reduce import DedupeKey
 from optisample.config.tracker import TrackerFormat
 from optisample.io.audio import write_wav
@@ -66,7 +67,7 @@ def test_dump_settings_maps_grid_and_flags(config: OptiConfig) -> None:
     settings = _dump_settings(config, args)
     assert settings.optimize.sweep.rates == (11_025,)
     assert settings.optimize.sweep.depths == (8,)
-    assert settings.optimize.sweep.loops == (False,)  # --no-loop disables looping
+    assert settings.optimize.sweep.loop_choices == TRIMMED_ONLY  # --no-loop leaves the loops off the grid
     assert settings.optimize.seed == 3
     assert settings.optimize.target.format is config.export.tracker.format  # unnamed, so the configured format
     assert settings.render_ground_truth is False

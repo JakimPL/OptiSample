@@ -153,8 +153,8 @@ def _encoding_stem(params: EncodingParams) -> str:
     parts = [f"r{params.target_rate}", f"d{params.depth_bits}"]
     if params.compress:
         parts.append("c")
-    if params.loop:
-        parts.append("loop")
+    if params.loop_choice is not None:
+        parts.append(f"loop{params.loop_choice}")
 
     return "_".join(parts)
 

@@ -165,7 +165,8 @@ def test_an_audition_is_named_by_the_encoding_it_holds(reduced: ReducedInstrumen
     folder = reduced.paths.auditions_dir / f"p{grid['pitch']:03d}_{grid['note']}"
     for encoding in grid["shortlist"]:
         stem = f"r{encoding['target_rate']}_d{encoding['depth_bits']}"
-        expected = f"{stem}_loop.wav" if encoding["loop"] else f"{stem}.wav"
+        choice = encoding["loop_choice"]
+        expected = f"{stem}.wav" if choice is None else f"{stem}_loop{choice}.wav"
         assert (folder / expected).is_file()
 
 

@@ -101,6 +101,9 @@ every report and artifact tree states what it left behind:
   grid by `duration_bucket_ratio`.
 - **The bandwidth pre-pass** measures the band each recording occupies and the interval it is played
   at, then keeps the `candidates` rate/depth vertices priced nearest what the budget affords that key.
+  It also lays out the loops each recording offers — `placements` starts through the sustain, each at the
+  lengths `length_multiples` asks for and each clearing the `min_loop_s` floor — and measures the seam and
+  the timbre distance of every one, which `reduction.json` reports so a stored loop can be argued with.
 - **Pitch-zone grouping** bounds its own search with `max_zone_semitones` and reuses a scored
   `(representative, encoding, key)` reconstruction across every zone containing it.
 

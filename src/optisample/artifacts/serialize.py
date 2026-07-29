@@ -27,6 +27,7 @@ from optisample.optimize.plans import (
     SampleUnit,
     StrategyPlan,
 )
+from optisample.optimize.reduce.grids import MeasuredLoop
 from optisample.optimize.reduce.summary import ReductionSummary
 from optisample.optimize.reduce.trim import RecordingScreen
 from optisample.optimize.tasks import EvalContext, PitchTask, score_events
@@ -178,8 +179,6 @@ class _ZoneHead(Frozen):
     weight: float
 
 
-# Listing the head base last puts its fields first and EncodingRecord's after them (MRO field order),
-# reproducing the flat ``{head..., encoding...}`` layout the dump tree writes.
 class PitchItemRecord(EncodingRecord, _PitchHead):
     """One kept pitch: its identity and the encoding chosen for its sample."""
 
@@ -204,12 +203,30 @@ class KeptRecordingRecord(Frozen):
 
 
 class ShortlistedEncodingRecord(Frozen):
-    """One encoding the bandwidth pre-pass left in the running for a pitch's stored sample."""
+    """One encoding the bandwidth pre-pass left in the running for a pitch's stored sample.
+
+    ``loop_choice`` names the loop candidate the sample would be stored around, and a null stands for
+    the trimmed sample.
+    """
 
     target_rate: int
     depth_bits: int
     compress: bool
-    loop: bool
+    loop_choice: int | None
+
+
+class LoopCandidateRecord(Frozen):
+    """One loop a pitch's sample may be stored around: where it sits, and how well it stands in.
+
+    ``seam_step`` reads the wrap in units of the loop region's own frame-to-frame motion, and
+    ``spectral_distance`` the decibel distance between the loop's timbre and the material past it.
+    """
+
+    choice: int
+    start_s: float
+    end_s: float
+    seam_step: float
+    spectral_distance: float
 
 
 class NarrowedGridRecord(Frozen):
@@ -219,6 +236,7 @@ class NarrowedGridRecord(Frozen):
     note: str
     useful_rate_hz: float
     shortlist: list[ShortlistedEncodingRecord]
+    loops: list[LoopCandidateRecord]
 
 
 class ReductionDocument(Frozen):
@@ -419,6 +437,17 @@ def screen_record(screen: RecordingScreen) -> ScreenRecord:
     )
 
 
+def _loop_candidate_record(loop: MeasuredLoop) -> LoopCandidateRecord:
+    """One measured loop candidate as the document states it, its quality read out into its own fields."""
+    return LoopCandidateRecord(
+        choice=loop.choice,
+        start_s=loop.start_s,
+        end_s=loop.end_s,
+        seam_step=loop.quality.seam_step,
+        spectral_distance=loop.quality.spectral_distance,
+    )
+
+
 def reduction_document(reduction: ReductionSummary) -> ReductionDocument:
     """The pre-optimization stage's own outcome as a document, for the plan tree and the reduced dataset.
 
@@ -452,10 +481,11 @@ def reduction_document(reduction: ReductionSummary) -> ReductionDocument:
                         target_rate=params.target_rate,
                         depth_bits=params.depth_bits,
                         compress=params.compress,
-                        loop=params.loop,
+                        loop_choice=params.loop_choice,
                     )
                     for params in grid.shortlist
                 ],
+                loops=[_loop_candidate_record(loop) for loop in grid.loops],
             )
             for grid in reduction.grids
         ],

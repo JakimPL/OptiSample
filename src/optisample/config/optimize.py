@@ -9,6 +9,7 @@ from optisample.config.stage import StageConfig
 Method = Literal["exact", "lagrangian"]
 
 EVERY_SAMPLE: Final = 0  # the ``max_samples`` value that keeps whatever the target format numbers
+TRIMMED_ONLY: Final = 0  # the ``loop_choices`` value offering the trimmed sample alone
 
 
 class SweepConfig(ConfigModel):
@@ -17,13 +18,17 @@ class SweepConfig(ConfigModel):
     ``rates`` is the ladder of reduced stored rates every clip is offered. A clip is also always offered
     its own rate, so the ladder states the rates worth stepping down to and leaves "store it as recorded"
     to follow from the recording itself.
+
+    ``loop_choices`` is how far into :func:`~optisample.dsp.loop.loop_candidates` the sweep reaches, and
+    the trimmed sample is enumerated beside them, so the frontier prices a loop against storing none and
+    keeps whichever the objective prefers. :data:`TRIMMED_ONLY` sweeps the trimmed sample by itself.
     """
 
     rates: Annotated[tuple[int, ...], Field(min_length=1)]
     depths: tuple[int, ...]
     dither: bool
     noise_shaping: bool
-    loops: tuple[bool, ...]
+    loop_choices: Annotated[int, Field(ge=TRIMMED_ONLY)]
     compress: tuple[bool, ...]
 
 

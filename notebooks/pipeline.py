@@ -303,6 +303,8 @@ def _(fields, mo, reduce_outcome, reports):
             mo.ui.table(_recordings, selection=None, page_size=10),
             mo.md("**Narrowed grid** — the band bounding each pitch, and the encodings left in the running:"),
             mo.ui.table(reports.shortlist_rows(reduced_doc.reduction), selection=None, page_size=10),
+            mo.md("**Loop candidates** — where each pitch may loop, and what the seam and the timbre cost:"),
+            mo.ui.table(reports.loop_rows(reduced_doc.reduction), selection=None, page_size=10),
             mo.md("**Survivors** — the dataset an allocation picks up from:"),
             mo.ui.table(reports.survivor_rows(reduced_doc), selection=None, page_size=10),
         ]

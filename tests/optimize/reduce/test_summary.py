@@ -7,7 +7,7 @@ from numpy.typing import NDArray
 
 from optisample.config.codec import EncodeConfig, LoopConfig
 from optisample.config.metrics import MetricsConfig
-from optisample.config.optimize import SweepConfig
+from optisample.config.optimize import TRIMMED_ONLY, SweepConfig
 from optisample.config.reduce import ReduceConfig
 from optisample.dsp.spectral import bandlimit
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
@@ -31,7 +31,7 @@ _PITCHES = (60, 67)
 _NOTE_S = 0.4
 _RATES = (16_000, 8_000, 4_000)  # an explicit ladder, so a test states the size it expects back
 _GRID_RATES = len(_RATES) + 1  # the ladder, plus the clip's own rate, which every clip is also offered
-_ENCODINGS_PER_RATE = 3  # one 16-bit entry and both compressions of the 8-bit one, at one loop setting
+_ENCODINGS_PER_RATE = 3  # one 16-bit entry and both compressions of the 8-bit one, at one loop choice
 _FULL_GRID = _ENCODINGS_PER_RATE * _GRID_RATES
 _NO_TRANSPOSE = 0
 _RATE_PER_BANDWIDTH = 2.0  # Nyquist, which turns a content-edge tolerance into a rate tolerance
@@ -73,7 +73,7 @@ def context(
         metrics=metrics_config,
         encode=encode_config,
         storage=storage,
-        sweep=sweep(rates=_RATES),
+        sweep=sweep(rates=_RATES, loop_choices=TRIMMED_ONLY),
         bandwidth=reduce(bandwidth={"candidates": 2}).bandwidth,
         byte_target=8_000,
     )

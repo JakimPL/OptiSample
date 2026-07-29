@@ -9,7 +9,9 @@ from optisample.config.codec import EncodeConfig
 from optisample.config.metrics import MetricsConfig
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import BandwidthConfig
+from optisample.dsp.loop import Loop, LoopQuality, loop_candidates, loop_quality
 from optisample.dsp.surrogate import EncodingParams
+from optisample.dsp.timebase import seconds_to_frames
 from optisample.metrics.base import Signal
 from optisample.metrics.composite import CompositeFidelity, build_composite
 from optisample.optimize.reduce.bandwidth import ClipDemand, candidate_params, useful_rate_hz
@@ -80,17 +82,61 @@ class GridContext:
 
 
 @dataclass(frozen=True)
+class MeasuredLoop:
+    """One loop candidate as the report states it: where it sits in the note, and how well it stands in.
+
+    ``choice`` is the :attr:`~optisample.dsp.surrogate.EncodingParams.loop_choice` naming it. The bounds
+    are seconds into the recording, so a loop is read where a listener hears it, and ``quality`` is what
+    :func:`~optisample.dsp.loop.loop_quality` measures of it -- together, the case for or against the
+    loop the allocation went on to buy.
+    """
+
+    choice: int
+    start_s: float
+    end_s: float
+    quality: LoopQuality
+
+
+@dataclass(frozen=True)
 class NarrowedGrid:
     """The encodings the sweep runs for the sample one pitch stores, and the band that bounds them.
 
     ``useful_rate_hz`` is the stored rate carrying everything the recording still contributes at its own
     key (see :func:`~optisample.optimize.reduce.bandwidth.useful_rate_hz`); ``shortlist`` is what the
-    frontier around the budget's per-key share leaves of the full grid.
+    frontier around the budget's per-key share leaves of the full grid; ``loops`` are the candidates the
+    sweep may store the clip around, measured on the recording as it stands.
     """
 
     pitch: int
     useful_rate_hz: float
     shortlist: tuple[EncodingParams, ...]
+    loops: tuple[MeasuredLoop, ...]
+
+
+def _measured_loop(choice: int, loop: Loop, stored: Signal, context: GridContext) -> MeasuredLoop:
+    """One candidate loop placed in the note by the second and measured for what storing it would cost."""
+    return MeasuredLoop(
+        choice=choice,
+        start_s=loop.start / context.sample_rate,
+        end_s=loop.end / context.sample_rate,
+        quality=loop_quality(stored, loop, context.sample_rate, context.encode.loop),
+    )
+
+
+def _measured_loops(clip: StoredClip, context: GridContext) -> tuple[MeasuredLoop, ...]:
+    """The loop candidates the sweep reaches for one clip, measured over the stretch it holds.
+
+    Read on the recording at its own rate, which is the waveform a reader listens to and the one the
+    audition folder holds. A stored copy at a reduced rate lays its candidates out on its own resampled
+    waveform, where the same choice lands at the same place in the note, because resampling carries the
+    material's period and the analysis window alike.
+    """
+    stored = clip.representative[: seconds_to_frames(clip.max_duration_s, context.sample_rate)]
+    candidates = loop_candidates(stored, context.sample_rate, context.encode.loop)
+    return tuple(
+        _measured_loop(choice, loop, stored, context)
+        for choice, loop in enumerate(candidates[: context.sweep.loop_choices])
+    )
 
 
 def narrow_grid(clip: StoredClip, context: GridContext) -> NarrowedGrid:
@@ -111,6 +157,7 @@ def narrow_grid(clip: StoredClip, context: GridContext) -> NarrowedGrid:
         pitch=clip.pitch,
         useful_rate_hz=useful_rate_hz(clip.representative, demand, context.sample_rate, context.bandwidth),
         shortlist=candidate_params(clip.representative, demand, context),
+        loops=_measured_loops(clip, context),
     )
 
 

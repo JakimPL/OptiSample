@@ -7,12 +7,16 @@ from numpy.typing import NDArray
 from optisample.config.codec import LoopConfig
 from optisample.dsp.loop import (
     _MIN_SUSTAIN_FRAMES,
+    _QUALITY_FFT,
     Loop,
     _autocorrelation,
     _estimate_period,
     _is_sustained,
     crossfade_loop,
     detect_loop,
+    loop_candidates,
+    loop_quality,
+    shortest_loop_frames,
 )
 
 SR = 8_000
@@ -103,14 +107,122 @@ def test_estimate_period_rejects_short_and_degenerate_bands(loop_config: LoopCon
     assert _estimate_period(np.zeros(SR), SR, loop_config) is None  # silence -> no peak above the correlation floor
 
 
-def test_detect_loop_shrinks_to_the_periods_that_fit_a_short_steady_region(loop_config: LoopConfig) -> None:
-    # 400 Hz at 8 kHz -> period 20; a 700-frame tone leaves only ~140 steady frames after the attack,
-    # too few for the default loop, so detection takes the whole periods that do fit.
-    loop = detect_loop(_sine(700, freq=400.0), SR, loop_config)
+def test_detect_loop_declines_where_the_steady_region_holds_less_than_the_floor(loop_config: LoopConfig) -> None:
+    # 400 Hz at 8 kHz -> period 20; a 700-frame tone leaves ~140 steady frames after the attack, far under
+    # the 0.5 s floor, so the region has no loop long enough to store.
+    assert detect_loop(_sine(700, freq=400.0), SR, loop_config) is None
+
+
+def test_the_floor_is_read_in_whole_periods_covering_both_bounds(loop_config: LoopConfig) -> None:
+    floor_s = shortest_loop_frames(PERIOD, SR, loop_config) / SR
+    assert floor_s >= loop_config.min_loop_s
+    assert shortest_loop_frames(PERIOD, SR, loop_config) % PERIOD == 0
+    assert shortest_loop_frames(SR, SR, loop_config) == loop_config.min_periods * SR  # a period past the floor
+
+
+# --- the candidates a clip chooses among ----------------------------------------------------------
+
+
+def test_every_candidate_clears_the_floor_and_spans_whole_periods(loop_config: LoopConfig) -> None:
+    floor = shortest_loop_frames(PERIOD, SR, loop_config)
+    candidates = loop_candidates(_sine(4 * SR), SR, loop_config)
+
+    assert len(candidates) > 1
+    assert all(loop.length >= floor and loop.length % PERIOD == 0 for loop in candidates)
+    assert all(loop.length >= round(loop_config.min_loop_s * SR) for loop in candidates)
+
+
+def test_the_first_candidate_is_the_one_a_single_detection_answers_with(loop_config: LoopConfig) -> None:
+    signal = _sine(4 * SR)
+
+    assert detect_loop(signal, SR, loop_config) == loop_candidates(signal, SR, loop_config)[0]
+
+
+def test_candidates_run_placement_major_so_a_prefix_reaches_both_axes(loop_config: LoopConfig) -> None:
+    candidates = loop_candidates(_sine(4 * SR), SR, loop_config)
+    starts = [loop.start for loop in candidates]
+
+    assert len(set(starts)) > 1  # placements are spread rather than all landing on the attack skip
+    assert candidates[1].start == candidates[0].start  # the same start is offered at each length first
+    assert candidates[1].length > candidates[0].length
+    assert candidates[2].start > candidates[0].start
+
+
+def test_candidates_stay_inside_the_steady_region_and_stand_apart(loop_config: LoopConfig) -> None:
+    signal = _sine(2 * SR)
+    attack, tail = int(loop_config.attack_skip_s * SR), signal.size - int(loop_config.tail_skip_s * SR)
+    candidates = loop_candidates(signal, SR, loop_config)
+
+    assert len(set(candidates)) == len(candidates)  # placements snapping together are offered once
+    assert all(loop.start >= attack - PERIOD for loop in candidates)  # snapping moves a start by a period
+    assert all(loop.end <= tail for loop in candidates)
+
+
+def test_a_length_the_region_lacks_room_for_shrinks_onto_the_whole_periods_that_fit(
+    loop_config: LoopConfig,
+) -> None:
+    # A 1 s tone has room for the 0.5 s floor twice over but not for twice the floor from the attack skip.
+    signal = _sine(SR)
+    tail = signal.size - int(loop_config.tail_skip_s * SR)
+    longest = max(loop_candidates(signal, SR, loop_config), key=lambda loop: loop.length)
+
+    assert longest.length > shortest_loop_frames(PERIOD, SR, loop_config)
+    assert longest.length % PERIOD == 0
+    assert longest.end <= tail
+
+
+def test_material_a_loop_has_no_purchase_on_offers_no_candidates(loop_config: LoopConfig) -> None:
+    rng = np.random.default_rng(0)
+
+    assert loop_candidates(rng.standard_normal(SR), SR, loop_config) == ()
+
+
+# --- what a loop is worth --------------------------------------------------------------------------
+
+
+def test_a_crossfaded_seam_reads_as_a_step_the_waveform_itself_could_have_made(loop_config: LoopConfig) -> None:
+    signal = _sine(4 * SR)
+    loop = detect_loop(signal, SR, loop_config)
     assert loop is not None
-    assert loop.length % 20 == 0 and 3 * 20 <= loop.length < int(0.05 * SR)
+
+    quality = loop_quality(signal, loop, SR, loop_config)
+
+    assert quality.seam_step < 2.0  # whole periods from a zero crossing: the wrap is the waveform's own motion
 
 
-def test_detect_loop_declines_when_too_few_periods_fit(loop_config: LoopConfig) -> None:
-    # only ~2 periods fit, below the 3-period minimum
-    assert detect_loop(_sine(610, freq=400.0), SR, loop_config) is None
+def test_a_loop_holding_a_timbre_the_material_moves_away_from_reports_the_distance(
+    loop_config: LoopConfig,
+) -> None:
+    steady = _sine(2 * SR)
+    brightened = steady + 0.5 * _sine(2 * SR, freq=5 * FREQ)
+    loop = detect_loop(steady, SR, loop_config)
+    assert loop is not None
+
+    held = loop_quality(np.concatenate([steady, steady]), loop, SR, loop_config)
+    moved = loop_quality(np.concatenate([steady, brightened]), loop, SR, loop_config)
+
+    assert moved.spectral_distance > held.spectral_distance
+
+
+@pytest.mark.parametrize(
+    "left_over",
+    [
+        pytest.param(0, id="a loop reaching the end of the steady region stands in for nothing"),
+        pytest.param(_QUALITY_FFT - 1, id="a sliver under one analysis window carries no spectrum to compare"),
+    ],
+)
+def test_a_loop_the_material_barely_outlasts_reports_no_distance(loop_config: LoopConfig, left_over: int) -> None:
+    signal = _sine(2 * SR)
+    tail = signal.size - int(loop_config.tail_skip_s * SR)
+    end = tail - left_over
+    reaching = Loop(start=end - shortest_loop_frames(PERIOD, SR, loop_config), end=end)
+
+    assert loop_quality(signal, reaching, SR, loop_config).spectral_distance == 0.0
+
+
+def test_a_silent_loop_region_reports_no_seam(loop_config: LoopConfig) -> None:
+    assert loop_quality(np.zeros(SR), Loop(start=100, end=500), SR, loop_config).seam_step == 0.0
+
+
+def test_a_loop_of_one_frame_has_no_step_to_measure_the_seam_against(loop_config: LoopConfig) -> None:
+    assert loop_quality(_sine(SR), Loop(start=100, end=101), SR, loop_config).seam_step == 0.0

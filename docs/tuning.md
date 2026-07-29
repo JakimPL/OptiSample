@@ -307,10 +307,15 @@ Three things read as "a tail after the piano decays":
    transient. Where takes overlap like this, a length cap is also a content decision: the 5 s cap now
    shipped keeps the note and leaves the neighbour out.
 
-**Levers.** `--no-loop` stores full-length samples and takes looping off the table entirely.
-`loop.sustain_decay_ratio: 0.7` keeps looping available for genuinely sustained material while declining
-all three loops this run took, whose ratios are 0.513, 0.516 and 0.643. Raising `loop.min_loop_s` refuses
-loops too short to be anything but a stutter.
+**Levers.** The grid now enumerates the trimmed sample beside every loop candidate
+(`optimize/sweep.yaml: loop_choices`), so a loop is bought only where the objective prefers it to storing
+the recording as played; `--no-loop` pins the grid to the trimmed sample alone. `loop.min_loop_s` is a
+floor every candidate clears, which is what keeps a loop from shrinking to the stutter the run above
+stored. `loop.placements` spreads the starts through the sustain and `loop.length_multiples` offers each
+start at several lengths, so a note that changes as it rings can be looped where it has settled;
+`reduction.json` states each candidate's seam and timbre distance, and the notebook's **Loop candidates**
+table reads them back. `loop.sustain_decay_ratio: 0.7` keeps looping available for genuinely sustained
+material while declining all three loops this run took, whose ratios are 0.513, 0.516 and 0.643.
 
 For *where* the cut lands, `max_length_s` is no help — it is a ceiling, and the clicking samples sit far
 under it. The knob that reaches `trim_s` is `reduce.events.duration_bucket_ratio`, which rounds every
@@ -362,7 +367,9 @@ as the format numbers. Each extra sample is charged a reserve, so the run states
 | `--candidates` | CLI (`reduce/bandwidth.yaml`) | The shortlist is missing encodings you want considered. |
 | `metrics.preprocess.dynamic_range_db` | `analysis/metrics.yaml` | The solver pays for material you cannot hear. |
 | `optimize.budget.energy_exponent` | `optimize/budget.yaml` | Quiet notes are getting a budget share out of proportion. |
-| `--no-loop` | CLI (`optimize/sweep.yaml: loops`) | Looped decays ring on. |
+| `--no-loop` | CLI (`optimize/sweep.yaml: loop_choices`) | Looped decays ring on. |
+| `loop.min_loop_s` | `codec/loop.yaml` | Loops are short enough to buzz at their own rate. |
+| `loop.placements`, `loop.length_multiples` | `codec/loop.yaml` | The loop sits where the note has not settled yet. |
 | `loop.sustain_decay_ratio` | `codec/loop.yaml` | Struck notes are being judged loopable. |
 
 `--config` takes a **directory** laid out the way the bundled one is -- a stage per directory, a group per

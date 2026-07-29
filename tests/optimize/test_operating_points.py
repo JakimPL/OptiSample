@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 
 from optisample.config import load_config
-from optisample.config.optimize import SweepConfig
-from optisample.dsp.surrogate import EncodingParams
+from optisample.config.optimize import TRIMMED_ONLY, SweepConfig
+from optisample.dsp.surrogate import TRIMMED, EncodingParams
 from optisample.optimize.operating_points import (
     OperatingPoint,
     SourceClip,
@@ -61,11 +61,10 @@ def test_looping_a_periodic_clip_saves_bytes_at_similar_quality(
     sweep: Callable[..., SweepConfig], sweep_context: SweepContext
 ) -> None:
     clip = SourceClip(signal=harmonic_tone(dur=3.0), sample_rate=SR, root_pitch=57, duration_s=3.0)
-    plain_sweep = sweep(rates=(SR,), depths=(16,), dither=False, loops=(False,))
-    loop_sweep = sweep(rates=(SR,), depths=(16,), dither=False, loops=(True,))
-    plain = sample_operating_points(clip, plain_sweep, sweep_context)[0]
-    looped = sample_operating_points(clip, loop_sweep, sweep_context)[0]
-    assert looped.params.loop is True
+    grid = sweep(rates=(SR,), depths=(16,), dither=False, loop_choices=1)
+    plain, looped = sample_operating_points(clip, grid, sweep_context)
+    assert plain.params.loop_choice is TRIMMED
+    assert looped.params.loop_choice == 0
     assert looped.stored_bytes < plain.stored_bytes // 2  # dropping the 3 s sustain tail is a big saving
     assert looped.distortion < 0.1  # the whole-period loop reconstructs the exactly-periodic tone
 
@@ -74,9 +73,9 @@ def test_looping_is_pareto_optimal_on_the_frontier_when_it_helps(
     sweep: Callable[..., SweepConfig], sweep_context: SweepContext
 ) -> None:
     clip = SourceClip(signal=harmonic_tone(dur=3.0), sample_rate=SR, root_pitch=57, duration_s=3.0)
-    grid = sweep(rates=(SR, 11_025), depths=(16, 8), dither=False, loops=(False, True))
+    grid = sweep(rates=(SR, 11_025), depths=(16, 8), dither=False, loop_choices=1)
     hull = rd_frontier(clip, grid, sweep_context)
-    assert any(op.params.loop for op in hull)  # a looped config survives onto the rate-distortion hull
+    assert any(op.params.loop_choice is not None for op in hull)  # a looped config survives onto the hull
 
 
 def test_the_swept_rates_are_the_ladder_a_recording_reaches_down_to(sweep: Callable[..., SweepConfig]) -> None:
@@ -133,9 +132,19 @@ def test_a_deep_depth_is_swept_uncompressed_once(sweep: Callable[..., SweepConfi
 
 
 def test_the_grid_enumerates_compression_only_where_it_is_swept(sweep: Callable[..., SweepConfig]) -> None:
-    grid = sweep(rates=(SR,), depths=(16, 8), compress=(False, True))
+    grid = sweep(rates=(SR,), depths=(16, 8), compress=(False, True), loop_choices=TRIMMED_ONLY)
     params = list(sweep_param_grid(grid, SR, trim_s=None))
     assert [(point.depth_bits, point.compress) for point in params] == [(16, False), (8, False), (8, True)]
+
+
+def test_the_grid_offers_the_trimmed_sample_beside_every_loop_candidate(
+    sweep: Callable[..., SweepConfig],
+) -> None:
+    """Storing no loop is an option of its own, so the frontier prices a loop against going without."""
+    grid = sweep(rates=(SR,), depths=(16,), loop_choices=2)
+    params = list(sweep_param_grid(grid, SR, trim_s=None))
+
+    assert [point.loop_choice for point in params] == [TRIMMED, 0, 1]
 
 
 def test_sample_operating_points_covers_the_grid(
@@ -143,7 +152,7 @@ def test_sample_operating_points_covers_the_grid(
 ) -> None:
     """One point per grid entry: three rates once at 16 bits, and both compressions of them at 8."""
     clip = SourceClip(signal=bright_piano(), sample_rate=SR, root_pitch=84, duration_s=1.0)
-    grid = sweep(rates=(44_100, 22_050, 11_025), depths=(16, 8), compress=(False, True))
+    grid = sweep(rates=(44_100, 22_050, 11_025), depths=(16, 8), compress=(False, True), loop_choices=TRIMMED_ONLY)
     points = sample_operating_points(clip, grid, seeded(sweep_context))
     assert len(points) == 3 + 3 * 2
     assert all(p.stored_bytes > 0 for p in points)

@@ -3,5 +3,5 @@ rates: [8000, 11025, 16000, 22050, 28800, 37800, 44100] # reduced rates; a clip 
 depths: [16, 8]              # swept bit depths
 dither: true
 noise_shaping: false
-loops: [true]                # loop by default; non-periodic material falls back to a trim
+loop_choices: 3              # loop candidates swept; the trimmed sample is swept beside them
 compress: [false, true]      # swept where the quantizer is shallow enough to hear the headroom it buys

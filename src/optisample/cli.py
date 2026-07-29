@@ -17,7 +17,7 @@ from optisample.artifacts import (
 )
 from optisample.config import OptiConfig, load_config
 from optisample.config.layers import LayersConfig
-from optisample.config.optimize import BudgetConfig, SweepConfig
+from optisample.config.optimize import TRIMMED_ONLY, BudgetConfig, SweepConfig
 from optisample.config.reduce import DedupeKey, ReduceConfig
 from optisample.config.render import Interpolation
 from optisample.config.tracker import TrackerConfig, TrackerFormat
@@ -147,7 +147,7 @@ def _ingest_parser() -> argparse.ArgumentParser:
     ingest.add_argument(
         "--no-loop",
         action="store_true",
-        help="Disable looping (store full-length samples)",
+        help="Sweep the trimmed sample alone, leaving every loop candidate off the grid",
     )
     ingest.add_argument(
         "--dedupe-key",
@@ -434,7 +434,7 @@ def _optimize_settings(
             **config.optimize.sweep.model_dump(),
             "rates": tuple(args.rates) if args.rates else config.optimize.sweep.rates,
             "depths": tuple(args.depths) if args.depths else config.optimize.sweep.depths,
-            "loops": (False,) if args.no_loop else config.optimize.sweep.loops,
+            "loop_choices": TRIMMED_ONLY if args.no_loop else config.optimize.sweep.loop_choices,
         }
     )
     return OptimizeSettings(

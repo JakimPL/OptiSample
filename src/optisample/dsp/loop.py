@@ -1,16 +1,24 @@
 from dataclasses import dataclass
+from math import ceil
 from typing import Final
 
 import numpy as np
 from numpy.typing import NDArray
 
 from optisample.config.codec import LoopConfig
+from optisample.config.spectral import StftParams
+from optisample.dsp.spectral import stft_magnitude
 
 Signal = NDArray[np.float64]
 
 _MIN_STEADY_FRAMES: Final = 8
 _MIN_SUSTAIN_FRAMES: Final = 6
 _ENERGY_THIRDS: Final = 3
+_QUALITY_FFT: Final = 1024  # window the loop region and the stretch it stands for are compared over
+_QUALITY_HOP: Final = 512
+_AMPLITUDE_DB: Final = 20.0  # decibels per decade of amplitude
+_SPECTRUM_FLOOR: Final = 1e-10
+_STEP_FLOOR: Final = 1e-12
 
 
 @dataclass(frozen=True)
@@ -23,6 +31,30 @@ class Loop:
     @property
     def length(self) -> int:
         return self.end - self.start
+
+
+@dataclass(frozen=True)
+class LoopQuality:
+    """How well a loop stands in for the material it replaces: the wrap it makes, and the timbre it holds.
+
+    ``seam_step`` reads the jump at the wrap in units of the loop's own typical frame-to-frame motion, so
+    1.0 is a wrap as smooth as the waveform already moves and a large value is the click heard once per
+    round. ``spectral_distance`` is the log-spectral distance in decibels between the loop region and the
+    stretch it plays in place of, measured over spectra normalized to unit sum so it reads the timbre a
+    loop holds on to while the material moved on.
+    """
+
+    seam_step: float
+    spectral_distance: float
+
+
+@dataclass(frozen=True)
+class _SteadyRegion:
+    """The stretch a loop may be placed in, and the period its material repeats at."""
+
+    attack: int
+    tail: int
+    period: int
 
 
 def _autocorrelation(signal: Signal) -> Signal:
@@ -93,7 +125,7 @@ def _snap_ascending_zero(signal: Signal, index: int, radius: int) -> int:
     return best
 
 
-def _steady_region(
+def _steady_bounds(
     signal: Signal,
     sample_rate: int,
     config: LoopConfig,
@@ -104,48 +136,18 @@ def _steady_region(
     return attack, tail
 
 
-def _loop_length(period: int, sample_rate: int, config: LoopConfig) -> int:
-    """The wanted loop length: whole periods covering at least ``min_periods`` and ``min_loop_s`` worth."""
-    wanted = max(config.min_periods * period, round(config.min_loop_s * sample_rate))
-    return max(config.min_periods, round(wanted / period)) * period
-
-
-def _fit_loop_to_region(
-    start: int,
-    loop_len: int,
-    tail: int,
-    period: int,
-    config: LoopConfig,
-) -> int | None:
-    """Shrink ``loop_len`` to the whole periods that fit before ``tail``; ``None`` if too few remain."""
-    if start + loop_len <= tail:
-        return loop_len
-
-    fitted = ((tail - start) // period) * period
-    return fitted if fitted >= config.min_periods * period else None
-
-
-def detect_loop(
+def _steady_region(
     signal: Signal,
     sample_rate: int,
     config: LoopConfig,
-) -> Loop | None:
-    """Find a forward loop in the steady region of ``signal``, or ``None`` if it cannot be looped.
+) -> _SteadyRegion | None:
+    """The window a loop may be placed in, together with the period it repeats at.
 
-    Analyses the steady region between the attack skip (past the onset transient) and the tail skip
-    (before the release). The region must sustain a level tone -- a loop repeats its content forever, so
-    a decaying region would ring on at a constant level -- and carry a fundamental period, found by
-    :func:`_estimate_period`. The loop spans a whole number of periods (at least ``min_periods`` and
-    ``min_loop_s`` worth), begins at an ascending zero crossing just after the attack so the wrap lands
-    mid-slope in phase, and keeps only ``[0, loop.end)`` -- storing the attack plus one loop region while
-    dropping the sustain tail, which is where the bytes are saved. A region shorter than the wanted loop
-    uses as many whole periods as fit.
-
-    Returns ``None`` when the steady region is too short to analyse, decays instead of sustaining, has no
-    reliable period, or leaves room for fewer than ``min_periods`` whole periods.
+    Returns ``None`` for material a loop has no purchase on: a steady window shorter than
+    ``_MIN_STEADY_FRAMES``, a region that decays instead of sustaining, or one carrying no reliable
+    period.
     """
-    total = signal.size
-    attack, tail = _steady_region(signal, sample_rate, config)
+    attack, tail = _steady_bounds(signal, sample_rate, config)
     if tail - attack < _MIN_STEADY_FRAMES:
         return None
 
@@ -157,22 +159,101 @@ def detect_loop(
     if period is None:
         return None
 
-    start = _snap_ascending_zero(signal, attack, radius=period)
-    loop_len = _fit_loop_to_region(
-        start,
-        _loop_length(period, sample_rate, config),
-        tail,
-        period,
-        config,
-    )
-    if loop_len is None:
-        return None
+    return _SteadyRegion(attack=attack, tail=tail, period=period)
 
-    end = start + loop_len
-    if end > total or end <= start:
-        return None
 
-    return Loop(start, end)
+def shortest_loop_frames(period: int, sample_rate: int, config: LoopConfig) -> int:
+    """The shortest loop the config accepts: whole periods covering ``min_periods`` and ``min_loop_s``.
+
+    Rounding the period count up makes ``min_loop_s`` a floor every stored loop clears, which is what
+    keeps a loop long enough to carry the material's own movement instead of buzzing at its rate.
+    """
+    periods = max(config.min_periods, ceil(config.min_loop_s * sample_rate / period))
+    return periods * period
+
+
+def _fitted_length(start: int, wanted: int, region: _SteadyRegion, shortest: int) -> int | None:
+    """``wanted`` frames from ``start``, shortened to the whole periods the steady region has room for.
+
+    Returns ``None`` where the room left holds less than ``shortest``, which is the floor
+    :func:`shortest_loop_frames` sets.
+    """
+    if start + wanted <= region.tail:
+        return wanted
+
+    fitted = ((region.tail - start) // region.period) * region.period
+    return fitted if fitted >= shortest else None
+
+
+def _placements(signal: Signal, region: _SteadyRegion, shortest: int, config: LoopConfig) -> list[int]:
+    """Loop starts spread evenly through the room the steady region has, snapped to ascending zeros.
+
+    The first placement sits at the attack skip and the last as late as the shortest accepted loop still
+    fits, so ``placements`` readings span the whole stretch a loop may be taken from. Snapping each to an
+    ascending zero crossing lands the wrap mid-slope in phase, which is what the seam crossfade then
+    smooths over.
+    """
+    room = max(0, region.tail - region.attack - shortest)
+    spacing = room / (config.placements - 1) if config.placements > 1 else 0.0
+    starts = [
+        _snap_ascending_zero(signal, region.attack + round(index * spacing), radius=region.period)
+        for index in range(config.placements)
+    ]
+    return list(dict.fromkeys(starts))
+
+
+def loop_candidates(
+    signal: Signal,
+    sample_rate: int,
+    config: LoopConfig,
+) -> tuple[Loop, ...]:
+    """Every forward loop worth offering for ``signal``, ordered so the first is the default choice.
+
+    Each candidate spans a whole number of periods of the material (found by :func:`_estimate_period`),
+    begins at an ascending zero crossing, and lies inside the steady region between the attack skip and
+    the tail skip. Placement runs outermost and length innermost, so a caller taking the first few
+    candidates sees both axes early: the loop the attack leads into at each accepted length, then the
+    same at placements further into the note. Candidate 0 is therefore the shortest accepted loop right
+    after the attack, which is the one :func:`detect_loop` answers with.
+
+    Storing a candidate keeps ``[0, loop.end)`` -- the attack plus one loop region -- and the sustain
+    tail past it is where the bytes are saved. Lengths are the multiples of the shortest accepted loop
+    (:func:`shortest_loop_frames`) that ``config.length_multiples`` asks for, each shortened to the whole
+    periods the region has room for, so a longer loop carries more of the material's own movement where
+    the note is long enough to hold it.
+
+    Returns an empty tuple for material a loop has no purchase on: a steady region too short to analyse,
+    one that decays instead of sustaining, one carrying no reliable period, or one with room for less
+    than the shortest accepted loop.
+    """
+    region = _steady_region(signal, sample_rate, config)
+    if region is None:
+        return ()
+
+    shortest = shortest_loop_frames(region.period, sample_rate, config)
+    found: list[Loop] = []
+    for start in _placements(signal, region, shortest, config):
+        for multiple in config.length_multiples:
+            fitted = _fitted_length(start, shortest * multiple, region, shortest)
+            if fitted is not None:
+                found.append(Loop(start, start + fitted))
+
+    return tuple(dict.fromkeys(found))
+
+
+def detect_loop(
+    signal: Signal,
+    sample_rate: int,
+    config: LoopConfig,
+) -> Loop | None:
+    """The loop to store when one is wanted and nothing chooses among the alternatives.
+
+    Answers with the first of :func:`loop_candidates` -- the shortest accepted loop placed right after
+    the attack -- so a caller needing one loop has the cheapest one the material supports. Returns
+    ``None`` where the material supports none.
+    """
+    candidates = loop_candidates(signal, sample_rate, config)
+    return candidates[0] if candidates else None
 
 
 def crossfade_loop(signal: Signal, loop: Loop, *, fade_len: int) -> Signal:
@@ -192,3 +273,56 @@ def crossfade_loop(signal: Signal, loop: Loop, *, fade_len: int) -> Signal:
     preceding_start = signal[loop.start - fade : loop.start]
     out[loop.end - fade : loop.end] = (1.0 - ramp) * approaching_end + ramp * preceding_start
     return out
+
+
+def _seam_step(signal: Signal, loop: Loop) -> float:
+    """The jump the wrap makes, in units of the typical frame-to-frame step inside the loop region."""
+    region = signal[loop.start : loop.end]
+    if region.size < 2:
+        return 0.0
+
+    typical = float(np.mean(np.abs(np.diff(region))))
+    return float(abs(region[0] - region[-1])) / max(typical, _STEP_FLOOR)
+
+
+def _spectral_shape(signal: Signal) -> Signal:
+    """Frame-averaged magnitude spectrum of ``signal``, normalized to unit sum so it reads shape alone."""
+    magnitude = stft_magnitude(signal, StftParams(n_fft=_QUALITY_FFT, hop_length=_QUALITY_HOP)).mean(axis=0)
+    return np.asarray(magnitude / max(float(np.sum(magnitude)), _SPECTRUM_FLOOR), dtype=np.float64)
+
+
+def _spectral_distance(region: Signal, material: Signal) -> float:
+    """Root-mean-square log-spectral distance in decibels between two stretches of the same recording.
+
+    A stretch shorter than one analysis window carries too little for a spectrum to be read off, so it
+    reports a distance of 0.0.
+    """
+    if region.size < _QUALITY_FFT or material.size < _QUALITY_FFT:
+        return 0.0
+
+    difference = _AMPLITUDE_DB * np.log10(
+        (_spectral_shape(region) + _SPECTRUM_FLOOR) / (_spectral_shape(material) + _SPECTRUM_FLOOR)
+    )
+    return float(np.sqrt(np.mean(difference**2)))
+
+
+def loop_quality(
+    signal: Signal,
+    loop: Loop,
+    sample_rate: int,
+    config: LoopConfig,
+) -> LoopQuality:
+    """Measure what storing ``loop`` costs: the seam it wraps on, and the timbre it settles into.
+
+    The seam is read after :func:`crossfade_loop` has blended it, which is the waveform a player wraps.
+    The material a loop stands in for is the steady region past its end -- the stretch a looped sample
+    stops storing -- so a loop taken from a part of the note that has moved on in timbre reports the
+    distance. A loop reaching the end of the steady region stands in for less than one analysis window
+    and reports a distance of 0.0.
+    """
+    faded = crossfade_loop(signal, loop, fade_len=round(config.crossfade_s * sample_rate))
+    _, tail = _steady_bounds(signal, sample_rate, config)
+    return LoopQuality(
+        seam_step=_seam_step(faded, loop),
+        spectral_distance=_spectral_distance(faded[loop.start : loop.end], signal[loop.end : tail]),
+    )

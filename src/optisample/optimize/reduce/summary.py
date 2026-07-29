@@ -62,8 +62,8 @@ class ReductionSummary:
     """How much smaller the pre-optimization stage made the problem the allocation then solves.
 
     Each pair states one axis of the reduction: the recorded grid down to one survivor per identity, the
-    material down to the classes that reconstruct alike, and the ``(loop, depth, rate)`` grid down to the
-    shortlist each pitch is swept over. ``grids`` covers the samples the ungrouped strategy stores, one
+    material down to the classes that reconstruct alike, and the ``(loop choice, depth, rate)`` grid down
+    to the shortlist each pitch is swept over. ``grids`` covers the samples the ungrouped strategy stores, one
     per played pitch; pitch-zone grouping narrows again per zone, around what that zone's span and key
     count ask of its representative.
     """

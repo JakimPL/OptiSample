@@ -6,7 +6,7 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.config.codec import EncodeConfig
-from optisample.config.optimize import SweepConfig
+from optisample.config.optimize import TRIMMED_ONLY, SweepConfig
 from optisample.config.reduce import BandwidthConfig, ReduceConfig
 from optisample.dsp.spectral import bandlimit
 from optisample.dsp.surrogate import EncodingParams
@@ -29,7 +29,7 @@ _NO_TRANSPOSE = 0
 _A_ZONE_OF_KEYS = 8
 _RATES = (16_000, 8_000, 4_000)  # an explicit ladder, so a test states which rates it expects back
 _GRID_RATES = len(_RATES) + 1  # the ladder, plus the clip's own rate, which every clip is also offered
-_ENCODINGS_PER_RATE = 3  # one 16-bit entry and both compressions of the 8-bit one, at one loop setting
+_ENCODINGS_PER_RATE = 3  # one 16-bit entry and both compressions of the 8-bit one, at one loop choice
 _FULL_GRID = _ENCODINGS_PER_RATE * _GRID_RATES
 _RATE_PER_BANDWIDTH = 2.0  # Nyquist, which turns a content-edge tolerance into a rate tolerance
 _TIGHT = 0  # a byte target no encoding can undercut, so the cheapest vertex wins
@@ -79,7 +79,11 @@ def make_context(
     sweep: SweepFactory,
     reduce: ReduceFactory,
 ) -> Callable[..., _Context]:
-    """Factory: a narrowing context over the explicit ``_RATES`` grid, varying the knobs a test needs."""
+    """Factory: a narrowing context over the explicit ``_RATES`` grid, varying the knobs a test needs.
+
+    The loop axis is pinned to the trimmed sample alone unless a test asks for more, so ``_FULL_GRID``
+    states the grid a test is reasoning about rather than tracking the bundled sweep.
+    """
 
     def _build(*, candidates: int, **grid: object) -> _Context:
         return _Context(
@@ -87,7 +91,7 @@ def make_context(
             composite=composite,
             encode=encode_config,
             storage=storage,
-            sweep=sweep(rates=_RATES, **grid),
+            sweep=sweep(rates=_RATES, **{"loop_choices": TRIMMED_ONLY, **grid}),
             bandwidth=reduce(bandwidth={"candidates": candidates}).bandwidth,
         )
 
@@ -163,7 +167,7 @@ def test_the_shortlist_is_a_subsequence_of_the_full_grid(make_context: Callable[
 def test_the_candidate_count_bounds_how_many_encodings_the_sweep_runs(
     make_context: Callable[..., _Context],
 ) -> None:
-    context = make_context(candidates=2, loops=(True, False))
+    context = make_context(candidates=2, loop_choices=1)  # the trimmed sample and one loop candidate
     assert len(tuple(sweep_param_grid(context.sweep, SR, trim_s=_TRIM_S))) == 2 * _FULL_GRID
     assert len(candidate_params(broadband(), untransposed(_ANY_BUDGET), context)) == 2
 

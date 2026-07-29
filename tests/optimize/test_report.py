@@ -261,7 +261,7 @@ def test_every_zone_states_the_layer_it_answers_for(storage: Storage, reduction:
 
 
 _COVERED: Final = (KeptRecording(SampleKey(60, 100), duration_s=1.0, required_duration_s=0.8),)
-_ONE_GRID: Final = (NarrowedGrid(60, 11_025.0, (EncodingParams(target_rate=11_025, depth_bits=16),)),)
+_ONE_GRID: Final = (NarrowedGrid(60, 11_025.0, (EncodingParams(target_rate=11_025, depth_bits=16),), ()),)
 
 
 def _summary(

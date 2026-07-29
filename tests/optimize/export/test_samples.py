@@ -324,7 +324,7 @@ def looped_build(
     sweep: Callable[..., SweepConfig],
     export_context: ExportContext,
 ) -> Callable[..., tuple[InstrumentPlan, TrackerModule]]:
-    """Optimize a periodic pad with looping forced on, so the stored sample is attack + a short loop."""
+    """Optimize a periodic pad whose budget only a loop fits, so the stored sample is attack + one loop."""
 
     def _looped_build(hold_s: float = 3.0) -> tuple[InstrumentPlan, TrackerModule]:
         audio = {SampleKey(60, 100): periodic_tone(dur=3.0)}
@@ -335,7 +335,7 @@ def looped_build(
             samples=[SourceSample(file=Path("60.wav"), pitch=60, velocity=100)],
             material=material,
         )
-        settings = optimize_settings(sweep=sweep(rates=(_LOOP_RATE,), depths=(16,), dither=False, loops=(True,)))
+        settings = optimize_settings(sweep=sweep(rates=(_LOOP_RATE,), depths=(16,), dither=False, loop_choices=1))
         plan = optimize_instrument(instrument, audio, SR, settings)
         return plan, build_module(plan, audio, SR, material, export_context)
 
@@ -346,7 +346,7 @@ def test_looped_plan_carries_loop_points_into_the_module(
     looped_build: Callable[..., tuple[InstrumentPlan, TrackerModule]],
 ) -> None:
     plan, module = looped_build()
-    assert plan.pitches[0].chosen.params.loop is True
+    assert plan.pitches[0].chosen.params.loop_choice == 0  # 3 s stored whole overruns the budget
     sample = module.song.samples[0]
     assert sample.loop is not None
     assert 0 <= sample.loop.begin < sample.loop.end <= sample.frames  # the loop lies inside the stored sample

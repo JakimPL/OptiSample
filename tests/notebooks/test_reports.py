@@ -12,6 +12,7 @@ from optisample.artifacts.serialize import (
     InstrumentRecord,
     KeptRecordingRecord,
     KeyboardRecord,
+    LoopCandidateRecord,
     LoopRecord,
     MetricsDocument,
     ModuleSizeRecord,
@@ -78,15 +79,22 @@ def _reduction() -> ReductionDocument:
                 note="C4",
                 useful_rate_hz=12_345.6,
                 shortlist=[
-                    ShortlistedEncodingRecord(target_rate=22_050, depth_bits=16, compress=False, loop=True),
-                    ShortlistedEncodingRecord(target_rate=11_025, depth_bits=8, compress=True, loop=True),
+                    ShortlistedEncodingRecord(target_rate=22_050, depth_bits=16, compress=False, loop_choice=0),
+                    ShortlistedEncodingRecord(target_rate=11_025, depth_bits=8, compress=True, loop_choice=1),
+                ],
+                loops=[
+                    LoopCandidateRecord(choice=0, start_s=0.05, end_s=0.55, seam_step=1.25, spectral_distance=3.5),
+                    LoopCandidateRecord(choice=1, start_s=0.70, end_s=1.20, seam_step=0.75, spectral_distance=1.5),
                 ],
             ),
             NarrowedGridRecord(
                 pitch=67,
                 note="G4",
                 useful_rate_hz=9_000.0,
-                shortlist=[ShortlistedEncodingRecord(target_rate=11_025, depth_bits=8, compress=False, loop=False)],
+                shortlist=[
+                    ShortlistedEncodingRecord(target_rate=11_025, depth_bits=8, compress=False, loop_choice=None)
+                ],
+                loops=[],
             ),
         ],
     )
@@ -256,8 +264,18 @@ def test_a_recording_shorter_than_its_material_states_the_shortfall(reduced_root
 def test_the_shortlist_names_every_axis_each_encoding_asks_for(reduced_root: Path) -> None:
     rows = reports.shortlist_rows(reports.read_reduced(reduced_root, _INSTRUMENT).reduction)
 
-    assert rows[0]["encodings"] == "22k/16 11k/8c"  # the trailing c marks the compressed one
+    assert rows[0]["encodings"] == "22k/16/l0 11k/8c/l1"  # c marks compression, l<n> the loop candidate
+    assert rows[1]["encodings"] == "11k/8/t"  # t marks the trimmed sample, stored around no loop
     assert rows[0]["useful_rate_hz"] == 12_346
+
+
+def test_every_loop_a_pitch_may_be_stored_around_is_reported_with_what_it_costs(reduced_root: Path) -> None:
+    rows = reports.loop_rows(reports.read_reduced(reduced_root, _INSTRUMENT).reduction)
+
+    assert [row["pitch"] for row in rows] == [60, 60]  # the pitch offering no candidate contributes no row
+    assert [row["choice"] for row in rows] == [0, 1]
+    assert rows[0]["length_s"] == 0.5
+    assert (rows[0]["seam"], rows[0]["timbre_db"]) == (1.25, 3.5)
 
 
 def test_auditions_open_with_the_recording_the_rest_are_judged_against(reduced_root: Path) -> None:

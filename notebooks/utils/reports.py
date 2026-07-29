@@ -13,6 +13,7 @@ from optisample.artifacts.serialize import (
     PlanDocument,
     ReducedDocument,
     ReductionDocument,
+    ShortlistedEncodingRecord,
     ZoneItemRecord,
 )
 from optisample.metrics import bytes_to_kib
@@ -87,6 +88,13 @@ def recording_rows(reduction: ReductionDocument) -> list[Row]:
     ]
 
 
+def _encoding_label(entry: ShortlistedEncodingRecord) -> str:
+    """One shortlisted encoding as a table cell reads it: rate, depth, compression, and loop choice."""
+    marks = "c" if entry.compress else ""
+    loop = "t" if entry.loop_choice is None else f"l{entry.loop_choice}"
+    return f"{entry.target_rate // 1000}k/{entry.depth_bits}{marks}/{loop}"
+
+
 def shortlist_rows(reduction: ReductionDocument) -> list[Row]:
     """One row per played pitch: the band bounding its grid, and the encodings left in the running."""
     return [
@@ -95,12 +103,32 @@ def shortlist_rows(reduction: ReductionDocument) -> list[Row]:
             "note": grid.note,
             "useful_rate_hz": round(grid.useful_rate_hz),
             "shortlisted": len(grid.shortlist),
-            "encodings": " ".join(
-                f"{entry.target_rate // 1000}k/{entry.depth_bits}{'c' if entry.compress else ''}"
-                for entry in grid.shortlist
-            ),
+            "encodings": " ".join(_encoding_label(entry) for entry in grid.shortlist),
         }
         for grid in reduction.grids
+    ]
+
+
+def loop_rows(reduction: ReductionDocument) -> list[Row]:
+    """One row per loop candidate the sweep may store a pitch around, with what each is worth.
+
+    ``seam`` counts the wrap's jump in the loop's own frame-to-frame steps and ``timbre_db`` the distance
+    between the loop's spectrum and the material past it, so a row states the case for the loop the
+    allocation went on to buy.
+    """
+    return [
+        {
+            "pitch": grid.pitch,
+            "note": grid.note,
+            "choice": loop.choice,
+            "start_s": round(loop.start_s, 3),
+            "end_s": round(loop.end_s, 3),
+            "length_s": round(loop.end_s - loop.start_s, 3),
+            "seam": round(loop.seam_step, 2),
+            "timbre_db": round(loop.spectral_distance, 2),
+        }
+        for grid in reduction.grids
+        for loop in grid.loops
     ]
 
 
