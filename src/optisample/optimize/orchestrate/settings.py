@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from optisample.config.dsp import EncodeConfig
+from optisample.config.codec import EncodeConfig
 from optisample.config.layers import LayersConfig
 from optisample.config.metrics import MetricsConfig
 from optisample.config.optimize import EVERY_SAMPLE, SweepConfig, VelocityConfig

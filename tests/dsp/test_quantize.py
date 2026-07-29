@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from optisample.config.dsp import QuantizeConfig
+from optisample.config.codec import QuantizeConfig
 from optisample.dsp.levels import db_to_gain
 from optisample.dsp.quantize import (
     apply_gain,

@@ -17,7 +17,7 @@ from optisample.artifacts import (
 )
 from optisample.config import OptiConfig, load_config
 from optisample.config.layers import LayersConfig
-from optisample.config.optimize import OptimizeConfig, SweepConfig
+from optisample.config.optimize import BudgetConfig, SweepConfig
 from optisample.config.reduce import DedupeKey, ReduceConfig
 from optisample.config.render import Interpolation
 from optisample.config.tracker import TrackerConfig, TrackerFormat
@@ -349,9 +349,9 @@ def build_parser() -> argparse.ArgumentParser:
 def _export_target(config: OptiConfig, args: argparse.Namespace) -> ExportTarget:
     """The target the module is written through, with ``--format`` overriding the configured format."""
     if args.format is None:
-        return export_target(config.tracker)
+        return export_target(config.export.tracker)
 
-    return export_target(TrackerConfig.model_validate({**config.tracker.model_dump(), "format": args.format}))
+    return export_target(TrackerConfig.model_validate({**config.export.tracker.model_dump(), "format": args.format}))
 
 
 def _reduce_config(config: OptiConfig, args: argparse.Namespace) -> ReduceConfig:
@@ -382,12 +382,12 @@ def _layers_config(config: OptiConfig, args: argparse.Namespace) -> LayersConfig
     flag sits on ``optimize`` alone.
     """
     if args.max_layers is None:
-        return config.layers
+        return config.optimize.layers
 
-    return LayersConfig.model_validate({**config.layers.model_dump(), "max_layers": args.max_layers})
+    return LayersConfig.model_validate({**config.optimize.layers.model_dump(), "max_layers": args.max_layers})
 
 
-def _optimize_config(config: OptiConfig, args: argparse.Namespace) -> OptimizeConfig:
+def _budget_config(config: OptiConfig, args: argparse.Namespace) -> BudgetConfig:
     """The solver config with ``--max-samples`` applied over the loaded values.
 
     The override goes through a dump-and-revalidate so the schema settles what a sample cap may be in one
@@ -395,9 +395,9 @@ def _optimize_config(config: OptiConfig, args: argparse.Namespace) -> OptimizeCo
     sits on ``optimize`` alone.
     """
     if args.max_samples is None:
-        return config.optimize
+        return config.optimize.budget
 
-    return OptimizeConfig.model_validate({**config.optimize.model_dump(), "max_samples": args.max_samples})
+    return BudgetConfig.model_validate({**config.optimize.budget.model_dump(), "max_samples": args.max_samples})
 
 
 def _workers(config: OptiConfig, args: argparse.Namespace) -> int:
@@ -421,32 +421,32 @@ def _optimize_settings(
     config: OptiConfig,
     args: argparse.Namespace,
     layers: LayersConfig,
-    optimize: OptimizeConfig,
+    budget: BudgetConfig,
 ) -> OptimizeSettings:
     """Build the optimization settings from ``config``, applying the sweep/reduce/format/seed overrides.
 
-    ``layers`` and ``optimize`` arrive from the caller because only the allocating command declares
+    ``layers`` and ``budget`` arrive from the caller because only the allocating command declares
     ``--max-layers`` and ``--max-samples``, so reducing alone states the configured split and cap and
     optimizing states the ones the flags asked for.
     """
     grid = SweepConfig.model_validate(
         {
-            **config.sweep.model_dump(),
-            "rates": tuple(args.rates) if args.rates else config.sweep.rates,
-            "depths": tuple(args.depths) if args.depths else config.sweep.depths,
-            "loops": (False,) if args.no_loop else config.sweep.loops,
+            **config.optimize.sweep.model_dump(),
+            "rates": tuple(args.rates) if args.rates else config.optimize.sweep.rates,
+            "depths": tuple(args.depths) if args.depths else config.optimize.sweep.depths,
+            "loops": (False,) if args.no_loop else config.optimize.sweep.loops,
         }
     )
     return OptimizeSettings(
         sweep=grid,
         reduce=_reduce_config(config, args),
         layers=layers,
-        encode=config.encode,
-        metrics=config.metrics,
-        velocity=config.velocity,
-        method=optimize.method,
-        energy_exponent=optimize.energy_exponent,
-        max_samples=optimize.max_samples,
+        encode=config.codec.encode,
+        metrics=config.analysis.metrics,
+        velocity=config.optimize.velocity,
+        method=budget.method,
+        energy_exponent=budget.energy_exponent,
+        max_samples=budget.max_samples,
         target=_export_target(config, args),
         seed=args.seed,
         workers=_workers(config, args),
@@ -460,9 +460,9 @@ def _dump_settings(
 ) -> DumpSettings:
     """Assemble the artifact-dump settings from ``config`` and the CLI flags."""
     return DumpSettings(
-        optimize=_optimize_settings(config, args, _layers_config(config, args), _optimize_config(config, args)),
-        render=config.render,
-        playback=config.playback,
+        optimize=_optimize_settings(config, args, _layers_config(config, args), _budget_config(config, args)),
+        render=config.export.render,
+        playback=config.export.playback,
         render_ground_truth=not args.no_render,
         grouped=args.strategy in ("both", "grouped"),
         ungrouped=args.strategy in ("both", "ungrouped"),
@@ -504,7 +504,7 @@ def _pipeline_settings(config: OptiConfig, args: argparse.Namespace) -> Pipeline
     """
     return PipelineSettings(
         ingest=_ingest_settings(args),
-        reduce=_optimize_settings(config, args, config.layers, config.optimize),
+        reduce=_optimize_settings(config, args, config.optimize.layers, config.optimize.budget),
         dump=_dump_settings(config, args),
         fraction=args.fraction,
     )
@@ -560,7 +560,9 @@ def _plan_total(results: Sequence[DumpResult]) -> float:
 
 def _run_reduce(config: OptiConfig, args: argparse.Namespace) -> None:
     manifest = load_source(_source(args), _ingest_settings(args))
-    for result in reduce_project(manifest, args.out, _optimize_settings(config, args, config.layers, config.optimize)):
+    for result in reduce_project(
+        manifest, args.out, _optimize_settings(config, args, config.optimize.layers, config.optimize.budget)
+    ):
         _print_reduced(result)
 
 

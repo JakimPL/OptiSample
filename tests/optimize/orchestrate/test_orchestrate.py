@@ -29,7 +29,7 @@ VELOCITIES = (50, 100)
 _CONFIG = load_config()
 _SYNTH = _CONFIG.synth
 _REDUCE = _CONFIG.reduce
-_LOOP = _CONFIG.loop
+_LOOP = _CONFIG.codec.loop
 
 
 def note(pitch: int, velocity: int, dur: float = 0.5) -> NDArray[np.float64]:

@@ -3,7 +3,7 @@ from typing import Final
 
 import numpy as np
 
-from optisample.config.dsp import EncodeConfig
+from optisample.config.codec import EncodeConfig
 from optisample.dsp.surrogate import EncodeContext, StoredSample, encode
 from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.base import Signal

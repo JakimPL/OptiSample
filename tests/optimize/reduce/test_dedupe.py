@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from optisample.config.dsp import LoopConfig
+from optisample.config.codec import LoopConfig
 from optisample.config.reduce import DedupeKey, ReduceConfig
 from optisample.io.audio import write_wav
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample

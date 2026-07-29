@@ -68,7 +68,7 @@ def test_dump_settings_maps_grid_and_flags(config: OptiConfig) -> None:
     assert settings.optimize.sweep.depths == (8,)
     assert settings.optimize.sweep.loops == (False,)  # --no-loop disables looping
     assert settings.optimize.seed == 3
-    assert settings.optimize.target.format is config.tracker.format  # unnamed, so the configured format
+    assert settings.optimize.target.format is config.export.tracker.format  # unnamed, so the configured format
     assert settings.render_ground_truth is False
     assert settings.grouped is True and settings.ungrouped is False
 
@@ -77,8 +77,8 @@ def test_the_format_flag_overrides_the_configured_format(config: OptiConfig) -> 
     args = build_parser().parse_args(["optimize", "m.notes.json", "--budget-kb", "48", "--format", "xm"])
     target = _dump_settings(config, args).optimize.target
     assert target.format is TrackerFormat.XM
-    assert target.compliance is config.tracker.compliance  # only the format is overridden
-    assert target.it.global_volume == config.tracker.it.global_volume
+    assert target.compliance is config.export.tracker.compliance  # only the format is overridden
+    assert target.it.global_volume == config.export.tracker.it.global_volume
 
 
 def test_the_reduction_flags_override_their_configured_sections(config: OptiConfig) -> None:
@@ -113,13 +113,13 @@ def test_the_max_layers_flag_overrides_the_configured_cap(config: OptiConfig) ->
     args = build_parser().parse_args(["optimize", "m.notes.json", "--budget-kb", "48", "--max-layers", "1"])
     layers = _dump_settings(config, args).optimize.layers
     assert layers.max_layers == 1
-    assert layers.nodes == config.layers.nodes  # only the cap moves
-    assert layers.min_gain == config.layers.min_gain
+    assert layers.nodes == config.optimize.layers.nodes  # only the cap moves
+    assert layers.min_gain == config.optimize.layers.min_gain
 
 
 def test_the_layer_cap_stays_configured_when_no_flag_names_it(config: OptiConfig) -> None:
     args = build_parser().parse_args(["optimize", "m.notes.json", "--budget-kb", "48"])
-    assert _dump_settings(config, args).optimize.layers == config.layers
+    assert _dump_settings(config, args).optimize.layers == config.optimize.layers
 
 
 def test_a_layer_cap_below_one_is_refused_by_the_schema(config: OptiConfig) -> None:
@@ -133,13 +133,13 @@ def test_the_max_samples_flag_overrides_the_configured_cap(config: OptiConfig) -
     settings = _dump_settings(config, args).optimize
     assert settings.max_samples == 8
     assert settings.sample_cap == 8
-    assert settings.method == config.optimize.method  # only the cap moves
-    assert settings.energy_exponent == config.optimize.energy_exponent
+    assert settings.method == config.optimize.budget.method  # only the cap moves
+    assert settings.energy_exponent == config.optimize.budget.energy_exponent
 
 
 def test_the_sample_cap_stays_configured_when_no_flag_names_it(config: OptiConfig) -> None:
     args = build_parser().parse_args(["optimize", "m.notes.json", "--budget-kb", "48"])
-    assert _dump_settings(config, args).optimize.max_samples == config.optimize.max_samples
+    assert _dump_settings(config, args).optimize.max_samples == config.optimize.budget.max_samples
 
 
 def test_a_sample_cap_below_zero_is_refused_by_the_schema(config: OptiConfig) -> None:
@@ -448,8 +448,8 @@ def test_the_allocation_caps_a_chained_run_states_reach_the_stage_that_allocates
     settings = _pipeline_settings(config, args)
     assert settings.dump.optimize.max_samples == 4
     assert settings.dump.optimize.layers.max_layers == 1
-    assert settings.reduce.max_samples == config.optimize.max_samples
-    assert settings.reduce.layers == config.layers
+    assert settings.reduce.max_samples == config.optimize.budget.max_samples
+    assert settings.reduce.layers == config.optimize.layers
 
 
 def test_a_chained_run_slices_nothing_when_no_fraction_is_named(config: OptiConfig) -> None:
@@ -472,10 +472,10 @@ def test_the_reduce_command_reads_the_same_ingest_flags_as_optimize(config: Opti
     argv = ["m.notes.json", "--budget-kb", "48", "--dedupe-key", "pitch", "--candidates", "7", "--seed", "3"]
     reduced = build_parser().parse_args(["reduce", *argv])
     optimized = build_parser().parse_args(["optimize", *argv])
-    assert _optimize_settings(config, reduced, config.layers, config.optimize).reduce == (
-        _optimize_settings(config, optimized, config.layers, config.optimize).reduce
+    assert _optimize_settings(config, reduced, config.optimize.layers, config.optimize.budget).reduce == (
+        _optimize_settings(config, optimized, config.optimize.layers, config.optimize.budget).reduce
     )
-    assert _optimize_settings(config, reduced, config.layers, config.optimize).seed == 3
+    assert _optimize_settings(config, reduced, config.optimize.layers, config.optimize.budget).seed == 3
 
 
 def test_the_roll_flags_state_a_directory_of_recordings_padding_in_seconds() -> None:
@@ -494,12 +494,15 @@ def test_the_keep_tail_flag_asks_for_the_padding_past_each_release() -> None:
 
 def test_the_workers_flag_sets_how_far_a_run_fans_out(config: OptiConfig) -> None:
     args = build_parser().parse_args(["optimize", "m.notes.json", "--budget-kb", "48", "--workers", "3"])
-    assert _optimize_settings(config, args, config.layers, config.optimize).workers == 3
+    assert _optimize_settings(config, args, config.optimize.layers, config.optimize.budget).workers == 3
 
 
 def test_a_run_fans_out_the_configured_way_when_no_flag_names_a_count(config: OptiConfig) -> None:
     args = build_parser().parse_args(["optimize", "m.notes.json", "--budget-kb", "48"])
-    assert _optimize_settings(config, args, config.layers, config.optimize).workers == config.runtime.workers
+    assert (
+        _optimize_settings(config, args, config.optimize.layers, config.optimize.budget).workers
+        == config.runtime.workers
+    )
 
 
 def test_the_demo_reads_the_same_fan_out_flag_as_a_run(config: OptiConfig) -> None:

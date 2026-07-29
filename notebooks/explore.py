@@ -30,8 +30,8 @@ def _():
     from optisample.metrics import build_composite
 
     config = load_config()
-    composite = build_composite(config.metrics)
-    storage = export_target(config.tracker).storage
+    composite = build_composite(config.analysis.metrics)
+    storage = export_target(config.export.tracker).storage
     return composite, config, storage
 
 
@@ -101,7 +101,7 @@ def _(instrument_dropdown, loading, manifest, mo, storage, views):
 @app.cell
 def _(config, instrument, loading, mo, signals, storage, views):
     _rows = [
-        views.sample_row(sample, *signals[loading.sample_label(sample)], config.spectral, storage)
+        views.sample_row(sample, *signals[loading.sample_label(sample)], config.analysis.spectral, storage)
         for sample in instrument.samples
     ]
     mo.vstack([mo.md("**Per-sample descriptors & footprint**"), mo.ui.table(_rows, selection=None)])
@@ -132,8 +132,8 @@ def _(audioio, config, io, mo, sample_dropdown, signals, viz):
                     viz.spectrogram_figure(
                         reference,
                         ref_sr,
-                        params=config.spectral.stft,
-                        dynamic_range_db=config.metrics.preprocess.dynamic_range_db,
+                        params=config.analysis.spectral.stft,
+                        dynamic_range_db=config.analysis.metrics.preprocess.dynamic_range_db,
                         title="spectrogram (dB rel. peak)",
                     )
                 )
@@ -209,8 +209,8 @@ def _(
                     viz.spectrogram_figure(
                         _candidate,
                         ref_sr,
-                        params=config.spectral.stft,
-                        dynamic_range_db=config.metrics.preprocess.dynamic_range_db,
+                        params=config.analysis.spectral.stft,
+                        dynamic_range_db=config.analysis.metrics.preprocess.dynamic_range_db,
                         title=f"{_spec.label} spectrogram",
                     )
                 )
@@ -231,7 +231,7 @@ def _(composite, config, degrade, mo, ref_sr, reference, views, viz):
                 "cut loses brightness, and the level drop moves only loudness. Bar height ≈ fidelity."
             ),
             mo.ui.table(_smoke_rows, selection=None),
-            mo.image(viz.figure_png(viz.contribution_bar(_smoke_rows, config.metrics.weights))),
+            mo.image(viz.figure_png(viz.contribution_bar(_smoke_rows, config.analysis.metrics.weights))),
         ]
     )
     return

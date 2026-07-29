@@ -61,8 +61,8 @@ def allocation(tiny_settings: OptimizeSettings, config: OptiConfig) -> DumpSetti
     """One strategy and the surrogate alone: the cheapest allocation a chain can end in."""
     return DumpSettings(
         optimize=tiny_settings,
-        render=config.render,
-        playback=config.playback,
+        render=config.export.render,
+        playback=config.export.playback,
         render_ground_truth=False,
         grouped=False,
     )

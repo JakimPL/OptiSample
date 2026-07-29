@@ -1,0 +1,5 @@
+# How the stored rate/depth shortlist is derived (optisample.config.reduce.BandwidthConfig).
+candidates: 3          # stored (rate, depth) vertices kept per clip; >= grid size keeps all
+ceiling_hz: 16000.0    # highest output frequency worth storing (capped at the analysis Nyquist)
+content_floor_db: 80.0 # how far under its loudest band a recording still carries content
+content_band_hz: 200.0 # width the spectrum is averaged into before that edge is read

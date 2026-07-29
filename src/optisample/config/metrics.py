@@ -1,5 +1,5 @@
 from optisample.config.base import ConfigModel
-from optisample.config.dsp import MelParams, StftParams
+from optisample.config.spectral import MelParams, StftParams
 
 
 class MrstftConfig(ConfigModel):

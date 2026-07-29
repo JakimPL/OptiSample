@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from optisample.config.dsp import EncodeConfig
+from optisample.config.codec import EncodeConfig
 
 
 @dataclass(frozen=True)

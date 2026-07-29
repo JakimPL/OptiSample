@@ -6,7 +6,7 @@ from matplotlib.figure import Figure
 from numpy.typing import NDArray
 
 from notebooks.utils.views import Row
-from optisample.config.dsp import StftParams
+from optisample.config.spectral import StftParams
 from optisample.dsp.spectral import stft_magnitude
 
 Signal = NDArray[np.float64]

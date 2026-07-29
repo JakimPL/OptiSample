@@ -3,6 +3,8 @@ from typing import Annotated, Final, Literal
 from pydantic import Field
 
 from optisample.config.base import ConfigModel
+from optisample.config.layers import LayersConfig
+from optisample.config.stage import StageConfig
 
 Method = Literal["exact", "lagrangian"]
 
@@ -25,7 +27,7 @@ class SweepConfig(ConfigModel):
     compress: tuple[bool, ...]
 
 
-class OptimizeConfig(ConfigModel):
+class BudgetConfig(ConfigModel):
     """Budget-solver settings, and what a note's distortion is worth to the objective.
 
     ``energy_exponent`` raises each note's own energy to a power and scales its distortion by the result,
@@ -47,3 +49,17 @@ class VelocityConfig(ConfigModel):
     """Velocity->volume map shaping: how far below the reference a silent velocity is clamped."""
 
     loudness_floor_lu: float
+
+
+class OptimizeConfig(StageConfig):
+    """The search and what it spends: the encodings tried, the budget solver, layering, and the level map.
+
+    ``sweep`` is the grid one clip is offered, ``budget`` how the allocation spends bytes over it,
+    ``layers`` how many dynamics a key may keep, and ``velocity`` the shape of the map from a played
+    velocity to the volume a note sounds at.
+    """
+
+    sweep: SweepConfig
+    budget: BudgetConfig
+    layers: LayersConfig
+    velocity: VelocityConfig

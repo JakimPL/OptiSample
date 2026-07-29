@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from optisample.config.dsp import MelParams, SpectralConfig, StftParams
+from optisample.config.spectral import MelParams, SpectralConfig, StftParams
 from optisample.dsp.spectral import (
     band_energy,
     bandlimit,

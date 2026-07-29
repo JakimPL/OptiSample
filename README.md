@@ -34,7 +34,7 @@ OptiSample consumes [NoteExtractor](../NoteExtractor) output directly as its nat
 Each note becomes both a recorded sample and a played event; the join key is `render.index` matched
 against each WAV filename's leading index token. Reducing the grid to one recording per key is the
 optimizer's job: it keeps the shortest recording that still covers the notes that key has to play,
-under the identity `reduce.yaml` names (`pitch`, `pitch_velocity`, or `pitch_velocity_cc`).
+under the identity `reduce/dedupe.yaml` names (`pitch`, `pitch_velocity`, or `pitch_velocity_cc`).
 
 ### Input: a directory of recordings
 
@@ -86,7 +86,7 @@ tenth of it.
 
 ## Reduction: shrinking the problem before it is solved
 
-A whole pre-optimization stage (`src/opticonfig/reduce.yaml`) runs before any byte is allocated, and
+A whole pre-optimization stage (`src/opticonfig/reduce/`) runs before any byte is allocated, and
 every report and artifact tree states what it left behind:
 
 - **Deduplication** keeps one recording per identity — the shortest that still covers its key's longest
@@ -181,7 +181,7 @@ a pianissimo note's error would count for as much as a fortissimo note's, though
 further down in the mix.
 
 So each class's distortion is scaled by the energy of the stretch of recording it is scored over, raised
-to `energy_exponent` (`src/opticonfig/optimize.yaml`), and by the playing time the material spends on it:
+to `energy_exponent` (`src/opticonfig/optimize/budget.yaml`), and by the playing time the material spends on it:
 
 ```yaml
 energy_exponent: 0.5   # 0.0 prices every note alike | 0.5 amplitude | 1.0 energy | 0.3 perceived loudness
@@ -200,7 +200,7 @@ measured the same way.
 ## Gain staging: storing hot and getting the level back
 
 An 8-bit grid has 256 steps, so how much of it a recording occupies decides how much of the recording
-survives. Every sample is therefore stored hot — normalized to `headroom_db` (`src/opticonfig/quantize.yaml`)
+survives. Every sample is therefore stored hot — normalized to `headroom_db` (`src/opticonfig/codec/quantize.yaml`)
 under full scale, far enough down that the dither has somewhere to go — and the level it was lifted from
 is given back on playback. Normalization reads the span the sample actually stores, after the trim or the
 loop, so a peak in a discarded tail leaves the stored sample exactly where it asked to be.
@@ -214,7 +214,7 @@ field, so an XM run normalizes every clip against the instrument's loudest peak 
 rides in the PCM. That reference is fixed before the sweep, because how hot a sample is stored is part of
 what the objective measures.
 
-Ahead of the quantizer sits an optional soft-knee compressor (`src/opticonfig/dynamics.yaml`), reading its
+Ahead of the quantizer sits an optional soft-knee compressor (`src/opticonfig/codec/dynamics.yaml`), reading its
 threshold against each clip's own peak so it shapes crest factor rather than level. It is a **swept axis**,
 not a preprocessing step: the grid offers each 8-bit encoding both compressed and plain, prices them the
 same way, and the objective picks. A 16-bit encoding is enumerated uncompressed, since its noise floor
@@ -235,7 +235,7 @@ paid honestly: every layer adds an instrument record to the budget before a fram
 three-layer plan starts from fewer sample bytes than a one-layer plan of the same size.
 
 Which split to buy is the optimizer's decision, taken against the objective the whole pipeline shares.
-`src/opticonfig/layers.yaml` sets the terms:
+`src/opticonfig/optimize/layers.yaml` sets the terms:
 
 ```yaml
 max_layers: 3    # velocity bands stored per key == instruments written; 1 keeps one recording per key
@@ -390,7 +390,7 @@ instruments were split along.
 A budget in bytes and a count of samples are different asks. `max_samples` is the second one:
 
 ```yaml
-# src/opticonfig/optimize.yaml
+# src/opticonfig/optimize/budget.yaml
 max_samples: 0 # stored samples a grouped plan may keep, met by storing wider zones; 0 keeps what the format numbers
 ```
 
@@ -460,7 +460,7 @@ to end and what a machine you are also working on stays responsive under. A run 
 and the same plan whichever count it was given: every pitch is narrowed from its own clip against a fixed
 dither seed, and each demo note's phases are drawn in note order before any of them are rendered.
 
-`--format` overrides `src/opticonfig/tracker.yaml`, which also sets the compliance level the module is
+`--format` overrides `src/opticonfig/export/tracker.yaml`, which also sets the compliance level the module is
 graded against and each format's own settings. Impulse Tracker numbers the whole ten-octave keyboard
 (MIDI 12–131); FastTracker 2 stops at MIDI 107, and a higher key is reported before anything is
 written.

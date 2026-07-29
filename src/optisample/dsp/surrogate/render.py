@@ -36,15 +36,30 @@ def _effective_rate(stored: StoredSample, pitch: int | None) -> float:
     return stored.sample_rate * semitone_ratio(transpose)
 
 
+def _frame_scale(stored: StoredSample, out_rate: int, pitch: int | None) -> float:
+    """Output frames per stored frame once ``stored`` is repitched to ``pitch`` and played at ``out_rate``."""
+    effective_rate = _effective_rate(stored, pitch)
+    return out_rate / effective_rate if effective_rate > 0.0 else 0.0
+
+
+def output_frame(stored: StoredSample, frame: int, out_rate: int, pitch: int | None) -> int:
+    """Where stored frame ``frame`` lands on the output timeline of a note played at ``pitch``.
+
+    Repitching resamples the whole stored span, so the stored timeline stretches by one ratio and every
+    frame moves with it. Passing :attr:`~optisample.dsp.surrogate.sample.StoredSample.frames` gives the
+    length the playback runs for, which is where a sample carrying no loop falls silent.
+    """
+    return round(frame * _frame_scale(stored, out_rate, pitch))
+
+
 def _repitch(stored: StoredSample, out_rate: int, pitch: int | None) -> tuple[Signal, float]:
     """Resample ``stored``'s PCM from its effective (repitched) rate to ``out_rate``.
 
     Returns the repitched playback together with the stored->output frame scale, which the loop-sustain
     step reuses to map the stored loop bounds into the output domain.
     """
-    effective_rate = _effective_rate(stored, pitch)
-    scale = out_rate / effective_rate if effective_rate > 0.0 else 0.0
-    played = resample_num(stored.pcm, round(stored.frames * scale))
+    scale = _frame_scale(stored, out_rate, pitch)
+    played = resample_num(stored.pcm, output_frame(stored, stored.frames, out_rate, pitch))
     return played, scale
 
 
@@ -96,3 +111,35 @@ def render(
         rendered = _fit_length(rendered, round(duration_s * out_rate))
 
     return np.asarray(rendered, dtype=np.float64)
+
+
+def _ramp_shapes(scored_frames: int, ramp_start: int, played_frames: int) -> bool:
+    """Whether the ramp closing a stored span reaches into the stretch a note is scored over.
+
+    It does when the ramp begins before both the note's end and the end of the stored material. A sample
+    closing on nothing begins its ramp where its material ends, which leaves every note clear of it.
+    """
+    return ramp_start < min(scored_frames, played_frames)
+
+
+def closed_reference(span: Signal, stored: StoredSample, out_rate: int, *, pitch: int | None) -> Signal:
+    """``span`` closed by the ramp that closes ``stored`` where it plays at ``pitch``.
+
+    A stored sample played to its end stops on a ramp to silence, which lands inside any note held that
+    far. Putting the same ramp over the same output frames of the ground truth leaves the two differing
+    by what the codec did to the waveform, which is what a score comparing them is asked for.
+
+    The length the ramp closes stays charged: past the end of the stored material the ground truth is the
+    recording, so a note held longer than its sample is measured against the material it is missing. A
+    looped sample wraps at its seam, and its ground truth is the recording throughout.
+    """
+    played_frames = output_frame(stored, stored.frames, out_rate, pitch)
+    ramp_start = output_frame(stored, stored.frames - stored.release_frames, out_rate, pitch)
+    if not _ramp_shapes(span.size, ramp_start, played_frames):
+        return span
+
+    ramp = np.linspace(1.0, 0.0, played_frames - ramp_start, endpoint=True)
+    reach = min(span.size, played_frames)
+    closed = np.array(span, dtype=np.float64)
+    closed[ramp_start:reach] *= ramp[: reach - ramp_start]
+    return closed

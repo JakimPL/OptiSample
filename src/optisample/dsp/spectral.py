@@ -4,7 +4,7 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.fft import dct
 
-from optisample.config.dsp import MelParams, StftParams
+from optisample.config.spectral import MelParams, StftParams
 
 Signal = NDArray[np.float64]
 

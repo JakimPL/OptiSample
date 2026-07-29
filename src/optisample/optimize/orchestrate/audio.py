@@ -6,7 +6,7 @@ from typing import Final
 
 import numpy as np
 
-from optisample.config.dsp import LoopConfig
+from optisample.config.codec import LoopConfig
 from optisample.config.reduce import ReduceConfig, TrimConfig
 from optisample.dsp.resample import resample_to
 from optisample.io.audio import read_wav

@@ -71,7 +71,7 @@ zones (§6) helps at the margin; neither makes a ten-second clip affordable.
 
 The rate ladder is the configured list, read as far as a clip reaches
 ([`sweep_rates`](../src/optisample/optimize/operating_points.py)): every listed rate below the clip's own,
-plus the clip's own rate so storing it as recorded is always a candidate. From `sweep.yaml`'s
+plus the clip's own rate so storing it as recorded is always a candidate. From `optimize/sweep.yaml`'s
 `[8000, 11025, 16000, 22050, 28800, 37800, 44100]`, a 48 kHz recording is offered
 
 ```
@@ -130,7 +130,7 @@ occupies. On the synth demo, `--content-floor-db 45` puts C3's useful rate at 1.
 rung is 8000 — five times more than the content asks for. A ladder aimed at a tight budget wants a cheap
 end as much as a high one.
 
-**Levers.** `sweep.yaml: rates` is the ladder itself; `--rate 22050 --rate 16000` replaces it for one run
+**Levers.** `optimize/sweep.yaml: rates` is the ladder itself; `--rate 22050 --rate 16000` replaces it for one run
 (repeatable). Shortening the samples (§5) is what moves the byte cost, though — a rate floor with unchanged
 lengths just means fewer samples fit.
 
@@ -160,7 +160,7 @@ optisample optimize Piano.notes.json --budget-kb 512 --depth 16     # 16-bit onl
 ```
 
 ```yaml
-# src/opticonfig/sweep.yaml
+# src/opticonfig/optimize/sweep.yaml
 depths: [16] # swept bit depths
 ```
 
@@ -202,9 +202,9 @@ by 7.9–8.8 s: the budget bought roughly six seconds of near-inaudible decay at
 
 | Knob | File | What it does |
 |---|---|---|
-| `reduce.trim.max_length_s` | `reduce.yaml` | Hard ceiling on every kept recording, now 5.0. Lowering it further caps the whales and frees their bytes for everyone else. |
-| `reduce.dedupe.transposition_headroom_semitones` | `reduce.yaml` | 12 doubles every requirement. Set it to the widest zone you actually allow (see `max_zone_semitones`); 7 costs 1.5x instead of 2x. |
-| `reduce.trim.tail_floor` | `reduce.yaml` | Where a decay stops counting as content — `1e-4` is −80 dB, which keeps far more tail than a tracker ever plays audibly. `1e-3` (−60 dB) is defensible. |
+| `reduce.trim.max_length_s` | `reduce/trim.yaml` | Hard ceiling on every kept recording, now 5.0. Lowering it further caps the whales and frees their bytes for everyone else. |
+| `reduce.dedupe.transposition_headroom_semitones` | `reduce/dedupe.yaml` | 12 doubles every requirement. Set it to the widest zone you actually allow (see `max_zone_semitones`); 7 costs 1.5x instead of 2x. |
+| `reduce.trim.tail_floor` | `reduce/trim.yaml` | Where a decay stops counting as content — `1e-4` is −80 dB, which keeps far more tail than a tracker ever plays audibly. `1e-3` (−60 dB) is defensible. |
 
 `max_length_s` is read at **every** ingest, including one reading an already-reduced dataset, so you can
 re-allocate off `1_reduced/` with a lower cap and see the effect without re-reducing.
@@ -267,10 +267,23 @@ silence over its last stretch (10 ms as shipped), so the last frame is zero. A l
 point, already made continuous by `crossfade_loop`. On the demo, forcing trimmed samples with `--no-loop`,
 the last frame moves from −8.3…−21.4 dB below peak to digital silence.
 
-It costs measured fidelity, because the reference the objective scores against is the recording truncated
-at the note's length rather than faded: the demo's `--no-loop` objective moves 0.0234 → 0.1050. Since only
-non-looped candidates pay it, the fade also nudges the plan toward looping — which is the tail in item 2
-below. Scoring the reference through the same ramp would settle both; it does not do that yet.
+**The ground truth closes on the same ramp.** The ramp is policy, not a choice the allocation makes, so
+charging it as distortion measured the policy instead of the codec: the demo's `--no-loop` objective read
+0.0234 without the ramp and 0.1050 with it, and since only non-looped candidates paid it, the fade nudged
+the plan toward looping — which is the tail in item 2 below. `Event.scored_reference` now puts the same
+ramp over the recording, on the output frames the candidate's ramp actually covers: a stored sample records
+how far its ramp reaches (`StoredSample.release_frames`), repitching carries that stretch onto the output
+timeline with the material, and the ground truth is closed over the frames it reaches. A class whose note
+ends before the ramp begins is measured against the recording as it stands, which is what its candidate is
+— cut at the note's length, short of the ramp. A looped sample wraps at its seam and closes on nothing, so
+its ground truth is the recording throughout, and the two cases are now scored alike.
+
+The stored *length* stays charged. Past the end of the stored material the ground truth is the recording,
+so a note held longer than its sample is still measured against every frame it is missing — only the ramp
+itself stops being counted as error. That distinction is why the ramp is placed by frame rather than
+applied to the last 10 ms of every scored window: the reach is `min(note end, stored end)`, and at a stored
+rate below the analysis rate the repitched span lands a few frames short of the note, which a rule keyed on
+the note's end alone would read as "no ramp here" for most of the ladder.
 
 Three things read as "a tail after the piano decays":
 
@@ -311,8 +324,8 @@ cut, and costs up to twice the bytes for it. `quantize.release_fade_s` handles t
 Re-allocate off `1_reduced/` — the cap is read at every ingest, so no re-reduce is needed.
 
 ```bash
-cp -r src/opticonfig myconfig            # --config takes a directory and reads every file in it
-$EDITOR myconfig/reduce.yaml             # max_length_s: 3.0
+cp -r src/opticonfig myconfig           # --config takes a directory laid out like the bundled one
+$EDITOR myconfig/reduce/trim.yaml       # max_length_s: 3.0
 optisample optimize artifacts/1_reduced/Piano.notes.json \
     --budget-kb 512 --strategy grouped --max-layers 3 --depth 16 \
     --config myconfig --no-render --out artifacts/tuned
@@ -335,22 +348,22 @@ as the format numbers. Each extra sample is charged a reserve, so the run states
 | Knob | Where | Reach for it when |
 |---|---|---|
 | `--budget-kb` | CLI | Everything is too thin and the target has room. |
-| `reduce.trim.max_length_s` | `reduce.yaml` | A few samples dominate the plan. |
-| `--depth 16` | CLI (`sweep.yaml: depths`) | Hiss behind the decay; 8-bit is unacceptable. |
-| `--rate` (repeatable) | CLI (`sweep.yaml: rates`) | Replacing the ladder for one run. |
-| `sweep.rates` | `sweep.yaml` | Reshaping the ladder itself — its floor is what long samples land on. |
-| `quantize.release_fade_s` | `quantize.yaml` | Samples click at their end, or 10 ms of ramp is audible. |
-| `--content-floor-db` | CLI (`reduce.yaml: bandwidth`) | You want the stored rate to track pitch. |
-| `--max-samples` | CLI (`optimize.yaml`) | Trading sample count against per-sample quality. |
-| `reduce.grouping.max_zone_semitones` | `reduce.yaml` | Repitching artefacts across a zone. |
-| `--max-layers` | CLI (`layers.yaml`) | Dynamics matter more (or less) than fidelity per note. |
-| `dedupe.transposition_headroom_semitones` | `reduce.yaml` | Survivors are longer than the music needs. |
-| `reduce.events.duration_bucket_ratio` | `reduce.yaml` | Samples are cut mid-decay and click. |
-| `--candidates` | CLI (`reduce.yaml: bandwidth`) | The shortlist is missing encodings you want considered. |
-| `metrics.preprocess.dynamic_range_db` | `metrics.yaml` | The solver pays for material you cannot hear. |
-| `optimize.energy_exponent` | `optimize.yaml` | Quiet notes are getting a budget share out of proportion. |
-| `--no-loop` | CLI (`sweep.yaml: loops`) | Looped decays ring on. |
-| `loop.sustain_decay_ratio` | `loop.yaml` | Struck notes are being judged loopable. |
+| `reduce.trim.max_length_s` | `reduce/trim.yaml` | A few samples dominate the plan. |
+| `--depth 16` | CLI (`optimize/sweep.yaml: depths`) | Hiss behind the decay; 8-bit is unacceptable. |
+| `--rate` (repeatable) | CLI (`optimize/sweep.yaml: rates`) | Replacing the ladder for one run. |
+| `sweep.rates` | `optimize/sweep.yaml` | Reshaping the ladder itself — its floor is what long samples land on. |
+| `quantize.release_fade_s` | `codec/quantize.yaml` | Samples click at their end, or 10 ms of ramp is audible. |
+| `--content-floor-db` | CLI (`reduce/bandwidth.yaml`) | You want the stored rate to track pitch. |
+| `--max-samples` | CLI (`optimize/budget.yaml`) | Trading sample count against per-sample quality. |
+| `reduce.grouping.max_zone_semitones` | `reduce/grouping.yaml` | Repitching artefacts across a zone. |
+| `--max-layers` | CLI (`optimize/layers.yaml`) | Dynamics matter more (or less) than fidelity per note. |
+| `dedupe.transposition_headroom_semitones` | `reduce/dedupe.yaml` | Survivors are longer than the music needs. |
+| `reduce.events.duration_bucket_ratio` | `reduce/events.yaml` | Samples are cut mid-decay and click. |
+| `--candidates` | CLI (`reduce/bandwidth.yaml`) | The shortlist is missing encodings you want considered. |
+| `metrics.preprocess.dynamic_range_db` | `analysis/metrics.yaml` | The solver pays for material you cannot hear. |
+| `optimize.budget.energy_exponent` | `optimize/budget.yaml` | Quiet notes are getting a budget share out of proportion. |
+| `--no-loop` | CLI (`optimize/sweep.yaml: loops`) | Looped decays ring on. |
+| `loop.sustain_decay_ratio` | `codec/loop.yaml` | Struck notes are being judged loopable. |
 
-`--config` takes a **directory** and reads every YAML file in it, so copy the whole `src/opticonfig/` tree
-and edit the copy.
+`--config` takes a **directory** laid out the way the bundled one is -- a stage per directory, a group per
+file -- so copy the whole `src/opticonfig/` tree and edit the copy.

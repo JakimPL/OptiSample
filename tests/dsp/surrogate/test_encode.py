@@ -5,10 +5,10 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from optisample.config.dsp import EncodeConfig
+from optisample.config.codec import EncodeConfig
 from optisample.dsp.levels import peak_amplitude
 from optisample.dsp.quantize import headroom_peak
-from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode
+from optisample.dsp.surrogate import NO_RELEASE_RAMP, EncodeContext, EncodingParams, encode
 
 SR = 44_100
 _QUIET = 0.25  # the amplitude a test recording peaks at, which normalization has to lift to the headroom
@@ -58,7 +58,9 @@ def test_encode_loop_stores_attack_plus_loop_and_drops_the_tail(
 
 
 def test_a_trimmed_sample_closes_on_the_release_ramp(
-    sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
+    sine: Callable[..., NDArray[np.float64]],
+    make_encode_ctx: Callable[..., EncodeContext],
+    encode_config: EncodeConfig,
 ) -> None:
     """A cut at the length the material asks for lands mid-tone, so the stored span ends on silence."""
     params = EncodingParams(target_rate=SR, depth_bits=16, trim_s=_HALF_S, loop=False)
@@ -68,6 +70,7 @@ def test_a_trimmed_sample_closes_on_the_release_ramp(
     assert abs(float(faded.pcm[-1])) < abs(float(stepped.pcm[-1]))
     assert float(faded.pcm[-1]) == pytest.approx(0.0, abs=headroom_peak(0.0) * 2.0**-15)
     assert faded.frames == stepped.frames  # the ramp shapes the span it is given and costs no bytes
+    assert faded.release_frames == round(encode_config.release_fade_s * SR)  # ... and the sample records it
 
 
 def test_a_looped_sample_keeps_the_wrap_point_the_crossfade_made(
@@ -80,6 +83,7 @@ def test_a_looped_sample_keeps_the_wrap_point_the_crossfade_made(
 
     assert faded.loop is not None
     assert np.array_equal(faded.pcm, unfaded.pcm)
+    assert faded.release_frames == NO_RELEASE_RAMP  # nothing closes it, so nothing closes its ground truth
 
 
 def test_loop_falls_back_to_trim_on_non_periodic_material(make_encode_ctx: Callable[..., EncodeContext]) -> None:

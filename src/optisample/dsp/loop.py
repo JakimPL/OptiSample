@@ -4,7 +4,7 @@ from typing import Final
 import numpy as np
 from numpy.typing import NDArray
 
-from optisample.config.dsp import LoopConfig
+from optisample.config.codec import LoopConfig
 
 Signal = NDArray[np.float64]
 

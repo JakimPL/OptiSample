@@ -38,24 +38,24 @@ _CONFIG = load_config()
 
 def _settings() -> OptimizeSettings:
     grid = SweepConfig.model_validate(
-        {**_CONFIG.sweep.model_dump(), "rates": (11_025,), "depths": (8,), "dither": False}
+        {**_CONFIG.optimize.sweep.model_dump(), "rates": (11_025,), "depths": (8,), "dither": False}
     )
     return OptimizeSettings(
         sweep=grid,
         reduce=_CONFIG.reduce,
-        layers=_CONFIG.layers,
-        encode=_CONFIG.encode,
-        metrics=_CONFIG.metrics,
-        velocity=_CONFIG.velocity,
-        method=_CONFIG.optimize.method,
-        energy_exponent=_CONFIG.optimize.energy_exponent,
-        max_samples=_CONFIG.optimize.max_samples,
-        target=export_target(_CONFIG.tracker),
+        layers=_CONFIG.optimize.layers,
+        encode=_CONFIG.codec.encode,
+        metrics=_CONFIG.analysis.metrics,
+        velocity=_CONFIG.optimize.velocity,
+        method=_CONFIG.optimize.budget.method,
+        energy_exponent=_CONFIG.optimize.budget.energy_exponent,
+        max_samples=_CONFIG.optimize.budget.max_samples,
+        target=export_target(_CONFIG.export.tracker),
     )
 
 
 NO_RENDER = DumpSettings(
-    optimize=_settings(), render=_CONFIG.render, playback=_CONFIG.playback, render_ground_truth=False
+    optimize=_settings(), render=_CONFIG.export.render, playback=_CONFIG.export.playback, render_ground_truth=False
 )
 
 
@@ -233,13 +233,13 @@ def test_ground_truth_render_produces_real_audio(tmp_path: Path, demo_audio_map:
         SR,
         out,
         # render_ground_truth defaults True
-        DumpSettings(optimize=_settings(), render=_CONFIG.render, playback=_CONFIG.playback),
+        DumpSettings(optimize=_settings(), render=_CONFIG.export.render, playback=_CONFIG.export.playback),
     )
     assert all(plan.rendered for plan in result.plans if plan.feasible)
     module_wav = out / "grouped" / "render" / "module.wav"
     assert module_wav.is_file()
     audio, rate = read_wav(module_wav)
-    assert rate == _CONFIG.render.sample_rate and float(np.max(np.abs(audio))) > 0.0
+    assert rate == _CONFIG.export.render.sample_rate and float(np.max(np.abs(audio))) > 0.0
     metrics = _load(out / "grouped" / "metrics.json")
     assert metrics["notes"][0]["render_source"] == "openmpt123"
 
@@ -274,8 +274,8 @@ def test_strategy_flags_restrict_which_plans_run(tmp_path: Path, demo_audio_map:
     out = tmp_path / "grouped-only"
     settings = DumpSettings(
         optimize=_settings(),
-        render=_CONFIG.render,
-        playback=_CONFIG.playback,
+        render=_CONFIG.export.render,
+        playback=_CONFIG.export.playback,
         render_ground_truth=False,
         ungrouped=False,
     )

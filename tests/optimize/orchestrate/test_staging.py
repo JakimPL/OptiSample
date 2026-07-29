@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from optisample.config.dsp import EncodeConfig
+from optisample.config.codec import EncodeConfig
 from optisample.config.tracker import TrackerFormat
 from optisample.io.tracker.target import ExportTarget
 from optisample.optimize.orchestrate.staging import instrument_peak, staged_encode

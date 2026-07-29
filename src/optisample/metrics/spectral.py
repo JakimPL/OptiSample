@@ -3,7 +3,7 @@ from typing import Final
 
 import numpy as np
 
-from optisample.config.dsp import MelParams, StftParams
+from optisample.config.spectral import MelParams, StftParams
 from optisample.dsp.spectral import melspectrogram, stft_magnitude
 from optisample.metrics.base import MetricContext, Signal, register_metric
 

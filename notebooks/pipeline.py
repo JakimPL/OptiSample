@@ -80,7 +80,7 @@ def _(Path, mo, root, runs):
 
 @app.cell
 def _(DedupeKey, TrackerFormat, config, interpolations, mo, sweep_rates):
-    _rates = [str(rate) for rate in sweep_rates(config.sweep, 48_000)]
+    _rates = [str(rate) for rate in sweep_rates(config.optimize.sweep, 48_000)]
 
     fraction = mo.ui.slider(0.05, 1.0, step=0.05, value=0.1, label="subset fraction", show_value=True)
     budget_kb = mo.ui.number(16.0, 8192.0, step=16.0, value=512.0, label="budget (KiB)")
@@ -88,10 +88,10 @@ def _(DedupeKey, TrackerFormat, config, interpolations, mo, sweep_rates):
     seed = mo.ui.number(0, 9999, step=1, value=0, label="dither seed")
 
     tracker_format = mo.ui.dropdown(
-        [kind.value for kind in TrackerFormat], value=config.tracker.format.value, label="format"
+        [kind.value for kind in TrackerFormat], value=config.export.tracker.format.value, label="format"
     )
     strategy = mo.ui.dropdown(["both", "ungrouped", "grouped"], value="ungrouped", label="strategy")
-    interpolation = mo.ui.dropdown(interpolations, value=config.render.interpolation, label="interpolation")
+    interpolation = mo.ui.dropdown(interpolations, value=config.export.render.interpolation, label="interpolation")
 
     dedupe_key = mo.ui.dropdown(
         [key.value for key in DedupeKey], value=config.reduce.dedupe.key.value, label="dedupe key"
@@ -435,8 +435,8 @@ def _(
                         viz.spectrogram_figure(
                             signal,
                             rate,
-                            params=config.spectral.stft,
-                            dynamic_range_db=config.metrics.preprocess.dynamic_range_db,
+                            params=config.analysis.spectral.stft,
+                            dynamic_range_db=config.analysis.metrics.preprocess.dynamic_range_db,
                             title=title,
                         )
                     )

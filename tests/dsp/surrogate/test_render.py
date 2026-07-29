@@ -6,11 +6,22 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode, render
+from optisample.dsp.surrogate import (
+    EncodeContext,
+    EncodingParams,
+    StoredSample,
+    closed_reference,
+    encode,
+    output_frame,
+    render,
+)
 from optisample.metrics.diagnostics import snr
 from trackmod.spec.levels import MAX_VOLUME
 
 SR = 44_100
+_TRIM_S = 0.5
+_ROOT = 60
+_OCTAVE_UP = 72
 
 
 def test_encode_render_round_trip_is_near_lossless(
@@ -81,3 +92,91 @@ def test_render_loop_sustains_a_note_held_past_the_stored_length(
     held = render(stored, SR, pitch=60, duration_s=3.0)  # far longer than the ~0.1 s stored
     assert held.size == pytest.approx(int(round(3.0 * SR)), abs=1)
     assert float(np.sqrt(np.mean(held[-SR:] ** 2))) > 0.1  # the last second still sounds (loop sustained it)
+
+
+# --- the ground truth a stored sample is measured against -------------------------------------------
+
+
+def _stored_half_second(
+    sine: Callable[..., NDArray[np.float64]],
+    make_encode_ctx: Callable[..., EncodeContext],
+    *,
+    loop: bool,
+) -> StoredSample:
+    """Half a second of a steady tone, stored the way ``loop`` asks for and ending the way that leaves it."""
+    params = EncodingParams(target_rate=SR, depth_bits=16, trim_s=_TRIM_S, loop=loop)
+    return encode(sine(440.0, dur=2.0), SR, params, make_encode_ctx(_ROOT))
+
+
+def _closed_unit_reference(stored: StoredSample, pitch: int) -> NDArray[np.float64]:
+    """A flat unit ground truth over the whole stretch ``stored`` plays for at ``pitch``, closed as it closes."""
+    span = np.ones(output_frame(stored, stored.frames, SR, pitch), dtype=np.float64)
+    return closed_reference(span, stored, SR, pitch=pitch)
+
+
+def _ramped_frames(closed: NDArray[np.float64]) -> int:
+    """How many frames of a flat unit ground truth the closing ramp took below full level."""
+    return int(np.count_nonzero(closed < 1.0))
+
+
+def test_the_ground_truth_closes_where_the_stored_material_stops(
+    sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
+) -> None:
+    """The ramp a stored span stops on stands over the source as well, leaving the codec between them."""
+    stored = _stored_half_second(sine, make_encode_ctx, loop=False)
+    played_frames = output_frame(stored, stored.frames, SR, _ROOT)
+    ramp_start = output_frame(stored, stored.frames - stored.release_frames, SR, _ROOT)
+    span = np.ones(played_frames, dtype=np.float64)
+
+    closed = closed_reference(span, stored, SR, pitch=_ROOT)
+
+    assert np.array_equal(closed[:ramp_start], span[:ramp_start])  # everything before the ramp is the recording
+    assert float(closed[-1]) == 0.0
+    assert float(closed[(ramp_start + played_frames) // 2]) == pytest.approx(0.5, abs=0.01)  # linear across it
+
+
+@pytest.mark.parametrize(
+    ("loop", "held"),
+    [
+        pytest.param(True, 1.0, id="a looped sample wraps at its seam, so nothing closes its ground truth"),
+        pytest.param(False, 0.5, id="the note ends before the ramp begins"),
+    ],
+)
+def test_the_ground_truth_stands_as_the_recording_where_no_ramp_reaches_it(
+    sine: Callable[..., NDArray[np.float64]],
+    make_encode_ctx: Callable[..., EncodeContext],
+    loop: bool,
+    held: float,
+) -> None:
+    stored = _stored_half_second(sine, make_encode_ctx, loop=loop)
+    span = np.ones(round(held * output_frame(stored, stored.frames, SR, _ROOT)), dtype=np.float64)
+
+    assert np.array_equal(closed_reference(span, stored, SR, pitch=_ROOT), span)
+
+
+def test_a_note_held_longer_than_its_sample_keeps_the_recording_past_the_ramp(
+    sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
+) -> None:
+    """The length the ramp closes stays charged, so past the stored material the ground truth is the recording."""
+    stored = _stored_half_second(sine, make_encode_ctx, loop=False)
+    played_frames = output_frame(stored, stored.frames, SR, _ROOT)
+    ramp_start = output_frame(stored, stored.frames - stored.release_frames, SR, _ROOT)
+    span = np.ones(round(1.5 * played_frames), dtype=np.float64)
+
+    closed = closed_reference(span, stored, SR, pitch=_ROOT)
+
+    assert np.array_equal(closed[:ramp_start], span[:ramp_start])
+    assert float(closed[played_frames - 1]) == 0.0  # the ramp reaches silence where the material runs out
+    assert np.array_equal(closed[played_frames:], span[played_frames:])  # the note carries on being measured
+
+
+def test_the_ramp_moves_with_the_material_when_the_sample_is_repitched(
+    sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
+) -> None:
+    """Playing a sample an octave up runs its closing ramp twice as fast, and the ground truth follows it."""
+    stored = _stored_half_second(sine, make_encode_ctx, loop=False)
+    at_root = _closed_unit_reference(stored, _ROOT)
+    an_octave_up = _closed_unit_reference(stored, _OCTAVE_UP)
+
+    assert an_octave_up.size == pytest.approx(at_root.size // 2, abs=1)
+    assert _ramped_frames(an_octave_up) == pytest.approx(_ramped_frames(at_root) / 2, abs=2)

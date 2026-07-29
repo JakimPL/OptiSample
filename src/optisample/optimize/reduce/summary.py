@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from optisample.config.dsp import LoopConfig
+from optisample.config.codec import LoopConfig
 from optisample.config.reduce import ReduceConfig
 from optisample.dsp.surrogate import EncodingParams
 from optisample.metrics.base import Signal

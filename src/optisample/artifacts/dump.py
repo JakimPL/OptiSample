@@ -86,7 +86,7 @@ def _note_record(
     rep = task.representative_event
     band = kind.layers.bands[unit.layer].label
     stem = pitch_label(task.pitch)
-    reference = rep.scored_reference(dump_context.sample_rate)
+    reference = rep.scored_reference(unit.stored, dump_context.sample_rate, pitch=task.pitch)
     write_wav(paths.reference_wav(band, stem), reference, dump_context.sample_rate)
     rendered, rate, source = _rendered_note(dump_context, kind, unit, task, rep)
     write_wav(paths.rendered_wav(band, stem), rendered, rate)

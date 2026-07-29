@@ -3,10 +3,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from optisample.config.dsp import EncodeConfig
+from optisample.config.codec import EncodeConfig
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import BandwidthConfig, ReduceConfig, Representatives, ZoneConfig
-from optisample.dsp.surrogate import StoredSample, render
+from optisample.dsp.surrogate import StoredSample, closed_reference, render
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.metrics.base import Signal
 from optisample.metrics.composite import CompositeFidelity, QualityReport, evaluate
@@ -18,6 +18,11 @@ from optisample.optimize.weighting import energy_weight
 from trackmod.module.storage import Storage
 
 AudioMap = Mapping[SampleKey, Signal]
+
+
+def _scored_span(reference: Signal, duration_s: float, sample_rate: int) -> Signal:
+    """The stretch of a recording one note class is measured over: the recording held for the note's length."""
+    return reference[: seconds_to_frames(duration_s, sample_rate)]
 
 
 @dataclass(frozen=True)
@@ -44,14 +49,23 @@ class Event(MergedEvent):
         """
         return self.weight * self.energy_weight
 
-    def scored_reference(self, sample_rate: int) -> Signal:
-        """The stretch of the source note a reconstruction of this class is compared against.
+    def scored_span(self, sample_rate: int) -> Signal:
+        """The stretch of the source note a reconstruction of this class is measured over.
 
-        The class is scored over ``duration_s``, so the ground truth is the recording held for exactly
-        that long. One accessor, so the objective, the A/B pair and the shortlist auditions all measure
-        against the same span.
+        The class is scored over ``duration_s``, so the ground truth runs for exactly that long. One
+        accessor, so the objective, the A/B pair and the shortlist auditions all measure over the same
+        stretch of recording.
         """
-        return self.reference[: seconds_to_frames(self.duration_s, sample_rate)]
+        return _scored_span(self.reference, self.duration_s, sample_rate)
+
+    def scored_reference(self, stored: StoredSample, sample_rate: int, *, pitch: int) -> Signal:
+        """The ground truth a reconstruction of this class from ``stored``, sounded at ``pitch``, is compared to.
+
+        The scored stretch closed the way ``stored`` closes
+        (:func:`~optisample.dsp.surrogate.render.closed_reference`), so the ramp a stored span stops on
+        stands on both sides of the comparison and what is left between them is the codec.
+        """
+        return closed_reference(self.scored_span(sample_rate), stored, sample_rate, pitch=pitch)
 
 
 @dataclass(frozen=True)
@@ -184,7 +198,7 @@ def _candidate_keys(
 def _scored_event(merged: MergedEvent, inputs: TaskInputs) -> Event:
     """One merged class with the audio it is judged against, and what its level makes that judgement worth."""
     reference = inputs.audio[merged.reference_key]
-    scored = reference[: seconds_to_frames(merged.duration_s, inputs.sample_rate)]
+    scored = _scored_span(reference, merged.duration_s, inputs.sample_rate)
     return Event(
         merged.reference_key,
         merged.velocity,
@@ -270,7 +284,7 @@ def score_event(stored: StoredSample, event: Event, *, pitch: int, context: Eval
     """
     candidate = render_event(stored, event, pitch=pitch, sample_rate=context.sample_rate)
     return evaluate(
-        event.scored_reference(context.sample_rate),
+        event.scored_reference(stored, context.sample_rate, pitch=pitch),
         candidate,
         context.sample_rate,
         context.composite,

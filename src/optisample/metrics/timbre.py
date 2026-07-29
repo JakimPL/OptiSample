@@ -3,8 +3,8 @@ from typing import Final
 
 import numpy as np
 
-from optisample.config.dsp import MelParams, StftParams
 from optisample.config.metrics import SpectralWeights
+from optisample.config.spectral import MelParams, StftParams
 from optisample.dsp.spectral import (
     mfcc,
     spectral_centroid,

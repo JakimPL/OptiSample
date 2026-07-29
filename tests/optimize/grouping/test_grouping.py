@@ -53,7 +53,7 @@ _CONFIG = load_config()
 
 
 def _grid(**overrides: object) -> SweepConfig:
-    return SweepConfig.model_validate({**_CONFIG.sweep.model_dump(), **overrides})
+    return SweepConfig.model_validate({**_CONFIG.optimize.sweep.model_dump(), **overrides})
 
 
 def _reduce(**sections: Mapping[str, object]) -> ReduceConfig:
@@ -66,14 +66,14 @@ def _settings(sweep: SweepConfig, **sections: Mapping[str, object]) -> OptimizeS
     return OptimizeSettings(
         sweep=sweep,
         reduce=_reduce(**sections),
-        layers=_CONFIG.layers,
-        encode=_CONFIG.encode,
-        metrics=_CONFIG.metrics,
-        velocity=_CONFIG.velocity,
-        method=_CONFIG.optimize.method,
-        energy_exponent=_CONFIG.optimize.energy_exponent,
-        max_samples=_CONFIG.optimize.max_samples,
-        target=export_target(_CONFIG.tracker),
+        layers=_CONFIG.optimize.layers,
+        encode=_CONFIG.codec.encode,
+        metrics=_CONFIG.analysis.metrics,
+        velocity=_CONFIG.optimize.velocity,
+        method=_CONFIG.optimize.budget.method,
+        energy_exponent=_CONFIG.optimize.budget.energy_exponent,
+        max_samples=_CONFIG.optimize.budget.max_samples,
+        target=export_target(_CONFIG.export.tracker),
     )
 
 

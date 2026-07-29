@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from sys import maxsize
 from typing import Final
 
-from optisample.config.dsp import LoopConfig
+from optisample.config.codec import LoopConfig
 from optisample.config.reduce import ReduceConfig
 from optisample.io.audio import probe_wav
 from optisample.io.note_extractor import index_of_wav

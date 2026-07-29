@@ -4,12 +4,14 @@ from typing import Final, Protocol, TypeVar
 
 import numpy as np
 
-from optisample.config.dsp import EncodeConfig
+from optisample.config.codec import EncodeConfig
 from optisample.config.optimize import SweepConfig
 from optisample.dsp.surrogate import (
     EncodeContext,
     EncodingParams,
     Signal,
+    StoredSample,
+    closed_reference,
     encode,
     render,
 )
@@ -113,13 +115,18 @@ def sweep_param_grid(
                     )
 
 
-def _reference(clip: SourceClip) -> Signal:
-    if clip.duration_s is None:
-        return clip.signal
-    return np.asarray(
-        clip.signal[: seconds_to_frames(clip.duration_s, clip.sample_rate)],
-        dtype=np.float64,
+def _reference(clip: SourceClip, stored: StoredSample) -> Signal:
+    """The ground truth ``clip``'s encoding is scored against: its material, closed the way ``stored`` closes.
+
+    The recording is held for the duration the clip is stored to serve, and the ramp a stored span stops
+    on is put over it as well, so the score reads what the encoding did to the waveform.
+    """
+    span = (
+        clip.signal
+        if clip.duration_s is None
+        else np.asarray(clip.signal[: seconds_to_frames(clip.duration_s, clip.sample_rate)], dtype=np.float64)
     )
+    return closed_reference(span, stored, clip.sample_rate, pitch=clip.root_pitch)
 
 
 def evaluate_encoding(clip: SourceClip, params: EncodingParams, context: SweepContext) -> OperatingPoint:
@@ -136,7 +143,7 @@ def evaluate_encoding(clip: SourceClip, params: EncodingParams, context: SweepCo
         pitch=clip.root_pitch,
         duration_s=clip.duration_s,
     )
-    report = evaluate(_reference(clip), candidate, clip.sample_rate, context.composite)
+    report = evaluate(_reference(clip, stored), candidate, clip.sample_rate, context.composite)
     return OperatingPoint(
         params=params,
         stored_bytes=context.storage.sample_bytes(frames=stored.frames, depth=stored.depth),

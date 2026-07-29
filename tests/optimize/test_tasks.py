@@ -16,6 +16,7 @@ from optisample.dsp.surrogate import (
     render,
 )
 from optisample.dsp.timebase import seconds_to_frames
+from optisample.metrics.composite import evaluate
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.orchestrate import prepare_run
 from optisample.optimize.orchestrate.settings import OptimizeSettings
@@ -292,11 +293,46 @@ def test_score_reconstruction_of_a_weightless_task_is_zero(scoring: _Scoring) ->
 # --- the pieces every artifact renders one note through ---------------------------------------------
 
 
-def test_a_class_is_compared_against_its_source_note_held_for_its_scored_length(scoring: _Scoring) -> None:
+def test_a_class_is_measured_over_its_source_note_held_for_its_scored_length(scoring: _Scoring) -> None:
     event = scoring.task.events[0]
-    reference = event.scored_reference(SR)
-    assert reference.size == seconds_to_frames(event.duration_s, SR)
-    assert np.array_equal(reference, event.reference[: reference.size])
+    span = event.scored_span(SR)
+    assert span.size == seconds_to_frames(event.duration_s, SR)
+    assert np.array_equal(span, event.reference[: span.size])
+
+
+def _stored_to_the_note(task: PitchTask, make_encode_ctx: Callable[..., EncodeContext]) -> StoredSample:
+    """A pitch's recording stored for exactly the longest note it serves, so its ramp closes that note."""
+    params = EncodingParams(target_rate=SR, depth_bits=16, dither=False, trim_s=task.max_duration_s)
+    return encode(task.representative, SR, params, make_encode_ctx(task.pitch))
+
+
+def test_a_note_held_to_the_stored_end_is_compared_to_a_ground_truth_closed_the_same_way(
+    scoring: _Scoring, make_encode_ctx: Callable[..., EncodeContext]
+) -> None:
+    stored = _stored_to_the_note(scoring.task, make_encode_ctx)
+    event = scoring.task.representative_event
+    span = event.scored_span(SR)
+
+    closed = event.scored_reference(stored, SR, pitch=scoring.task.pitch)
+
+    assert closed.size == span.size
+    assert float(closed[-1]) == 0.0
+    untouched = span.size - stored.release_frames
+    assert np.array_equal(closed[:untouched], span[:untouched])
+
+
+def test_the_ramp_a_sample_closes_on_is_left_out_of_what_the_score_charges(
+    scoring: _Scoring, make_encode_ctx: Callable[..., EncodeContext]
+) -> None:
+    """The same ramp on both sides leaves the score reading the codec, where the bare recording reads the ramp."""
+    stored = _stored_to_the_note(scoring.task, make_encode_ctx)
+    event = scoring.task.representative_event
+    candidate = render_event(stored, event, pitch=scoring.task.pitch, sample_rate=SR)
+
+    closed = score_event(stored, event, pitch=scoring.task.pitch, context=scoring.context).fidelity
+    against_the_bare_span = evaluate(event.scored_span(SR), candidate, SR, scoring.context.composite).fidelity
+
+    assert closed < against_the_bare_span
 
 
 def test_the_representative_is_the_most_played_class(

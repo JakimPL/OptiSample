@@ -6,23 +6,19 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.config import OptiConfig, load_config
-from optisample.config.dsp import (
-    EncodeConfig,
-    LoopConfig,
-    QuantizeConfig,
-    SpectralConfig,
-)
+from optisample.config.codec import EncodeConfig, LoopConfig, QuantizeConfig
 from optisample.config.dynamics import DynamicsConfig
 from optisample.config.layers import LayersConfig
 from optisample.config.metrics import MetricsConfig
 from optisample.config.optimize import (
+    BudgetConfig,
     Method,
-    OptimizeConfig,
     SweepConfig,
     VelocityConfig,
 )
 from optisample.config.reduce import ReduceConfig
 from optisample.config.render import PlaybackConfig, RenderConfig
+from optisample.config.spectral import SpectralConfig
 from optisample.config.synth import SynthConfig
 from optisample.config.tracker import TrackerFormat
 from optisample.dsp.surrogate import EncodeContext, EncodingParams
@@ -85,48 +81,48 @@ def ingest_settings() -> Callable[..., IngestSettings]:
 
 @pytest.fixture
 def loop_config(config: OptiConfig) -> LoopConfig:
-    return config.loop
+    return config.codec.loop
 
 
 @pytest.fixture
 def quantize_config(config: OptiConfig) -> QuantizeConfig:
-    return config.quantize
+    return config.codec.quantize
 
 
 @pytest.fixture
 def encode_config(config: OptiConfig) -> EncodeConfig:
-    return config.encode
+    return config.codec.encode
 
 
 @pytest.fixture
 def dynamics_config(config: OptiConfig) -> DynamicsConfig:
-    return config.dynamics
+    return config.codec.dynamics
 
 
 @pytest.fixture
 def spectral_config(config: OptiConfig) -> SpectralConfig:
-    return config.spectral
+    return config.analysis.spectral
 
 
 @pytest.fixture
 def metrics_config(config: OptiConfig) -> MetricsConfig:
-    return config.metrics
+    return config.analysis.metrics
 
 
 @pytest.fixture
 def composite(config: OptiConfig) -> CompositeFidelity:
     """The composite fidelity built once from the bundled metrics config."""
-    return build_composite(config.metrics)
+    return build_composite(config.analysis.metrics)
 
 
 @pytest.fixture
 def sweep_config(config: OptiConfig) -> SweepConfig:
-    return config.sweep
+    return config.optimize.sweep
 
 
 @pytest.fixture
-def optimize_config(config: OptiConfig) -> OptimizeConfig:
-    return config.optimize
+def budget_config(config: OptiConfig) -> BudgetConfig:
+    return config.optimize.budget
 
 
 @pytest.fixture
@@ -136,23 +132,23 @@ def reduce_config(config: OptiConfig) -> ReduceConfig:
 
 @pytest.fixture
 def velocity_config(config: OptiConfig) -> VelocityConfig:
-    return config.velocity
+    return config.optimize.velocity
 
 
 @pytest.fixture
 def render_config(config: OptiConfig) -> RenderConfig:
-    return config.render
+    return config.export.render
 
 
 @pytest.fixture
 def playback_config(config: OptiConfig) -> PlaybackConfig:
-    return config.playback
+    return config.export.playback
 
 
 @pytest.fixture
 def target(config: OptiConfig) -> ExportTarget:
     """The export target built from the bundled tracker config (format, compliance, format settings)."""
-    return export_target(config.tracker)
+    return export_target(config.export.tracker)
 
 
 @pytest.fixture
@@ -174,13 +170,13 @@ def storage(target: ExportTarget) -> Storage:
 @pytest.fixture
 def sweep_context(config: OptiConfig, composite: CompositeFidelity, storage: Storage) -> SweepContext:
     """The scoring context an encoding sweep runs under, built from the bundled config."""
-    return SweepContext(composite=composite, encode=config.encode, storage=storage)
+    return SweepContext(composite=composite, encode=config.codec.encode, storage=storage)
 
 
 @pytest.fixture
 def export_context(config: OptiConfig, target: ExportTarget) -> ExportContext:
     """The exporter context (encode + playback + target) built from the bundled config, seed 0."""
-    return ExportContext(encode=config.encode, playback=config.playback, target=target)
+    return ExportContext(encode=config.codec.encode, playback=config.export.playback, target=target)
 
 
 @pytest.fixture
@@ -193,7 +189,7 @@ def sweep(config: OptiConfig) -> Callable[..., SweepConfig]:
     """Factory: the bundled sweep config with the given fields overridden (re-validated)."""
 
     def _build(**overrides: object) -> SweepConfig:
-        return SweepConfig.model_validate({**config.sweep.model_dump(), **overrides})
+        return SweepConfig.model_validate({**config.optimize.sweep.model_dump(), **overrides})
 
     return _build
 
@@ -219,7 +215,7 @@ def layers(config: OptiConfig) -> Callable[..., LayersConfig]:
     """Factory: the bundled velocity layering with the given fields overridden (re-validated)."""
 
     def _build(**overrides: object) -> LayersConfig:
-        return LayersConfig.model_validate({**config.layers.model_dump(), **overrides})
+        return LayersConfig.model_validate({**config.optimize.layers.model_dump(), **overrides})
 
     return _build
 
@@ -245,7 +241,7 @@ def task_inputs(config: OptiConfig) -> Callable[..., TaskInputs]:
             velocity_map=velocity_map,
             reduce=reduce if reduce is not None else config.reduce,
             sample_rate=sample_rate,
-            energy_exponent=config.optimize.energy_exponent if energy_exponent is None else energy_exponent,
+            energy_exponent=config.optimize.budget.energy_exponent if energy_exponent is None else energy_exponent,
         )
 
     return _build
@@ -288,13 +284,13 @@ def optimize_settings(config: OptiConfig, target: ExportTarget) -> Callable[...,
         return OptimizeSettings(
             sweep=sweep,
             reduce=reduce if reduce is not None else config.reduce,
-            layers=layers if layers is not None else config.layers,
-            encode=config.encode,
-            metrics=config.metrics,
-            velocity=config.velocity,
-            method=method if method is not None else config.optimize.method,
-            energy_exponent=config.optimize.energy_exponent,
-            max_samples=config.optimize.max_samples if max_samples is None else max_samples,
+            layers=layers if layers is not None else config.optimize.layers,
+            encode=config.codec.encode,
+            metrics=config.analysis.metrics,
+            velocity=config.optimize.velocity,
+            method=method if method is not None else config.optimize.budget.method,
+            energy_exponent=config.optimize.budget.energy_exponent,
+            max_samples=config.optimize.budget.max_samples if max_samples is None else max_samples,
             target=target,
             seed=seed,
         )
@@ -314,9 +310,9 @@ def make_encode_ctx(config: OptiConfig) -> Callable[..., EncodeContext]:
     def _build(root_pitch: int, *, seed: int | None = None, release_fade_s: float | None = None) -> EncodeContext:
         rng = np.random.default_rng(seed) if seed is not None else None
         encode = (
-            config.encode
+            config.codec.encode
             if release_fade_s is None
-            else config.encode.model_copy(update={"release_fade_s": release_fade_s})
+            else config.codec.encode.model_copy(update={"release_fade_s": release_fade_s})
         )
         return EncodeContext(root_pitch=root_pitch, config=encode, rng=rng)
 

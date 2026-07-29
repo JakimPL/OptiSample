@@ -4,6 +4,7 @@ from typing import Annotated, Self
 from pydantic import Field, model_validator
 
 from optisample.config.base import ConfigModel
+from optisample.config.stage import StageConfig
 
 
 @unique
@@ -115,7 +116,7 @@ class ZoneConfig(ConfigModel):
     max_zone_semitones: Annotated[int, Field(ge=1)]
 
 
-class ReduceConfig(ConfigModel):
+class ReduceConfig(StageConfig):
     """Every pre-optimization reduction: what survives ingest, and how small the search space starts."""
 
     dedupe: DedupeConfig

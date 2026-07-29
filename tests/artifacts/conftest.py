@@ -25,19 +25,19 @@ _CONFIG = load_config()
 def tiny_settings() -> OptimizeSettings:
     """Cheap swept settings straight from the bundled config (dither off → the re-encode is deterministic)."""
     grid = SweepConfig.model_validate(
-        {**_CONFIG.sweep.model_dump(), "rates": (11_025,), "depths": (8,), "dither": False}
+        {**_CONFIG.optimize.sweep.model_dump(), "rates": (11_025,), "depths": (8,), "dither": False}
     )
     return OptimizeSettings(
         sweep=grid,
         reduce=_CONFIG.reduce,
-        layers=_CONFIG.layers,
-        encode=_CONFIG.encode,
-        metrics=_CONFIG.metrics,
-        velocity=_CONFIG.velocity,
-        method=_CONFIG.optimize.method,
-        energy_exponent=_CONFIG.optimize.energy_exponent,
-        max_samples=_CONFIG.optimize.max_samples,
-        target=export_target(_CONFIG.tracker),
+        layers=_CONFIG.optimize.layers,
+        encode=_CONFIG.codec.encode,
+        metrics=_CONFIG.analysis.metrics,
+        velocity=_CONFIG.optimize.velocity,
+        method=_CONFIG.optimize.budget.method,
+        energy_exponent=_CONFIG.optimize.budget.energy_exponent,
+        max_samples=_CONFIG.optimize.budget.max_samples,
+        target=export_target(_CONFIG.export.tracker),
     )
 
 
@@ -45,7 +45,10 @@ def tiny_settings() -> OptimizeSettings:
 def no_render_settings(tiny_settings: OptimizeSettings) -> DumpSettings:
     """Dump settings that skip the openmpt123 ground-truth render (fast, deterministic)."""
     return DumpSettings(
-        optimize=tiny_settings, render=_CONFIG.render, playback=_CONFIG.playback, render_ground_truth=False
+        optimize=tiny_settings,
+        render=_CONFIG.export.render,
+        playback=_CONFIG.export.playback,
+        render_ground_truth=False,
     )
 
 

@@ -5,8 +5,8 @@ import pytest
 from numpy.typing import NDArray
 
 from notebooks.utils import degrade, views, viz
-from optisample.config.dsp import SpectralConfig
 from optisample.config.metrics import MetricsConfig
+from optisample.config.spectral import SpectralConfig
 from optisample.metrics import CompositeFidelity
 
 SR = 44_100

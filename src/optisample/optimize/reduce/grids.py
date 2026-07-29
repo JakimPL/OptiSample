@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Final, Protocol
 
-from optisample.config.dsp import EncodeConfig
+from optisample.config.codec import EncodeConfig
 from optisample.config.metrics import MetricsConfig
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import BandwidthConfig

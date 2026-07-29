@@ -190,7 +190,7 @@ def _write_auditions(
     directory = out_dir / pitch_label(task.pitch)
     directory.mkdir(parents=True, exist_ok=True)
     event = task.representative_event
-    write_wav(directory / f"{_REFERENCE_STEM}.wav", event.scored_reference(context.sample_rate), context.sample_rate)
+    write_wav(directory / f"{_REFERENCE_STEM}.wav", event.scored_span(context.sample_rate), context.sample_rate)
     for params in shortlist:
         write_wav(
             directory / f"{_encoding_stem(params)}.wav", _audition(task, event, params, context), context.sample_rate

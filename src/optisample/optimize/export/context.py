@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from optisample.config.dsp import EncodeConfig
+from optisample.config.codec import EncodeConfig
 from optisample.config.render import PlaybackConfig
 from optisample.io.tracker.target import ExportTarget
 from optisample.seed import DEFAULT_SEED

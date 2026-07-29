@@ -5,7 +5,7 @@ from numpy.typing import NDArray
 
 from notebooks.utils.degrade import DegradeSpec, apply
 from notebooks.utils.loading import sample_label
-from optisample.config.dsp import SpectralConfig
+from optisample.config.spectral import SpectralConfig
 from optisample.dsp.spectral import (
     spectral_centroid,
     spectral_flatness,

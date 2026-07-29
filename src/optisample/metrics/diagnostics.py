@@ -3,8 +3,8 @@ from typing import Final
 
 import numpy as np
 
-from optisample.config.dsp import StftParams
 from optisample.config.metrics import SegmentalSnrConfig
+from optisample.config.spectral import StftParams
 from optisample.dsp.spectral import band_energy, bandlimit, frame, spectral_flux
 from optisample.metrics.base import Signal
 from optisample.metrics.preprocess import integrated_loudness, match_length

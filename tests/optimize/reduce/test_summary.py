@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from optisample.config.dsp import EncodeConfig, LoopConfig
+from optisample.config.codec import EncodeConfig, LoopConfig
 from optisample.config.metrics import MetricsConfig
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import ReduceConfig

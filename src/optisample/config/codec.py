@@ -4,34 +4,7 @@ from pydantic import Field
 
 from optisample.config.base import ConfigModel
 from optisample.config.dynamics import DynamicsConfig
-
-
-class StftParams(ConfigModel):
-    """Short-time Fourier transform sizing."""
-
-    n_fft: int
-    hop_length: int
-
-
-class MelParams(ConfigModel):
-    """Mel-spectrogram sizing (carries its own STFT sizing)."""
-
-    n_fft: int
-    hop_length: int
-    n_mels: int
-    fmin: float
-    fmax: float | None
-
-    def stft(self) -> StftParams:
-        return StftParams(n_fft=self.n_fft, hop_length=self.hop_length)
-
-
-class SpectralConfig(ConfigModel):
-    """General analysis params for the standalone spectral primitives (centroid/rolloff/flux/...)."""
-
-    stft: StftParams
-    mel: MelParams
-    rolloff_percent: float
+from optisample.config.stage import StageConfig
 
 
 class LoopConfig(ConfigModel):
@@ -75,3 +48,21 @@ class EncodeConfig(ConfigModel):
     headroom_db: float
     release_fade_s: float
     peak_reference: float | None = None
+
+
+class CodecConfig(StageConfig):
+    """How one recording becomes a stored sample: where it loops, how it is shaped, how it is quantized."""
+
+    loop: LoopConfig
+    quantize: QuantizeConfig
+    dynamics: DynamicsConfig
+
+    @property
+    def encode(self) -> EncodeConfig:
+        """The bundle the surrogate encoder needs: loop detection, compression and the stored headroom."""
+        return EncodeConfig(
+            loop=self.loop,
+            dynamics=self.dynamics,
+            headroom_db=self.quantize.headroom_db,
+            release_fade_s=self.quantize.release_fade_s,
+        )

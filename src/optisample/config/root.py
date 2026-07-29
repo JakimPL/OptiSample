@@ -1,46 +1,25 @@
+from optisample.config.analysis import AnalysisConfig
 from optisample.config.base import ConfigModel
-from optisample.config.dsp import (
-    EncodeConfig,
-    LoopConfig,
-    QuantizeConfig,
-    SpectralConfig,
-)
-from optisample.config.dynamics import DynamicsConfig
-from optisample.config.layers import LayersConfig
-from optisample.config.metrics import MetricsConfig
-from optisample.config.optimize import OptimizeConfig, SweepConfig, VelocityConfig
+from optisample.config.codec import CodecConfig
+from optisample.config.export import ExportConfig
+from optisample.config.optimize import OptimizeConfig
 from optisample.config.reduce import ReduceConfig
-from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.config.runtime import RuntimeConfig
 from optisample.config.synth import SynthConfig
-from optisample.config.tracker import TrackerConfig
 
 
 class OptiConfig(ConfigModel):
-    """Every tunable group; field names match the ``opticonfig`` YAML filenames one-to-one."""
+    """Every tunable group, gathered by the pipeline stage that acts on it.
 
-    loop: LoopConfig
-    quantize: QuantizeConfig
-    dynamics: DynamicsConfig
-    spectral: SpectralConfig
-    metrics: MetricsConfig
-    sweep: SweepConfig
-    optimize: OptimizeConfig
+    Field names match the ``opticonfig`` layout one-to-one: a stage
+    (:class:`~optisample.config.stage.StageConfig`) is a directory holding one file per group, and the
+    two standalone groups are a file each.
+    """
+
+    analysis: AnalysisConfig
+    codec: CodecConfig
     reduce: ReduceConfig
-    layers: LayersConfig
-    velocity: VelocityConfig
-    render: RenderConfig
-    playback: PlaybackConfig
-    tracker: TrackerConfig
+    optimize: OptimizeConfig
+    export: ExportConfig
     synth: SynthConfig
     runtime: RuntimeConfig
-
-    @property
-    def encode(self) -> EncodeConfig:
-        """The bundle the surrogate encoder needs: loop detection, compression and the stored headroom."""
-        return EncodeConfig(
-            loop=self.loop,
-            dynamics=self.dynamics,
-            headroom_db=self.quantize.headroom_db,
-            release_fade_s=self.quantize.release_fade_s,
-        )

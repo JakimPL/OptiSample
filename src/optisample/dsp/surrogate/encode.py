@@ -1,10 +1,12 @@
-from optisample.config.dsp import EncodeConfig, LoopConfig
+from dataclasses import dataclass
+
+from optisample.config.codec import EncodeConfig, LoopConfig
 from optisample.dsp.dynamics import compress
 from optisample.dsp.loop import Loop, crossfade_loop, detect_loop
 from optisample.dsp.quantize import headroom_peak, normalize_peak, release_fade, requantize
 from optisample.dsp.resample import resample_to
 from optisample.dsp.surrogate.params import EncodeContext, EncodingParams
-from optisample.dsp.surrogate.sample import Signal, StoredSample
+from optisample.dsp.surrogate.sample import NO_RELEASE_RAMP, Signal, StoredSample
 
 
 def _apply_loop(
@@ -45,17 +47,27 @@ def _loop_or_trim(
     return resampled, None
 
 
-def _closed(span: Signal, loop: Loop | None, rate: int, config: EncodeConfig) -> Signal:
-    """``span`` with the ramp closing a sample that plays to its end.
+@dataclass(frozen=True)
+class _Span:
+    """The stretch a sample holds and how it ends: its loop, and the frames its closing ramp covers."""
+
+    signal: Signal
+    loop: Loop | None
+    release_frames: int
+
+
+def _closed(span: Signal, loop: Loop | None, rate: int, config: EncodeConfig) -> _Span:
+    """``span`` with the ramp closing a sample that plays to its end, and how far that ramp reaches.
 
     A looped span ends at its wrap point, where :func:`~optisample.dsp.loop.crossfade_loop` has already
     made the seam continuous, so it is stored as it stands. Every other span is played out and stops, and
-    the ramp is what it stops on.
+    the ramp is what it stops on -- over its whole length where the span is the shorter of the two.
     """
     if loop is not None:
-        return span
+        return _Span(span, loop, NO_RELEASE_RAMP)
 
-    return release_fade(span, round(config.release_fade_s * rate))
+    frames = min(round(config.release_fade_s * rate), span.size)
+    return _Span(release_fade(span, frames), None, frames)
 
 
 def _stored_span(
@@ -63,7 +75,7 @@ def _stored_span(
     sample_rate: int,
     params: EncodingParams,
     config: EncodeConfig,
-) -> tuple[Signal, Loop | None]:
+) -> _Span:
     """The stretch of ``signal`` a sample holds: resampled, shaped where asked, then looped or trimmed.
 
     Compression runs on the resampled waveform, ahead of loop detection, so the seam is crossfaded over
@@ -73,7 +85,7 @@ def _stored_span(
     resampled = resample_to(signal, sample_rate, params.target_rate)
     shaped = compress(resampled, params.target_rate, config.dynamics) if params.compress else resampled
     span, loop = _loop_or_trim(shaped, params, config.loop)
-    return _closed(span, loop, params.target_rate, config), loop
+    return _closed(span, loop, params.target_rate, config)
 
 
 def encode(
@@ -96,9 +108,9 @@ def encode(
     (:func:`~optisample.dsp.quantize.release_fade`) so the sample plays out. A loop request on aperiodic
     material falls back to the trimmed sample, so a looped config always matches or beats its plain twin.
     """
-    span, loop = _stored_span(signal, sample_rate, params, context.config)
+    span = _stored_span(signal, sample_rate, params, context.config)
     normalized, gain = normalize_peak(
-        span,
+        span.signal,
         headroom_peak(context.config.headroom_db),
         reference_peak=context.config.peak_reference,
     )
@@ -115,5 +127,6 @@ def encode(
         depth_bits=params.depth_bits,
         root_pitch=context.root_pitch,
         gain=gain,
-        loop=loop,
+        loop=span.loop,
+        release_frames=span.release_frames,
     )

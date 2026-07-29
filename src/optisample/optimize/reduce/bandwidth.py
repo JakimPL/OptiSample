@@ -4,7 +4,7 @@ from typing import Final, Protocol
 
 import numpy as np
 
-from optisample.config.dsp import EncodeConfig
+from optisample.config.codec import EncodeConfig
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import BandwidthConfig
 from optisample.dsp.spectral import content_edge_hz

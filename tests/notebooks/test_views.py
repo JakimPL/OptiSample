@@ -6,7 +6,7 @@ import pytest
 from numpy.typing import NDArray
 
 from notebooks.utils import degrade, loading, views
-from optisample.config.dsp import SpectralConfig
+from optisample.config.spectral import SpectralConfig
 from optisample.metrics import CompositeFidelity
 from optisample.model import Manifest
 from optisample.optimize.plans.budget import populated_instrument_bytes

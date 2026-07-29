@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Final
 
 import numpy as np
 from numpy.typing import NDArray
@@ -8,10 +9,16 @@ from trackmod.core.samples.depth import BitDepth
 
 Signal = NDArray[np.float64]
 
+NO_RELEASE_RAMP: Final = 0  # frames; a span reaching its end at the level it holds there
+
 
 @dataclass(frozen=True)
 class StoredSample:
-    """An encoded, tracker-ready sample: its PCM, stored rate/depth, natural pitch, and applied gain."""
+    """An encoded, tracker-ready sample: its PCM, stored rate/depth, natural pitch, gain, and how it ends.
+
+    ``release_frames`` is how many of its last frames the ramp closing it covers, which the encoder
+    applies and a score against its source puts over the source as well.
+    """
 
     pcm: Signal
     sample_rate: int
@@ -19,6 +26,7 @@ class StoredSample:
     root_pitch: int
     gain: float = 1.0
     loop: Loop | None = None
+    release_frames: int = NO_RELEASE_RAMP
 
     @property
     def frames(self) -> int:

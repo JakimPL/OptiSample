@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from optisample.config.dsp import LoopConfig
+from optisample.config.codec import LoopConfig
 from optisample.dsp.loop import (
     _MIN_SUSTAIN_FRAMES,
     Loop,
