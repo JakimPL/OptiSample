@@ -23,9 +23,9 @@ def fields(tmp_path: Path) -> runs.Fields:
         strategy="ungrouped",
         interpolation="sinc",
         dedupe_key="pitch_velocity",
-        candidates=3,
+        content_floor_db=60.0,
         rates=(22_050, 11_025),
-        depths=(16, 8),
+        depth=16,
         loop=True,
         workers=2,
         seed=7,
@@ -65,7 +65,8 @@ def test_the_ingest_flags_carry_every_control_the_stages_share(fields: runs.Fiel
     assert _flag(command, "--samples-dir") == [str(fields.source.samples_dir)]
     assert _flag(command, "--budget-kb") == ["96"]
     assert _flag(command, "--dedupe-key") == ["pitch_velocity"]
-    assert _flag(command, "--candidates") == ["3"]
+    assert _flag(command, "--content-floor-db") == ["60"]
+    assert _flag(command, "--depth") == ["16"]
     assert _flag(command, "--seed") == ["7"]
     assert _flag(command, "--workers") == ["2"]
 
@@ -74,15 +75,13 @@ def test_a_repeatable_flag_is_given_once_per_value(fields: runs.Fields) -> None:
     command = runs.optimize_command(fields, fields.source)
 
     assert _flag(command, "--rate") == ["22050", "11025"]
-    assert _flag(command, "--depth") == ["16", "8"]
 
 
-def test_the_sweep_falls_back_to_the_config_when_no_value_is_chosen(fields: runs.Fields) -> None:
+def test_the_rate_ladder_falls_back_to_the_config_when_no_rung_is_chosen(fields: runs.Fields) -> None:
     """An empty control states no preference, so the flag stays off and the loaded config decides."""
-    command = runs.reduce_command(replace(fields, rates=(), depths=()), fields.source)
+    command = runs.reduce_command(replace(fields, rates=()), fields.source)
 
     assert "--rate" not in command
-    assert "--depth" not in command
 
 
 def test_looping_and_rendering_are_asked_off_by_their_own_flags(fields: runs.Fields) -> None:

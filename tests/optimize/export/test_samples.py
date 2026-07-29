@@ -129,7 +129,7 @@ def test_a_pitch_the_format_does_not_number_raises(
         samples=[SourceSample(file=Path("p.wav"), pitch=_UNREACHABLE_PITCH, velocity=100)],
         material=[NoteEvent(pitch=_UNREACHABLE_PITCH, velocity=100, duration_s=0.4)],
     )
-    settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depths=(16, 8)))
+    settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depth=16))
     plan = optimize_instrument(instrument, audio, SR, settings)
     with pytest.raises(ValueError, match="outside the IT key range"):
         build_module(plan, audio, SR, instrument.material or [], export_context)
@@ -335,7 +335,7 @@ def looped_build(
             samples=[SourceSample(file=Path("60.wav"), pitch=60, velocity=100)],
             material=material,
         )
-        settings = optimize_settings(sweep=sweep(rates=(_LOOP_RATE,), depths=(16,), dither=False, loop_choices=1))
+        settings = optimize_settings(sweep=sweep(rates=(_LOOP_RATE,), depth=16, dither=False, loop_choices=1))
         plan = optimize_instrument(instrument, audio, SR, settings)
         return plan, build_module(plan, audio, SR, material, export_context)
 

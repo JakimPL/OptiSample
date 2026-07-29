@@ -10,7 +10,6 @@ from optisample.optimize.plans import (
     BudgetBreakdown,
     BudgetedPlanMixin,
     instrument_overhead,
-    per_key_bytes,
     populated_instrument_bytes,
     split_budget,
 )
@@ -43,17 +42,6 @@ def test_more_layers_leave_fewer_bytes_for_samples(storage: Storage) -> None:
     assert layered.instruments == _LAYERS
     assert layered.module_bytes == split_budget(64.0, storage, SINGLE_LAYER).module_bytes
     assert layered.sample_bytes < split_budget(64.0, storage, SINGLE_LAYER).sample_bytes
-
-
-@pytest.mark.parametrize("layers", [SINGLE_LAYER, _LAYERS])
-def test_an_even_split_gives_each_key_its_share_of_the_sample_budget(storage: Storage, layers: int) -> None:
-    budget = split_budget(64.0, storage, layers)
-    assert per_key_bytes(budget, 8) == budget.sample_bytes // 8
-
-
-def test_an_instrument_storing_nothing_reports_the_whole_sample_budget(storage: Storage) -> None:
-    budget = split_budget(64.0, storage, SINGLE_LAYER)
-    assert per_key_bytes(budget, 0) == budget.sample_bytes
 
 
 @dataclass(frozen=True)

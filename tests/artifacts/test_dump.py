@@ -11,6 +11,7 @@ from numpy.typing import NDArray
 from optisample.artifacts import DumpSettings, dump_instrument, dump_project
 from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
+from optisample.config.reduce import ReduceConfig
 from optisample.io.audio import read_wav, write_wav
 from optisample.io.render import openmpt123_available
 from optisample.io.tracker.target import export_target
@@ -35,15 +36,26 @@ MANIFEST = "bank.json"
 AudioFactory = Callable[..., dict[SampleKey, NDArray[np.float64]]]
 
 _CONFIG = load_config()
+_STORED_CEILING_HZ = 5_000.0  # the band these fixtures store, which lands them on the 11 kHz rung
+
+
+def _narrow_band_reduce() -> ReduceConfig:
+    """The bundled reduction, storing only the band ``_STORED_CEILING_HZ`` names.
+
+    That ceiling is what puts these fixtures' samples on the 11 kHz rung, so the budgets they assert
+    against stay at the scale of a handful of stored samples.
+    """
+    raw = _CONFIG.reduce.model_dump()
+    return ReduceConfig.model_validate({**raw, "bandwidth": {**raw["bandwidth"], "ceiling_hz": _STORED_CEILING_HZ}})
 
 
 def _settings() -> OptimizeSettings:
     grid = SweepConfig.model_validate(
-        {**_CONFIG.optimize.sweep.model_dump(), "rates": (11_025,), "depths": (8,), "dither": False}
+        {**_CONFIG.optimize.sweep.model_dump(), "rates": (11_025,), "depth": 8, "dither": False}
     )
     return OptimizeSettings(
         sweep=grid,
-        reduce=_CONFIG.reduce,
+        reduce=_narrow_band_reduce(),
         layers=_CONFIG.optimize.layers,
         encode=_CONFIG.codec.encode,
         metrics=_CONFIG.analysis.metrics,
@@ -208,14 +220,15 @@ def test_reduction_json_states_what_the_pre_pass_left(generous: Path) -> None:
     assert reduction["kept_recordings"] == len(reduction["recordings"]) == len(PITCHES)
     assert reduction["scored_classes"] <= reduction["played_notes"]
     assert [grid["pitch"] for grid in reduction["grids"]] == list(PITCHES)
-    assert all(len(grid["shortlist"]) <= reduction["grid_size"] for grid in reduction["grids"])
+    assert all(grid["stored"]["target_rate"] >= grid["useful_rate_hz"] for grid in reduction["grids"])
+    assert all(grid["swept"] > 0 for grid in reduction["grids"])
 
 
 def test_the_report_states_the_reduction_alongside_the_allocation(generous: Path) -> None:
     for name in ("ungrouped", "grouped"):
         report = (generous / name / "report.txt").read_text()
         assert "Reduction (pre-optimization)" in report
-        assert "shortlisted per key" in report
+        assert "swept per key" in report
 
 
 def test_the_map_a_layer_carries_has_anchors_and_the_full_table(generous: Path) -> None:

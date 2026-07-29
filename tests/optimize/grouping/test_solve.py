@@ -13,8 +13,6 @@ from optisample.optimize.plans import NO_RESERVE, ZoneOption
 from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.tasks import Event, PitchTask
 
-_BYTE_TARGET = 1_000  # what one key of the layer may spend; unread here, the options are already scored
-
 
 def _fake_layer(pitches: tuple[int, ...]) -> tuple[ZoneSegment, ...]:
     """One velocity layer covering ``pitches``, which is the axis a plain pitch grouping walks."""
@@ -30,7 +28,7 @@ def _fake_layer(pitches: tuple[int, ...]) -> tuple[ZoneSegment, ...]:
         )
         for pitch in pitches
     )
-    return (ZoneSegment(tasks, _BYTE_TARGET),)
+    return (tasks,)
 
 
 def _fake_options(pitches: tuple[int, ...], seed: int) -> dict[tuple[int, int], tuple[ZoneOption, ...]]:

@@ -18,7 +18,7 @@ Budget:      512.0 KiB module  ->    510.7 KiB samples
 Used:        510.4 KiB samples  ( 99.9% of budget, 0.3 KiB free)
 Keyboard:      120 of 120 keys answered  (61 played, 59 filled from the nearest recording)
 Samples:        24 stored of 24 allowed  (each priced at the bytes it stores)
-Stored grid:    18 encodings  ->    3.0 shortlisted per key  (14.2-32.0 kHz useful)
+Stored grid: 14.2-32.0 kHz useful  ->  16.0-37.8 kHz stored, 4.0 swept per key
 ```
 
 Then the zone table under it, which is the whole plan in one page:
@@ -34,38 +34,40 @@ layer         keys   rep  rep.vel  rate(Hz)  depth  comp  size(KiB)  distortion 
 Two of the twenty-four samples hold **45 % of the budget**. That is the finding, and everything below is
 why it happens and which knob undoes it.
 
-For anything the table leaves out, `plan.json` carries the same zones with `frames`, `trim_s`, `loop` and
-`stored_bytes`, and `reduction.json` carries every survivor's length beside the length its notes asked
-for, plus each key's shortlist.
+For anything the table leaves out, `plan.json` carries the same zones with `frames`, `trim_s`, `loop`,
+`decay` and `stored_bytes`, and `reduction.json` carries every survivor's length beside the length its
+notes asked for, plus the format every key is stored at and the band it was settled from.
 
-## 2. The per-key share: the number the whole run turns on
+## 2. Who decides what: the format is settled before the budget is spent
 
-Before a single encoding is scored, the run computes one figure
-([`per_key_bytes`](../src/optisample/optimize/plans/budget.py)) — the sample budget split evenly over
-every key that has to be answered:
+The stored format — rate, depth, compression — is settled by the **reduction**, from the recording's own
+content ([`stored_format`](../src/optisample/optimize/reduce/bandwidth.py)). The band a clip occupies is
+measured, the rate that carries it at the transpose it plays at is read off that, and the sample is stored
+at the ladder's **lowest rung reaching** it. The budget is not consulted.
+
+What the allocation spends bytes on is therefore everything else:
+
+| The reduction settles | The allocation trades |
+|---|---|
+| stored rate, depth, compression | zone width, sample count |
+| how long a recording may run (§5) | which loop, or the trimmed span |
+
+The consequence is worth stating plainly. **A budget too small for the formats its recordings ask for is
+infeasible, and the run says so** rather than quietly storing everything duller:
 
 ```
-one layer, 61 played keys    523537 // 61   =  8582 B per key
-the 2-layer split it chose   522979 // 106  =  4933 B per key
-a zone's target              per-key share  *  the keys the zone covers
+ungrouped: infeasible (budget 97553 B too small; cheapest allocation needs 106554 B)
 ```
 
-That share is what the shortlist is ranked around. For each clip the bandwidth pre-pass prices the whole
-`(rate, depth, compress)` grid, takes the rate-distortion hull, and keeps the `candidates` (3) vertices
-whose **byte cost is nearest the share** ([`_shortlist`](../src/optisample/optimize/reduce/bandwidth.py)).
-Encodings far from that price are dropped before the expensive sweep ever sees them. The per-pitch
-shortlists in `reduction.json` are priced at the unlayered share; each candidate zone is priced at its own
-split's share times its width.
+Every allocation stage raises that
+([`BudgetInfeasibleError`](../src/optisample/optimize/dp.py)) and the artifact dump records it as the
+reason a strategy wrote no plan, so the other strategy's plan still lands beside it. The two answers are
+to raise `--budget-kb` or to lower `--content-floor-db` (§3), which is the knob that decides how much band
+every stored sample carries.
 
-The 112 KiB sample follows from that, with one twist. Its zone covers 13 keys, so it shortlisted around
-`13 x 4933 = 64 129 B` — but its representative has to hold 9.57 s of audio, and at the rate ladder's
-cheapest rung that already costs `9.57 s x 6000 Hz x 8 bit = 57 420 B`. **There is no cheap encoding of a
-long clip.** All three shortlisted vertices were long and expensive, and the allocation bought the 16-bit
-one (114 816 B of PCM plus 84 B of sample record) because thirteen keys' worth of weight justified
-doubling the depth. Length set the floor price; weight paid for the rest.
-
-**Lever.** Cap the length (§5) — that is what moves the floor. Raising `--budget-kb` or narrowing the
-zones (§6) helps at the margin; neither makes a ten-second clip affordable.
+The mirror case is a budget with room the allocation cannot spend: with the format settled and the lengths
+set by the material, an ungrouped plan has few upgrades left to buy. The shipped demo at 96 KiB stores
+70 644 B and stops — the remaining 26 KiB buys nothing, because no key has anything costlier worth storing.
 
 ## 3. The stored rate: why 6 kHz, and why pitch has little to do with it
 
@@ -88,51 +90,44 @@ spectral edge is measured (`content_floor_db` below its loudest band), the playb
 by the widest upward transpose the sample plays at, and Nyquist doubles the survivor into a rate
 ([`_audible_rate_hz`](../src/optisample/optimize/reduce/bandwidth.py)).
 
-At the shipped `content_floor_db: 80` it almost never binds. In the measured run `useful_rate_hz` came out
-at **32.0 kHz for 57 of the 61 keys** — the `ceiling_hz: 16000` cap, doubled. Eighty decibels under the
-loudest band is the recording's own noise floor, so the measure reads the noise rather than the content.
+`content_floor_db` is now the number that **decides** the rate, so it is the single most consequential
+knob in the reduction. Read on real piano takes at 48 kHz, the rung it lands each key on:
 
-`--content-floor-db` sets it per run, and tightening it is what makes the bound track pitch. On the synth
-demo the useful rate becomes monotone in pitch:
+| `content_floor_db` | F1 | F2 | F3 | F4 | F5 | F6 |
+|---|---|---|---|---|---|---|
+| `45` | 8.0 | 8.0 | 11.0 | 8.0 | 16.0 | 16.0 |
+| `60` (shipped) | 8.0 | 8.0 | 16.0 | 11.0 | 16.0 | 37.8 |
+| `70` | 11.0 | 11.0 | 37.8 | 37.8 | 37.8 | 37.8 |
+| `80` | 37.8 | 37.8 | 37.8 | 37.8 | 37.8 | 37.8 |
 
-| | C3 | G3 | C4 | G4 | C5 |
-|---|---|---|---|---|---|
-| `80` (shipped) | 11.4 kHz | 21.8 kHz | 21.8 kHz | 21.8 kHz | 21.8 kHz |
-| `45` | 1.4 kHz | 2.2 kHz | 5.4 kHz | 7.8 kHz | 10.6 kHz |
+The jump between 60 and 70 is the tell: ten decibels moving a key from 16 kHz to 37.8 kHz means the
+spectrum is nearly flat across that stretch, which is a **noise floor**, not content. Eighty decibels reads
+the room, and lands every key on the ceiling (`ceiling_hz: 16000`, doubled by Nyquist, rounded up to the
+32 kHz rung). Sixty reads the content above that noise, which is why it is shipped.
 
-Forty-five decibels is aggressive enough to sound dull; the region worth auditioning is roughly 50–60.
+Measured against the shipped demo at 96 KiB, the floor is also what decides whether a plan exists at all:
 
-**The budget share** is what actually picks the rate, and it is a function of *length*:
+| `content_floor_db` | demo piano, ungrouped | demo piano, grouped |
+|---|---|---|
+| `45` | 1.4372 / 63 640 B | 1.1639 / 55 556 B |
+| `60` (shipped) | **0.0973 / 70 644 B** | **0.0973 / 70 644 B** |
+| `70` | 28.7238 / 94 752 B | 0.9605 / 83 182 B |
+| `80` | infeasible | 0.9602 / 92 862 B |
 
-```
-bytes = length_s * rate * depth / 8 + 84      ->      rate ≈ 8 * byte_target / (length_s * depth)
-```
+Two readings worth carrying away. A floor too **low** stores less band than the budget could afford (45
+scores fifteen times worse than 60 while spending fewer bytes). A floor too **high** forces the allocation
+to buy its bytes back the only way it still can — by storing loops of notes too short to loop well, which
+is what the 28.7 reading is, and past that by not fitting at all.
 
-At the run's per-key share of 8582 B (the one the per-pitch shortlists were priced at):
+**The ladder's floor is a real bound.** Below its cheapest rung a clip has nowhere to go, however little
+band it occupies: at `--content-floor-db 45` the demo's C3 asks for 1.4 kHz while the cheapest rung is
+8000. Rounding **up** to the nearest rung is deliberate — it never drops content the material still plays —
+so a ladder wants rungs where its material lands. `32000` is on the shipped ladder for exactly that
+reason: it is where a 16 kHz ceiling lands, and storing there rather than at 37800 saves 18 % of every
+such sample.
 
-| stored length | 8-bit | 16-bit | rung the shortlist lands on |
-|---|---|---|---|
-| 0.2 s | 43 kHz | 21 kHz | 44100 / 22050 |
-| 0.5 s | 17 kHz | 8.6 kHz | 16000 / 8000 |
-| 1.0 s | 8.6 kHz | 4.3 kHz | 8000 / 8000 |
-| 3.0 s | 2.9 kHz | 1.4 kHz | 8000 (the ladder's floor) |
-| 10.0 s | 0.9 kHz | 0.4 kHz | 8000 |
-
-The run measured before the list landed followed that table — D#5, whose notes are short, shortlisted the
-top three rungs; A2, whose survivor ran the full 10 s, shortlisted the floor alone. **Long samples get low
-rates. Pitch enters only through the bandwidth bound, and only once that bound is tightened.**
-
-(The `+ 84` is the per-sample record every stored sample costs on top of its PCM, which is why a plan of
-many tiny zones pays a real fixed price for each of them.)
-
-**The ladder's floor is a real bound.** Below it a clip has nowhere cheaper to go, however little band it
-occupies. On the synth demo, `--content-floor-db 45` puts C3's useful rate at 1.4 kHz while the cheapest
-rung is 8000 — five times more than the content asks for. A ladder aimed at a tight budget wants a cheap
-end as much as a high one.
-
-**Levers.** `optimize/sweep.yaml: rates` is the ladder itself; `--rate 22050 --rate 16000` replaces it for one run
-(repeatable). Shortening the samples (§5) is what moves the byte cost, though — a rate floor with unchanged
-lengths just means fewer samples fit.
+**Levers.** `--content-floor-db` per run; `optimize/sweep.yaml: rates` is the ladder itself and `--rate`
+(repeatable) replaces it for one run.
 
 ## 4. Bit depth: what 8 bits costs, and how to refuse it
 
@@ -148,27 +143,24 @@ it in one to three seconds — after which the sample is *only* noise, and it st
 sample ends. That is the hiss you can hear behind the decay. At 16 bits the same floor sits at −89.8 dB
 and never surfaces.
 
-Compression compounds it: `compress` is swept only at depths of 8 or fewer
-([`compression_at`](../src/optisample/optimize/operating_points.py)) precisely because it trades crest
-factor for headroom against a shallow grid — which also lifts the decayed tail toward the noise floor.
+Compression goes with the depth: `compress` applies only at depths of 8 or fewer
+([`compresses`](../src/optisample/optimize/operating_points.py)) precisely because it trades crest factor
+for headroom against a shallow grid — which also lifts the decayed tail toward the noise floor.
 
-**The knob you asked for already exists.** Bit depth is a swept axis, and the sweep is settable from both
-sides:
+**Depth is a decision, not a search.** Every sample in a run is stored at one depth, and it is settable
+from both sides:
 
 ```bash
-optisample optimize Piano.notes.json --budget-kb 512 --depth 16     # 16-bit only, one run
+optisample optimize Piano.notes.json --budget-kb 512 --depth 16     # one run at 16 bits
 ```
 
 ```yaml
 # src/opticonfig/optimize/sweep.yaml
-depths: [16] # swept bit depths
+depth: 16 # bits every stored sample keeps
 ```
 
-`--depth` is repeatable and replaces the configured list, so `--depth 16` leaves 8-bit unreachable for
-that run. Compression goes with it: at depth 16 the sweep enumerates uncompressed alone.
-
-Expect fewer samples, or shorter ones, for the same budget — the byte target has not changed, so a 16-bit
-sample buys half the frames an 8-bit one does.
+Expect fewer samples, or shorter ones, for the same budget — a 16-bit sample buys half the frames an
+8-bit one does, and the allocation can no longer answer a tight budget by going shallow.
 
 ## 5. Stored length: the biggest lever by far
 
@@ -194,7 +186,7 @@ long sample; a zone whose keys hold blips stores 0.13 s.
 **A handful of held notes can set the length for the whole plan.** The measured material has a median note
 of **0.674 s** — and five notes, all at low velocity, held for **99 to 106 seconds** (pedalled, at pitches
 62, 69, 71, 76 and 88). Those five are why three zones asked for 68, 86 and 108 seconds of stored audio,
-were capped at ten, and then bought the most expensive encodings on the shortlist. Measured on the two
+were capped at ten, and then stored every second of it at the format their band asked for. Measured on the two
 samples they produced, the peak envelope falls 30 dB below its own peak within 2.3–4.0 s and 50 dB below it
 by 7.9–8.8 s: the budget bought roughly six seconds of near-inaudible decay at 16-bit, twice.
 
@@ -211,7 +203,7 @@ re-allocate off `1_reduced/` with a lower cap and see the effect without re-redu
 
 ## 6. Sample count, zone width, layers
 
-These three decide how the budget is *divided*, which sets every byte target in §2.
+These three decide how the budget is *divided*, which is where the allocation does its spending (§2).
 
 - **`--max-samples N`** (`optimize.yaml: max_samples`) charges a reserve per stored sample, so a
   many-narrow-zones partition is priced out and a few-wide-zones one wins. Fewer samples means *wider*
@@ -325,9 +317,11 @@ cut, and costs up to twice the bytes for it. `quantize.release_fade_s` handles t
 
 ## 9. Recipes
 
-**"The whole pack is lo-fi."** The budget is spread too thin. In order: cap the length further
-(`max_length_s: 3.0`), refuse 8-bit (`--depth 16`), then narrow the zones (`max_zone_semitones: 7`).
-Re-allocate off `1_reduced/` — the cap is read at every ingest, so no re-reduce is needed.
+**"The whole pack is lo-fi."** The stored band is what the reduction read, so start there: raise
+`--content-floor-db` (§3) and see what the rungs become. If the budget then will not fit, buy the room the
+usual way — cap the length further (`max_length_s: 3.0`), refuse 8-bit (`--depth 16`), then narrow the
+zones (`max_zone_semitones: 7`). Re-allocate off `1_reduced/` — both are read at every ingest, so no
+re-reduce is needed.
 
 ```bash
 cp -r src/opticonfig myconfig           # --config takes a directory laid out like the bundled one
@@ -337,8 +331,8 @@ optisample optimize artifacts/1_reduced/Piano.notes.json \
     --config myconfig --no-render --out artifacts/tuned
 ```
 
-**"One sample eats the budget."** It is a wide zone spending its keys' pooled share (§2) on a long
-recording (§5). Cap `max_length_s`, or lower `max_zone_semitones` so no zone pools thirteen keys.
+**"One sample eats the budget."** It is a wide zone storing a long recording (§5) at the format its band
+asked for (§2). Cap `max_length_s`, or lower `max_zone_semitones` so no zone covers thirteen keys.
 
 **"There is hiss behind the decay."** 8-bit noise floor. `--depth 16`.
 
@@ -355,17 +349,16 @@ as the format numbers. Each extra sample is charged a reserve, so the run states
 |---|---|---|
 | `--budget-kb` | CLI | Everything is too thin and the target has room. |
 | `reduce.trim.max_length_s` | `reduce/trim.yaml` | A few samples dominate the plan. |
-| `--depth 16` | CLI (`optimize/sweep.yaml: depths`) | Hiss behind the decay; 8-bit is unacceptable. |
+| `--depth 16` | CLI (`optimize/sweep.yaml: depth`) | Hiss behind the decay; 8-bit is unacceptable. |
 | `--rate` (repeatable) | CLI (`optimize/sweep.yaml: rates`) | Replacing the ladder for one run. |
 | `sweep.rates` | `optimize/sweep.yaml` | Reshaping the ladder itself — its floor is what long samples land on. |
 | `quantize.release_fade_s` | `codec/quantize.yaml` | Samples click at their end, or 10 ms of ramp is audible. |
-| `--content-floor-db` | CLI (`reduce/bandwidth.yaml`) | You want the stored rate to track pitch. |
+| `--content-floor-db` | CLI (`reduce/bandwidth.yaml`) | The stored band is duller than the budget can afford, or a budget will not fit. |
 | `--max-samples` | CLI (`optimize/budget.yaml`) | Trading sample count against per-sample quality. |
 | `reduce.grouping.max_zone_semitones` | `reduce/grouping.yaml` | Repitching artefacts across a zone. |
 | `--max-layers` | CLI (`optimize/layers.yaml`) | Dynamics matter more (or less) than fidelity per note. |
 | `dedupe.transposition_headroom_semitones` | `reduce/dedupe.yaml` | Survivors are longer than the music needs. |
 | `reduce.events.duration_bucket_ratio` | `reduce/events.yaml` | Samples are cut mid-decay and click. |
-| `--candidates` | CLI (`reduce/bandwidth.yaml`) | The shortlist is missing encodings you want considered. |
 | `metrics.preprocess.dynamic_range_db` | `analysis/metrics.yaml` | The solver pays for material you cannot hear. |
 | `optimize.budget.energy_exponent` | `optimize/budget.yaml` | Quiet notes are getting a budget share out of proportion. |
 | `--no-loop` | CLI (`optimize/sweep.yaml: loop_choices`) | Looped decays ring on. |

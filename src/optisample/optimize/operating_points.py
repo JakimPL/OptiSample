@@ -1,4 +1,4 @@
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final, Protocol, TypeVar
 
@@ -75,17 +75,14 @@ def sweep_rates(sweep: SweepConfig, sample_rate: int) -> list[int]:
     return sorted({rate for rate in sweep.rates if rate < sample_rate} | {sample_rate}, reverse=True)
 
 
-def compression_at(sweep: SweepConfig, depth: int) -> tuple[bool, ...]:
-    """The compression settings ``depth`` is swept over, in the order ``sweep`` asks for them.
+def compresses(sweep: SweepConfig, depth: int) -> bool:
+    """Whether a sample stored at ``depth`` runs through dynamics on the way to the quantizer.
 
-    Compression trades waveform for headroom against the quantizer, a bargain only a grid shallow enough
-    to hear its own noise floor stands to win. Depths past that are enumerated uncompressed, once, which
-    keeps the sweep from paying twice for encodings the objective would score alike.
+    Compression trades waveform for headroom against the quantizer, a bargain a depth shallow enough to
+    hear its own noise floor stands to win. Deeper storage keeps the waveform as recorded, where the
+    quantizer already sits below what compression would protect.
     """
-    if depth <= _COMPRESSIBLE_DEPTH:
-        return sweep.compress
-
-    return (False,)
+    return sweep.compress and depth <= _COMPRESSIBLE_DEPTH
 
 
 def loop_choices(sweep: SweepConfig) -> tuple[int | None, ...]:
@@ -96,34 +93,6 @@ def loop_choices(sweep: SweepConfig) -> tuple[int | None, ...]:
     than on a setting.
     """
     return (TRIMMED, *range(sweep.loop_choices))
-
-
-def sweep_param_grid(
-    sweep: SweepConfig,
-    sample_rate: int,
-    *,
-    trim_s: float | None,
-) -> Iterator[EncodingParams]:
-    """Yield every ``(loop choice, depth, compress, rate)`` configuration in ``sweep``, trimmed to ``trim_s``.
-
-    Iterating loop-major, then depth, then compression, then rate fixes the single order in which every
-    cost model enumerates and scores encodings, so the per-sample, per-pitch and per-zone sweeps stay
-    identical.
-    """
-    rates = sweep_rates(sweep, sample_rate)
-    for loop_choice in loop_choices(sweep):
-        for depth in sweep.depths:
-            for compress in compression_at(sweep, depth):
-                for rate in rates:
-                    yield EncodingParams(
-                        target_rate=rate,
-                        depth_bits=depth,
-                        trim_s=trim_s,
-                        dither=sweep.dither,
-                        noise_shaping=sweep.noise_shaping,
-                        loop_choice=loop_choice,
-                        compress=compress,
-                    )
 
 
 def _reference(clip: SourceClip, stored: StoredSample) -> Signal:
@@ -161,18 +130,6 @@ def evaluate_encoding(clip: SourceClip, params: EncodingParams, context: SweepCo
         distortion=report.fidelity,
         frames=stored.frames,
     )
-
-
-def sample_operating_points(clip: SourceClip, sweep: SweepConfig, context: SweepContext) -> list[OperatingPoint]:
-    """Evaluate every ``(rate, depth)`` in ``sweep`` for ``clip`` (trimmed to its material duration)."""
-    return [
-        evaluate_encoding(clip, params, context)
-        for params in sweep_param_grid(
-            sweep,
-            clip.sample_rate,
-            trim_s=clip.duration_s,
-        )
-    ]
 
 
 class RDPoint(Protocol):
@@ -235,8 +192,3 @@ def lower_convex_hull(points: Sequence[_RDPointT]) -> list[_RDPointT]:
     :func:`_pareto_frontier` drops dominated points, then :func:`_hull_pop` drops the concave ones.
     """
     return _hull_pop(_pareto_frontier(points))
-
-
-def rd_frontier(clip: SourceClip, sweep: SweepConfig, context: SweepContext) -> list[OperatingPoint]:
-    """Convenience: sweep ``clip`` over ``sweep`` and return only the rate-distortion hull."""
-    return lower_convex_hull(sample_operating_points(clip, sweep, context))

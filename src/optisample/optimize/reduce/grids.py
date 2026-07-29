@@ -6,18 +6,21 @@ from functools import partial
 from typing import Final, Protocol
 
 from optisample.config.codec import EncodeConfig
-from optisample.config.metrics import MetricsConfig
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import BandwidthConfig
 from optisample.dsp.loop import Loop, LoopQuality, loop_candidates, loop_quality
 from optisample.dsp.surrogate import EncodingParams
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.metrics.base import Signal
-from optisample.metrics.composite import CompositeFidelity, build_composite
-from optisample.optimize.reduce.bandwidth import ClipDemand, candidate_params, useful_rate_hz
+from optisample.optimize.reduce.bandwidth import (
+    ClipDemand,
+    StoredFormat,
+    stored_encodings,
+    stored_format,
+    useful_rate_hz,
+)
 from optisample.parallel import map_workers
 from optisample.progress import ProgressSink
-from trackmod.module.storage import Storage
 
 NARROW_LABEL: Final = "Narrowing stored grids"
 
@@ -56,29 +59,17 @@ class ClipRequest:
 
 @dataclass(frozen=True)
 class GridContext:
-    """What narrowing a stored grid runs off, in the validated config a worker process can be handed.
+    """What settling a pitch's stored grid runs off, in the validated config a worker process can be handed.
 
-    ``sample_rate`` is the rate the run measures at, ``storage`` the cost table each candidate is priced
-    against, ``sweep`` the grid enumerated and ``byte_target`` the share of the budget one stored sample
-    can expect, which is what the shortlist is drawn around.
-
-    The metrics config travels rather than the metric built from it, so the whole context is small
-    validated values and every process narrowing a grid scores with a metric assembled the one way
-    :func:`~optisample.metrics.composite.build_composite` assembles it.
+    ``sample_rate`` is the rate the run measures at, ``encode`` the codec config a loop is measured under,
+    ``sweep`` what a clip may be stored as, and ``bandwidth`` the knobs that read a recording's own band.
+    Every field is a small validated value, so the whole context travels to a worker as it stands.
     """
 
     sample_rate: int
-    metrics: MetricsConfig
     encode: EncodeConfig
-    storage: Storage
     sweep: SweepConfig
     bandwidth: BandwidthConfig
-    byte_target: int
-
-    @property
-    def composite(self) -> CompositeFidelity:
-        """The fidelity metric a candidate encoding is scored with, assembled from ``metrics``."""
-        return build_composite(self.metrics)
 
 
 @dataclass(frozen=True)
@@ -99,17 +90,19 @@ class MeasuredLoop:
 
 @dataclass(frozen=True)
 class NarrowedGrid:
-    """The encodings the sweep runs for the sample one pitch stores, and the band that bounds them.
+    """What the reduction settled for the sample one pitch stores, and the band it settled it from.
 
     ``useful_rate_hz`` is the stored rate carrying everything the recording still contributes at its own
-    key (see :func:`~optisample.optimize.reduce.bandwidth.useful_rate_hz`); ``shortlist`` is what the
-    frontier around the budget's per-key share leaves of the full grid; ``loops`` are the candidates the
-    sweep may store the clip around, measured on the recording as it stands.
+    key (see :func:`~optisample.optimize.reduce.bandwidth.useful_rate_hz`); ``stored`` is the format the
+    ladder's lowest rung reaching it names; ``encodings`` are what the sweep then runs, that one format
+    over each loop choice; and ``loops`` are the candidates those choices name, measured on the recording
+    as it stands.
     """
 
     pitch: int
     useful_rate_hz: float
-    shortlist: tuple[EncodingParams, ...]
+    stored: StoredFormat
+    encodings: tuple[EncodingParams, ...]
     loops: tuple[MeasuredLoop, ...]
 
 
@@ -140,23 +133,21 @@ def _measured_loops(clip: StoredClip, context: GridContext) -> tuple[MeasuredLoo
 
 
 def narrow_grid(clip: StoredClip, context: GridContext) -> NarrowedGrid:
-    """Narrow one pitch's stored grid, at the demand a key sounding its own recording makes of it.
+    """Settle one pitch's stored grid, at the demand a key sounding its own recording makes of it.
 
-    Reads the clip and the context alone, and the proxy encodes it prices run off the surrogate's own
-    fixed dither seed, so a pitch earns the same grid in whichever process and whichever order it is
-    reached. That is the property :func:`narrow_grids` shares the pitches out on.
+    Reads the clip and the context alone, so a pitch earns the same grid in whichever process and
+    whichever order it is reached. That is the property :func:`narrow_grids` shares the pitches out on.
 
-    The sample answers for its own key alone, so what it may spend is the per-key share as it stands.
+    The sample answers for its own key, so the band it is stored at is the one its recording occupies with
+    nothing transposed away.
     """
-    demand = ClipDemand(
-        trim_s=clip.max_duration_s,
-        delta_semitones=_OWN_KEY,
-        byte_target=context.byte_target,
-    )
+    demand = ClipDemand(trim_s=clip.max_duration_s, delta_semitones=_OWN_KEY)
+    stored = stored_format(clip.representative, demand, context)
     return NarrowedGrid(
         pitch=clip.pitch,
         useful_rate_hz=useful_rate_hz(clip.representative, demand, context.sample_rate, context.bandwidth),
-        shortlist=candidate_params(clip.representative, demand, context),
+        stored=stored,
+        encodings=stored_encodings(stored, context.sweep, trim_s=demand.trim_s),
         loops=_measured_loops(clip, context),
     )
 

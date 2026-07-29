@@ -84,7 +84,7 @@ def build(
         material: list[NoteEvent] | None = None,
         tracker_format: TrackerFormat | None = None,
     ) -> tuple[InstrumentPlan, TrackerModule]:
-        settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depths=(16, 8)))
+        settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depth=16))
         plan = optimize_instrument(demo_instrument(), demo_audio, SR, settings)
         module = build_module(
             plan,
@@ -108,7 +108,7 @@ def grouped_build(
     """A tight-budget grouped build: one cheap operating point forces both keys into one shared zone."""
 
     def _grouped_build(budget_kb: float = _GROUPED_BUDGET_KB) -> tuple[GroupedInstrumentPlan, TrackerModule]:
-        settings = optimize_settings(sweep=sweep(rates=(11_025,), depths=(8,), dither=False))
+        settings = optimize_settings(sweep=sweep(rates=(11_025,), depth=8, dither=False))
         plan = optimize_instrument_grouped(demo_instrument(budget_kb), demo_audio, SR, settings)
         module = build_module(plan, demo_audio, SR, demo_material(), export_context)
         return plan, module
@@ -126,7 +126,7 @@ def layered_build(
     """A generous grouped build: pitch 60 is played at both dynamics, so a velocity split can pay."""
 
     def _layered_build(budget_kb: float = _LAYERED_BUDGET_KB) -> tuple[GroupedInstrumentPlan, TrackerModule]:
-        settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depths=(16, 8)))
+        settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depth=16))
         plan = optimize_instrument_grouped(demo_instrument(budget_kb), demo_audio, SR, settings)
         module = build_module(plan, demo_audio, SR, demo_material(), export_context)
         return plan, module

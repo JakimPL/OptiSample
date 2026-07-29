@@ -13,11 +13,14 @@ TRIMMED_ONLY: Final = 0  # the ``loop_choices`` value offering the trimmed sampl
 
 
 class SweepConfig(ConfigModel):
-    """The encoding axes to sweep for one clip.
+    """What one clip may be stored as: the format it is kept at, and the loops the sweep prices.
 
-    ``rates`` is the ladder of reduced stored rates every clip is offered. A clip is also always offered
-    its own rate, so the ladder states the rates worth stepping down to and leaves "store it as recorded"
-    to follow from the recording itself.
+    ``rates`` is the ladder a stored rate is chosen from, and a clip's own rate joins it, so the ladder
+    states the rates worth stepping down to and leaves "store it as recorded" to follow from the recording
+    itself. The reduction reads the rung the recording's own content asks for
+    (:func:`~optisample.optimize.reduce.bandwidth.stored_format`), so every rung stays available to
+    material that reaches it. ``depth`` is the depth every stored sample keeps, and ``compress`` applies
+    dynamics on the way to the quantizer where the depth is shallow enough to hear the headroom it buys.
 
     ``loop_choices`` is how far into :func:`~optisample.dsp.loop.loop_candidates` the sweep reaches, and
     the trimmed sample is enumerated beside them, so the frontier prices a loop against storing none and
@@ -25,11 +28,11 @@ class SweepConfig(ConfigModel):
     """
 
     rates: Annotated[tuple[int, ...], Field(min_length=1)]
-    depths: tuple[int, ...]
+    depth: Annotated[int, Field(gt=0)]
     dither: bool
     noise_shaping: bool
     loop_choices: Annotated[int, Field(ge=TRIMMED_ONLY)]
-    compress: tuple[bool, ...]
+    compress: bool
 
 
 class BudgetConfig(ConfigModel):

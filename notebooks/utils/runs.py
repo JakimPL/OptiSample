@@ -55,9 +55,9 @@ class Fields:
     strategy: str
     interpolation: str
     dedupe_key: str
-    candidates: int
+    content_floor_db: float
     rates: tuple[int, ...]
-    depths: tuple[int, ...]
+    depth: int
     loop: bool
     workers: int
     seed: int
@@ -124,8 +124,10 @@ def _ingest_flags(fields: Fields, dataset: Dataset) -> list[str]:
         fields.interpolation,
         "--dedupe-key",
         fields.dedupe_key,
-        "--candidates",
-        str(fields.candidates),
+        "--content-floor-db",
+        f"{fields.content_floor_db:g}",
+        "--depth",
+        str(fields.depth),
         "--seed",
         str(fields.seed),
         "--workers",
@@ -133,9 +135,6 @@ def _ingest_flags(fields: Fields, dataset: Dataset) -> list[str]:
     ]
     for rate in fields.rates:
         flags += ["--rate", str(rate)]
-
-    for depth in fields.depths:
-        flags += ["--depth", str(depth)]
 
     if not fields.loop:
         flags.append("--no-loop")

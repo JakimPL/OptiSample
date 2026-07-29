@@ -246,7 +246,7 @@ def scoring(
         SampleKey(pitch, 100): piano_note(pitch, 100, dur=0.6, seed=pitch * 137 + 100) for pitch in PITCHES
     }
     material = [NoteEvent(pitch=pitch, velocity=100, duration_s=0.5, count=2) for pitch in PITCHES]
-    settings = optimize_settings(sweep=sweep(rates=(SR,), depths=(16,), dither=False))
+    settings = optimize_settings(sweep=sweep(rates=(SR,), depth=16, dither=False))
     inputs = prepare_run(_instrument(material), audio, SR, settings)
     task = inputs.tasks[0]
     params = EncodingParams(target_rate=SR, depth_bits=16, dither=False)
@@ -348,7 +348,7 @@ def test_the_representative_is_the_most_played_class(
         NoteEvent(pitch=60, velocity=40, duration_s=0.5, count=1),
         NoteEvent(pitch=60, velocity=100, duration_s=0.5, count=4),
     ]
-    settings = optimize_settings(sweep=sweep(rates=(SR,), depths=(16,), dither=False))
+    settings = optimize_settings(sweep=sweep(rates=(SR,), depth=16, dither=False))
     task = prepare_run(_instrument(material), audio, SR, settings).tasks[0]
     assert task.representative_event.velocity == 100
     assert task.representative_event.weight == max(event.weight for event in task.events)

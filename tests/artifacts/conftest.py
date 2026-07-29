@@ -7,6 +7,7 @@ from numpy.typing import NDArray
 from optisample.artifacts.context import DumpContext, DumpSettings
 from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
+from optisample.config.reduce import ReduceConfig
 from optisample.io.tracker.target import export_target
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.grouping.optimize import optimize_instrument_grouped
@@ -19,17 +20,28 @@ from optisample.optimize.tasks import AudioMap
 SR = 44_100
 PITCHES = (60, 62, 64)
 _CONFIG = load_config()
+_STORED_CEILING_HZ = 5_000.0  # the band these fixtures store, which lands them on the 11 kHz rung
+
+
+def _narrow_band_reduce() -> ReduceConfig:
+    """The bundled reduction, storing only the band ``_STORED_CEILING_HZ`` names.
+
+    That ceiling is what puts these fixtures' samples on the 11 kHz rung, so the budgets they assert
+    against stay at the scale of a handful of stored samples.
+    """
+    raw = _CONFIG.reduce.model_dump()
+    return ReduceConfig.model_validate({**raw, "bandwidth": {**raw["bandwidth"], "ceiling_hz": _STORED_CEILING_HZ}})
 
 
 @pytest.fixture
 def tiny_settings() -> OptimizeSettings:
     """Cheap swept settings straight from the bundled config (dither off → the re-encode is deterministic)."""
     grid = SweepConfig.model_validate(
-        {**_CONFIG.optimize.sweep.model_dump(), "rates": (11_025,), "depths": (8,), "dither": False}
+        {**_CONFIG.optimize.sweep.model_dump(), "rates": (11_025,), "depth": 8, "dither": False}
     )
     return OptimizeSettings(
         sweep=grid,
-        reduce=_CONFIG.reduce,
+        reduce=_narrow_band_reduce(),
         layers=_CONFIG.optimize.layers,
         encode=_CONFIG.codec.encode,
         metrics=_CONFIG.analysis.metrics,

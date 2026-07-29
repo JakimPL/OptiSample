@@ -151,5 +151,5 @@ def test_the_reduction_document_records_every_kept_recording_and_narrowed_grid(
     assert recording.covers_material is coverage
     grid = reduction.grids[0]
     assert grid.note and 0.0 < grid.useful_rate_hz
-    assert 0 < len(grid.shortlist) <= reduction.grid_size
-    assert all(encoding.depth_bits in (8, 16) for encoding in grid.shortlist)
+    assert grid.stored.target_rate >= grid.useful_rate_hz  # the rung reaches the band it was settled from
+    assert grid.stored.depth_bits in (8, 16) and grid.swept > 0

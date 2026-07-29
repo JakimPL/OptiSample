@@ -67,32 +67,41 @@ def _format_shortfalls(reduction: ReductionSummary) -> list[str]:
     return lines
 
 
-def _format_grid(reduction: ReductionSummary) -> str:
-    """The full stored grid against the shortlist each played pitch keeps of it, and the band behind it.
+def _kilohertz_span(rates: Sequence[float]) -> str:
+    """The span a set of rates covers, in kHz -- one figure where every rate agrees."""
+    lowest, highest = min(rates) / _HZ_PER_KHZ, max(rates) / _HZ_PER_KHZ
+    if lowest == highest:
+        return f"{lowest:.1f}"
 
-    The rate span states what the kept representatives' own content and the playback ceiling justify
-    storing, which is the measurement the shortlist is drawn around. An instrument whose material plays
-    nothing has no pitch to narrow, so the line reports the grid alone.
+    return f"{lowest:.1f}-{highest:.1f}"
+
+
+def _format_grid(reduction: ReductionSummary) -> str:
+    """The band each played pitch asked for against the format it is stored at, and what is swept over it.
+
+    The useful span states what the kept representatives' own content and the playback ceiling justify
+    storing, and the stored span the ladder rungs that reach it, so the line reads as the measurement and
+    the format it named. An instrument whose material plays nothing has no pitch to settle, so the line
+    says as much.
     """
     grids = reduction.grids
-    lead = f"Stored grid: {reduction.grid_size:>5} encodings  ->  "
     if not grids:
-        lead += "swept once the material plays a pitch"
-        return lead
+        return "Stored grid:  settled once the material plays a pitch"
 
-    rates = [grid.useful_rate_hz / _HZ_PER_KHZ for grid in grids]
+    useful = _kilohertz_span([grid.useful_rate_hz for grid in grids])
+    stored = _kilohertz_span([float(grid.stored.target_rate) for grid in grids])
     return (
-        f"{lead}{reduction.shortlisted / len(grids):>5.1f} shortlisted per key  "
-        f"({min(rates):.1f}-{max(rates):.1f} kHz useful)"
+        f"Stored grid: {useful:>9} kHz useful  ->  {stored} kHz stored, "
+        f"{reduction.swept / len(grids):.1f} swept per key"
     )
 
 
 def format_reduction_block(reduction: ReductionSummary) -> str:
     """The pre-optimization stage's own summary: how much smaller each axis of the problem got.
 
-    Three lines, one per axis -- the recorded grid, the material, and the stored encoding grid -- each
-    reading ``before -> after``, so the search space the allocation was handed is stated alongside the
-    allocation itself. Any recording too short for its material is called out under them.
+    Three lines, one per axis -- the recorded grid, the material, and the stored format -- each reading
+    ``before -> after``, so the search space the allocation was handed is stated alongside the allocation
+    itself. Any recording too short for its material is called out under them.
     """
     lines = [
         "Reduction (pre-optimization)",

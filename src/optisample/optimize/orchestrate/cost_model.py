@@ -7,7 +7,7 @@ from optisample.optimize.operating_points import OperatingPoint, lower_convex_hu
 from optisample.optimize.tasks import EvalContext, PitchTask, score_reconstruction
 from optisample.progress import ProgressSink
 
-Shortlists = Mapping[int, tuple[EncodingParams, ...]]  # the encodings to sweep, by the pitch storing them
+PitchEncodings = Mapping[int, tuple[EncodingParams, ...]]  # the encodings to sweep, by the pitch storing them
 _SWEEP_LABEL: Final = "Sweeping encodings"
 
 
@@ -28,26 +28,26 @@ def _evaluate_config(
     )
 
 
-def _sweep_plan(tasks: Sequence[PitchTask], shortlists: Shortlists) -> list[tuple[PitchTask, EncodingParams]]:
-    """Every encode the sweep will run, pitch-major then in shortlist order.
+def _sweep_plan(tasks: Sequence[PitchTask], encodings: PitchEncodings) -> list[tuple[PitchTask, EncodingParams]]:
+    """Every encode the sweep will run, pitch-major then in the order the encodings are offered.
 
     Listing the work before starting it gives the run a total to report against, and enumerating it in
     the order the sweep consumes it keeps each encode drawing the same dither as it did unlisted.
-    ``shortlists`` is what the bandwidth pre-pass
-    (:func:`~optisample.optimize.reduce.summary.summarize_reduction`) left of the full grid per pitch, so
-    the sweep spends its encodes on the encodings the budget puts within reach.
+    ``encodings`` is what the bandwidth pre-pass
+    (:func:`~optisample.optimize.reduce.summary.summarize_reduction`) settled per pitch -- the format its
+    recording asked for, over each loop choice -- so the sweep prices how a sample carries on.
     """
-    return [(task, params) for task in tasks for params in shortlists[task.pitch]]
+    return [(task, params) for task in tasks for params in encodings[task.pitch]]
 
 
 def build_items(
     tasks: Sequence[PitchTask],
-    shortlists: Shortlists,
+    encodings: PitchEncodings,
     context: EvalContext,
     progress: ProgressSink,
 ) -> tuple[tuple[KnapsackItem, ...], dict[int, tuple[OperatingPoint, ...]]]:
     """Turn each pitch task into a knapsack item plus its lower-convex-hull configs."""
-    swept = _sweep_plan(tasks, shortlists)
+    swept = _sweep_plan(tasks, encodings)
     points_by_pitch: dict[int, list[OperatingPoint]] = {task.pitch: [] for task in tasks}
     for task, params in progress.track(swept, label=_SWEEP_LABEL, total=len(swept)):
         points_by_pitch[task.pitch].append(_evaluate_config(task, context, params))

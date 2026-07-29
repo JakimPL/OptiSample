@@ -149,7 +149,7 @@ def _tracked_ccs(material: Sequence[NoteEvent]) -> list[int]:
 
 
 def _encoding_stem(params: EncodingParams) -> str:
-    """The audition filename for one shortlisted encoding: every axis it asks for, in the sweep's order."""
+    """The audition filename for one swept encoding: every axis it asks for, in the sweep's order."""
     parts = [f"r{params.target_rate}", f"d{params.depth_bits}"]
     if params.compress:
         parts.append("c")
@@ -160,7 +160,7 @@ def _encoding_stem(params: EncodingParams) -> str:
 
 
 def _audition(task: PitchTask, event: Event, params: EncodingParams, context: EvalContext) -> Signal:
-    """The audio one shortlisted encoding produces for a pitch's representative note.
+    """The audio one swept encoding produces for a pitch's representative note.
 
     Stored and played back the way the sweep scores it, so what lands on disk is the reconstruction the
     objective measures. The dither runs off the surrogate's own fixed seed, so a pitch renders the same
@@ -177,33 +177,33 @@ def _audition(task: PitchTask, event: Event, params: EncodingParams, context: Ev
 
 def _write_auditions(
     task: PitchTask,
-    shortlist: Sequence[EncodingParams],
+    encodings: Sequence[EncodingParams],
     out_dir: Path,
     context: EvalContext,
 ) -> int:
-    """Render one pitch's representative note through every shortlisted encoding, beside its reference.
+    """Render one pitch's representative note through every encoding it is swept over, beside its reference.
 
     Writing the reference alongside them makes the folder a listening test: the recording as it stands,
-    next to each encoding the allocation may buy, so the shortlist is judged by ear while the sweep is
-    still ahead. Returns how many files were written.
+    next to each encoding the allocation may buy, so the format the reduction settled is judged by ear
+    while the sweep is still ahead. Returns how many files were written.
     """
     directory = out_dir / pitch_label(task.pitch)
     directory.mkdir(parents=True, exist_ok=True)
     event = task.representative_event
     write_wav(directory / f"{_REFERENCE_STEM}.wav", event.scored_span(context.sample_rate), context.sample_rate)
-    for params in shortlist:
+    for params in encodings:
         write_wav(
             directory / f"{_encoding_stem(params)}.wav", _audition(task, event, params, context), context.sample_rate
         )
 
-    return len(shortlist) + _REFERENCE_FILES
+    return len(encodings) + _REFERENCE_FILES
 
 
 def _write_all_auditions(inputs: RunInputs, out_dir: Path, progress: ProgressSink) -> int:
-    """Render the shortlist of every played pitch and return how many audition files were written."""
-    shortlists = inputs.reduction.shortlists()
+    """Render every played pitch's swept encodings and return how many audition files were written."""
+    encodings = inputs.reduction.encodings()
     tracked = progress.track(inputs.tasks, label=_AUDITION_LABEL, total=len(inputs.tasks))
-    return sum(_write_auditions(task, shortlists[task.pitch], out_dir, inputs.context) for task in tracked)
+    return sum(_write_auditions(task, encodings[task.pitch], out_dir, inputs.context) for task in tracked)
 
 
 def _reduced_document(
@@ -233,8 +233,8 @@ def dump_reduced(
     The output root is itself a NoteExtractor dataset -- one WAV per surviving recording and one note
     per note the material plays -- so an allocation run picks up from here and reaches the sweep having
     paid only the ingest. Beside it, ``reduction.json`` states what each axis came down to and
-    ``auditions/`` holds every shortlisted encoding rendered to audio, so the stage is inspectable and
-    audible on its own.
+    ``auditions/`` holds every swept encoding rendered to audio, so the stage is inspectable and audible
+    on its own.
 
     A dataset reproduces its survivors exactly under the key it was reduced with: each note carries the
     identity of the recording serving it, so re-running dedup over those recordings keeps the same one

@@ -30,6 +30,7 @@ from optisample.model import ProjectSpec
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.operating_points import SweepContext
 from optisample.optimize.orchestrate.settings import OptimizeSettings
+from optisample.optimize.reduce.bandwidth import StoredFormat
 from optisample.optimize.reduce.grids import MeasuredLoop, NarrowedGrid
 from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.reduce.summary import KeptRecording, ReductionSummary
@@ -345,7 +346,6 @@ def reduction() -> ReductionSummary:
         listed_recordings=9,
         played_notes=8,
         scored_classes=3,
-        grid_size=12,
         recordings=(
             KeptRecording(SampleKey(60, 100), duration_s=1.0, required_duration_s=0.8),
             KeptRecording(SampleKey(67, 100), duration_s=0.4, required_duration_s=0.8),
@@ -353,8 +353,9 @@ def reduction() -> ReductionSummary:
         grids=(
             NarrowedGrid(
                 pitch=60,
-                useful_rate_hz=11_025.0,
-                shortlist=(EncodingParams(target_rate=11_025, depth_bits=16),),
+                useful_rate_hz=10_500.0,
+                stored=StoredFormat(target_rate=11_025, depth_bits=16, compress=False),
+                encodings=(EncodingParams(target_rate=11_025, depth_bits=16),),
                 loops=(MeasuredLoop(choice=0, start_s=0.05, end_s=0.55, quality=LoopQuality(1.2, 3.4)),),
             ),
         ),

@@ -25,7 +25,7 @@ from optisample.artifacts.serialize import (
     ReductionDocument,
     RepresentativeEventRecord,
     ScreenRecord,
-    ShortlistedEncodingRecord,
+    StoredFormatRecord,
     VelocityMapDocument,
     WrittenSampleRecord,
     ZoneItemRecord,
@@ -56,7 +56,6 @@ def _reduction() -> ReductionDocument:
         kept_recordings=3,
         played_notes=12,
         scored_classes=5,
-        grid_size=18,
         recordings=[
             KeptRecordingRecord(
                 key="p060_C4_v100",
@@ -80,10 +79,8 @@ def _reduction() -> ReductionDocument:
                 pitch=60,
                 note="C4",
                 useful_rate_hz=12_345.6,
-                shortlist=[
-                    ShortlistedEncodingRecord(target_rate=22_050, depth_bits=16, compress=False, loop_choice=0),
-                    ShortlistedEncodingRecord(target_rate=11_025, depth_bits=8, compress=True, loop_choice=1),
-                ],
+                stored=StoredFormatRecord(target_rate=16_000, depth_bits=16, compress=False),
+                swept=4,
                 loops=[
                     LoopCandidateRecord(choice=0, start_s=0.05, end_s=0.55, seam_step=1.25, spectral_distance=3.5),
                     LoopCandidateRecord(choice=1, start_s=0.70, end_s=1.20, seam_step=0.75, spectral_distance=1.5),
@@ -93,9 +90,8 @@ def _reduction() -> ReductionDocument:
                 pitch=67,
                 note="G4",
                 useful_rate_hz=9_000.0,
-                shortlist=[
-                    ShortlistedEncodingRecord(target_rate=11_025, depth_bits=8, compress=False, loop_choice=None)
-                ],
+                stored=StoredFormatRecord(target_rate=11_025, depth_bits=8, compress=True),
+                swept=4,
                 loops=[],
             ),
         ],
@@ -253,7 +249,9 @@ def test_the_reduction_document_reads_back_as_it_was_written(reduced_root: Path)
 def test_each_reduction_axis_reads_before_and_after(reduced_root: Path) -> None:
     rows = reports.reduction_rows(reports.read_reduced(reduced_root, _INSTRUMENT).reduction)
 
-    assert [(row["before"], row["after"]) for row in rows] == [(8, 3), (12, 5), (18, 1.5)]
+    useful_khz = round((12.3456 + 9.0) / 2, 1)  # the mean band the two played pitches asked for
+    stored_khz = round((16.0 + 11.025) / 2, 1)  # and the mean rung reaching it
+    assert [(row["before"], row["after"]) for row in rows] == [(8, 3), (12, 5), (useful_khz, stored_khz)]
 
 
 def test_a_recording_shorter_than_its_material_states_the_shortfall(reduced_root: Path) -> None:
@@ -263,12 +261,12 @@ def test_a_recording_shorter_than_its_material_states_the_shortfall(reduced_root
     assert [row["shortfall_s"] for row in rows] == [0.0, 1.5]
 
 
-def test_the_shortlist_names_every_axis_each_encoding_asks_for(reduced_root: Path) -> None:
-    rows = reports.shortlist_rows(reports.read_reduced(reduced_root, _INSTRUMENT).reduction)
+def test_a_stored_format_row_names_the_rate_depth_and_compression_it_settled_on(reduced_root: Path) -> None:
+    rows = reports.stored_format_rows(reports.read_reduced(reduced_root, _INSTRUMENT).reduction)
 
-    assert rows[0]["encodings"] == "22k/16/l0 11k/8c/l1"  # c marks compression, l<n> the loop candidate
-    assert rows[1]["encodings"] == "11k/8/t"  # t marks the trimmed sample, stored around no loop
-    assert rows[0]["useful_rate_hz"] == 12_346
+    assert rows[0]["stored"] == "16k/16"
+    assert rows[1]["stored"] == "11k/8c"  # c marks the dynamics a shallow depth is stored through
+    assert (rows[0]["useful_rate_hz"], rows[0]["swept"]) == (12_346, 4)
 
 
 def test_every_loop_a_pitch_may_be_stored_around_is_reported_with_what_it_costs(reduced_root: Path) -> None:

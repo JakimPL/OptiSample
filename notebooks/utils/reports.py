@@ -13,7 +13,7 @@ from optisample.artifacts.serialize import (
     PlanDocument,
     ReducedDocument,
     ReductionDocument,
-    ShortlistedEncodingRecord,
+    StoredFormatRecord,
     ZoneItemRecord,
 )
 from optisample.metrics import bytes_to_kib
@@ -26,6 +26,7 @@ _REFERENCE_TAIL: Final = "_ref.wav"
 _ON: Final = "on"
 _OFF: Final = "-"
 _PERCENT: Final = 100.0
+_HZ_PER_KHZ: Final = 1000.0
 
 
 def has_reduction(root: Path, instrument_id: str) -> bool:
@@ -65,9 +66,9 @@ def reduction_rows(reduction: ReductionDocument) -> list[Row]:
         {"axis": "recordings", "before": reduction.listed_recordings, "after": reduction.kept_recordings},
         {"axis": "played notes", "before": reduction.played_notes, "after": reduction.scored_classes},
         {
-            "axis": "stored encodings per key",
-            "before": reduction.grid_size,
-            "after": round(sum(len(grid.shortlist) for grid in reduction.grids) / per_key, 2),
+            "axis": "stored rate (kHz)",
+            "before": round(sum(grid.useful_rate_hz for grid in reduction.grids) / per_key / _HZ_PER_KHZ, 1),
+            "after": round(sum(grid.stored.target_rate for grid in reduction.grids) / per_key / _HZ_PER_KHZ, 1),
         },
     ]
 
@@ -88,22 +89,21 @@ def recording_rows(reduction: ReductionDocument) -> list[Row]:
     ]
 
 
-def _encoding_label(entry: ShortlistedEncodingRecord) -> str:
-    """One shortlisted encoding as a table cell reads it: rate, depth, compression, and loop choice."""
-    marks = "c" if entry.compress else ""
-    loop = "t" if entry.loop_choice is None else f"l{entry.loop_choice}"
-    return f"{entry.target_rate // 1000}k/{entry.depth_bits}{marks}/{loop}"
+def _format_label(stored: StoredFormatRecord) -> str:
+    """The settled format as a table cell reads it: stored rate, depth, and whether it is compressed."""
+    marks = "c" if stored.compress else ""
+    return f"{stored.target_rate // 1000}k/{stored.depth_bits}{marks}"
 
 
-def shortlist_rows(reduction: ReductionDocument) -> list[Row]:
-    """One row per played pitch: the band bounding its grid, and the encodings left in the running."""
+def stored_format_rows(reduction: ReductionDocument) -> list[Row]:
+    """One row per played pitch: the band it asked for, the format it stores at, and what is swept over it."""
     return [
         {
             "pitch": grid.pitch,
             "note": grid.note,
             "useful_rate_hz": round(grid.useful_rate_hz),
-            "shortlisted": len(grid.shortlist),
-            "encodings": " ".join(_encoding_label(entry) for entry in grid.shortlist),
+            "stored": _format_label(grid.stored),
+            "swept": grid.swept,
         }
         for grid in reduction.grids
     ]
@@ -337,7 +337,7 @@ def audition_pitches(root: Path, instrument_id: str) -> list[str]:
 
 
 def auditions(root: Path, instrument_id: str, pitch: str) -> list[Clip]:
-    """The recording one pitch was judged against, followed by every encoding shortlisted for it."""
+    """The recording one pitch was judged against, followed by every encoding swept for it."""
     folder = reduced_paths(root, instrument_id).auditions_dir / pitch
     files = sorted(folder.glob("*.wav"), key=lambda wav: (wav.stem != _REFERENCE_STEM, wav.stem))
     return [Clip(label=wav.stem, path=wav) for wav in files]

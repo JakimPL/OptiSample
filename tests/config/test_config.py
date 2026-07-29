@@ -42,7 +42,7 @@ def _retune(directory: Path, *parts: str, **changes: Any) -> None:
 
 def test_yaml_lists_coerce_to_tuples() -> None:
     cfg = load_config()
-    assert isinstance(cfg.optimize.sweep.depths, tuple)
+    assert isinstance(cfg.optimize.sweep.rates, tuple)
     assert isinstance(cfg.analysis.metrics.mrstft.resolutions, tuple)
     assert isinstance(cfg.analysis.metrics.mrstft.resolutions[0], StftParams)
     assert isinstance(cfg.synth.presets[0].material, tuple)

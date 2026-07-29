@@ -100,16 +100,19 @@ every report and artifact tree states what it left behind:
   (same reference recording, same mapped volume, same scored length), widened onto a geometric duration
   grid by `duration_bucket_ratio`.
 - **The bandwidth pre-pass** measures the band each recording occupies and the interval it is played
-  at, then keeps the `candidates` rate/depth vertices priced nearest what the budget affords that key.
-  It also lays out the loops each recording offers — `placements` starts through the sustain, each at the
+  at, and settles the format the sample is stored at: the lowest rung of `sweep.rates` reaching that band,
+  at the configured depth. The stored format follows from the recording alone, so the allocation spends its
+  bytes on zone width, sample count, stored length and which loop, and every sample it does keep carries
+  the band its recording asked for. It also lays out the loops each recording offers — `placements` starts through the sustain, each at the
   lengths `length_multiples` asks for and each clearing the `min_loop_s` floor — and measures the seam and
   the timbre distance of every one, which `reduction.json` reports so a stored loop can be argued with.
 - **Pitch-zone grouping** bounds its own search with `max_zone_semitones` and reuses a scored
   `(representative, encoding, key)` reconstruction across every zone containing it.
 
 Each strategy's `report.txt` opens with a `Reduction (pre-optimization)` block reading `before -> after`
-per axis, and `reduction.json` records every kept recording (with the material it covers) and every
-pitch's shortlist. A recording too short for its notes is named there rather than quietly truncated.
+per axis, and `reduction.json` records every kept recording (with the material it covers) and the format
+every pitch is stored at, beside the band it was settled from. A recording too short for its notes is
+named there rather than quietly truncated.
 
 Reduction is also where a pack's quality is decided, since it settles how long each stored sample may be
 and which encodings the allocation ever gets to choose from. [`docs/tuning.md`](docs/tuning.md) is the
@@ -134,14 +137,14 @@ reduced/
   Piano/0000_p060_C4_v100.wav      # one WAV per surviving recording, onset-aligned at the analysis rate
   reduction/Piano/
     reduction.json                 # the whole summary, plus the dedupe key it was produced under
-    auditions/p060_C4/             # reference.wav beside every shortlisted encoding, rendered
+    auditions/p060_C4/             # reference.wav beside every encoding the sweep runs, rendered
 ```
 
 The root is itself a NoteExtractor dataset, so the reduced tree is the resume point for a long run: the
 survivors are trimmed to what the material asks of them (the demo's 40 recordings become 5 files, 2.6 MB
 down to 340 KB) and the allocation reaches the sweep having paid only the ingest. Allocating from a
 reduced dataset reproduces the plan allocating from its source produces, so the round trip costs nothing
-in fidelity. The auditions make the shortlist audible before the sweep is paid for.
+in fidelity. The auditions make the stored format audible before the sweep is paid for.
 
 A dataset reproduces its survivors exactly under the key it was reduced with; reducing it again under a
 coarser key projects several identities onto one survivor, which then reports the identity of the first
@@ -471,10 +474,11 @@ base name, or to the directory's own name. `--pre-roll-ms` / `--post-roll-ms` st
 **directory** of recordings holds around each note; a `.notes.json` records its own rolls in
 `settings.rolls` and is read by those. Either way the pre-roll comes off the front so frame 0 lands on
 the note onset, and the padding past the release comes off the end so a stored sample ends where the
-note does — `--keep-tail` stores it through that padding instead. Other flags: `--format {it,xm}`, `--strategy {both,grouped,ungrouped}`, `--no-render`, `--rate`/`--depth`
-(repeatable sweep values), `--no-loop`, `--interpolation`, `--seed`. `--dedupe-key` and `--candidates`
-override the two reduction knobs worth varying per run (see below), `--max-layers` the velocity bands a
-key may store and `--max-samples` how many samples a grouped plan may keep.
+note does — `--keep-tail` stores it through that padding instead. Other flags: `--format {it,xm}`, `--strategy {both,grouped,ungrouped}`, `--no-render`, `--rate`
+(repeatable, the ladder a stored rate is chosen from), `--depth`, `--no-loop`, `--interpolation`,
+`--seed`. `--dedupe-key` and `--content-floor-db` override the two reduction knobs worth varying per run
+(see below), `--max-layers` the velocity bands a key may store and `--max-samples` how many samples a
+grouped plan may keep.
 
 Each long stage draws a labelled progress bar on stderr, carrying the count it will reach and an ETA, so
 a large instrument states how long it needs while it runs:
@@ -526,7 +530,7 @@ optisample optimize demo_out/dynamics.notes.json --budget-kb 192 --strategy grou
 
 [`notebooks/pipeline.py`](notebooks/pipeline.py) is the same CLI with its flags as controls and its
 output as an explorer: run `subset`, `reduce` and `optimize` from buttons, then read the reduction
-axes, listen to every shortlisted encoding, and compare each pitch's reconstruction against the
+axes, listen to every swept encoding, and compare each pitch's reconstruction against the
 recording the objective scored it on. It shells out to `optisample` and prints the invocation behind
 every button, so what it finds is reproducible from a terminal, and its explorers read whatever is
 already on disk — a long run started in a shell can be inspected without re-running it.

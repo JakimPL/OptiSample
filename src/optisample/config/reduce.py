@@ -91,16 +91,16 @@ class EventsConfig(ConfigModel):
 
 
 class BandwidthConfig(ConfigModel):
-    """How the stored rate/depth shortlist is derived before the expensive sweep runs.
+    """How the rate a sample is stored at follows from the recording's own band.
 
-    ``candidates`` is how many rate-distortion vertices survive per clip; a value at or above the full
-    grid size keeps every encoding the sweep would have tried. ``ceiling_hz`` is the highest output
-    frequency worth carrying, which bounds the stored bandwidth once playback transposition is applied.
-    ``content_floor_db`` and ``content_band_hz`` measure the band a recording itself occupies: how far
-    under its loudest band content still counts, read off a spectrum averaged into bands that wide.
+    ``ceiling_hz`` is the highest output frequency worth carrying, which bounds the stored bandwidth once
+    playback transposition is applied. ``content_floor_db`` and ``content_band_hz`` measure the band a
+    recording itself occupies: how far under its loudest band content still counts, read off a spectrum
+    averaged into bands that wide. Together they name the rate a clip asks to be stored at
+    (:func:`~optisample.optimize.reduce.bandwidth.useful_rate_hz`), and the ladder's lowest rung reaching
+    it is what the sample is kept at, so ``content_floor_db`` decides how much band the run stores.
     """
 
-    candidates: Annotated[int, Field(ge=1)]
     ceiling_hz: Annotated[float, Field(gt=0.0)]
     content_floor_db: Annotated[float, Field(gt=0.0)]
     content_band_hz: Annotated[float, Field(gt=0.0)]

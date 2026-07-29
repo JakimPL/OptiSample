@@ -15,7 +15,6 @@ from optisample.optimize.plans import NO_RESERVE, ZoneOption
 from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.tasks import Event, PitchTask
 
-_BYTE_TARGET = 1_000  # what one key of the layer may spend; unread here, the options are already scored
 _PITCHES = (60, 61, 62, 63)
 _PER_KEY_BYTES = 100  # what a zone's stored sample costs for each key it covers
 _PER_KEY_DISTORTION = 1.0  # what covering one more key from the same sample costs the objective
@@ -54,7 +53,7 @@ class _Grid:
             )
             for pitch in self.pitches
         )
-        return ZoneSegment(tasks, _BYTE_TARGET)
+        return tasks
 
     @property
     def options(self) -> dict[tuple[int, int], tuple[ZoneOption, ...]]:

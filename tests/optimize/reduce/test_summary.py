@@ -6,14 +6,14 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.config.codec import EncodeConfig, LoopConfig
-from optisample.config.metrics import MetricsConfig
 from optisample.config.optimize import TRIMMED_ONLY, SweepConfig
 from optisample.config.reduce import ReduceConfig
 from optisample.dsp.spectral import bandlimit
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.reduce.bandwidth import (
     ClipDemand,
-    candidate_params,
+    stored_encodings,
+    stored_format,
     useful_rate_hz,
 )
 from optisample.optimize.reduce.grids import GridContext
@@ -24,15 +24,12 @@ from optisample.optimize.reduce.summary import (
 )
 from optisample.parallel import IN_PROCESS
 from optisample.progress import NO_PROGRESS
-from trackmod.module.storage import Storage
 
 SR = 22_050
 _PITCHES = (60, 67)
 _NOTE_S = 0.4
-_RATES = (16_000, 8_000, 4_000)  # an explicit ladder, so a test states the size it expects back
-_GRID_RATES = len(_RATES) + 1  # the ladder, plus the clip's own rate, which every clip is also offered
-_ENCODINGS_PER_RATE = 3  # one 16-bit entry and both compressions of the 8-bit one, at one loop choice
-_FULL_GRID = _ENCODINGS_PER_RATE * _GRID_RATES
+_RATES = (16_000, 8_000, 4_000)  # an explicit ladder, so a test states which rung it expects back
+_TRIMMED_SPAN = 1  # encodings a clip is offered where the loop axis is left off: the trimmed sample alone
 _NO_TRANSPOSE = 0
 _RATE_PER_BANDWIDTH = 2.0  # Nyquist, which turns a content-edge tolerance into a rate tolerance
 _SHARED = 2  # workers, enough to run the pre-pass apart without asking the machine for every core
@@ -60,22 +57,13 @@ def _decayed_noise(duration_s: float, seed: int) -> NDArray[np.float64]:
 
 
 @pytest.fixture
-def context(
-    metrics_config: MetricsConfig,
-    encode_config: EncodeConfig,
-    storage: Storage,
-    sweep: SweepFactory,
-    reduce: ReduceFactory,
-) -> GridContext:
-    """A narrowing context over the explicit ``_RATES`` grid, keeping two encodings per clip."""
+def context(encode_config: EncodeConfig, sweep: SweepFactory, reduce: ReduceFactory) -> GridContext:
+    """A narrowing context whose stored rate is chosen from the explicit ``_RATES`` ladder."""
     return GridContext(
         sample_rate=SR,
-        metrics=metrics_config,
         encode=encode_config,
-        storage=storage,
         sweep=sweep(rates=_RATES, loop_choices=TRIMMED_ONLY),
-        bandwidth=reduce(bandwidth={"candidates": 2}).bandwidth,
-        byte_target=8_000,
+        bandwidth=reduce().bandwidth,
     )
 
 
@@ -137,7 +125,6 @@ def test_the_summary_states_both_sides_of_every_reduction(
     summary = summarize_reduction(instrument, clips, audio, inputs)
     assert (summary.listed_recordings, summary.kept_recordings) == (len(instrument.samples), len(audio))
     assert (summary.played_notes, summary.scored_classes) == (len(instrument.material), len(clips))
-    assert summary.grid_size == _FULL_GRID
 
 
 def test_every_played_pitch_earns_the_grid_the_sweep_will_run(
@@ -147,23 +134,24 @@ def test_every_played_pitch_earns_the_grid_the_sweep_will_run(
     inputs: ReductionInputs,
     context: GridContext,
 ) -> None:
-    """The shortlist recorded here is the one the cost model reads back, so both must agree exactly."""
+    """The encodings recorded here are the ones the cost model reads back, so both must agree exactly."""
     summary = summarize_reduction(instrument, clips, audio, inputs)
-    demand = ClipDemand(trim_s=_NOTE_S, delta_semitones=_NO_TRANSPOSE, byte_target=context.byte_target)
-    assert summary.shortlists() == {
-        clip.pitch: candidate_params(clip.representative, demand, context) for clip in clips
+    demand = ClipDemand(trim_s=_NOTE_S, delta_semitones=_NO_TRANSPOSE)
+    assert summary.encodings() == {
+        clip.pitch: stored_encodings(stored_format(clip.representative, demand, context), context.sweep, trim_s=_NOTE_S)
+        for clip in clips
     }
 
 
-def test_the_shortlisted_total_adds_up_the_pitches(
+def test_the_swept_total_adds_up_the_pitches(
     instrument: InstrumentSpec,
     clips: tuple[_Clip, ...],
     audio: dict[SampleKey, NDArray[np.float64]],
     inputs: ReductionInputs,
 ) -> None:
     summary = summarize_reduction(instrument, clips, audio, inputs)
-    assert summary.shortlisted == sum(len(grid.shortlist) for grid in summary.grids)
-    assert summary.shortlisted < summary.grid_size * len(clips)
+    assert summary.swept == sum(len(grid.encodings) for grid in summary.grids)
+    assert summary.swept == _TRIMMED_SPAN * len(clips)  # the loop axis is off, so one encoding per pitch
 
 
 def test_a_pitch_keeps_the_rate_its_own_content_justifies(
@@ -173,10 +161,11 @@ def test_a_pitch_keeps_the_rate_its_own_content_justifies(
     inputs: ReductionInputs,
     context: GridContext,
 ) -> None:
-    """A broadband recording fills the band every score is read over, so it asks for the whole rate."""
+    """A broadband recording fills the band every score is read over, so it is stored as recorded."""
     summary = summarize_reduction(instrument, clips, audio, inputs)
     tolerance = _RATE_PER_BANDWIDTH * context.bandwidth.content_band_hz
     assert all(grid.useful_rate_hz == pytest.approx(float(SR), abs=tolerance) for grid in summary.grids)
+    assert all(grid.stored.target_rate == SR for grid in summary.grids)
 
 
 def test_a_muffled_recording_reports_the_lower_rate_it_narrowed_the_grid_by(
@@ -185,17 +174,18 @@ def test_a_muffled_recording_reports_the_lower_rate_it_narrowed_the_grid_by(
     inputs: ReductionInputs,
     context: GridContext,
 ) -> None:
-    """The rate the summary states is the measurement the shortlist was drawn around, over the same span."""
+    """The rate the summary states is the measurement the format was settled from, over the same span."""
     muffled = {key: bandlimit(signal, SR, 0.0, 1_800.0) for key, signal in audio.items()}
     clips = tuple(
         _Clip(pitch=key.pitch, representative=signal, max_duration_s=_NOTE_S, scored_classes=1)
         for key, signal in sorted(muffled.items())
     )
     summary = summarize_reduction(instrument, clips, muffled, inputs)
-    demand = ClipDemand(trim_s=_NOTE_S, delta_semitones=_NO_TRANSPOSE, byte_target=context.byte_target)
+    demand = ClipDemand(trim_s=_NOTE_S, delta_semitones=_NO_TRANSPOSE)
     for grid, clip in zip(summary.grids, clips):
         assert grid.useful_rate_hz == useful_rate_hz(clip.representative, demand, SR, context.bandwidth)
         assert grid.useful_rate_hz < float(SR)
+        assert grid.stored.target_rate < SR  # a muffled recording is stored at a rung under its own rate
 
 
 def test_a_pre_pass_shared_across_processes_states_the_same_reduction(

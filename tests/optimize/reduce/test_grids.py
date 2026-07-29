@@ -8,11 +8,14 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.config.codec import EncodeConfig
-from optisample.config.metrics import MetricsConfig
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import ReduceConfig
-from optisample.metrics.composite import build_composite
-from optisample.optimize.reduce.bandwidth import ClipDemand, candidate_params, useful_rate_hz
+from optisample.optimize.reduce.bandwidth import (
+    ClipDemand,
+    stored_encodings,
+    stored_format,
+    useful_rate_hz,
+)
 from optisample.optimize.reduce.grids import (
     ClipRequest,
     GridContext,
@@ -21,13 +24,11 @@ from optisample.optimize.reduce.grids import (
 )
 from optisample.parallel import IN_PROCESS
 from optisample.progress import NO_PROGRESS
-from trackmod.module.storage import Storage
 
 SR = 22_050
 _PITCHES = (60, 67)
 _NOTE_S = 0.4
 _RATES = (16_000, 8_000, 4_000)
-_KEPT = 2  # candidates the shortlist keeps, so a test states the size it expects back
 _OWN_KEY = 0
 
 ReduceFactory = Callable[..., ReduceConfig]
@@ -53,22 +54,13 @@ def _decayed_noise(duration_s: float, seed: int) -> NDArray[np.float64]:
 
 
 @pytest.fixture
-def context(
-    metrics_config: MetricsConfig,
-    encode_config: EncodeConfig,
-    storage: Storage,
-    sweep: SweepFactory,
-    reduce: ReduceFactory,
-) -> GridContext:
-    """A narrowing context over the explicit ``_RATES`` grid, keeping ``_KEPT`` encodings per clip."""
+def context(encode_config: EncodeConfig, sweep: SweepFactory, reduce: ReduceFactory) -> GridContext:
+    """A narrowing context whose stored rate is chosen from the explicit ``_RATES`` ladder."""
     return GridContext(
         sample_rate=SR,
-        metrics=metrics_config,
         encode=encode_config,
-        storage=storage,
         sweep=sweep(rates=_RATES),
-        bandwidth=reduce(bandwidth={"candidates": _KEPT}).bandwidth,
-        byte_target=8_000,
+        bandwidth=reduce().bandwidth,
     )
 
 
@@ -81,23 +73,12 @@ def clips() -> tuple[_Clip, ...]:
 
 
 @pytest.fixture
-def demand(context: GridContext) -> ClipDemand:
-    """What a key sounding its own recording asks of it: the note's span, at the pitch recorded.
-
-    It answers for that key alone, so what it may spend is the per-key share as the context states it.
-    """
-    return ClipDemand(trim_s=_NOTE_S, delta_semitones=_OWN_KEY, byte_target=context.byte_target)
+def demand() -> ClipDemand:
+    """What a key sounding its own recording asks of it: the note's span, at the pitch recorded."""
+    return ClipDemand(trim_s=_NOTE_S, delta_semitones=_OWN_KEY)
 
 
-# --- what a context carries -------------------------------------------------------------------------
-
-
-def test_a_context_assembles_the_metric_its_config_names(context: GridContext, metrics_config: MetricsConfig) -> None:
-    """The recipe travels rather than the metric, so every process narrowing a grid scores the same way."""
-    assert context.composite == build_composite(metrics_config)
-
-
-# --- narrowing one pitch ----------------------------------------------------------------------------
+# --- settling one pitch -----------------------------------------------------------------------------
 
 
 def test_a_grid_states_the_rate_its_own_content_justifies(
@@ -112,10 +93,20 @@ def test_a_grid_states_the_rate_its_own_content_justifies(
 def test_a_grid_holds_the_encodings_the_sweep_will_run_for_that_pitch(
     clips: tuple[_Clip, ...], context: GridContext, demand: ClipDemand
 ) -> None:
-    """The shortlist recorded here is the one the cost model reads back, so both must agree exactly."""
+    """The encodings recorded here are the ones the cost model reads back, so both must agree exactly."""
     clip = clips[0]
-    assert narrow_grid(clip, context).shortlist == candidate_params(clip.representative, demand, context)
-    assert len(narrow_grid(clip, context).shortlist) == _KEPT
+    grid = narrow_grid(clip, context)
+    settled = stored_format(clip.representative, demand, context)
+
+    assert grid.stored == settled
+    assert grid.encodings == stored_encodings(settled, context.sweep, trim_s=_NOTE_S)
+
+
+def test_a_grids_stored_rate_carries_the_band_it_measured(clips: tuple[_Clip, ...], context: GridContext) -> None:
+    """The rate the grid stores at is a rung of the ladder, and it reaches the band the clip asked for."""
+    grid = narrow_grid(clips[0], context)
+    assert grid.stored.target_rate in set(_RATES) | {SR}
+    assert grid.stored.target_rate >= grid.useful_rate_hz
 
 
 def test_a_clip_is_read_through_the_three_fields_narrowing_needs(
@@ -127,7 +118,7 @@ def test_a_clip_is_read_through_the_three_fields_narrowing_needs(
     assert narrow_grid(request, context) == narrow_grid(clip, context)
 
 
-# --- narrowing every pitch --------------------------------------------------------------------------
+# --- settling every pitch ---------------------------------------------------------------------------
 
 
 def test_every_clip_earns_one_grid_in_the_order_it_was_given(clips: tuple[_Clip, ...], context: GridContext) -> None:
@@ -136,5 +127,5 @@ def test_every_clip_earns_one_grid_in_the_order_it_was_given(clips: tuple[_Clip,
     assert grids == tuple(narrow_grid(clip, context) for clip in clips)
 
 
-def test_narrowing_nothing_answers_with_no_grids(context: GridContext) -> None:
+def test_settling_nothing_answers_with_no_grids(context: GridContext) -> None:
     assert narrow_grids((), context, workers=IN_PROCESS, progress=NO_PROGRESS) == ()

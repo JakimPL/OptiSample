@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from optisample.io.tracker.target import ExportTarget
@@ -13,7 +13,7 @@ from optisample.optimize.layers.slots import reserved_slots
 from optisample.optimize.layers.tasks import band_tasks
 from optisample.optimize.orchestrate import RunInputs
 from optisample.optimize.orchestrate.settings import OptimizeSettings
-from optisample.optimize.plans import BudgetBreakdown, SampleReserve, Zone, per_key_bytes, split_budget
+from optisample.optimize.plans import BudgetBreakdown, SampleReserve, Zone, split_budget
 from optisample.optimize.tasks import PitchTask
 
 
@@ -63,26 +63,14 @@ class _Layering:
         """The keys ``band`` plays and what each of them stores and scores, which the layer count leaves alone."""
         return tuple(band_tasks(self.instrument, self.inputs.task_inputs, band))
 
-    def byte_target(self, split: VelocityLayers, keys: Mapping[VelocityBand, tuple[PitchTask, ...]]) -> int:
-        """The share of the budget one stored sample of ``split`` may spend when every key spends the same.
-
-        The keys of every layer share one budget, so what a sample can afford follows from how wide the
-        whole split is: layers that each cover the keyboard leave every sample a fraction of what one
-        layer would, while layers that divide the keyboard between them leave it very nearly the same.
-        The instrument records the split reserves come off the budget first.
-        """
-        widths = [len(keys[band]) for band in split.bands]
-        return per_key_bytes(self.budget(self.instruments(widths)), sum(widths))
-
 
 @dataclass(frozen=True)
 class _Universe:
     """Every band any candidate split stores, scored once, with each split's bands placed inside it.
 
-    A band's keys are the same wherever it appears, and two splits pricing it the same way ask exactly
-    the same question of it, so the whole search is scored from one pass over these segments and each
-    split reads back the layers it holds. ``placement`` gives, per split, the segment each of its bands
-    came out as.
+    A band's keys are the same wherever it appears, and every split asks exactly the same question of it,
+    so the whole search is scored from one pass over these segments and each split reads back the layers
+    it holds. ``placement`` gives, per split, the segment each of its bands came out as.
     """
 
     segments: tuple[ZoneSegment, ...]
@@ -90,26 +78,18 @@ class _Universe:
 
 
 def _universe(layering: _Layering, splits: Sequence[VelocityLayers]) -> _Universe:
-    """Collect the distinct ``(band, byte target)`` segments the splits ask for, and where each sits."""
-    keys: dict[VelocityBand, tuple[PitchTask, ...]] = {}
-    for split in splits:
-        for band in split.bands:
-            if band not in keys:
-                keys[band] = layering.keys(band)
-
+    """Collect the distinct bands the splits ask for as segments, and where each split's bands sit."""
     segments: list[ZoneSegment] = []
-    known: dict[tuple[VelocityBand, int], int] = {}
+    known: dict[VelocityBand, int] = {}
     placement: list[tuple[int, ...]] = []
     for split in splits:
-        target = layering.byte_target(split, keys)
         places: list[int] = []
         for band in split.bands:
-            asked = (band, target)
-            if asked not in known:
-                known[asked] = len(segments)
-                segments.append(ZoneSegment(keys[band], target))
+            if band not in known:
+                known[band] = len(segments)
+                segments.append(layering.keys(band))
 
-            places.append(known[asked])
+            places.append(known[band])
 
         placement.append(tuple(places))
 
@@ -142,7 +122,7 @@ def _allocate(
         BudgetInfeasibleError: when the cheapest sample per key still overruns what the split can spend.
         SampleCapInfeasibleError: when the charge meeting the cap leaves the budget carrying no partition.
     """
-    budget = layering.budget(layering.instruments([len(universe.segments[segment].tasks) for segment in place]))
+    budget = layering.budget(layering.instruments([len(universe.segments[segment]) for segment in place]))
     capped = solve_within_cap(
         [universe.segments[segment] for segment in place],
         [scored[segment] for segment in place],

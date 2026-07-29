@@ -8,18 +8,15 @@ import numpy as np
 import pytest
 
 from optisample.config import load_config
-from optisample.config.optimize import TRIMMED_ONLY, SweepConfig
+from optisample.config.optimize import SweepConfig
 from optisample.dsp.surrogate import TRIMMED, EncodingParams
 from optisample.optimize.operating_points import (
     OperatingPoint,
     SourceClip,
     SweepContext,
-    compression_at,
+    compresses,
     evaluate_encoding,
     lower_convex_hull,
-    rd_frontier,
-    sample_operating_points,
-    sweep_param_grid,
     sweep_rates,
 )
 from optisample.synth import NoteSpec, synthesize
@@ -57,24 +54,23 @@ def harmonic_tone(freq: float = 245.0, dur: float = 3.0) -> np.ndarray:
     )
 
 
-def test_looping_a_periodic_clip_saves_bytes_at_similar_quality(
-    sweep: Callable[..., SweepConfig], sweep_context: SweepContext
-) -> None:
+def stored_as(rate: int, *, loop_choice: int | None = TRIMMED, trim_s: float | None = None) -> EncodingParams:
+    """One encoding as the reduction settles it: a stored rate at 16 bits, held for ``trim_s``."""
+    return EncodingParams(target_rate=rate, depth_bits=16, trim_s=trim_s, dither=False, loop_choice=loop_choice)
+
+
+def test_looping_a_periodic_clip_saves_bytes_at_similar_quality(sweep_context: SweepContext) -> None:
     clip = SourceClip(signal=harmonic_tone(dur=3.0), sample_rate=SR, root_pitch=57, duration_s=3.0)
-    grid = sweep(rates=(SR,), depths=(16,), dither=False, loop_choices=1)
-    plain, looped = sample_operating_points(clip, grid, sweep_context)
-    assert plain.params.loop_choice is TRIMMED
-    assert looped.params.loop_choice == 0
+    plain = evaluate_encoding(clip, stored_as(SR, trim_s=3.0), sweep_context)
+    looped = evaluate_encoding(clip, stored_as(SR, loop_choice=0, trim_s=3.0), sweep_context)
     assert looped.stored_bytes < plain.stored_bytes // 2  # dropping the 3 s sustain tail is a big saving
     assert looped.distortion < 0.1  # the whole-period loop reconstructs the exactly-periodic tone
 
 
-def test_looping_is_pareto_optimal_on_the_frontier_when_it_helps(
-    sweep: Callable[..., SweepConfig], sweep_context: SweepContext
-) -> None:
+def test_looping_is_pareto_optimal_on_the_frontier_when_it_helps(sweep_context: SweepContext) -> None:
     clip = SourceClip(signal=harmonic_tone(dur=3.0), sample_rate=SR, root_pitch=57, duration_s=3.0)
-    grid = sweep(rates=(SR, 11_025), depths=(16, 8), dither=False, loop_choices=1)
-    hull = rd_frontier(clip, grid, sweep_context)
+    offered = [stored_as(rate, loop_choice=choice, trim_s=3.0) for rate in (SR, 11_025) for choice in (TRIMMED, 0)]
+    hull = lower_convex_hull([evaluate_encoding(clip, params, sweep_context) for params in offered])
     assert any(op.params.loop_choice is not None for op in hull)  # a looped config survives onto the hull
 
 
@@ -120,42 +116,21 @@ def test_evaluate_encoding_bytes_match_the_formats_cost_table(sweep_context: Swe
     assert result.stored_bytes == sweep_context.storage.sample_bytes(frames=result.frames, depth=BitDepth.SIXTEEN)
 
 
-def test_a_shallow_depth_is_swept_over_every_compression_the_config_asks_for(
+def test_a_shallow_depth_is_stored_compressed_where_the_config_asks_for_it(
     sweep: Callable[..., SweepConfig],
 ) -> None:
-    assert compression_at(sweep(compress=(False, True)), 8) == (False, True)
+    assert compresses(sweep(compress=True), 8) is True
 
 
-def test_a_deep_depth_is_swept_uncompressed_once(sweep: Callable[..., SweepConfig]) -> None:
-    """Sixteen bits leave the quantizer's floor below anything compression could protect, so it is skipped."""
-    assert compression_at(sweep(compress=(False, True)), 16) == (False,)
+def test_a_deep_depth_keeps_the_waveform_as_recorded(sweep: Callable[..., SweepConfig]) -> None:
+    """Sixteen bits leave the quantizer's floor below anything compression could protect, so it is left off."""
+    assert compresses(sweep(compress=True), 16) is False
 
 
-def test_the_grid_enumerates_compression_only_where_it_is_swept(sweep: Callable[..., SweepConfig]) -> None:
-    grid = sweep(rates=(SR,), depths=(16, 8), compress=(False, True), loop_choices=TRIMMED_ONLY)
-    params = list(sweep_param_grid(grid, SR, trim_s=None))
-    assert [(point.depth_bits, point.compress) for point in params] == [(16, False), (8, False), (8, True)]
-
-
-def test_the_grid_offers_the_trimmed_sample_beside_every_loop_candidate(
+def test_a_config_asking_for_no_compression_leaves_every_depth_alone(
     sweep: Callable[..., SweepConfig],
 ) -> None:
-    """Storing no loop is an option of its own, so the frontier prices a loop against going without."""
-    grid = sweep(rates=(SR,), depths=(16,), loop_choices=2)
-    params = list(sweep_param_grid(grid, SR, trim_s=None))
-
-    assert [point.loop_choice for point in params] == [TRIMMED, 0, 1]
-
-
-def test_sample_operating_points_covers_the_grid(
-    sweep: Callable[..., SweepConfig], sweep_context: SweepContext
-) -> None:
-    """One point per grid entry: three rates once at 16 bits, and both compressions of them at 8."""
-    clip = SourceClip(signal=bright_piano(), sample_rate=SR, root_pitch=84, duration_s=1.0)
-    grid = sweep(rates=(44_100, 22_050, 11_025), depths=(16, 8), compress=(False, True), loop_choices=TRIMMED_ONLY)
-    points = sample_operating_points(clip, grid, seeded(sweep_context))
-    assert len(points) == 3 + 3 * 2
-    assert all(p.stored_bytes > 0 for p in points)
+    assert compresses(sweep(compress=False), 8) is False
 
 
 @dataclass(frozen=True)
@@ -186,9 +161,12 @@ def test_lower_convex_hull_edge_cases() -> None:
     assert lower_convex_hull([solo]) == [solo]
 
 
-def test_rd_frontier_is_monotone_and_convex(sweep_config: SweepConfig, sweep_context: SweepContext) -> None:
+def test_a_measured_frontier_is_monotone_and_convex(sweep_context: SweepContext) -> None:
+    """Read over encodings the surrogate actually scored, so the hull's shape is a measured property."""
     clip = SourceClip(signal=bright_piano(), sample_rate=SR, root_pitch=84, duration_s=1.0)
-    hull = rd_frontier(clip, sweep_config, seeded(sweep_context))
+    context = seeded(sweep_context)
+    offered = [stored_as(rate, trim_s=1.0) for rate in (8_000, 11_025, 22_050, 44_100)]
+    hull = lower_convex_hull([evaluate_encoding(clip, params, context) for params in offered])
     stored_bytes = [p.stored_bytes for p in hull]
     distortion = [p.distortion for p in hull]
     assert len(hull) >= 2

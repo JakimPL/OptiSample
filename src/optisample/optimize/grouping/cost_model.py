@@ -15,7 +15,12 @@ from optisample.optimize.grouping.stores import (
 )
 from optisample.optimize.operating_points import lower_convex_hull
 from optisample.optimize.plans.grouped import ZoneOption
-from optisample.optimize.reduce.bandwidth import ClipDemand, ProxyGrid, narrowed_params, proxy_grid
+from optisample.optimize.reduce.bandwidth import (
+    ClipDemand,
+    clip_band_hz,
+    format_from_band,
+    stored_encodings,
+)
 from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.tasks import EvalContext, PitchTask
 from optisample.progress import ProgressSink
@@ -23,35 +28,24 @@ from optisample.progress import ProgressSink
 _Range = tuple[int, int]  # half-open [i, j) index range into the ordered pitch tasks
 _ZoneOptions = dict[_Range, tuple[ZoneOption, ...]]
 _ZoneKey = tuple[_Range, SampleKey]  # a candidate zone and the recording of one of its keys it would store
-_GridKey = tuple[SampleKey, float]  # the recording stored, and the length a zone holds it for
+_BandKey = tuple[SampleKey, float]  # the recording stored, and the length a zone holds it for
+
+# One layer's stretch of the axis, in pitch order. Every candidate zone lies inside a single segment, so a
+# partition of the axis splits at each boundary and one stored sample answers for keys of one layer alone.
+ZoneSegment = tuple[PitchTask, ...]
 
 _NO_TRANSPOSE: Final = 0  # a representative at the top of its zone plays every other key downward
 _NARROW_LABEL: Final = "Narrowing pitch zones"
 
 
-@dataclass(frozen=True)
-class ZoneSegment:
-    """One layer's stretch of the axis: the keys it plays, and what one stored sample there may cost.
-
-    Every candidate zone lies inside a single segment, so a partition over an axis of segments splits at
-    each segment boundary and each stored sample answers for keys of one layer alone. ``byte_target`` is
-    the share of the budget a stored sample in this layer can expect, which is the price the bandwidth
-    pre-pass ranks each of its zones' shortlists around -- a layer holding a third of the instrument's
-    instruments shortlists around a third of the bytes.
-    """
-
-    tasks: tuple[PitchTask, ...]
-    byte_target: int
-
-
 def segment_offsets(segments: Sequence[ZoneSegment]) -> tuple[int, ...]:
     """Where each segment's keys begin once the segments are laid end to end, the total last."""
-    return tuple(accumulate((len(segment.tasks) for segment in segments), initial=0))
+    return tuple(accumulate((len(segment) for segment in segments), initial=0))
 
 
 def axis_tasks(segments: Sequence[ZoneSegment]) -> tuple[PitchTask, ...]:
     """Every segment's keys laid end to end -- the ordered axis a partition DP walks."""
-    return tuple(task for segment in segments for task in segment.tasks)
+    return tuple(task for segment in segments for task in segment)
 
 
 def combined_options(segments: Sequence[ZoneSegment], options: Sequence[_ZoneOptions]) -> _ZoneOptions:
@@ -65,11 +59,10 @@ def combined_options(segments: Sequence[ZoneSegment], options: Sequence[_ZoneOpt
 
 @dataclass(frozen=True)
 class _Candidate:
-    """One candidate zone: where it sits on the axis, the layer it belongs to, and what it may cost."""
+    """One candidate zone: where it sits on the axis, and the layer it belongs to."""
 
     span: _Range
     segment: int
-    byte_target: int
 
 
 def _zone_trim(range_tasks: Sequence[PitchTask], representative: int) -> float:
@@ -90,16 +83,15 @@ def _zone_delta(range_tasks: Sequence[PitchTask], representative: int) -> int:
     return max(_NO_TRANSPOSE, max(task.pitch for task in range_tasks) - representative)
 
 
-def _zone_demand(range_tasks: Sequence[PitchTask], representative: int, per_key_bytes: int) -> ClipDemand:
-    """What a zone asks of the sample rooted at ``representative``: its length, transpose and budget.
+def _zone_demand(range_tasks: Sequence[PitchTask], representative: int) -> ClipDemand:
+    """What a zone asks of the sample rooted at ``representative``: how long it is held, and its transpose.
 
-    The keys the one sample stands for pool their shares of the budget, so a zone covering a dozen keys
-    shortlists around a dozen times what a single key affords.
+    Both follow from the keys the one sample stands for, so a wider zone asks for a longer stored stretch
+    and a band that survives reaching further up the keyboard.
     """
     return ClipDemand(
         trim_s=_zone_trim(range_tasks, representative),
         delta_semitones=_zone_delta(range_tasks, representative),
-        byte_target=per_key_bytes * len(range_tasks),
     )
 
 
@@ -120,24 +112,29 @@ def _capped_ranges(tasks: Sequence[PitchTask], max_semitones: int) -> Iterator[_
 
 
 @dataclass
-class _GridCache:
-    """Recordings priced across the stored grid, kept for whichever zones hold one the same length.
+class _BandCache:
+    """The band each recording occupies, kept for whichever zones hold that recording the same length.
 
-    Pricing depends on the recording and the length it is held for, so the priced grid is kept under
-    that pair. A zone's own transpose and key count then narrow it, which is arithmetic over points
-    already measured.
+    A recording's band depends on the stretch stored of it and nothing else, so it is measured once per
+    recording and length. A zone's own transpose then settles the format from it, which is arithmetic.
     """
 
     context: EvalContext
-    grids: dict[_GridKey, ProxyGrid] = field(default_factory=dict, init=False)
+    bands: dict[_BandKey, float] = field(default_factory=dict, init=False)
 
-    def shortlist(self, rep_task: PitchTask, demand: ClipDemand) -> tuple[EncodingParams, ...]:
+    def encodings(self, rep_task: PitchTask, demand: ClipDemand) -> tuple[EncodingParams, ...]:
         """The encodings worth scoring for ``rep_task`` under ``demand``."""
         key = (rep_task.representative_key, demand.trim_s)
-        if key not in self.grids:
-            self.grids[key] = proxy_grid(rep_task.representative, demand.trim_s, self.context)
+        if key not in self.bands:
+            self.bands[key] = clip_band_hz(
+                rep_task.representative,
+                demand.trim_s,
+                self.context.sample_rate,
+                self.context.bandwidth,
+            )
 
-        return narrowed_params(self.grids[key], demand, self.context)
+        stored = format_from_band(self.bands[key], demand, self.context)
+        return stored_encodings(stored, self.context.sweep, trim_s=demand.trim_s)
 
 
 def candidate_zones(segments: Sequence[ZoneSegment], max_semitones: int) -> list[_Candidate]:
@@ -148,15 +145,13 @@ def candidate_zones(segments: Sequence[ZoneSegment], max_semitones: int) -> list
     """
     zones: list[_Candidate] = []
     for index, (segment, offset) in enumerate(zip(segments, segment_offsets(segments))):
-        for start, stop in _capped_ranges(segment.tasks, max_semitones):
-            zones.append(
-                _Candidate(span=(offset + start, offset + stop), segment=index, byte_target=segment.byte_target)
-            )
+        for start, stop in _capped_ranges(segment, max_semitones):
+            zones.append(_Candidate(span=(offset + start, offset + stop), segment=index))
 
     return zones
 
 
-def zone_shortlists(
+def zone_encodings(
     axis: Sequence[PitchTask],
     zones: Sequence[_Candidate],
     context: EvalContext,
@@ -165,38 +160,38 @@ def zone_shortlists(
     """The encodings each candidate zone would consider for each of its keys it might store.
 
     The bandwidth pre-pass runs here, ahead of any scoring, so the work the scoring stage is given is
-    known before it starts. Many zones hold the same recording for the same length, and those share one
-    priced grid (:class:`_GridCache`) whatever layer they belong to.
+    known before it starts. Many zones hold the same recording for the same length, and those read its
+    band from one measurement (:class:`_BandCache`) whatever layer they belong to.
     """
-    cache = _GridCache(context)
-    shortlists: dict[_ZoneKey, tuple[EncodingParams, ...]] = {}
+    cache = _BandCache(context)
+    encodings: dict[_ZoneKey, tuple[EncodingParams, ...]] = {}
     for zone in progress.track(zones, label=_NARROW_LABEL, total=len(zones)):
         range_tasks = axis[zone.span[0] : zone.span[1]]
         for rep_task in range_tasks:
-            demand = _zone_demand(range_tasks, rep_task.pitch, zone.byte_target)
-            shortlists[(zone.span, rep_task.representative_key)] = cache.shortlist(rep_task, demand)
+            demand = _zone_demand(range_tasks, rep_task.pitch)
+            encodings[(zone.span, rep_task.representative_key)] = cache.encodings(rep_task, demand)
 
-    return shortlists
+    return encodings
 
 
 def store_requests(
     axis: Sequence[PitchTask],
-    shortlists: dict[_ZoneKey, tuple[EncodingParams, ...]],
+    encodings: dict[_ZoneKey, tuple[EncodingParams, ...]],
 ) -> tuple[StoreRequest, ...]:
-    """Gather the shortlists into one workload per stored recording: what to store, and who it serves.
+    """Gather the zones' asks into one workload per stored recording: what to store, and who it serves.
 
-    A candidate zone asks one of its keys' recordings for a shortlisted encoding and expects every key it
-    covers reconstructed from it, and the zones sharing that recording overlap heavily in both. Pooling
-    their asks per recording is what leaves each encode and each key's reconstruction stated once, so the
+    A candidate zone asks one of its keys' recordings for an encoding and expects every key it covers
+    reconstructed from it, and the zones sharing that recording overlap heavily in both. Pooling their
+    asks per recording is what leaves each encode and each key's reconstruction stated once, so the
     scoring stage runs exactly the work the whole set of candidate zones needs. Layers pool together too:
     two bands whose loudest dynamics reach the same recording store it once between them.
     """
     by_key = {task.representative_key: task for task in axis}
     asked: dict[SampleKey, dict[EncodingParams, set[int]]] = {}
-    for (span, stored_key), shortlist in shortlists.items():
+    for (span, stored_key), zone_params in encodings.items():
         covered = range(span[0], span[1])
         wanted = asked.setdefault(stored_key, {})
-        for params in shortlist:
+        for params in zone_params:
             wanted.setdefault(params, set()).update(covered)
 
     return tuple(
@@ -240,18 +235,18 @@ def _zone_option(
 def _zone_options(
     zone: _Candidate,
     axis: Sequence[PitchTask],
-    shortlists: dict[_ZoneKey, tuple[EncodingParams, ...]],
+    encodings: dict[_ZoneKey, tuple[EncodingParams, ...]],
     scores: dict[StoredKey, StoredScore],
 ) -> tuple[ZoneOption, ...]:
     """Every ``(representative, encoding)`` for one candidate zone, with its cost and total distortion.
 
     Enumerates the outer product of representative (each covered key's own recording, the k-medoids
-    candidates) and the encodings the bandwidth pre-pass left in the running for the zone's demand.
+    candidates) and the encodings the bandwidth pre-pass settled for the zone's demand.
     """
     return tuple(
         _zone_option(zone, axis, rep_task, params, scores[(rep_task.representative_key, params)])
         for rep_task in axis[zone.span[0] : zone.span[1]]
-        for params in shortlists[(zone.span, rep_task.representative_key)]
+        for params in encodings[(zone.span, rep_task.representative_key)]
     )
 
 
@@ -265,7 +260,7 @@ def build_zone_options(
     """Score every candidate pitch zone -- the menu the partition+allocation DP chooses from.
 
     Runs in three passes, so the expensive one knows its work before it starts and each piece of it is
-    computed once. :func:`zone_shortlists` narrows each candidate zone's stored grid;
+    computed once. :func:`zone_encodings` settles each candidate zone's stored format;
     :func:`store_requests` pools those asks into one workload per representative; and
     :func:`~optisample.optimize.grouping.stores.score_stores` encodes and reconstructs them, sharing the
     representatives across processes. Assembling the zones from the results is then addition.
@@ -275,14 +270,14 @@ def build_zone_options(
     """
     axis = axis_tasks(segments)
     zones = candidate_zones(segments, context.grouping.max_zone_semitones)
-    shortlists = zone_shortlists(axis, zones, context, progress)
-    scores = score_stores(store_requests(axis, shortlists), context, workers=workers, progress=progress)
+    encodings = zone_encodings(axis, zones, context, progress)
+    scores = score_stores(store_requests(axis, encodings), context, workers=workers, progress=progress)
     tables: tuple[_ZoneOptions, ...] = tuple({} for _ in segments)
     offsets = segment_offsets(segments)
     for zone in zones:
         offset = offsets[zone.segment]
         tables[zone.segment][(zone.span[0] - offset, zone.span[1] - offset)] = _zone_options(
-            zone, axis, shortlists, scores
+            zone, axis, encodings, scores
         )
 
     return tables

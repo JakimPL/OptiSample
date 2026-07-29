@@ -59,7 +59,7 @@ def _(mo):
         | stage | writes |
         |---|---|
         | `subset` | the share of a dataset that still spans its pitch and velocity ranges |
-        | `reduce` | the survivors, the narrowed grid, and every shortlisted encoding as audio |
+        | `reduce` | the survivors, the format each key stores at, and every swept encoding as audio |
         | `optimize` | the byte-budgeted plan, the module, and per-note A/B against the recording |
         """)
     return
@@ -96,12 +96,17 @@ def _(DedupeKey, TrackerFormat, config, interpolations, mo, sweep_rates):
     dedupe_key = mo.ui.dropdown(
         [key.value for key in DedupeKey], value=config.reduce.dedupe.key.value, label="dedupe key"
     )
-    candidates = mo.ui.slider(
-        1, 18, value=config.reduce.bandwidth.candidates, label="shortlist per key", show_value=True
+    content_floor_db = mo.ui.slider(
+        20.0,
+        100.0,
+        step=5.0,
+        value=config.reduce.bandwidth.content_floor_db,
+        label="content floor (dB) — how much band a stored rate carries",
+        show_value=True,
     )
 
-    rates = mo.ui.multiselect(_rates, value=[], label="stored rates — empty takes the config's")
-    depths = mo.ui.multiselect(["16", "8"], value=[], label="bit depths — empty takes the config's")
+    rates = mo.ui.multiselect(_rates, value=[], label="rate ladder — empty takes the config's")
+    depth = mo.ui.dropdown(["16", "8"], value=str(config.optimize.sweep.depth), label="bit depth")
     loop = mo.ui.checkbox(value=True, label="allow looping")
     render = mo.ui.checkbox(value=True, label="openmpt123 ground-truth render")
 
@@ -110,16 +115,16 @@ def _(DedupeKey, TrackerFormat, config, interpolations, mo, sweep_rates):
             mo.md("## Flags"),
             mo.hstack([fraction, budget_kb, workers, seed], justify="start", gap=2),
             mo.hstack([tracker_format, strategy, interpolation], justify="start", gap=2),
-            mo.hstack([dedupe_key, candidates], justify="start", gap=2),
-            mo.hstack([rates, depths], justify="start", gap=2),
+            mo.hstack([dedupe_key, content_floor_db], justify="start", gap=2),
+            mo.hstack([rates, depth], justify="start", gap=2),
             mo.hstack([loop, render], justify="start", gap=2),
         ]
     )
     return (
         budget_kb,
-        candidates,
+        content_floor_db,
         dedupe_key,
-        depths,
+        depth,
         fraction,
         interpolation,
         loop,
@@ -136,9 +141,9 @@ def _(DedupeKey, TrackerFormat, config, interpolations, mo, sweep_rates):
 def _(
     Path,
     budget_kb,
-    candidates,
+    content_floor_db,
     dedupe_key,
-    depths,
+    depth,
     fraction,
     instrument,
     interpolation,
@@ -164,9 +169,9 @@ def _(
         strategy=strategy.value,
         interpolation=interpolation.value,
         dedupe_key=dedupe_key.value,
-        candidates=int(candidates.value),
+        content_floor_db=float(content_floor_db.value),
         rates=tuple(int(rate) for rate in rates.value),
-        depths=tuple(int(depth) for depth in depths.value),
+        depth=int(depth.value),
         loop=bool(loop.value),
         workers=int(workers.value),
         seed=int(seed.value),
@@ -301,8 +306,8 @@ def _(fields, mo, reduce_outcome, reports):
                 "of them, which the objective absorbs by scoring against a shorter reference."
             ),
             mo.ui.table(_recordings, selection=None, page_size=10),
-            mo.md("**Narrowed grid** — the band bounding each pitch, and the encodings left in the running:"),
-            mo.ui.table(reports.shortlist_rows(reduced_doc.reduction), selection=None, page_size=10),
+            mo.md("**Stored format** — the band each pitch asked for, and the format it is stored at:"),
+            mo.ui.table(reports.stored_format_rows(reduced_doc.reduction), selection=None, page_size=10),
             mo.md("**Loop candidates** — where each pitch may loop, and what the seam and the timbre cost:"),
             mo.ui.table(reports.loop_rows(reduced_doc.reduction), selection=None, page_size=10),
             mo.md("**Survivors** — the dataset an allocation picks up from:"),
@@ -317,7 +322,9 @@ def _(fields, mo, reduced_root, reports):
     _pitches = reports.audition_pitches(reduced_root, fields.instrument_id)
     mo.stop(not _pitches, mo.md("*No auditions were written.*"))
     audition_pitch = mo.ui.dropdown(options=_pitches, value=_pitches[0], label="audition pitch")
-    mo.vstack([mo.md("### Auditions — the shortlist, made audible before the sweep is paid for"), audition_pitch])
+    mo.vstack(
+        [mo.md("### Auditions — every swept encoding, made audible before the sweep is paid for"), audition_pitch]
+    )
     return (audition_pitch,)
 
 

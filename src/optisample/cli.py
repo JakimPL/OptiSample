@@ -74,9 +74,9 @@ def _runtime_parser() -> argparse.ArgumentParser:
 def _ingest_parser() -> argparse.ArgumentParser:
     """The flags ``optimize`` and ``reduce`` share: which recordings to read and how to narrow them.
 
-    Both commands run the same ingest and the same pre-optimization stage, so the notes file, the budget
-    the shortlist is priced against, the padding a directory of recordings holds and every reduction knob
-    are declared once and read identically whichever command was asked for.
+    Both commands run the same ingest and the same pre-optimization stage, so the notes file, the budget a
+    plan is held to, the padding a directory of recordings holds and every reduction knob are declared
+    once and read identically whichever command was asked for.
     """
     ingest = argparse.ArgumentParser(add_help=False)
     ingest.add_argument(
@@ -140,9 +140,8 @@ def _ingest_parser() -> argparse.ArgumentParser:
     ingest.add_argument(
         "--depth",
         type=int,
-        action="append",
-        dest="depths",
-        help="Bit depth to sweep (repeatable)",
+        default=None,
+        help="Bit depth every stored sample keeps (default: the config's)",
     )
     ingest.add_argument(
         "--no-loop",
@@ -156,16 +155,10 @@ def _ingest_parser() -> argparse.ArgumentParser:
         help="Identity one recording is kept per (default: the config's)",
     )
     ingest.add_argument(
-        "--candidates",
-        type=int,
-        default=None,
-        help="Stored encodings shortlisted per sample; at or above the grid size keeps every one",
-    )
-    ingest.add_argument(
         "--content-floor-db",
         type=float,
         default=None,
-        help="How far under its loudest band a recording still carries content, which bounds its stored rate",
+        help="How far under its loudest band a recording still carries content, which decides its stored rate",
     )
     ingest.add_argument(
         "--seed",
@@ -358,15 +351,11 @@ def _reduce_config(config: OptiConfig, args: argparse.Namespace) -> ReduceConfig
     """The reduction config with the flags that vary per run applied over the loaded values.
 
     Each flag reaches a nested section, so the override goes through a dump-and-revalidate: the schema
-    settles what a key, a candidate count or a content floor may be, in one place, whichever side
-    supplied it.
+    settles what a key or a content floor may be, in one place, whichever side supplied it.
     """
     data = config.reduce.model_dump()
     if args.dedupe_key is not None:
         data["dedupe"]["key"] = args.dedupe_key
-
-    if args.candidates is not None:
-        data["bandwidth"]["candidates"] = args.candidates
 
     if args.content_floor_db is not None:
         data["bandwidth"]["content_floor_db"] = args.content_floor_db
@@ -433,7 +422,7 @@ def _optimize_settings(
         {
             **config.optimize.sweep.model_dump(),
             "rates": tuple(args.rates) if args.rates else config.optimize.sweep.rates,
-            "depths": tuple(args.depths) if args.depths else config.optimize.sweep.depths,
+            "depth": args.depth if args.depth is not None else config.optimize.sweep.depth,
             "loop_choices": TRIMMED_ONLY if args.no_loop else config.optimize.sweep.loop_choices,
         }
     )

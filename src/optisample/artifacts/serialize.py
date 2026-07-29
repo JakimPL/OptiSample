@@ -217,17 +217,16 @@ class KeptRecordingRecord(Frozen):
     covers_material: bool
 
 
-class ShortlistedEncodingRecord(Frozen):
-    """One encoding the bandwidth pre-pass left in the running for a pitch's stored sample.
+class StoredFormatRecord(Frozen):
+    """The format the reduction settled for a pitch's stored sample, from the recording's own content.
 
-    ``loop_choice`` names the loop candidate the sample would be stored around, and a null stands for
-    the trimmed sample.
+    ``compress`` states whether the sample runs through dynamics on the way to the quantizer, which a
+    shallow depth asks for and a deep one leaves alone.
     """
 
     target_rate: int
     depth_bits: int
     compress: bool
-    loop_choice: int | None
 
 
 class LoopCandidateRecord(Frozen):
@@ -245,27 +244,32 @@ class LoopCandidateRecord(Frozen):
 
 
 class NarrowedGridRecord(Frozen):
-    """What the pre-pass left of one pitch's encoding grid, and the stored band that bounds it."""
+    """What the pre-pass settled for one pitch: the band it read, the format it stores at, and its loops.
+
+    ``useful_rate_hz`` is the rate the recording's own content asks for and ``stored`` the ladder rung
+    reaching it, so a reader sees both the measurement and the format it named. ``swept`` counts the
+    encodings the sweep then runs for this pitch, which is that one format over each loop choice.
+    """
 
     pitch: int
     note: str
     useful_rate_hz: float
-    shortlist: list[ShortlistedEncodingRecord]
+    stored: StoredFormatRecord
+    swept: int
     loops: list[LoopCandidateRecord]
 
 
 class ReductionDocument(Frozen):
     """The pre-optimization stage's decisions: what survived ingest and how small the search space got.
 
-    The three ``*_recordings``/``*_notes``/``grid_size`` counts are the before side of each reduction
-    axis; ``recordings`` and ``grids`` are the after side, per identity and per played pitch.
+    The ``*_recordings``/``*_notes`` counts are the before side of each reduction axis; ``recordings`` and
+    ``grids`` are the after side, per identity and per played pitch.
     """
 
     listed_recordings: int
     kept_recordings: int
     played_notes: int
     scored_classes: int
-    grid_size: int
     recordings: list[KeptRecordingRecord]
     grids: list[NarrowedGridRecord]
 
@@ -303,7 +307,7 @@ class ReducedDocument(Frozen):
 
     ``dedupe_key`` is the identity the survivors were kept under, so a run reading this dataset back
     states the projection it already stands at. ``sample_rate`` is the analysis rate every survivor was
-    written at, which is the rate the shortlist in ``reduction`` was measured over. ``screen`` states
+    written at, which is the rate the bands in ``reduction`` were measured over. ``screen`` states
     what the dataset leaves out, beside the ``samples`` it holds.
     """
 
@@ -483,7 +487,6 @@ def reduction_document(reduction: ReductionSummary) -> ReductionDocument:
         kept_recordings=reduction.kept_recordings,
         played_notes=reduction.played_notes,
         scored_classes=reduction.scored_classes,
-        grid_size=reduction.grid_size,
         recordings=[
             KeptRecordingRecord(
                 key=recording.key.label,
@@ -500,15 +503,12 @@ def reduction_document(reduction: ReductionSummary) -> ReductionDocument:
                 pitch=grid.pitch,
                 note=note_name(grid.pitch),
                 useful_rate_hz=grid.useful_rate_hz,
-                shortlist=[
-                    ShortlistedEncodingRecord(
-                        target_rate=params.target_rate,
-                        depth_bits=params.depth_bits,
-                        compress=params.compress,
-                        loop_choice=params.loop_choice,
-                    )
-                    for params in grid.shortlist
-                ],
+                stored=StoredFormatRecord(
+                    target_rate=grid.stored.target_rate,
+                    depth_bits=grid.stored.depth_bits,
+                    compress=grid.stored.compress,
+                ),
+                swept=len(grid.encodings),
                 loops=[_loop_candidate_record(loop) for loop in grid.loops],
             )
             for grid in reduction.grids

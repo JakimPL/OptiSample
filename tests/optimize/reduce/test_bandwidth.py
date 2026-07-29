@@ -1,98 +1,63 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from optisample.config.codec import EncodeConfig
 from optisample.config.optimize import TRIMMED_ONLY, SweepConfig
 from optisample.config.reduce import BandwidthConfig, ReduceConfig
 from optisample.dsp.spectral import bandlimit
-from optisample.dsp.surrogate import EncodingParams
-from optisample.metrics import CompositeFidelity
-from optisample.optimize.operating_points import sweep_param_grid
+from optisample.dsp.surrogate import TRIMMED
 from optisample.optimize.reduce.bandwidth import (
     ClipDemand,
-    candidate_params,
-    narrowed_params,
-    proxy_grid,
+    clip_band_hz,
+    format_from_band,
+    stored_encodings,
+    stored_format,
     useful_rate_hz,
 )
-from trackmod.module.storage import Storage
 
 SR = 22_050
 _TRIM_S = 0.5
 _FRAMES = int(_TRIM_S * SR)
 _OCTAVE = 12
 _NO_TRANSPOSE = 0
-_A_ZONE_OF_KEYS = 8
-_RATES = (16_000, 8_000, 4_000)  # an explicit ladder, so a test states which rates it expects back
-_GRID_RATES = len(_RATES) + 1  # the ladder, plus the clip's own rate, which every clip is also offered
-_ENCODINGS_PER_RATE = 3  # one 16-bit entry and both compressions of the 8-bit one, at one loop choice
-_FULL_GRID = _ENCODINGS_PER_RATE * _GRID_RATES
+_RATES = (16_000, 8_000, 4_000)  # an explicit ladder, so a test states which rung it expects back
+_CHEAPEST_RUNG = min(_RATES)
 _RATE_PER_BANDWIDTH = 2.0  # Nyquist, which turns a content-edge tolerance into a rate tolerance
-_TIGHT = 0  # a byte target no encoding can undercut, so the cheapest vertex wins
-_GENEROUS = 10**6  # a byte target no encoding reaches, so the costliest vertex wins
-_ANY_BUDGET = 8_000  # a sample's share, where the test asks about the band rather than the price
+_DEEP_DEPTH = 16  # bits, where the quantizer already sits below what compression would protect
+_SHALLOW_DEPTH = 8  # bits, where compression buys headroom the quantizer can be heard against
 
 ReduceFactory = Callable[..., ReduceConfig]
 SweepFactory = Callable[..., SweepConfig]
 
-
-def untransposed(byte_target: int) -> ClipDemand:
-    """A key sounding its own recording: no transpose, spending its own share of the budget."""
-    return ClipDemand(trim_s=_TRIM_S, delta_semitones=_NO_TRANSPOSE, byte_target=byte_target)
-
-
-def an_octave_up(byte_target: int) -> ClipDemand:
-    """One recording also serving the key twelve semitones above the one it was made at."""
-    return ClipDemand(trim_s=_TRIM_S, delta_semitones=_OCTAVE, byte_target=byte_target)
-
-
-def a_whole_zone(byte_target: int) -> ClipDemand:
-    """One recording serving a zone of keys, which pool their shares of the budget behind it."""
-    return ClipDemand(
-        trim_s=_TRIM_S,
-        delta_semitones=_NO_TRANSPOSE,
-        byte_target=byte_target * _A_ZONE_OF_KEYS,
-    )
+UNTRANSPOSED = ClipDemand(trim_s=_TRIM_S, delta_semitones=_NO_TRANSPOSE)
+AN_OCTAVE_UP = ClipDemand(trim_s=_TRIM_S, delta_semitones=_OCTAVE)
 
 
 @dataclass(frozen=True)
 class _Context:
-    """A stand-in for the run's scoring context, carrying only what narrowing a grid reads from it."""
+    """A stand-in for the run's context, carrying only what settling a stored format reads from it."""
 
     sample_rate: int
-    composite: CompositeFidelity
-    encode: EncodeConfig
-    storage: Storage
     sweep: SweepConfig
     bandwidth: BandwidthConfig
 
 
 @pytest.fixture
-def make_context(
-    composite: CompositeFidelity,
-    encode_config: EncodeConfig,
-    storage: Storage,
-    sweep: SweepFactory,
-    reduce: ReduceFactory,
-) -> Callable[..., _Context]:
-    """Factory: a narrowing context over the explicit ``_RATES`` grid, varying the knobs a test needs.
+def make_context(sweep: SweepFactory, reduce: ReduceFactory) -> Callable[..., _Context]:
+    """Factory: a context over the explicit ``_RATES`` ladder, varying the knobs a test needs.
 
-    The loop axis is pinned to the trimmed sample alone unless a test asks for more, so ``_FULL_GRID``
-    states the grid a test is reasoning about rather than tracking the bundled sweep.
+    The loop axis is pinned to the trimmed sample alone unless a test asks for more, so a test counting
+    the encodings offered states the axis it is reasoning about rather than tracking the bundled sweep.
     """
 
-    def _build(*, candidates: int, **grid: object) -> _Context:
+    def _build(*, bandwidth: dict[str, object] | None = None, **grid: object) -> _Context:
         return _Context(
             sample_rate=SR,
-            composite=composite,
-            encode=encode_config,
-            storage=storage,
             sweep=sweep(rates=_RATES, **{"loop_choices": TRIMMED_ONLY, **grid}),
-            bandwidth=reduce(bandwidth={"candidates": candidates}).bandwidth,
+            bandwidth=reduce(bandwidth=bandwidth or {}).bandwidth,
         )
 
     return _build
@@ -105,14 +70,10 @@ def tone(freq: float, amplitude: float = 0.5) -> NDArray[np.float64]:
 
 
 def broadband(amplitude: float = 0.5) -> NDArray[np.float64]:
-    """A decaying noise burst: every candidate rate keeps part of it, so nothing scores against silence."""
+    """A decaying noise burst, whose content reaches as far up as the recording's own rate holds."""
     generator = np.random.default_rng(0)
     envelope = np.exp(-3.0 * np.arange(_FRAMES, dtype=np.float64) / _FRAMES)
     return np.asarray(amplitude * envelope * generator.standard_normal(_FRAMES), dtype=np.float64)
-
-
-def stored_rates(params: Sequence[EncodingParams]) -> set[int]:
-    return {item.target_rate for item in params}
 
 
 # --- the bandwidth bound -----------------------------------------------------------------------------
@@ -120,126 +81,142 @@ def stored_rates(params: Sequence[EncodingParams]) -> set[int]:
 
 def test_a_clip_needs_twice_the_rate_of_the_band_it_occupies(reduce: ReduceFactory) -> None:
     config = reduce().bandwidth
-    useful = useful_rate_hz(tone(2_000.0), untransposed(_ANY_BUDGET), SR, config)
+    useful = useful_rate_hz(tone(2_000.0), UNTRANSPOSED, SR, config)
     assert useful == pytest.approx(4_000.0, abs=_RATE_PER_BANDWIDTH * config.content_band_hz)
 
 
 def test_a_clip_carrying_nothing_asks_for_no_rate_at_all(reduce: ReduceFactory) -> None:
     silence = np.zeros(_FRAMES, dtype=np.float64)
-    assert useful_rate_hz(silence, untransposed(_ANY_BUDGET), SR, reduce().bandwidth) == 0.0
+    assert useful_rate_hz(silence, UNTRANSPOSED, SR, reduce().bandwidth) == 0.0
 
 
 def test_transposing_an_octave_up_halves_the_rate_worth_storing(reduce: ReduceFactory) -> None:
     """Transposition moves the audible ceiling: a stored band played an octave up lands an octave up."""
     config = reduce(bandwidth={"ceiling_hz": 6_000.0}).bandwidth
     bright = tone(9_000.0)  # content above the ceiling, so the ceiling is the binding bound
-    assert useful_rate_hz(bright, untransposed(_ANY_BUDGET), SR, config) == pytest.approx(12_000.0)
-    assert useful_rate_hz(bright, an_octave_up(_ANY_BUDGET), SR, config) == pytest.approx(6_000.0)
+    assert useful_rate_hz(bright, UNTRANSPOSED, SR, config) == pytest.approx(12_000.0)
+    assert useful_rate_hz(bright, AN_OCTAVE_UP, SR, config) == pytest.approx(6_000.0)
 
 
 def test_the_ceiling_never_exceeds_the_band_the_run_measures_over(reduce: ReduceFactory) -> None:
     """A ceiling past the analysis Nyquist counts as the Nyquist, the highest frequency any score sees."""
     config = reduce(bandwidth={"ceiling_hz": 1e6}).bandwidth
-    assert useful_rate_hz(broadband(), an_octave_up(_ANY_BUDGET), SR, config) == pytest.approx(SR / 2.0)
+    assert useful_rate_hz(broadband(), AN_OCTAVE_UP, SR, config) == pytest.approx(SR / 2.0)
 
 
-# --- the shortlist -----------------------------------------------------------------------------------
+# --- the format the reduction settles -----------------------------------------------------------------
 
 
-def test_a_candidate_count_reaching_the_whole_grid_returns_it_untouched(
+def test_the_stored_rate_is_the_lowest_rung_carrying_the_clips_own_band(
     make_context: Callable[..., _Context],
 ) -> None:
-    """The setting that reproduces an unnarrowed run: every encoding, in the sweep's own order."""
-    context = make_context(candidates=_FULL_GRID)
-    grid = tuple(sweep_param_grid(context.sweep, SR, trim_s=_TRIM_S))
-    assert len(grid) == _FULL_GRID
-    assert candidate_params(broadband(), untransposed(_ANY_BUDGET), context) == grid
-
-
-def test_the_shortlist_is_a_subsequence_of_the_full_grid(make_context: Callable[..., _Context]) -> None:
-    context = make_context(candidates=2)
-    grid = list(sweep_param_grid(context.sweep, SR, trim_s=_TRIM_S))
-    shortlist = list(candidate_params(broadband(), untransposed(_ANY_BUDGET), context))
-    assert shortlist  # narrowing always leaves a pitch something to encode
-    assert [params for params in grid if params in shortlist] == shortlist
-
-
-def test_the_candidate_count_bounds_how_many_encodings_the_sweep_runs(
-    make_context: Callable[..., _Context],
-) -> None:
-    context = make_context(candidates=2, loop_choices=1)  # the trimmed sample and one loop candidate
-    assert len(tuple(sweep_param_grid(context.sweep, SR, trim_s=_TRIM_S))) == 2 * _FULL_GRID
-    assert len(candidate_params(broadband(), untransposed(_ANY_BUDGET), context)) == 2
-
-
-def test_rates_beyond_the_useful_bound_leave_only_their_cheapest(
-    make_context: Callable[..., _Context],
-) -> None:
-    """A clip stopping at 1.8 kHz wants 3.6 kHz; 4000 is the one rate above that worth keeping."""
-    context = make_context(candidates=_FULL_GRID - 1)
+    """A clip stopping at 1.8 kHz asks for 3.6 kHz, and 4000 is the cheapest rung that carries it."""
+    context = make_context()
     muffled = bandlimit(broadband(), SR, 0.0, 1_800.0)
-    assert stored_rates(candidate_params(muffled, untransposed(_GENEROUS), context)) == {4_000}
+    assert stored_format(muffled, UNTRANSPOSED, context).target_rate == 4_000
 
 
-def test_a_generous_budget_shortlists_a_costlier_encoding_than_a_tight_one(
+def test_a_brighter_clip_is_stored_at_a_higher_rung(make_context: Callable[..., _Context]) -> None:
+    context = make_context()
+    dull = bandlimit(broadband(), SR, 0.0, 1_800.0)
+    bright = bandlimit(broadband(), SR, 0.0, 5_000.0)
+    assert (
+        stored_format(bright, UNTRANSPOSED, context).target_rate
+        > stored_format(dull, UNTRANSPOSED, context).target_rate
+    )
+
+
+def test_a_clip_carrying_nothing_is_stored_at_the_cheapest_rung(make_context: Callable[..., _Context]) -> None:
+    """Silence asks for no band at all, so the ladder's lowest rung is what carries it."""
+    silence = np.zeros(_FRAMES, dtype=np.float64)
+    assert stored_format(silence, UNTRANSPOSED, make_context()).target_rate == _CHEAPEST_RUNG
+
+
+def test_a_band_reaching_past_every_rung_is_stored_as_recorded(make_context: Callable[..., _Context]) -> None:
+    """The recording's own rate joins the ladder as its top rung, so a wide band is stored untouched."""
+    context = make_context(bandwidth={"ceiling_hz": 1e6})
+    assert stored_format(broadband(), UNTRANSPOSED, context).target_rate == SR
+
+
+def test_a_sample_transposed_up_is_stored_at_a_lower_rung(make_context: Callable[..., _Context]) -> None:
+    """Playing a sample an octave up lifts its stored band, so less of it stays under the ceiling."""
+    context = make_context(bandwidth={"ceiling_hz": 6_000.0})
+    bright = tone(9_000.0)
+    assert (
+        stored_format(bright, AN_OCTAVE_UP, context).target_rate
+        < stored_format(bright, UNTRANSPOSED, context).target_rate
+    )
+
+
+def test_the_depth_is_the_one_the_run_stores_every_sample_at(make_context: Callable[..., _Context]) -> None:
+    context = make_context(depth=_SHALLOW_DEPTH)
+    assert stored_format(broadband(), UNTRANSPOSED, context).depth_bits == _SHALLOW_DEPTH
+
+
+@pytest.mark.parametrize(
+    ("depth", "compressed"),
+    [
+        pytest.param(_SHALLOW_DEPTH, True, id="shallow depth hears the headroom compression buys"),
+        pytest.param(_DEEP_DEPTH, False, id="deep depth keeps the waveform as recorded"),
+    ],
+)
+def test_compression_reaches_the_depths_that_stand_to_win_by_it(
+    make_context: Callable[..., _Context], depth: int, compressed: bool
+) -> None:
+    context = make_context(depth=depth, compress=True)
+    assert stored_format(broadband(), UNTRANSPOSED, context).compress is compressed
+
+
+def test_a_run_asking_for_no_compression_stores_every_depth_as_recorded(
     make_context: Callable[..., _Context],
 ) -> None:
-    context = make_context(candidates=1)
+    context = make_context(depth=_SHALLOW_DEPTH, compress=False)
+    assert stored_format(broadband(), UNTRANSPOSED, context).compress is False
+
+
+# --- measuring a band once, settling many demands from it ---------------------------------------------
+
+
+def test_one_measured_band_settles_every_demand_on_the_clip(make_context: Callable[..., _Context]) -> None:
+    """What a demand adds -- the transpose it plays at -- is arithmetic over a band already measured."""
+    context = make_context()
     clip = broadband()
-    lean = candidate_params(clip, untransposed(_TIGHT), context)
-    rich = candidate_params(clip, untransposed(_GENEROUS), context)
-    assert max(stored_rates(rich)) > max(stored_rates(lean))
+    band = clip_band_hz(clip, _TRIM_S, SR, context.bandwidth)
+    for demand in (UNTRANSPOSED, AN_OCTAVE_UP):
+        assert format_from_band(band, demand, context) == stored_format(clip, demand, context)
 
 
-def test_a_sample_serving_a_whole_zone_may_spend_what_all_its_keys_bring(
-    make_context: Callable[..., _Context],
-) -> None:
-    """A zone's share of the budget is every key's share in it, so one sample there buys more."""
-    context = make_context(candidates=1)
+def test_the_same_clip_earns_the_same_format_every_time(make_context: Callable[..., _Context]) -> None:
+    """The band is read off the recording alone, so one clip's format says nothing about the next."""
+    context = make_context()
     clip = broadband()
-    alone = candidate_params(clip, untransposed(1_000), context)
-    for_a_zone = candidate_params(clip, a_whole_zone(1_000), context)
-    assert max(stored_rates(for_a_zone)) > max(stored_rates(alone))
+    assert stored_format(clip, UNTRANSPOSED, context) == stored_format(clip, UNTRANSPOSED, context)
 
 
-def test_the_same_clip_earns_the_same_shortlist_every_time(make_context: Callable[..., _Context]) -> None:
-    """The proxy draws fixed dither, so narrowing one grid says nothing about the next."""
-    context = make_context(candidates=2)
-    clip = broadband()
-    demand = untransposed(_ANY_BUDGET)
-    assert candidate_params(clip, demand, context) == candidate_params(clip, demand, context)
+# --- what the sweep is offered ------------------------------------------------------------------------
 
 
-# --- pricing once, narrowing many times ---------------------------------------------------------------
+def test_every_loop_choice_is_offered_at_the_one_settled_format(make_context: Callable[..., _Context]) -> None:
+    """The format is settled before the sweep, so what the sweep prices is how the sample carries on."""
+    context = make_context(loop_choices=2)
+    stored = stored_format(broadband(), UNTRANSPOSED, context)
+
+    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S)
+
+    assert [params.loop_choice for params in offered] == [TRIMMED, 0, 1]
+    assert {(params.target_rate, params.depth_bits, params.compress) for params in offered} == {
+        (stored.target_rate, stored.depth_bits, stored.compress)
+    }
 
 
-def test_one_priced_grid_answers_every_demand_holding_the_clip_that_long(
-    make_context: Callable[..., _Context],
-) -> None:
-    """What a demand adds -- its transpose and its budget -- is arithmetic over points already measured."""
-    context = make_context(candidates=2)
-    clip = broadband()
-    priced = proxy_grid(clip, _TRIM_S, context)
-    for demand in (untransposed(1_000), an_octave_up(1_000), a_whole_zone(1_000)):
-        assert narrowed_params(priced, demand, context) == candidate_params(clip, demand, context)
+def test_the_stored_length_reaches_every_encoding_offered(make_context: Callable[..., _Context]) -> None:
+    context = make_context(loop_choices=2)
+    stored = stored_format(broadband(), UNTRANSPOSED, context)
+    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S)
+    assert {params.trim_s for params in offered} == {_TRIM_S}
 
 
-def test_pricing_admits_every_rate_a_transposed_demand_can_still_ask_for(
-    make_context: Callable[..., _Context],
-) -> None:
-    """A transpose only lowers the audible rate, so pricing untransposed leaves a demand nothing to add."""
-    context = make_context(candidates=_FULL_GRID - 1)
-    clip = broadband()
-    priced = {point.params.target_rate for point in proxy_grid(clip, _TRIM_S, context).points}
-    for delta_semitones in (0, 1, _OCTAVE, 2 * _OCTAVE):
-        demand = ClipDemand(trim_s=_TRIM_S, delta_semitones=delta_semitones, byte_target=_GENEROUS)
-        assert stored_rates(candidate_params(clip, demand, context)) <= priced
-
-
-def test_a_candidate_count_reaching_the_whole_grid_settles_before_anything_is_priced(
-    make_context: Callable[..., _Context],
-) -> None:
-    context = make_context(candidates=_FULL_GRID)
-    priced = proxy_grid(broadband(), _TRIM_S, context)
-    assert priced.entries == tuple(sweep_param_grid(context.sweep, SR, trim_s=_TRIM_S))
-    assert priced.points == ()
+def test_a_run_leaving_loops_off_offers_the_trimmed_sample_alone(make_context: Callable[..., _Context]) -> None:
+    context = make_context(loop_choices=TRIMMED_ONLY)
+    stored = stored_format(broadband(), UNTRANSPOSED, context)
+    assert [params.loop_choice for params in stored_encodings(stored, context.sweep, trim_s=_TRIM_S)] == [TRIMMED]

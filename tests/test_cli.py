@@ -66,7 +66,7 @@ def test_dump_settings_maps_grid_and_flags(config: OptiConfig) -> None:
     )
     settings = _dump_settings(config, args)
     assert settings.optimize.sweep.rates == (11_025,)
-    assert settings.optimize.sweep.depths == (8,)
+    assert settings.optimize.sweep.depth == 8
     assert settings.optimize.sweep.loop_choices == TRIMMED_ONLY  # --no-loop leaves the loops off the grid
     assert settings.optimize.seed == 3
     assert settings.optimize.target.format is config.export.tracker.format  # unnamed, so the configured format
@@ -91,15 +91,12 @@ def test_the_reduction_flags_override_their_configured_sections(config: OptiConf
             "48",
             "--dedupe-key",
             "pitch",
-            "--candidates",
-            "7",
             "--content-floor-db",
             "45",
         ]
     )
     reduce = _dump_settings(config, args).optimize.reduce
     assert reduce.dedupe.key is DedupeKey.PITCH
-    assert reduce.bandwidth.candidates == 7
     assert reduce.bandwidth.content_floor_db == 45.0
     assert reduce.events == config.reduce.events  # only the named sections move
     assert reduce.dedupe.cc_quantum == config.reduce.dedupe.cc_quantum
@@ -460,7 +457,7 @@ def test_a_chained_run_slices_nothing_when_no_fraction_is_named(config: OptiConf
 
 def test_the_pipeline_command_reads_the_same_ingest_flags_as_optimize(config: OptiConfig) -> None:
     """One ingest parser across the commands, so a reduction knob means the same to a chain as to a stage."""
-    argv = ["m.notes.json", "--budget-kb", "48", "--dedupe-key", "pitch", "--candidates", "7", "--seed", "3"]
+    argv = ["m.notes.json", "--budget-kb", "48", "--dedupe-key", "pitch", "--content-floor-db", "45", "--seed", "3"]
     chained = _pipeline_settings(config, build_parser().parse_args(["pipeline", *argv]))
     optimized = _dump_settings(config, build_parser().parse_args(["optimize", *argv]))
     assert chained.dump.optimize.reduce == optimized.optimize.reduce
@@ -470,7 +467,7 @@ def test_the_pipeline_command_reads_the_same_ingest_flags_as_optimize(config: Op
 
 def test_the_reduce_command_reads_the_same_ingest_flags_as_optimize(config: OptiConfig) -> None:
     """Both commands share one ingest parser, so a reduction knob means the same thing to either."""
-    argv = ["m.notes.json", "--budget-kb", "48", "--dedupe-key", "pitch", "--candidates", "7", "--seed", "3"]
+    argv = ["m.notes.json", "--budget-kb", "48", "--dedupe-key", "pitch", "--content-floor-db", "45", "--seed", "3"]
     reduced = build_parser().parse_args(["reduce", *argv])
     optimized = build_parser().parse_args(["optimize", *argv])
     assert _optimize_settings(config, reduced, config.optimize.layers, config.optimize.budget).reduce == (

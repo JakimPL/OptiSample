@@ -146,28 +146,30 @@ def test_the_run_reports_where_each_part_landed(reduced: ReducedInstrument, tmp_
 # --- auditions --------------------------------------------------------------------------------------
 
 
-def test_each_played_pitch_gets_a_reference_beside_its_shortlist(reduced: ReducedInstrument) -> None:
+def test_each_played_pitch_gets_a_reference_beside_its_auditions(reduced: ReducedInstrument) -> None:
     folders = sorted(path.name for path in reduced.paths.auditions_dir.iterdir())
     assert folders == ["p060_C4", "p062_D4", "p064_E4"]
     assert all((reduced.paths.auditions_dir / folder / "reference.wav").is_file() for folder in folders)
 
 
-def test_the_auditions_are_the_shortlist_the_document_states(reduced: ReducedInstrument) -> None:
-    """One rendering per shortlisted encoding, so what the pre-pass left is what can be listened to."""
+def test_the_auditions_are_the_encodings_the_document_states(reduced: ReducedInstrument) -> None:
+    """One rendering per swept encoding, so what the pre-pass settled is what can be listened to."""
     grids = _document(reduced)["reduction"]["grids"]  # type: ignore[index]
-    shortlisted = sum(len(grid["shortlist"]) for grid in grids)
+    swept = sum(grid["swept"] for grid in grids)
     rendered = list(reduced.paths.auditions_dir.rglob("*.wav"))
-    assert len(rendered) == shortlisted + len(grids) == reduced.auditions
+    assert len(rendered) == swept + len(grids) == reduced.auditions
 
 
 def test_an_audition_is_named_by_the_encoding_it_holds(reduced: ReducedInstrument) -> None:
+    """Every audition of a pitch is stored at the one format the reduction settled for it."""
     grid = _document(reduced)["reduction"]["grids"][0]  # type: ignore[index]
     folder = reduced.paths.auditions_dir / f"p{grid['pitch']:03d}_{grid['note']}"
-    for encoding in grid["shortlist"]:
-        stem = f"r{encoding['target_rate']}_d{encoding['depth_bits']}"
-        choice = encoding["loop_choice"]
-        expected = f"{stem}.wav" if choice is None else f"{stem}_loop{choice}.wav"
-        assert (folder / expected).is_file()
+    stored = grid["stored"]
+    stem = f"r{stored['target_rate']}_d{stored['depth_bits']}" + ("_c" if stored["compress"] else "")
+
+    auditions = sorted(path.name for path in folder.glob("*.wav") if path.stem != "reference")
+
+    assert auditions == sorted([f"{stem}.wav"] + [f"{stem}_loop{choice}.wav" for choice in range(grid["swept"] - 1)])
 
 
 def test_an_audition_runs_as_long_as_the_note_it_stands_for(reduced: ReducedInstrument) -> None:

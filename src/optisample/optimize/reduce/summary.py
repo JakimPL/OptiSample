@@ -9,7 +9,6 @@ from optisample.config.reduce import ReduceConfig
 from optisample.dsp.surrogate import EncodingParams
 from optisample.metrics.base import Signal
 from optisample.model import InstrumentSpec
-from optisample.optimize.operating_points import sweep_param_grid
 from optisample.optimize.reduce.dedupe import (
     NO_MATERIAL_S,
     holds_material,
@@ -62,16 +61,15 @@ class ReductionSummary:
     """How much smaller the pre-optimization stage made the problem the allocation then solves.
 
     Each pair states one axis of the reduction: the recorded grid down to one survivor per identity, the
-    material down to the classes that reconstruct alike, and the ``(loop choice, depth, rate)`` grid down
-    to the shortlist each pitch is swept over. ``grids`` covers the samples the ungrouped strategy stores, one
-    per played pitch; pitch-zone grouping narrows again per zone, around what that zone's span and key
-    count ask of its representative.
+    material down to the classes that reconstruct alike, and the whole rate ladder down to the one format
+    each pitch is stored at, swept over its loop choices. ``grids`` covers the samples the ungrouped
+    strategy stores, one per played pitch; pitch-zone grouping settles a format again per zone, from what
+    that zone's span asks of its representative.
     """
 
     listed_recordings: int
     played_notes: int
     scored_classes: int
-    grid_size: int
     recordings: tuple[KeptRecording, ...]
     grids: tuple[NarrowedGrid, ...]
 
@@ -86,22 +84,22 @@ class ReductionSummary:
         return tuple(recording for recording in self.recordings if not recording.covers_material)
 
     @property
-    def shortlisted(self) -> int:
+    def swept(self) -> int:
         """Encodings the run sweeps in total, summed over the pitches the ungrouped strategy stores."""
-        return sum(len(grid.shortlist) for grid in self.grids)
+        return sum(len(grid.encodings) for grid in self.grids)
 
-    def shortlists(self) -> dict[int, tuple[EncodingParams, ...]]:
+    def encodings(self) -> dict[int, tuple[EncodingParams, ...]]:
         """The encodings to sweep, keyed by the pitch whose recording is stored under them."""
-        return {grid.pitch: grid.shortlist for grid in self.grids}
+        return {grid.pitch: grid.encodings for grid in self.grids}
 
 
 @dataclass(frozen=True)
 class ReductionInputs:
     """The run-wide inputs the summary is measured against (bundled to stay under the argument limit).
 
-    ``reduce`` and ``loop`` set how long a kept recording has to be; ``context`` is what prices and
-    narrows a stored grid; ``workers`` is how many processes share the pitches out between them; and
-    ``progress`` is where the pre-pass reports how many pitches it has narrowed so far.
+    ``reduce`` and ``loop`` set how long a kept recording has to be; ``context`` is what settles a stored
+    grid; ``workers`` is how many processes share the pitches out between them; and ``progress`` is where
+    the pre-pass reports how many pitches it has narrowed so far.
     """
 
     reduce: ReduceConfig
@@ -109,11 +107,6 @@ class ReductionInputs:
     context: GridContext
     workers: int
     progress: ProgressSink
-
-
-def _grid_size(context: GridContext) -> int:
-    """How many encodings the sweep enumerates per stored sample, a count the trim leaves unchanged."""
-    return len(tuple(sweep_param_grid(context.sweep, context.sample_rate, trim_s=None)))
 
 
 def _kept_recordings(
@@ -146,15 +139,14 @@ def summarize_reduction(
 ) -> ReductionSummary:
     """Run the bandwidth pre-pass over every played pitch and record what the whole stage reduced.
 
-    This is where the shortlist is drawn, once per run, so the sweep that follows scores exactly the
-    grid the report and the artifacts state. ``clips`` are the pitch tasks the material plays, whose
-    class counts say how far merging collapsed the notes.
+    This is where each pitch's stored format is settled, once per run, so the sweep that follows scores
+    exactly the encodings the report and the artifacts state. ``clips`` are the pitch tasks the material
+    plays, whose class counts say how far merging collapsed the notes.
     """
     return ReductionSummary(
         listed_recordings=len(instrument.samples),
         played_notes=len(instrument.material),
         scored_classes=sum(clip.scored_classes for clip in clips),
-        grid_size=_grid_size(inputs.context),
         recordings=_kept_recordings(instrument, audio, inputs),
         grids=narrow_grids(clips, inputs.context, workers=inputs.workers, progress=inputs.progress),
     )

@@ -17,7 +17,7 @@ def raw(**sections: dict[str, Any]) -> dict[str, dict[str, Any]]:
         },
         "trim": {"max_length_s": 10.0, "tail_floor": 1.0e-4, "silence_floor": 1.0e-3},
         "events": {"duration_bucket_ratio": 1.25},
-        "bandwidth": {"candidates": 3, "ceiling_hz": 16_000.0, "content_floor_db": 80.0, "content_band_hz": 200.0},
+        "bandwidth": {"ceiling_hz": 16_000.0, "content_floor_db": 60.0, "content_band_hz": 200.0},
         "grouping": {"max_zone_semitones": 12},
     }
     return {name: {**fields, **sections.get(name, {})} for name, fields in base.items()}
@@ -41,7 +41,6 @@ def test_bundled_shape_validates() -> None:
         ("trim", {"silence_floor": 0.0}),
         ("trim", {"silence_floor": 1.0e-5}),  # under tail_floor, so the trim would empty a kept recording
         ("events", {"duration_bucket_ratio": 0.9}),
-        ("bandwidth", {"candidates": 0}),
         ("bandwidth", {"ceiling_hz": 0.0}),
         ("bandwidth", {"content_floor_db": 0.0}),
         ("bandwidth", {"content_band_hz": 0.0}),

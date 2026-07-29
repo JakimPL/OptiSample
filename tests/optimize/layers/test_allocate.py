@@ -99,7 +99,7 @@ def allocate(
         instrument: InstrumentSpec, *, max_samples: int | None = None, **overrides: object
     ) -> LayeredAllocation:
         settings = optimize_settings(
-            sweep=sweep(rates=(11_025,), depths=(8,), dither=False),
+            sweep=sweep(rates=(11_025,), depth=8, dither=False),
             layers=layers(nodes=len(VELOCITIES), **overrides),
             max_samples=max_samples,
         )
@@ -159,25 +159,28 @@ def test_a_margin_no_gain_can_meet_keeps_the_single_layer_plan(
     assert demanding.objective == pytest.approx(allocate(instrument, max_layers=_ONE_LAYER).objective)
 
 
-def test_what_a_sample_may_spend_follows_from_how_wide_the_whole_split_is(
+def test_a_band_several_splits_share_is_scored_once_between_them(
     instrument: InstrumentSpec,
     audio: AudioMap,
     optimize_settings: Callable[..., OptimizeSettings],
     sweep: Callable[..., SweepConfig],
     layers: Callable[..., LayersConfig],
 ) -> None:
-    """Layers each covering the keyboard divide the share between them; layers dividing it keep it."""
+    """A band's keys are the same wherever it appears, so the whole search scores each band once."""
     settings = optimize_settings(
-        sweep=sweep(rates=(11_025,), depths=(8,), dither=False),
+        sweep=sweep(rates=(11_025,), depth=8, dither=False),
         layers=layers(max_layers=_THREE_LAYERS, nodes=len(VELOCITIES)),
     )
     inputs = prepare_run(instrument, audio, SR, settings)
     layering = _Layering(instrument, inputs, settings)
     splits = tuple(partitions(velocity_cells(instrument.material, len(VELOCITIES)), _THREE_LAYERS))
-    targets = [segment.byte_target for segment in _universe(layering, splits).segments]
 
-    whole = max(targets)  # the single-layer split, whose one band carries every key
-    assert min(targets) == pytest.approx(whole / _THREE_LAYERS, rel=0.05)  # three layers, each the full width
+    universe = _universe(layering, splits)
+
+    assert len(universe.segments) == len({band for split in splits for band in split.bands})
+    for split, place in zip(splits, universe.placement):
+        placed = [[task.pitch for task in universe.segments[segment]] for segment in place]
+        assert placed == [[task.pitch for task in layering.keys(band)] for band in split.bands]
 
 
 def test_the_budget_a_split_is_solved_against_reserves_its_own_instruments(
@@ -270,7 +273,7 @@ def test_asking_for_more_layers_than_the_format_numbers_is_refused(
     target: ExportTarget,
 ) -> None:
     settings = optimize_settings(
-        sweep=sweep(rates=(11_025,), depths=(8,), dither=False),
+        sweep=sweep(rates=(11_025,), depth=8, dither=False),
         layers=layers(max_layers=target.max_instruments + 1),
     )
     inputs = prepare_run(instrument, audio, SR, settings)
@@ -288,7 +291,7 @@ def test_the_plan_carries_the_layers_it_settled_on(
         instrument,
         audio,
         SR,
-        optimize_settings(sweep=sweep(rates=(11_025,), depths=(8,), dither=False)),
+        optimize_settings(sweep=sweep(rates=(11_025,), depth=8, dither=False)),
     )
     assert plan.layers.count == plan.budget.instruments
     assert {unit.layer for unit in plan.sample_units()} == {zone.layer for zone in plan.zones}

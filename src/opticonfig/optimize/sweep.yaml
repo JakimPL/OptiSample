@@ -1,7 +1,7 @@
-# Encoding sweep grid (optisample.config.optimize.SweepConfig).
-rates: [8000, 11025, 16000, 22050, 28800, 37800, 44100] # reduced rates; a clip is also offered its own
-depths: [16, 8]              # swept bit depths
+# What a clip may be stored as (optisample.config.optimize.SweepConfig).
+rates: [8000, 11025, 16000, 22050, 28800, 32000, 37800, 44100] # ladder a rate is chosen from; a clip's own rate joins it
+depth: 16                    # bits every stored sample keeps
 dither: true
 noise_shaping: false
 loop_choices: 3              # loop candidates swept; the trimmed sample is swept beside them
-compress: [false, true]      # swept where the quantizer is shallow enough to hear the headroom it buys
+compress: true               # applied where the depth is shallow enough to hear the headroom it buys
