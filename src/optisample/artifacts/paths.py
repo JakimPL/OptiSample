@@ -10,6 +10,7 @@ _AUDITIONS_DIR: Final = "auditions"
 _REDUCTION_DIR: Final = "reduction"
 _REDUCTION_JSON: Final = "reduction.json"
 _MODULE_STEM: Final = "module"
+_CONTAINER_EXTENSION: Final = ".bank"
 _SUBSET_STAGE: Final = "0_subset"
 _REDUCED_STAGE: Final = "1_reduced"
 _OPTIMIZED_STAGE: Final = "2_optimized"
@@ -86,19 +87,9 @@ class PlanPaths:
         return self.directory / "plan.json"
 
     @property
-    def velocity_map_json(self) -> Path:
-        """The velocity->volume map alone, as the pattern writes each note's dynamic through it."""
-        return self.directory / "velocity_map.json"
-
-    @property
     def reduction_json(self) -> Path:
         """What the pre-optimization stage left the allocation to work from."""
         return self.directory / _REDUCTION_JSON
-
-    @property
-    def bank_json(self) -> Path:
-        """The manifest naming the written instruments, which is what a player loads the whole plan through."""
-        return self.directory / "bank.json"
 
     @property
     def metrics_json(self) -> Path:
@@ -115,10 +106,22 @@ class PlanPaths:
         """Every stored sample decoded back to a float WAV, bit-identical to what the module holds."""
         return self.directory / "samples"
 
-    @property
-    def instruments_dir(self) -> Path:
-        """Every written instrument as a file of its own, which is what a player loading one voice reads."""
-        return self.directory / "instruments"
+    def container(self, name: str) -> Path:
+        """The bank the whole plan plays through, holding its manifest and every instrument it names.
+
+        A bank travels as one file, so it is named after the instrument it plays: a tree holding a bank
+        per strategy states which plays what, and a bank carried off on its own keeps saying so.
+        """
+        return self.directory / f"{name}{_CONTAINER_EXTENSION}"
+
+    def stored(self, entry: str) -> Path:
+        """Where one entry of the bank lands when its instruments are spread over this directory as well.
+
+        A bank names its entries against itself, and an entry spread here keeps that name, so the loose
+        instruments read as the map the manifest states — which is what a tracker loading a single voice
+        off the tree reaches.
+        """
+        return self.directory / entry
 
     @property
     def compare_dir(self) -> Path:
@@ -142,27 +145,6 @@ class PlanPaths:
     def module_render(self) -> Path:
         """The whole module rendered through openmpt123."""
         return self.render_dir / f"{_MODULE_STEM}.wav"
-
-    def module(self, extension: str) -> Path:
-        """The written module, named by the format's own ``extension`` (``.it`` / ``.xm``)."""
-        return self.directory / f"{_MODULE_STEM}{extension}"
-
-    def instrument_file(self, label: str, extension: str) -> Path:
-        """One written instrument's standalone file, named by the slot it holds and the format's extension.
-
-        The label states the dynamics and the keys the instrument answers
-        (:attr:`~optisample.optimize.layers.slots.InstrumentSlot.file_label`), so the directory reads as
-        the map of which file plays what.
-        """
-        return self.instruments_dir / f"{label}{extension}"
-
-    def reference(self, path: Path) -> str:
-        """How a document written in this directory names one of the files beside it.
-
-        A bank manifest resolves every path it states against the directory it sits in, so naming the
-        files this way keeps the tree playable wherever it is copied to.
-        """
-        return path.relative_to(self.directory).as_posix()
 
     def sample_wav(self, label: str) -> Path:
         """One stored sample's decoded WAV, filed under the label its plan unit carries."""

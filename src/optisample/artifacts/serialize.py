@@ -421,9 +421,18 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
+def json_text(document: BaseModel) -> str:
+    """A document as pretty JSON, coercing numpy/non-finite values to JSON-safe Python.
+
+    A document stored inside an archive is written from its text rather than from a file, so a manifest
+    travelling with the instruments it names reads exactly as one written beside them.
+    """
+    return json.dumps(_json_safe(document.model_dump()), indent=2, allow_nan=False) + "\n"
+
+
 def write_json(path: Path, document: BaseModel) -> None:
-    """Serialize a document to pretty JSON, coercing numpy/non-finite values to JSON-safe Python."""
-    path.write_text(json.dumps(_json_safe(document.model_dump()), indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    """Serialize a document to pretty JSON at ``path`` (see :func:`json_text`)."""
+    path.write_text(json_text(document), encoding="utf-8")
 
 
 def write_text(path: Path, text: str) -> None:

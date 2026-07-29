@@ -1,4 +1,5 @@
 import json
+import zipfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -22,14 +23,14 @@ from optisample.model import (
 )
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.reduce.keys import SampleKey
-from trackmod.core.instruments.transfer import extract
 from trackmod.trackers.it.instrument_file import ITInstrumentFile
-from trackmod.trackers.it.module import ITModule
 
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
 
 SR = 44_100
 PITCHES = (60, 62, 64)
+CONTAINER = "piano.bank"
+MANIFEST = "bank.json"
 
 AudioFactory = Callable[..., dict[SampleKey, NDArray[np.float64]]]
 
@@ -86,19 +87,29 @@ def _load(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text())
 
 
+def _bank(directory: Path) -> dict[str, Any]:
+    """The manifest one strategy's bank states, read out of the archive it travels in."""
+    with zipfile.ZipFile(directory / CONTAINER) as archive:
+        return json.loads(archive.read(MANIFEST))
+
+
+def _held(directory: Path) -> list[str]:
+    """Every instrument one strategy's bank holds, in the order the manifest names them."""
+    with zipfile.ZipFile(directory / CONTAINER) as archive:
+        return [entry for entry in archive.namelist() if entry != MANIFEST]
+
+
 # --- tree + contents -----------------------------------------------------------------------------
 
 
 def test_dump_writes_both_strategy_subtrees(generous: Path) -> None:
     for name in ("ungrouped", "grouped"):
         base = generous / name
-        assert (base / "module.it").is_file()
+        assert (base / "piano.bank").is_file()
         assert (base / "report.txt").is_file()
         assert (base / "plan.json").is_file()
-        assert (base / "velocity_map.json").is_file()
         assert (base / "reduction.json").is_file()
         assert (base / "metrics.json").is_file()
-        assert (base / "bank.json").is_file()
         assert list((base / "samples").glob("*.wav"))  # at least one stored sample
         assert list((base / "instruments").glob("*.iti"))
         assert list((base / "compare").glob("*/*_ref.wav"))
@@ -114,15 +125,23 @@ def test_one_instrument_file_is_written_for_each_instrument_the_module_numbers(g
         assert {path.suffix for path in written} == {".iti"}
 
 
-def test_a_written_instrument_loads_back_as_the_voice_the_module_plays(generous: Path) -> None:
-    """The file stands alone: it holds the module's own keymap and its samples' own PCM, renumbered."""
-    module = ITModule.load(generous / "grouped" / "module.it")
-    for index, path in enumerate(sorted((generous / "grouped" / "instruments").iterdir())):
-        loaded = ITInstrumentFile.load(path).unit
-        held = extract(module.song, index)
-        assert loaded.instrument.keymap == held.instrument.keymap
-        assert [sample.name for sample in loaded.samples] == [sample.name for sample in held.samples]
-        assert all(np.array_equal(one.pcm, other.pcm) for one, other in zip(loaded.samples, held.samples))
+def test_a_written_instrument_loads_back_as_the_voice_the_plan_states(generous: Path) -> None:
+    """The file stands alone: it names the instrument the plan wrote and carries the samples it owns."""
+    plan = _load(generous / "grouped" / "plan.json")
+    written = sorted((generous / "grouped" / "instruments").iterdir())
+    for record, path in zip(plan["instruments"], written):
+        unit = ITInstrumentFile.load(path).unit
+        assert unit.instrument.name == record["name"]
+        assert len(unit.samples) == record["samples"]
+
+
+def test_the_bank_holds_the_instruments_the_tree_spreads_beside_it(generous: Path) -> None:
+    """One description of a bank is written twice, so a voice read either way is the same file."""
+    for name in ("ungrouped", "grouped"):
+        base = generous / name
+        with zipfile.ZipFile(base / CONTAINER) as archive:
+            for entry in _held(base):
+                assert archive.read(entry) == (base / entry).read_bytes()
 
 
 def test_an_instrument_file_is_named_by_the_keys_and_the_dynamics_it_answers(generous: Path) -> None:
@@ -132,22 +151,21 @@ def test_an_instrument_file_is_named_by_the_keys_and_the_dynamics_it_answers(gen
     assert written.stem == f"p{record['lowest_pitch']:03d}-p{record['highest_pitch']:03d}_{record['band']}"
 
 
-def test_the_bank_names_the_instrument_files_that_landed_beside_it(generous: Path) -> None:
-    """A player is handed the manifest alone, so every path it states resolves from where it sits."""
+def test_the_bank_names_the_instruments_it_carries(generous: Path) -> None:
+    """A player is handed the bank alone, so every entry it names is stored in the bank itself."""
     for name in ("ungrouped", "grouped"):
         base = generous / name
-        bank = _load(base / "bank.json")
-        assert bank["version"] == 1
+        bank = _bank(base)
+        held = _held(base)
+        assert bank["version"] == 2
         assert bank["name"] == "piano"
         assert len(bank["layers"]) == len(_load(base / "plan.json")["instruments"])
-        for layer in bank["layers"]:
-            assert (base / layer["source"]["file"]).is_file()
-            assert (base / layer["velocity_map"]).is_file()
+        assert [layer["source"]["file"] for layer in bank["layers"]] == held
 
 
 def test_the_bank_hands_every_dynamic_to_the_band_the_plan_stored_it_in(generous: Path) -> None:
     plan = _load(generous / "grouped" / "plan.json")
-    bank = _load(generous / "grouped" / "bank.json")
+    bank = _bank(generous / "grouped")
     stored = [(record["lowest_velocity"], record["highest_velocity"]) for record in plan["instruments"]]
     selected = [(layer["select"]["velocity"]["low"], layer["select"]["velocity"]["high"]) for layer in bank["layers"]]
     assert selected == stored
@@ -200,11 +218,15 @@ def test_the_report_states_the_reduction_alongside_the_allocation(generous: Path
         assert "shortlisted per key" in report
 
 
-def test_velocity_map_json_has_anchors_and_full_table(generous: Path) -> None:
-    vmap = _load(generous / "ungrouped" / "velocity_map.json")
-    assert len(vmap["volumes"]) == 128
-    assert vmap["anchors"]
-    assert 0 <= vmap["reference_volume"] <= 64
+def test_the_map_a_layer_carries_has_anchors_and_the_full_table(generous: Path) -> None:
+    """A layer reads a note's dynamic through the map stored beside the waveforms it was measured on."""
+    for layer in _bank(generous / "ungrouped")["layers"]:
+        vmap = layer["velocity_map"]
+        assert len(vmap["volumes"]) == 128
+        assert vmap["anchors"]
+        assert 0 <= vmap["reference_volume"] <= 64
+
+    assert _load(generous / "ungrouped" / "plan.json")["velocity_map"]["volumes"] == vmap["volumes"]
 
 
 def test_metrics_per_note_has_breakdown_and_diagnostics(generous: Path) -> None:
@@ -255,9 +277,9 @@ def test_tight_budget_marks_ungrouped_infeasible_but_dumps_grouped(
     by_name = {plan.name: plan for plan in result.plans}
     assert by_name["ungrouped"].feasible is False
     assert (out / "ungrouped" / "INFEASIBLE.txt").is_file()
-    assert not (out / "ungrouped" / "module.it").exists()
+    assert not (out / "ungrouped" / CONTAINER).exists()
     assert by_name["grouped"].feasible is True
-    assert (out / "grouped" / "module.it").is_file()
+    assert (out / "grouped" / CONTAINER).is_file()
 
 
 def test_impossible_budget_marks_both_infeasible(tmp_path: Path, demo_audio_map: AudioFactory) -> None:
@@ -288,9 +310,7 @@ def test_dump_is_deterministic(tmp_path: Path, demo_audio_map: AudioFactory) -> 
     first, second = tmp_path / "a", tmp_path / "b"
     dump_instrument(_instrument(48.0), demo_audio_map(), SR, first, NO_RENDER)
     dump_instrument(_instrument(48.0), demo_audio_map(), SR, second, NO_RENDER)
-    module_a = (first / "grouped" / "module.it").read_bytes()
-    module_b = (second / "grouped" / "module.it").read_bytes()
-    assert module_a == module_b  # the exported module is byte-identical across runs
+    assert (first / "grouped" / CONTAINER).read_bytes() == (second / "grouped" / CONTAINER).read_bytes()
     # The stored-sample WAVs decode identically (only libsndfile's PEAK-chunk timestamp differs on disk).
     audio_a, _ = read_wav(next((first / "grouped" / "samples").glob("*.wav")))
     audio_b, _ = read_wav(next((second / "grouped" / "samples").glob("*.wav")))
@@ -316,7 +336,7 @@ def test_dump_project_reads_wavs_and_writes_per_instrument(
 
     results = dump_project(manifest, tmp_path / "artifacts", NO_RENDER)
     assert len(results) == 1
-    assert (tmp_path / "artifacts" / "piano" / "grouped" / "module.it").is_file()
+    assert (tmp_path / "artifacts" / "piano" / "grouped" / CONTAINER).is_file()
 
 
 # --- velocity layers -----------------------------------------------------------------------------
@@ -380,7 +400,7 @@ def test_a_layered_plan_writes_one_instrument_file_per_band(layered: Path) -> No
 
 def test_a_layered_bank_states_a_layer_per_band_and_tiles_the_dynamics(layered: Path) -> None:
     """A note of any dynamic reaches the instrument the allocation stored its band in."""
-    bank = _load(layered / "grouped" / "bank.json")
+    bank = _bank(layered / "grouped")
     bands = [layer["select"]["velocity"] for layer in bank["layers"]]
     assert len(bands) > 1  # the material earned a velocity split
     for velocity in range(128):

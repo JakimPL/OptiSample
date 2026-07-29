@@ -168,7 +168,7 @@ def test_optimize_command_writes_artifacts(
             "--no-render",
         ]
     )
-    assert (out / "piano" / "grouped" / "module.it").is_file()
+    assert (out / "piano" / "grouped" / "piano.bank").is_file()
     assert (out / "piano" / "ungrouped" / "plan.json").is_file()
     printed = capsys.readouterr().out
     assert "piano" in printed and "objective" in printed
@@ -195,7 +195,7 @@ def test_optimize_command_writes_the_format_it_was_asked_for(tmp_path: Path, tin
             "ungrouped",
         ]
     )
-    assert (out / "piano" / "ungrouped" / "module.xm").is_file()
+    assert [path.suffix for path in sorted((out / "piano" / "ungrouped" / "instruments").iterdir())] == [".xi"]
 
 
 def test_optimize_command_reports_timing(tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]) -> None:

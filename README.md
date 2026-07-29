@@ -326,62 +326,80 @@ owns, so every one of them is playable on its own.
 
 ## Instrument files: one voice per file
 
-`module.it` is a piece of music — the plan playing its own material, which is how a run is auditioned. An
-instrument is what a producer of sampled instruments ships, so every instrument the module numbers is also
-written on its own under `instruments/`:
+An instrument is what a producer of sampled instruments ships, so every instrument the plan is written as
+lands as a file of its own — inside the bank the run writes, and spread out beside it under `instruments/`:
 
 ```
 artifacts/Piano/grouped/
-├── module.it
-├── bank.json
-├── velocity_map.json
-└── instruments/
-    ├── p029-p063_v000-v051.iti
-    └── p029-p063_v052-v127.iti
+├── Piano.bank                        # the manifest and both instruments, as one file
+├── instruments/
+│   ├── p029-p063_v000-v051.iti
+│   └── p029-p063_v052-v127.iti
+└── render/module.wav                 # the plan playing its own material, rendered
 ```
 
 Each file carries the instrument header, the samples its keymap reaches and their waveforms, with those
 samples renumbered into a table of its own — which is what lets a tracker or a player load one voice and
 leave its own song alone. The name states both axes the plan split, the run of keys and then the velocity
-band, so the directory sorts by keyboard position and reads as the map of which file plays what. Impulse Tracker writes `.iti` and FastTracker 2
-`.xi`, at the same compliance level the module was graded against; the format is the run's, so
-`--format xm` writes `.xi` beside `module.xm`.
+band, so the directory sorts by keyboard position and reads as the map of which file plays what. Impulse
+Tracker writes `.iti` and FastTracker 2 `.xi`, at the same compliance level the module was graded against;
+the format is the run's, so `--format xm` fills the bank with `.xi`.
 
-## The bank manifest: the whole plan as one voice
+The piece a run is auditioned as is a module of the plan playing the instrument's own material. It is
+built in memory, rendered to `render/module.wav` and scored note by note under `compare/`, so what a run
+leaves on disk to listen to is audio and what it leaves to play is the bank.
 
-A file per band ships the voices; `bank.json` says which one a note reaches. It states every band the
-allocation chose, in order, each naming its instrument file and the velocity map the plan measured:
+## The bank: the whole plan as one file
+
+A file per band ships the voices; the bank says which one a note reaches, and carries them all with it.
+`<name>.bank` is a zip holding the manifest and every instrument that manifest names:
+
+```
+Piano.bank
+├── bank.json
+└── instruments/
+    ├── p029-p063_v000-v051.iti
+    └── p029-p063_v052-v127.iti
+```
+
+The manifest states every band the allocation chose, in order, each naming the entry it is stored as and
+carrying the velocity map the plan measured:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "name": "Piano",
   "layers": [
     {
       "source": { "file": "instruments/p029-p063_v000-v051.iti" },
       "select": { "velocity": { "low": 0, "high": 51 } },
-      "velocity_map": "velocity_map.json"
+      "velocity_map": { "reference_volume": 57, "anchors": [ ... ], "volumes": [ ... ] }
     },
     {
       "source": { "file": "instruments/p029-p063_v052-v127.iti" },
       "select": { "velocity": { "low": 52, "high": 127 } },
-      "velocity_map": "velocity_map.json"
+      "velocity_map": { "reference_volume": 57, "anchors": [ ... ], "volumes": [ ... ] }
     }
   ]
 }
 ```
 
-Every path is read against the directory the manifest sits in, so the strategy directory is the unit that
-travels: copy it anywhere and it still plays. Each band states its own velocities rather than the last one
-catching whatever fell through, so the manifest says out loud what the allocation decided. This is what
+The map is written out in full where it is abbreviated above: `volumes` is the whole 0..127 lookup table a
+note's velocity indexes, and `anchors` one record per measured dynamic (`velocity`, `loudness_lufs`,
+`volume`) stating the loudness the fit was made through. It travels inside the bank because each stored
+sample's gain is derived from it (see [Gain staging](#gain-staging-storing-hot-and-getting-the-level-back)),
+which makes the waveforms and the map one calibrated unit — so a bank travelling as a single file keeps a
+layer playing the dynamics its own recordings were written for however it is copied, renamed or handed on.
+Each band states its own velocities rather than the last one catching whatever fell through, so the
+manifest says out loud what the allocation decided. This is what
 [MIDIToTracker](https://github.com/JakimPL/MIDIToTracker) reads:
 
 ```bash
-midi2tracker song.mid --bank artifacts/Piano/grouped/bank.json --out song.it
+midi2tracker song.mid song.it --bank artifacts/Piano/grouped/Piano.bank
 ```
 
 A note picks its layer by the dynamic it was struck at, and that instrument's own keymap then picks the
-sample — the same two steps `module.it` takes internally.
+sample — the same two steps the audition module takes internally.
 
 Where a format has room for a band only in several instruments, the keys tell those apart as well as the
 dynamics, and the manifest states that too. Each of those files answers every key it was filled over, so
@@ -392,12 +410,12 @@ the keymaps alone can no longer say which one owns a key and a `pitch` band says
   {
     "source": { "file": "instruments/p029-p060_v000-v127.xi" },
     "select": { "velocity": { "low": 0, "high": 127 }, "pitch": { "low": 0, "high": 60 } },
-    "velocity_map": "velocity_map.json"
+    "velocity_map": { "reference_volume": 57, "anchors": [ ... ], "volumes": [ ... ] }
   },
   {
     "source": { "file": "instruments/p061-p101_v000-v127.xi" },
     "select": { "velocity": { "low": 0, "high": 127 }, "pitch": { "low": 61, "high": 127 } },
-    "velocity_map": "velocity_map.json"
+    "velocity_map": { "reference_volume": 57, "anchors": [ ... ], "volumes": [ ... ] }
   }
 ]
 ```
