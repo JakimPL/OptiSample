@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -51,8 +52,8 @@ def manifest(recordings: Path) -> Path:
 
 
 @pytest.fixture
-def settings() -> IngestSettings:
-    return IngestSettings(instrument_id=_INSTRUMENT, budget_kb=64.0, project=ProjectSpec(name="song"))
+def settings(ingest_settings: Callable[..., IngestSettings]) -> IngestSettings:
+    return ingest_settings(_INSTRUMENT, project_name="song")
 
 
 def test_a_manifest_and_the_directory_beside_it_reach_the_same_recordings(

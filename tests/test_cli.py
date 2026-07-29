@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from optisample.cli import (
     _demo_settings,
     _dump_settings,
+    _ingest_settings,
     _optimize_settings,
     _pipeline_settings,
     build_parser,
@@ -475,6 +476,20 @@ def test_the_reduce_command_reads_the_same_ingest_flags_as_optimize(config: Opti
         _optimize_settings(config, optimized, config.layers, config.optimize).reduce
     )
     assert _optimize_settings(config, reduced, config.layers, config.optimize).seed == 3
+
+
+def test_the_roll_flags_state_a_directory_of_recordings_padding_in_seconds() -> None:
+    """A directory names no rolls of its own, so the flags are read as the seconds it holds at each end."""
+    argv = ["optimize", "piano", "--budget-kb", "48", "--pre-roll-ms", "20", "--post-roll-ms", "250"]
+    settings = _ingest_settings(build_parser().parse_args(argv))
+
+    assert (settings.pre_roll_s, settings.post_roll_s) == pytest.approx((0.02, 0.25))
+
+
+def test_the_keep_tail_flag_asks_for_the_padding_past_each_release() -> None:
+    argv = ["optimize", "m.notes.json", "--budget-kb", "48", "--keep-tail"]
+
+    assert _ingest_settings(build_parser().parse_args(argv)).keep_tail
 
 
 def test_the_workers_flag_sets_how_far_a_run_fans_out(config: OptiConfig) -> None:

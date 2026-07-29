@@ -13,6 +13,7 @@ Engine = Literal["openmpt"]
 Interpolation = Literal["none", "linear", "cubic", "sinc"]
 
 _NO_LEAD_IN: Final = 0.0
+_NO_TRAIL_OUT: Final = 0.0
 _NO_ROLL: Final = 0.0
 
 
@@ -26,8 +27,9 @@ class SourceSample(OptiSampleModel):
     """One recorded note of an instrument, grouped by (pitch, velocity).
 
     ``cc_averages`` maps each tracked MIDI controller number to its time-weighted average over the note.
-    ``lead_in_s`` is the pre-roll padding before the note onset that the loader trims so frame 0 lands
-    on the onset. ``articulation`` is carried through the model; the optimizer keys on (pitch, velocity).
+    ``lead_in_s`` is the pre-roll padding before the note onset and ``trail_out_s`` the post-roll padding
+    past its release end; the loader drops both, so the decoded recording runs from the onset to the
+    release. ``articulation`` is carried through the model; the optimizer keys on (pitch, velocity).
     """
 
     file: Path
@@ -35,6 +37,7 @@ class SourceSample(OptiSampleModel):
     velocity: MidiVelocity
     cc_averages: dict[int, float] = Field(default_factory=dict)
     lead_in_s: float = _NO_LEAD_IN
+    trail_out_s: float = _NO_TRAIL_OUT
     articulation: str | None = None
 
 

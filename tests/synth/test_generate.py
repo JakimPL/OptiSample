@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -18,14 +19,15 @@ def _first_wav(samples_dir: Path) -> Path:
     return sorted(samples_dir.glob("*.wav"))[0]
 
 
-def test_generate_demo_writes_notes_and_audio(synth_config: SynthConfig, tmp_path: Path) -> None:
+def test_generate_demo_writes_notes_and_audio(
+    synth_config: SynthConfig, tmp_path: Path, ingest_settings: Callable[..., IngestSettings]
+) -> None:
     outputs = generate_demo(tmp_path, synth_config, DemoSettings(sample_rate=QUICK_RATE))
     assert {samples_dir.name for _, samples_dir in outputs} == {preset.id for preset in synth_config.presets}
 
     for notes_json, samples_dir in outputs:
         assert notes_json.exists()
-        settings = IngestSettings(instrument_id=samples_dir.name, budget_kb=64.0, project=ProjectSpec(name="demo"))
-        manifest = load_notes(notes_json, samples_dir, settings)
+        manifest = load_notes(notes_json, samples_dir, ingest_settings(samples_dir.name, project_name="demo"))
         instrument = manifest.instruments[0]
         assert len(instrument.samples) == len(instrument.material)  # one note is both a sample and an event
         for sample in instrument.samples:

@@ -26,8 +26,10 @@ from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.config.synth import SynthConfig
 from optisample.config.tracker import TrackerFormat
 from optisample.dsp.surrogate import EncodeContext, EncodingParams
+from optisample.io.note_extractor import IngestSettings
 from optisample.io.tracker.target import ExportTarget, export_target
 from optisample.metrics import CompositeFidelity, build_composite
+from optisample.model import ProjectSpec
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.operating_points import SweepContext
 from optisample.optimize.orchestrate.settings import OptimizeSettings
@@ -43,12 +45,42 @@ from trackmod.spec.levels import MAX_VOLUME
 _NOTE_SR = 44_100
 _MIDI_VELOCITIES = 128
 _ANCHORS = (VelocityAnchor(100, -10.0, MAX_VOLUME),)
+_INGEST_BUDGET_KB = 64.0
 
 
 @pytest.fixture(scope="session")
 def config() -> OptiConfig:
     """The bundled configuration, loaded once for the whole test session."""
     return load_config()
+
+
+@pytest.fixture
+def ingest_settings() -> Callable[..., IngestSettings]:
+    """Factory: what an ingest takes from its caller, for a run stating no padding flags of its own.
+
+    ``instrument_id`` names the instrument and the project it belongs to; the padding a directory of
+    recordings holds and ``keep_tail`` are what the ingest tests vary, so each states only its own knob.
+    """
+
+    def _build(
+        instrument_id: str,
+        *,
+        project_name: str | None = None,
+        budget_kb: float = _INGEST_BUDGET_KB,
+        pre_roll_s: float = 0.0,
+        post_roll_s: float = 0.0,
+        keep_tail: bool = False,
+    ) -> IngestSettings:
+        return IngestSettings(
+            instrument_id=instrument_id,
+            budget_kb=budget_kb,
+            project=ProjectSpec(name=project_name if project_name is not None else instrument_id),
+            pre_roll_s=pre_roll_s,
+            post_roll_s=post_roll_s,
+            keep_tail=keep_tail,
+        )
+
+    return _build
 
 
 @pytest.fixture

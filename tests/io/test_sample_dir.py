@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -23,6 +24,7 @@ _TAKE_S = _FRAMES / SR
 _PITCHES = (48, 60, 72)
 _VELOCITIES = (20, 70, 120)
 _LEAD_IN_S = 0.05
+_TRAIL_OUT_S = 0.03
 
 
 @dataclass(frozen=True)
@@ -73,8 +75,8 @@ def library(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def settings() -> IngestSettings:
-    return IngestSettings(instrument_id=_INSTRUMENT, budget_kb=64.0, project=ProjectSpec(name="song"))
+def settings(ingest_settings: Callable[..., IngestSettings]) -> IngestSettings:
+    return ingest_settings(_INSTRUMENT, project_name="song")
 
 
 @pytest.mark.parametrize("case", _SPELLING_CASES, ids=lambda case: case.name)
@@ -152,13 +154,30 @@ def test_a_note_is_held_for_as_long_as_its_recording_sounds(named_grid: Path, se
     assert all(event.duration_s == pytest.approx(_TAKE_S) for event in instrument.material)
 
 
-def test_the_pre_roll_comes_off_the_front_of_every_take(named_grid: Path, settings: IngestSettings) -> None:
-    """A directory recorded with padding measures its notes from the onset a manifest dataset does."""
-    padded = load_sample_dir(named_grid, replace(settings, pre_roll_s=_LEAD_IN_S))
+def test_the_padding_comes_off_both_ends_of_every_take(named_grid: Path, settings: IngestSettings) -> None:
+    """A directory names no rolls of its own, so the flags are what say how its takes were padded."""
+    padded = load_sample_dir(named_grid, replace(settings, pre_roll_s=_LEAD_IN_S, post_roll_s=_TRAIL_OUT_S))
     (instrument,) = padded.instruments
 
     assert all(sample.lead_in_s == _LEAD_IN_S for sample in instrument.samples)
-    assert all(event.duration_s == pytest.approx(_TAKE_S - _LEAD_IN_S) for event in instrument.material)
+    assert all(sample.trail_out_s == _TRAIL_OUT_S for sample in instrument.samples)
+    assert all(event.duration_s == pytest.approx(_TAKE_S - _LEAD_IN_S - _TRAIL_OUT_S) for event in instrument.material)
+
+
+def test_a_directory_run_asked_to_keep_the_tail_holds_each_take_to_its_end(
+    named_grid: Path, settings: IngestSettings
+) -> None:
+    kept = load_sample_dir(named_grid, replace(settings, post_roll_s=_TRAIL_OUT_S, keep_tail=True))
+    (instrument,) = kept.instruments
+
+    assert all(sample.trail_out_s == 0.0 for sample in instrument.samples)
+    assert all(event.duration_s == pytest.approx(_TAKE_S) for event in instrument.material)
+
+
+def test_padding_claiming_a_whole_take_is_reported(named_grid: Path, settings: IngestSettings) -> None:
+    """A note has to have something left to store, so padding that swallows one is a stated failure."""
+    with pytest.raises(ValueError, match="all of it padding"):
+        load_sample_dir(named_grid, replace(settings, pre_roll_s=_TAKE_S, post_roll_s=_TRAIL_OUT_S))
 
 
 def test_a_slice_of_a_directory_is_a_directory(named_grid: Path, tmp_path: Path) -> None:

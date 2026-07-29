@@ -426,9 +426,11 @@ optisample optimize path/to/Piano.notes.json \
 
 `--samples-dir` names where a manifest's recordings live, defaulting to the notes file's sibling
 `<name>/` directory; a directory source holds its own. `--instrument-id` defaults to the `.notes.json`
-base name, or to the directory's own name. `--pre-roll-ms` / `--post-roll-ms` mirror the trimmer's
-padding (the pre-roll is trimmed as each sample's lead-in so frame 0 lands on the note onset). Other
-flags: `--format {it,xm}`, `--strategy {both,grouped,ungrouped}`, `--no-render`, `--rate`/`--depth`
+base name, or to the directory's own name. `--pre-roll-ms` / `--post-roll-ms` state the padding a
+**directory** of recordings holds around each note; a `.notes.json` records its own rolls in
+`settings.rolls` and is read by those. Either way the pre-roll comes off the front so frame 0 lands on
+the note onset, and the padding past the release comes off the end so a stored sample ends where the
+note does — `--keep-tail` stores it through that padding instead. Other flags: `--format {it,xm}`, `--strategy {both,grouped,ungrouped}`, `--no-render`, `--rate`/`--depth`
 (repeatable sweep values), `--no-loop`, `--interpolation`, `--seed`. `--dedupe-key` and `--candidates`
 override the two reduction knobs worth varying per run (see below), `--max-layers` the velocity bands a
 key may store and `--max-samples` how many samples a grouped plan may keep.

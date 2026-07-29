@@ -75,8 +75,8 @@ def _ingest_parser() -> argparse.ArgumentParser:
     """The flags ``optimize`` and ``reduce`` share: which recordings to read and how to narrow them.
 
     Both commands run the same ingest and the same pre-optimization stage, so the notes file, the budget
-    the shortlist is priced against, the trimmer padding and every reduction knob are declared once and
-    read identically whichever command was asked for.
+    the shortlist is priced against, the padding a directory of recordings holds and every reduction knob
+    are declared once and read identically whichever command was asked for.
     """
     ingest = argparse.ArgumentParser(add_help=False)
     ingest.add_argument(
@@ -117,13 +117,18 @@ def _ingest_parser() -> argparse.ArgumentParser:
         "--pre-roll-ms",
         type=float,
         default=0.0,
-        help="Pre-roll padding trimmed as lead-in (ms)",
+        help="Pre-roll padding a directory of recordings holds before each onset (ms); a manifest states its own",
     )
     ingest.add_argument(
         "--post-roll-ms",
         type=float,
         default=0.0,
-        help="Post-roll padding recorded for provenance (ms)",
+        help="Post-roll padding a directory of recordings holds past each release (ms); a manifest states its own",
+    )
+    ingest.add_argument(
+        "--keep-tail",
+        action="store_true",
+        help="Store each recording through its post-roll padding, instead of ending it at the note's release",
     )
     ingest.add_argument(
         "--rate",
@@ -486,6 +491,7 @@ def _ingest_settings(args: argparse.Namespace) -> IngestSettings:
         project=_project(args),
         pre_roll_s=args.pre_roll_ms / _MS_PER_S,
         post_roll_s=args.post_roll_ms / _MS_PER_S,
+        keep_tail=args.keep_tail,
     )
 
 

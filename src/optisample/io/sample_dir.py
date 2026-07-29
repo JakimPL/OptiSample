@@ -9,7 +9,7 @@ from typing import Final
 
 from optisample.io.audio import probe_wav
 from optisample.io.dataset import SourceDataset, SubsetDataset
-from optisample.io.note_extractor import IngestSettings
+from optisample.io.note_extractor import NO_PADDING_S, IngestSettings
 from optisample.io.subset import select_positions
 from optisample.model import InstrumentSpec, Manifest, NoteEvent, SourceSample
 from optisample.music import MIDI_MAX_VELOCITY, named_pitch
@@ -27,8 +27,9 @@ _CONTROLLER_PATTERN: Final = re.compile(r"^cc(\d+)-(\d+(?:\.\d+)?)$")
 class RecordedTake:
     """One WAV of a directory of recordings: what its filename spells, and the length its header reports.
 
-    ``duration_s`` is the whole recorded span; the lead-in an ingest trims comes off it when the take is
-    read as a note, so a folder recorded with padding measures the same span a manifest dataset does.
+    ``duration_s`` is the whole recorded span; the padding an ingest trims comes off either end when the
+    take is read as a note, so a folder recorded with padding measures the same span a manifest dataset
+    does.
     """
 
     file: Path
@@ -36,6 +37,14 @@ class RecordedTake:
     velocity: int
     duration_s: float
     cc_averages: dict[int, float]
+
+
+@dataclass(frozen=True)
+class _Padding:
+    """The audio at either end of a directory's takes that its ingest was told to leave out."""
+
+    lead_in_s: float
+    trail_out_s: float
 
 
 @dataclass(frozen=True)
@@ -151,28 +160,57 @@ def read_takes(samples_dir: Path) -> tuple[RecordedTake, ...]:
     )
 
 
-def _recorded_samples(takes: Sequence[RecordedTake], lead_in_s: float) -> list[SourceSample]:
-    """Every take as a recording the optimizer may store, aligned so frame 0 lands on the note onset."""
+def _padding(settings: IngestSettings) -> _Padding:
+    """What the ingest flags say a directory's takes hold around each note.
+
+    A directory names no rolls of its own, so the flags are taken at their word at both ends, and
+    ``keep_tail`` stores each take through its release padding.
+    """
+    return _Padding(
+        lead_in_s=settings.pre_roll_s,
+        trail_out_s=NO_PADDING_S if settings.keep_tail else settings.post_roll_s,
+    )
+
+
+def _sounding_s(take: RecordedTake, padding: _Padding) -> float:
+    """How long one take's note sounds: its recorded span, less the padding at either end.
+
+    Raises:
+        ValueError: when the padding claims the whole take, leaving no note to store.
+    """
+    sounding = take.duration_s - padding.lead_in_s - padding.trail_out_s
+    if sounding <= 0.0:
+        raise ValueError(
+            f"recording {take.file.name!r} holds {take.duration_s:.3f}s, all of it padding: "
+            f"{padding.lead_in_s:.3f}s before the onset and {padding.trail_out_s:.3f}s after the release"
+        )
+
+    return sounding
+
+
+def _recorded_samples(takes: Sequence[RecordedTake], padding: _Padding) -> list[SourceSample]:
+    """Every take as a recording the optimizer may store, over the span its note sounds."""
     return [
         SourceSample(
             file=take.file,
             pitch=take.pitch,
             velocity=take.velocity,
             cc_averages=take.cc_averages,
-            lead_in_s=lead_in_s,
+            lead_in_s=padding.lead_in_s,
+            trail_out_s=padding.trail_out_s,
         )
         for take in takes
     ]
 
 
-def _recorded_material(takes: Sequence[RecordedTake], lead_in_s: float) -> list[NoteEvent]:
-    """Every take as one note held for as long as the recording sounds, measured from its onset."""
+def _recorded_material(takes: Sequence[RecordedTake], padding: _Padding) -> list[NoteEvent]:
+    """Every take as one note held for as long as the recording sounds between its padding."""
     return [
         NoteEvent(
             pitch=take.pitch,
             velocity=take.velocity,
             cc_averages=take.cc_averages,
-            duration_s=take.duration_s - lead_in_s,
+            duration_s=_sounding_s(take, padding),
         )
         for take in takes
     ]
@@ -186,15 +224,19 @@ def load_sample_dir(samples_dir: Path | str, settings: IngestSettings) -> Manife
     the recorded grid itself is what the allocation is optimized over, which is what a set of samples
     with no performance behind it asks for.
 
-    ``pre_roll_s`` comes off the front of every take as its lead-in, so a set recorded with padding
-    measures its notes from the onset the way a manifest dataset does.
+    ``pre_roll_s`` comes off the front of every take and ``post_roll_s`` off the end, so a set recorded
+    with padding measures its notes between them the way a manifest dataset does.
+
+    Raises:
+        ValueError: when the padding claims a whole take, leaving no note to store.
     """
     takes = read_takes(Path(samples_dir).resolve())
+    padding = _padding(settings)
     instrument = InstrumentSpec(
         id=settings.instrument_id,
         budget_kb=settings.budget_kb,
-        samples=_recorded_samples(takes, settings.pre_roll_s),
-        material=_recorded_material(takes, settings.pre_roll_s),
+        samples=_recorded_samples(takes, padding),
+        material=_recorded_material(takes, padding),
         pre_roll_s=settings.pre_roll_s,
         post_roll_s=settings.post_roll_s,
     )

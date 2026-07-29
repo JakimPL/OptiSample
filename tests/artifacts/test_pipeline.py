@@ -52,8 +52,8 @@ def source(tmp_path: Path, piano_note: Callable[..., NDArray[np.float64]]) -> So
 
 
 @pytest.fixture
-def ingest() -> IngestSettings:
-    return IngestSettings(instrument_id=_INSTRUMENT, budget_kb=_BUDGET_KB, project=ProjectSpec(name=_INSTRUMENT))
+def ingest(ingest_settings: Callable[..., IngestSettings]) -> IngestSettings:
+    return ingest_settings(_INSTRUMENT, budget_kb=_BUDGET_KB)
 
 
 @pytest.fixture

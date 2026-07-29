@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -9,7 +10,13 @@ import numpy as np
 import pytest
 
 from optisample.io.audio import write_wav
-from optisample.io.note_extractor import IngestSettings, ManifestNote, NotesManifest, load_notes
+from optisample.io.note_extractor import (
+    IngestSettings,
+    ManifestNote,
+    NotesManifest,
+    RenderWindow,
+    load_notes,
+)
 from optisample.io.subset import even_ranks, select_positions, write_subset
 from optisample.model import ProjectSpec
 
@@ -59,7 +66,12 @@ def source(tmp_path: Path) -> Path:
         )
 
     notes_json = tmp_path / "Piano.notes.json"
-    notes_json.write_text(json.dumps({"config": {"tracked_ccs": [1], "note_count": _TOTAL}, "notes": notes}))
+    document = {
+        "config": {"tracked_ccs": [1], "note_count": _TOTAL},
+        "settings": {"rolls": {"pre_roll_seconds": 0.0, "post_roll_seconds": 0.0}},
+        "notes": notes,
+    }
+    notes_json.write_text(json.dumps(document))
     return notes_json
 
 
@@ -108,19 +120,15 @@ def test_a_subset_smaller_than_the_keyboard_spreads_the_pitches_it_keeps(source:
 
 def _lopsided() -> list[ManifestNote]:
     """Ten notes across two pitches, one of them played four times as often as the other."""
-    return NotesManifest.model_validate(
-        {
-            "notes": [
-                {
-                    "pitch": pitch,
-                    "velocity": velocity,
-                    "render": {"index": 0, "start_seconds": 0.0, "release_end_seconds": 1.0},
-                }
-                for pitch, count in ((60, 8), (61, 2))
-                for velocity in range(count)
-            ]
-        }
-    ).notes
+    return [
+        ManifestNote(
+            pitch=pitch,
+            velocity=velocity,
+            render=RenderWindow(index=0, start_seconds=0.0, release_end_seconds=1.0),
+        )
+        for pitch, count in ((60, 8), (61, 2))
+        for velocity in range(count)
+    ]
 
 
 def test_every_pitch_takes_a_second_note_before_any_takes_a_third() -> None:
@@ -149,7 +157,9 @@ def test_a_fraction_outside_the_unit_interval_is_rejected(source: Path, fraction
 # --- the dataset it writes -------------------------------------------------------------------------
 
 
-def test_the_written_subset_is_a_dataset_ingest_reads_back(source: Path, tmp_path: Path) -> None:
+def test_the_written_subset_is_a_dataset_ingest_reads_back(
+    source: Path, tmp_path: Path, ingest_settings: Callable[..., IngestSettings]
+) -> None:
     dataset = write_subset(source, source.parent / "Piano", tmp_path / "out", instrument_id="Piano", fraction=0.2)
 
     assert (dataset.source.path, dataset.source.recordings_dir) == (
@@ -161,7 +171,7 @@ def test_the_written_subset_is_a_dataset_ingest_reads_back(source: Path, tmp_pat
     manifest = load_notes(
         dataset.source.path,
         dataset.source.recordings_dir,
-        IngestSettings(instrument_id="Piano", budget_kb=64.0, project=ProjectSpec(name="song")),
+        ingest_settings("Piano", project_name="song"),
     )
     assert len(manifest.instruments[0].samples) == dataset.kept_notes
 
@@ -175,6 +185,7 @@ def test_a_kept_note_is_written_exactly_as_the_source_states_it(source: Path, tm
     assert all(note == original[note["render"]["index"]] for note in written["notes"])
     assert written["config"]["tracked_ccs"] == [1]  # the source's own config block carries over
     assert written["config"]["note_count"] == len(written["notes"])  # its declared count follows the subset
+    assert written["settings"] == json.loads(source.read_text(encoding="utf-8"))["settings"]  # cut the same way
 
 
 def test_the_subset_reports_the_ranges_it_spans(source: Path, tmp_path: Path) -> None:

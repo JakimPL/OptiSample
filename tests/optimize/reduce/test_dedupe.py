@@ -114,21 +114,45 @@ def test_keeps_the_longest_recording_when_none_covers_the_material(
     assert kept.duration_s < kept.required_duration_s
 
 
-def test_the_pre_roll_is_removed_before_a_recording_is_measured(
-    reduce: ReduceFactory, loop_config: LoopConfig, wav: Callable[[str, float], Path], loop_floor_s: float
+@pytest.mark.parametrize(("lead_in_s", "trail_out_s"), [(0.5, 0.0), (0.0, 0.5), (0.2, 0.3)])
+def test_the_padding_around_a_note_is_removed_before_a_recording_is_measured(
+    reduce: ReduceFactory,
+    loop_config: LoopConfig,
+    wav: Callable[[str, float], Path],
+    loop_floor_s: float,
+    lead_in_s: float,
+    trail_out_s: float,
 ) -> None:
-    padded = SourceSample(file=wav("0000_padded.wav", loop_floor_s + 0.1), pitch=60, velocity=100, lead_in_s=0.5)
+    """A recording is ranked on the span from its onset to its release, which is all of it that is stored."""
+    padded = SourceSample(
+        file=wav("0000_padded.wav", loop_floor_s + 0.1),
+        pitch=60,
+        velocity=100,
+        lead_in_s=lead_in_s,
+        trail_out_s=trail_out_s,
+    )
 
     kept = select_recordings(instrument([padded], one_note()), reduce(), loop_config, NO_PROGRESS)[0]
 
-    assert kept.duration_s == pytest.approx(loop_floor_s + 0.1 - 0.5, abs=1e-3)
-    assert not kept.covers_material  # the pre-roll is not part of the note
+    assert kept.duration_s == pytest.approx(loop_floor_s + 0.1 - lead_in_s - trail_out_s, abs=1e-3)
+    assert not kept.covers_material  # the padding is not part of the note
 
 
-def test_a_pre_roll_longer_than_the_recording_measures_as_empty(
-    reduce: ReduceFactory, loop_config: LoopConfig, wav: Callable[[str, float], Path]
+@pytest.mark.parametrize(("lead_in_s", "trail_out_s"), [(0.5, 0.0), (0.0, 0.5), (0.3, 0.3)])
+def test_padding_longer_than_the_recording_measures_as_empty(
+    reduce: ReduceFactory,
+    loop_config: LoopConfig,
+    wav: Callable[[str, float], Path],
+    lead_in_s: float,
+    trail_out_s: float,
 ) -> None:
-    clipped = SourceSample(file=wav("0000_clipped.wav", 0.2), pitch=60, velocity=100, lead_in_s=0.5)
+    clipped = SourceSample(
+        file=wav("0000_clipped.wav", 0.2),
+        pitch=60,
+        velocity=100,
+        lead_in_s=lead_in_s,
+        trail_out_s=trail_out_s,
+    )
 
     kept = select_recordings(instrument([clipped], one_note()), reduce(), loop_config, NO_PROGRESS)[0]
 

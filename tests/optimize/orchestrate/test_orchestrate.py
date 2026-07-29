@@ -200,6 +200,23 @@ def test_load_instrument_audio_trims_lead_in_from_the_front(tmp_path: Path) -> N
     np.testing.assert_array_equal(audio[SampleKey(60, 100)], full[trimmed:])  # frame 0 lands on the note onset
 
 
+def test_load_instrument_audio_cuts_the_trail_off_the_end(tmp_path: Path) -> None:
+    """The release padding goes the way the pre-roll does, so a decoded recording ends at the release."""
+    path = tmp_path / "0000_p60_v100.wav"
+    write_wav(path, note(60, 100, dur=0.6), SR)
+    lead_in_s, trail_out_s = 0.05, 0.1
+    inst = InstrumentSpec(
+        id="piano",
+        budget_kb=64.0,
+        samples=[SourceSample(file=path, pitch=60, velocity=100, lead_in_s=lead_in_s, trail_out_s=trail_out_s)],
+        material=[NoteEvent(pitch=60, velocity=100, duration_s=0.4, count=1)],
+    )
+    audio = load_instrument_audio(inst, _REDUCE, _LOOP, NO_PROGRESS).audio
+    full, _ = read_wav(path)
+    sounding = full[round(lead_in_s * SR) : len(full) - round(trail_out_s * SR)]
+    np.testing.assert_array_equal(audio[SampleKey(60, 100)], sounding)
+
+
 def test_load_instrument_audio_cuts_a_recording_to_the_length_bound(tmp_path: Path) -> None:
     """A recording running past the trim's bound is decoded down to the span the bound keeps."""
     path = tmp_path / "0000_p60_v100.wav"

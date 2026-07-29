@@ -221,13 +221,14 @@ def test_a_reduced_dataset_reloads_into_the_same_survivors(
     graded_audio: AudioMap,
     no_render_settings: DumpSettings,
     tmp_path: Path,
+    ingest_settings: Callable[..., IngestSettings],
 ) -> None:
     """The point of the dataset: an allocation run reads it back and reduces to exactly what was written."""
     reduced = dump_reduced(_loaded(graded_instrument, graded_audio), tmp_path, no_render_settings.optimize)
     reloaded = load_notes(
         reduced.paths.notes_json,
         reduced.paths.samples_dir,
-        IngestSettings(instrument_id="piano", budget_kb=48.0, project=ProjectSpec(name="piano")),
+        ingest_settings("piano", budget_kb=48.0),
     )
     instrument = reloaded.instruments[0]
     assert len(instrument.material) == reduced.notes

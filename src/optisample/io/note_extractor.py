@@ -6,6 +6,7 @@ from typing import Any, Final
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from optisample.io.audio import probe_wav
 from optisample.model import (
     InstrumentSpec,
     Manifest,
@@ -15,6 +16,7 @@ from optisample.model import (
 )
 
 NOTES_SUFFIX: Final = ".notes.json"  # the manifest extension every NoteExtractor dataset is named by
+NO_PADDING_S: Final = 0.0  # a recording cut to its note exactly, which is what this project's own writers produce
 
 
 class RenderWindow(BaseModel):
@@ -43,11 +45,38 @@ class ManifestNote(BaseModel):
         return self.render.release_end_seconds - self.render.start_seconds
 
 
-class NotesManifest(BaseModel):
-    """The fields a NoteExtractor ``.notes.json`` carries that the pipeline reads."""
+class RollSettings(BaseModel):
+    """The audio the trimmer kept around each note, as the manifest of that extraction records it.
+
+    ``pre_roll_seconds`` reaches back before the onset and ``post_roll_seconds`` carries on past the
+    release end. The split run states them and the manifest carries them, so a dataset says for itself
+    how its recordings were cut.
+    """
 
     model_config = ConfigDict(extra="ignore")
 
+    pre_roll_seconds: float = Field(ge=0.0)
+    post_roll_seconds: float = Field(ge=0.0)
+
+
+class ManifestSettings(BaseModel):
+    """The extraction settings a manifest records, of which the ingest reads the rolls."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    rolls: RollSettings
+
+
+class NotesManifest(BaseModel):
+    """The fields a NoteExtractor ``.notes.json`` carries that the pipeline reads.
+
+    ``settings`` is what the extraction was carried out under, and a manifest states it, so reading a
+    dataset takes only where it lives.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    settings: ManifestSettings
     notes: list[ManifestNote]
 
 
@@ -62,18 +91,54 @@ def index_of_wav(path: Path | str) -> int:
 
 @dataclass(frozen=True)
 class IngestSettings:
-    """The manifest fields a ``.notes.json`` does not carry, supplied by the caller (CLI flags + config).
+    """The fields a source does not carry, supplied by the caller (CLI flags + config).
 
     ``instrument_id`` names the single instrument, ``budget_kb`` is its byte budget, and ``project`` holds
-    the project-wide fidelity settings. ``pre_roll_s`` / ``post_roll_s`` record the trimmer padding; the
-    pre-roll also sets each sample's ``lead_in_s`` so the loader can align frame 0 with the note onset.
+    the project-wide fidelity settings. ``keep_tail`` stores each recording through the padding past its
+    release end, which is how a run listens to the material the default cut leaves out.
+
+    ``pre_roll_s`` / ``post_roll_s`` state how a directory of recordings was padded, which is the one
+    source shape saying nothing about itself; a ``.notes.json`` records its own rolls and is read by them.
     """
 
     instrument_id: str
     budget_kb: float
     project: ProjectSpec
-    pre_roll_s: float = 0.0
-    post_roll_s: float = 0.0
+    pre_roll_s: float
+    post_roll_s: float
+    keep_tail: bool
+
+
+def _trail_out_s(recorded_s: float, sounding_s: float, post_roll_s: float) -> float:
+    """The release padding one recording holds past its note, which the loader drops.
+
+    ``recorded_s`` is what the file holds from the note onset onwards and ``sounding_s`` is how long the
+    note itself sounds, so what is left over is the padding the trimmer added. Measuring it from the file
+    is exact where the trimmer's cut ran into the end of the render and kept less padding than it was
+    asked for. Bounding it by ``post_roll_s`` leaves the extra length in place where a recording was
+    deliberately stored longer than its note, which is how this project's own reduced datasets are written.
+    """
+    return max(NO_PADDING_S, min(recorded_s - sounding_s, post_roll_s))
+
+
+def _sample_of(note: ManifestNote, wav: Path, rolls: RollSettings, *, keep_tail: bool) -> SourceSample:
+    """One manifest note as a recording the optimizer may store, with the padding at each end measured.
+
+    The lead-in is bounded by the onset because the trimmer's cut starts at the beginning of the render
+    where the pre-roll reaches back past it, and the trail is measured from the file for the matching
+    reason at the other end.
+    """
+    lead_in = min(rolls.pre_roll_seconds, note.render.start_seconds)
+    from_onset = probe_wav(wav).duration_s - lead_in
+    trail_out = NO_PADDING_S if keep_tail else _trail_out_s(from_onset, note.duration_s, rolls.post_roll_seconds)
+    return SourceSample(
+        file=wav.resolve(),
+        pitch=note.pitch,
+        velocity=note.velocity,
+        cc_averages=note.cc_averages,
+        lead_in_s=lead_in,
+        trail_out_s=trail_out,
+    )
 
 
 def load_notes(
@@ -85,13 +150,18 @@ def load_notes(
 
     Each note becomes a :class:`~optisample.model.SourceSample` (matched to the WAV whose leading index
     token equals ``render.index``) and a :class:`~optisample.model.NoteEvent` whose ``duration_s`` is the
-    audible span ``release_end_seconds - start_seconds``. Every field the format omits comes from
-    ``settings`` (see :class:`IngestSettings`).
+    audible span ``release_end_seconds - start_seconds``. The padding each recording was cut with comes
+    from the manifest's own ``settings.rolls``, so a dataset is read by the rolls it was written with;
+    every remaining field comes from ``settings`` (see :class:`IngestSettings`).
+
+    Raises:
+        ValueError: when a note names a render index no WAV of ``samples_dir`` carries.
     """
     notes_json = Path(notes_json)
     samples_dir = Path(samples_dir).resolve()
     raw: Any = json.loads(notes_json.read_text(encoding="utf-8"))
     parsed = NotesManifest.model_validate(raw)
+    rolls = parsed.settings.rolls
 
     wavs = {index_of_wav(wav): wav for wav in sorted(samples_dir.glob("*.wav"))}
 
@@ -101,15 +171,7 @@ def load_notes(
         wav = wavs.get(note.render.index)
         if wav is None:
             raise ValueError(f"note render index {note.render.index} has no WAV in {samples_dir}")
-        samples.append(
-            SourceSample(
-                file=wav.resolve(),
-                pitch=note.pitch,
-                velocity=note.velocity,
-                cc_averages=note.cc_averages,
-                lead_in_s=min(settings.pre_roll_s, note.render.start_seconds),
-            )
-        )
+        samples.append(_sample_of(note, wav, rolls, keep_tail=settings.keep_tail))
         material.append(
             NoteEvent(
                 pitch=note.pitch,
@@ -124,8 +186,8 @@ def load_notes(
         budget_kb=settings.budget_kb,
         samples=samples,
         material=material,
-        pre_roll_s=settings.pre_roll_s,
-        post_roll_s=settings.post_roll_s,
+        pre_roll_s=rolls.pre_roll_seconds,
+        post_roll_s=rolls.post_roll_seconds,
     )
     return Manifest(project=settings.project, instruments=[instrument])
 
@@ -147,9 +209,14 @@ def dump_notes(
     *,
     tracked_ccs: Sequence[int] = (),
 ) -> None:
-    """Write the consumed ``.notes.json`` subset for ``notes`` (render window ``[0, duration_s]``)."""
+    """Write the consumed ``.notes.json`` subset for ``notes`` (render window ``[0, duration_s]``).
+
+    The rolls are declared as none, because a written recording starts at its onset and is stored for as
+    long as the pitch it serves asks for, so a later ingest keeps every frame of it.
+    """
     data = {
         "config": {"tracked_ccs": list(tracked_ccs)},
+        "settings": {"rolls": {"pre_roll_seconds": NO_PADDING_S, "post_roll_seconds": NO_PADDING_S}},
         "notes": [
             {
                 "pitch": note.pitch,

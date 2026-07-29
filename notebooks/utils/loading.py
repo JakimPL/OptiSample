@@ -13,6 +13,7 @@ from optisample.synth import DemoSettings, generate_demo
 Signal = NDArray[np.float64]
 
 _DEMO_BUDGET_KB = 128.0
+_NO_PADDING_S = 0.0  # the demo's own recordings run from the onset to the release with nothing around them
 
 
 def ensure_demo(
@@ -44,6 +45,9 @@ def load(demo_dir: Path | str) -> Manifest:
             instrument_id=instrument_id,
             budget_kb=_DEMO_BUDGET_KB,
             project=project,
+            pre_roll_s=_NO_PADDING_S,
+            post_roll_s=_NO_PADDING_S,
+            keep_tail=False,
         )
         manifest = load_notes(notes_json, demo_dir / instrument_id, settings)
         instruments.append(manifest.instruments[0])

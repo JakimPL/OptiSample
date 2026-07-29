@@ -28,9 +28,10 @@ _PROBE_LABEL: Final = "Probing recordings"
 class Candidate:
     """One recorded WAV competing for the single slot its identity keeps.
 
-    ``usable_duration_s`` is what survives the loader's ``lead_in_s`` trim, so it measures the recording
-    from the note onset -- the span the material is scored against. ``order`` ranks recordings that are
-    equally suitable, by render index and then filename, so the survivor is the same on every run.
+    ``usable_duration_s`` is what survives the loader's ``lead_in_s`` and ``trail_out_s`` trims, so it
+    measures the recording from the note onset to its release end -- the span the material is scored
+    against. ``order`` ranks recordings that are equally suitable, by render index and then filename, so
+    the survivor is the same on every run.
     """
 
     sample: SourceSample
@@ -111,11 +112,11 @@ def _candidate(sample: SourceSample, reduce: ReduceConfig) -> Candidate:
     """Turn one listed recording into the identity and onset-aligned length dedup ranks it by.
 
     The WAV header states the length, so the whole recorded grid is ranked from the headers alone. The
-    length is read as the trim will leave it, bounded by ``max_length_s``, so recordings are ranked on
-    the span each of them will actually contribute.
+    length is read as the trim will leave it -- the padding at either end gone and ``max_length_s``
+    bounding what remains -- so recordings are ranked on the span each of them will actually contribute.
     """
     info = probe_wav(sample.file)
-    onset_aligned = max(info.duration_s - sample.lead_in_s, NO_MATERIAL_S)
+    onset_aligned = max(info.duration_s - sample.lead_in_s - sample.trail_out_s, NO_MATERIAL_S)
     return Candidate(
         sample=sample,
         key=sample_key(sample, reduce.dedupe),

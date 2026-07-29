@@ -52,11 +52,15 @@ class _Decoded:
 
 
 def _read_onset_aligned(selection: Selection) -> tuple[Signal, int]:
-    """Decode one survivor to mono with its pre-roll dropped, so frame 0 lands on the note onset."""
+    """Decode one survivor to mono over the span its note sounds, so frame 0 lands on the note onset.
+
+    The lead-in comes off the front and the release padding off the end, leaving the recording between
+    the onset and the release end -- the span the material is scored against and the encoder is priced on.
+    """
     data, rate = read_wav(selection.sample.file)
-    lead_in_frames = round(selection.sample.lead_in_s * rate)
-    if lead_in_frames > 0:
-        data = data[lead_in_frames:]
+    onset_frame = round(selection.sample.lead_in_s * rate)
+    release_frame = len(data) - round(selection.sample.trail_out_s * rate)
+    data = data[onset_frame:release_frame]
 
     if data.ndim > 1:
         data = np.mean(data, axis=1)
