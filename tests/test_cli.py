@@ -11,6 +11,7 @@ from optisample.cli import (
     _demo_settings,
     _dump_settings,
     _optimize_settings,
+    _pipeline_settings,
     build_parser,
     main,
 )
@@ -327,6 +328,92 @@ def test_the_subset_command_names_its_output_after_the_instrument(tmp_path: Path
 
     assert (tmp_path / "s" / "Grand.notes.json").is_file()
     assert len(list((tmp_path / "s" / "Grand").glob("*.wav"))) == len(PITCHES)
+
+
+def test_pipeline_command_writes_a_directory_per_stage_it_ran(
+    tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out = tmp_path / "artifacts"
+    main(
+        [
+            "pipeline",
+            str(tiny_notes),
+            "--budget-kb",
+            "48",
+            "--fraction",
+            "0.67",
+            "--out",
+            str(out),
+            "--rate",
+            "11025",
+            "--depth",
+            "8",
+            "--no-render",
+            "--strategy",
+            "ungrouped",
+        ]
+    )
+    assert (out / "0_subset" / "piano.notes.json").is_file()
+    assert (out / "1_reduced" / "piano.notes.json").is_file()
+    assert (out / "2_optimized" / "piano" / "ungrouped" / "plan.json").is_file()
+    printed = capsys.readouterr().out
+    assert "2 of 3 notes" in printed  # the slice it took
+    assert "auditions" in printed  # what the reduction wrote
+    assert "ungrouped: objective" in printed and "total:" in printed
+
+
+def test_the_pipeline_command_reaches_what_running_the_stages_one_at_a_time_reaches(
+    tmp_path: Path, tiny_notes: Path
+) -> None:
+    """The chain exists to spare the typing, so it allocates the very plan the three commands do."""
+    flags = ["--budget-kb", "48", "--rate", "11025", "--depth", "8"]
+    allocate = ["--no-render", "--strategy", "ungrouped"]
+    chained, apart = tmp_path / "chained", tmp_path / "apart"
+    main(["pipeline", str(tiny_notes), *flags, *allocate, "--fraction", "0.67", "--out", str(chained)])
+    main(["subset", str(tiny_notes), "--fraction", "0.67", "--out", str(apart / "0_subset")])
+    main(["reduce", str(apart / "0_subset" / "piano.notes.json"), *flags, "--out", str(apart / "1_reduced")])
+    main(["optimize", str(apart / "1_reduced" / "piano.notes.json"), *flags, *allocate, "--out", str(apart / "2")])
+    plan = Path("piano") / "ungrouped" / "plan.json"
+    assert (chained / "2_optimized" / plan).read_text(encoding="utf-8") == (apart / "2" / plan).read_text(
+        encoding="utf-8"
+    )
+
+
+def test_the_pipeline_command_reduces_its_source_when_no_fraction_names_a_slice(
+    tmp_path: Path, tiny_notes: Path
+) -> None:
+    out = tmp_path / "artifacts"
+    flags = ["--budget-kb", "48", "--rate", "11025", "--depth", "8", "--no-render", "--strategy", "ungrouped"]
+    main(["pipeline", str(tiny_notes), *flags, "--out", str(out)])
+    assert not (out / "0_subset").exists()
+    assert (out / "2_optimized" / "piano" / "ungrouped" / "plan.json").is_file()
+
+
+def test_the_allocation_caps_a_chained_run_states_reach_the_stage_that_allocates(config: OptiConfig) -> None:
+    """The reduction runs at the configured caps, so its dataset stays the one any allocation reads back."""
+    args = build_parser().parse_args(
+        ["pipeline", "m.notes.json", "--budget-kb", "48", "--max-samples", "4", "--max-layers", "1"]
+    )
+    settings = _pipeline_settings(config, args)
+    assert settings.dump.optimize.max_samples == 4
+    assert settings.dump.optimize.layers.max_layers == 1
+    assert settings.reduce.max_samples == config.optimize.max_samples
+    assert settings.reduce.layers == config.layers
+
+
+def test_a_chained_run_slices_nothing_when_no_fraction_is_named(config: OptiConfig) -> None:
+    args = build_parser().parse_args(["pipeline", "m.notes.json", "--budget-kb", "48"])
+    assert _pipeline_settings(config, args).fraction is None
+
+
+def test_the_pipeline_command_reads_the_same_ingest_flags_as_optimize(config: OptiConfig) -> None:
+    """One ingest parser across the commands, so a reduction knob means the same to a chain as to a stage."""
+    argv = ["m.notes.json", "--budget-kb", "48", "--dedupe-key", "pitch", "--candidates", "7", "--seed", "3"]
+    chained = _pipeline_settings(config, build_parser().parse_args(["pipeline", *argv]))
+    optimized = _dump_settings(config, build_parser().parse_args(["optimize", *argv]))
+    assert chained.dump.optimize.reduce == optimized.optimize.reduce
+    assert chained.reduce.reduce == optimized.optimize.reduce  # both stages of a chain, on the same knobs
+    assert chained.dump.optimize.seed == 3
 
 
 def test_the_reduce_command_reads_the_same_ingest_flags_as_optimize(config: OptiConfig) -> None:

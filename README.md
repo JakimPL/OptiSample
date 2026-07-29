@@ -113,6 +113,34 @@ A dataset reproduces its survivors exactly under the key it was reduced with; re
 coarser key projects several identities onto one survivor, which then reports the identity of the first
 note that reaches it.
 
+### Running the three in a row
+
+`optisample pipeline` is the chain the three commands above make, under one output root:
+
+```bash
+optisample pipeline path/to/Piano.notes.json \
+    --samples-dir path/to/Samples/Piano \
+    --fraction 0.3 --budget-kb 512 --strategy grouped --max-layers 3 --no-render \
+    --out artifacts
+```
+
+```
+artifacts/
+  0_subset/      # the slice taken of the source, as a dataset of the same shape
+  1_reduced/     # what the pre-optimization stage reduced that to, plus its reduction.json and auditions
+  2_optimized/   # the artifacts allocated from it, one directory per instrument and strategy
+```
+
+Each stage reads back the dataset the one before it wrote, so the allocation reaches the sweep having
+paid the ingest over the surviving recordings alone. Leaving `--fraction` out reduces the source itself
+and the run begins at `1_reduced`, which is how a dataset already sliced — or small enough to run whole —
+goes through the same command. Every stage directory is what that stage writes when it is reached on its
+own, so a chained run and the three commands typed out reach the same artifacts.
+
+It takes every ingest, reduction and allocation flag those commands take. `--max-layers` and
+`--max-samples` reach the allocating stage, while the reduction between them runs at the configured
+split and cap — which is what keeps its dataset the one any allocation off it reads back.
+
 ## The objective: what a note's distortion is worth
 
 Every stage above competes for the same number, so it is worth stating exactly what that number counts.
@@ -384,7 +412,8 @@ Scoring pitch zones............... 100%     12/12     [00:07<00:00]
 ```
 
 `--seed` fixes the dither so a run reproduces byte for byte; every other flag above is shared with
-`optisample reduce` (see below).
+`optisample reduce` (see below), and `optisample pipeline` takes all of them at once to run the slice,
+the reduction and the allocation in a row under one output root.
 
 Bars are drawn when stderr is a terminal, so redirected output stays clean; `--no-progress` silences them
 at a terminal too. Results keep to stdout either way.

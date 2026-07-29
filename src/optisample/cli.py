@@ -2,11 +2,20 @@ import argparse
 import cProfile
 import pstats
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Final, get_args
 
-from optisample.artifacts import DumpSettings, dump_project, reduce_project
+from optisample.artifacts import (
+    DumpResult,
+    DumpSettings,
+    PipelineSettings,
+    ReducedInstrument,
+    SourceDataset,
+    dump_project,
+    reduce_project,
+    run_pipeline,
+)
 from optisample.config import OptiConfig, load_config
 from optisample.config.layers import LayersConfig
 from optisample.config.optimize import OptimizeConfig, SweepConfig
@@ -14,7 +23,7 @@ from optisample.config.reduce import DedupeKey, ReduceConfig
 from optisample.config.render import Interpolation
 from optisample.config.tracker import TrackerConfig, TrackerFormat
 from optisample.io.note_extractor import NOTES_SUFFIX, IngestSettings, load_notes
-from optisample.io.subset import write_subset
+from optisample.io.subset import SubsetDataset, write_subset
 from optisample.io.tracker.target import ExportTarget, export_target
 from optisample.model import ProjectSpec
 from optisample.optimize.orchestrate.settings import OptimizeSettings
@@ -182,14 +191,13 @@ def _describe_synth(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _describe_optimize(parser: argparse.ArgumentParser) -> None:
-    """Add what allocating a budget asks for beyond the shared ingest flags."""
-    parser.add_argument(
-        "--out",
-        type=Path,
-        default=_ARTIFACTS_OUT,
-        help="Artifact output directory",
-    )
+def _allocation_parser() -> argparse.ArgumentParser:
+    """The flags the allocating stage reads: which strategies to walk, the caps they allocate under, and rendering.
+
+    ``optimize`` and ``pipeline`` reach the same stage, so both declare these once here and a cap means
+    the same thing to either.
+    """
+    parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument(
         "--strategy",
         choices=("both", "grouped", "ungrouped"),
@@ -211,6 +219,33 @@ def _describe_optimize(parser: argparse.ArgumentParser) -> None:
         "--no-render",
         action="store_true",
         help="Skip openmpt123 ground-truth renders",
+    )
+    return parser
+
+
+def _describe_optimize(parser: argparse.ArgumentParser) -> None:
+    """Add where allocating a budget writes, beyond the shared ingest and allocation flags."""
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=_ARTIFACTS_OUT,
+        help="Artifact output directory",
+    )
+
+
+def _describe_pipeline(parser: argparse.ArgumentParser) -> None:
+    """Add what chaining the stages asks for beyond the shared ingest and allocation flags."""
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=_ARTIFACTS_OUT,
+        help="Directory the run's numbered stage directories land under",
+    )
+    parser.add_argument(
+        "--fraction",
+        type=float,
+        default=None,
+        help="Share of the source notes to slice out first, in (0, 1]; naming none reduces the source itself",
     )
 
 
@@ -264,6 +299,7 @@ def build_parser() -> argparse.ArgumentParser:
     configured = _config_parser()
     staged = [configured, _runtime_parser()]
     ingest = _ingest_parser()
+    allocation = _allocation_parser()
     sub = parser.add_subparsers(dest="command", required=True)
     _describe_synth(
         sub.add_parser("synth", parents=staged, help="Generate a synthetic demo dataset (.notes.json + WAVs)")
@@ -271,8 +307,15 @@ def build_parser() -> argparse.ArgumentParser:
     _describe_optimize(
         sub.add_parser(
             "optimize",
-            parents=[*staged, ingest],
+            parents=[*staged, ingest, allocation],
             help="Optimize a .notes.json and dump inspectable artifacts",
+        )
+    )
+    _describe_pipeline(
+        sub.add_parser(
+            "pipeline",
+            parents=[*staged, ingest, allocation],
+            help="Slice, reduce and optimize a .notes.json in a row, each stage under its own directory",
         )
     )
     _describe_reduce(
@@ -448,6 +491,21 @@ def _ingest_settings(args: argparse.Namespace) -> IngestSettings:
     )
 
 
+def _pipeline_settings(config: OptiConfig, args: argparse.Namespace) -> PipelineSettings:
+    """What each stage of a chained run is carried out with, off the flags the whole chain shares.
+
+    The reduction is settled at the configured velocity split and sample cap, the way ``reduce`` settles
+    it, so ``--max-layers`` and ``--max-samples`` reach the allocation the run ends in and the dataset
+    between them stays the one any allocation reads back.
+    """
+    return PipelineSettings(
+        ingest=_ingest_settings(args),
+        reduce=_optimize_settings(config, args, config.layers, config.optimize),
+        dump=_dump_settings(config, args),
+        fraction=args.fraction,
+    )
+
+
 def _print_screen(screen: RecordingScreen) -> None:
     """State what the silence screen left out, on the runs where it left anything out."""
     if screen.admitted_everything:
@@ -459,25 +517,8 @@ def _print_screen(screen: RecordingScreen) -> None:
     )
 
 
-def _run_reduce(config: OptiConfig, args: argparse.Namespace) -> None:
-    manifest = load_notes(args.notes_json, _samples_dir(args), _ingest_settings(args))
-    results = reduce_project(manifest, args.out, _optimize_settings(config, args, config.layers, config.optimize))
-    for result in results:
-        print(f"{result.instrument_id}: {result.paths.notes_json}  [{result.elapsed_s:.1f}s]")
-        print(f"  {result.survivors} samples, {result.notes} notes -> {result.paths.samples_dir}")
-        _print_screen(result.screen)
-        print(f"  {result.auditions} auditions -> {result.paths.auditions_dir}")
-        print(f"  reduction -> {result.paths.reduction_json}")
-
-
-def _run_subset(args: argparse.Namespace) -> None:
-    dataset = write_subset(
-        args.notes_json,
-        _samples_dir(args),
-        args.out,
-        instrument_id=args.instrument_id or _instrument_base(args.notes_json),
-        fraction=args.fraction,
-    )
+def _print_subset(dataset: SubsetDataset) -> None:
+    """State where a slice landed and how much of its source it holds."""
     print(f"{dataset.notes_json}")
     print(f"  {dataset.kept_notes} of {dataset.source_notes} notes, {dataset.recordings} recordings")
     print(
@@ -486,23 +527,69 @@ def _run_subset(args: argparse.Namespace) -> None:
     print(f"  samples -> {dataset.samples_dir}")
 
 
+def _print_reduced(result: ReducedInstrument) -> None:
+    """State where one instrument's reduced dataset landed and what the stage left it holding."""
+    print(f"{result.instrument_id}: {result.paths.notes_json}  [{result.elapsed_s:.1f}s]")
+    print(f"  {result.survivors} samples, {result.notes} notes -> {result.paths.samples_dir}")
+    _print_screen(result.screen)
+    print(f"  {result.auditions} auditions -> {result.paths.auditions_dir}")
+    print(f"  reduction -> {result.paths.reduction_json}")
+
+
+def _print_plans(result: DumpResult) -> None:
+    """State how each strategy fared for one instrument, and where all of them landed."""
+    print(f"{result.instrument_id}: {result.directory}")
+    for plan in result.plans:
+        timing = f"[{plan.elapsed_s:.1f}s]"
+        if not plan.feasible:
+            print(f"  {plan.name:>9}: infeasible ({plan.reason})  {timing}")
+            continue
+
+        rendered = "rendered" if plan.rendered else "no render"
+        print(f"  {plan.name:>9}: objective {plan.objective:.4f}, {plan.used_bytes} B used, {rendered}  {timing}")
+
+
+def _plan_total(results: Sequence[DumpResult]) -> float:
+    """The wall-clock every strategy of every instrument took together, which closes an allocating run."""
+    return sum(plan.elapsed_s for result in results for plan in result.plans)
+
+
+def _run_reduce(config: OptiConfig, args: argparse.Namespace) -> None:
+    manifest = load_notes(args.notes_json, _samples_dir(args), _ingest_settings(args))
+    for result in reduce_project(manifest, args.out, _optimize_settings(config, args, config.layers, config.optimize)):
+        _print_reduced(result)
+
+
+def _run_subset(args: argparse.Namespace) -> None:
+    _print_subset(
+        write_subset(
+            args.notes_json,
+            _samples_dir(args),
+            args.out,
+            instrument_id=args.instrument_id or _instrument_base(args.notes_json),
+            fraction=args.fraction,
+        )
+    )
+
+
 def _run_optimize(config: OptiConfig, args: argparse.Namespace) -> None:
     manifest = load_notes(args.notes_json, _samples_dir(args), _ingest_settings(args))
     results = dump_project(manifest, args.out, _dump_settings(config, args))
-    total_s = 0.0
     for result in results:
-        print(f"{result.instrument_id}: {result.directory}")
-        for plan in result.plans:
-            total_s += plan.elapsed_s
-            timing = f"[{plan.elapsed_s:.1f}s]"
-            if not plan.feasible:
-                print(f"  {plan.name:>9}: infeasible ({plan.reason})  {timing}")
-                continue
+        _print_plans(result)
 
-            rendered = "rendered" if plan.rendered else "no render"
-            print(f"  {plan.name:>9}: objective {plan.objective:.4f}, {plan.used_bytes} B used, {rendered}  {timing}")
+    print(f"total: {_plan_total(results):.1f}s")
 
-    print(f"total: {total_s:.1f}s")
+
+def _run_pipeline(config: OptiConfig, args: argparse.Namespace) -> None:
+    source = SourceDataset(notes_json=args.notes_json, samples_dir=_samples_dir(args))
+    run = run_pipeline(source, args.out, _pipeline_settings(config, args))
+    if run.subset is not None:
+        _print_subset(run.subset)
+
+    _print_reduced(run.reduced)
+    _print_plans(run.optimized)
+    print(f"total: {run.elapsed_s:.1f}s")
 
 
 def _run_profiled(
@@ -555,3 +642,5 @@ def main(argv: list[str] | None = None) -> None:
             _dispatch(lambda: _run_reduce(config, args), args)
         case "optimize":
             _dispatch(lambda: _run_optimize(config, args), args)
+        case "pipeline":
+            _dispatch(lambda: _run_pipeline(config, args), args)

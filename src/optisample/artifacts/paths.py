@@ -10,6 +10,33 @@ _AUDITIONS_DIR: Final = "auditions"
 _REDUCTION_DIR: Final = "reduction"
 _REDUCTION_JSON: Final = "reduction.json"
 _MODULE_STEM: Final = "module"
+_SUBSET_STAGE: Final = "0_subset"
+_REDUCED_STAGE: Final = "1_reduced"
+_OPTIMIZED_STAGE: Final = "2_optimized"
+
+
+@dataclass(frozen=True)
+class PipelinePaths:
+    """Where each stage of a chained run lands under one output root.
+
+    The names are numbered in the order the stages run, so the tree reads as the route a dataset took:
+    the slice taken of the source, what the pre-optimization stage reduced it to, and the artifacts
+    allocated from that. Each directory is the output root of the stage that writes it, so the same
+    stage reached on its own through ``subset``, ``reduce`` or ``optimize`` fills it identically.
+    """
+
+    subset_dir: Path
+    reduced_dir: Path
+    optimized_dir: Path
+
+
+def pipeline_paths(out_dir: Path) -> PipelinePaths:
+    """The stage directories a chained run writes under ``out_dir``."""
+    return PipelinePaths(
+        subset_dir=out_dir / _SUBSET_STAGE,
+        reduced_dir=out_dir / _REDUCED_STAGE,
+        optimized_dir=out_dir / _OPTIMIZED_STAGE,
+    )
 
 
 @dataclass(frozen=True)

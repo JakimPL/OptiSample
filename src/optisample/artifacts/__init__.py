@@ -1,6 +1,19 @@
 from optisample.artifacts.context import DumpResult, DumpSettings, PlanArtifacts
 from optisample.artifacts.dump import dump_instrument, dump_project
-from optisample.artifacts.paths import PlanPaths, ReducedPaths, plan_paths, reduced_paths
+from optisample.artifacts.paths import (
+    PipelinePaths,
+    PlanPaths,
+    ReducedPaths,
+    pipeline_paths,
+    plan_paths,
+    reduced_paths,
+)
+from optisample.artifacts.pipeline import (
+    PipelineRun,
+    PipelineSettings,
+    SourceDataset,
+    run_pipeline,
+)
 from optisample.artifacts.reduced import (
     ReducedInstrument,
     dump_reduced,
@@ -10,14 +23,20 @@ from optisample.artifacts.reduced import (
 __all__ = [
     "DumpResult",
     "DumpSettings",
+    "PipelinePaths",
+    "PipelineRun",
+    "PipelineSettings",
     "PlanArtifacts",
     "PlanPaths",
     "ReducedInstrument",
     "ReducedPaths",
+    "SourceDataset",
     "dump_instrument",
     "dump_project",
     "dump_reduced",
+    "pipeline_paths",
     "plan_paths",
     "reduce_project",
     "reduced_paths",
+    "run_pipeline",
 ]
