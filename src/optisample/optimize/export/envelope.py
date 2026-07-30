@@ -5,21 +5,21 @@ from typing import Final
 
 from optisample.dsp.decay import LinearDecay
 from optisample.dsp.levels import gain_to_db
+from trackmod.core.envelopes.curve import Breakpoint, timed_envelope
 from trackmod.core.envelopes.envelope import Envelope
-from trackmod.core.envelopes.point import EnvelopePoint
 from trackmod.core.envelopes.span import EnvelopeSpan
+from trackmod.limits.bound import Bound
 from trackmod.spec.levels import MAX_VOLUME, MIN_VOLUME
 
 NO_ENVELOPE: Final = None  # what an instrument whose samples carry every level they play at leaves behind
 
-_ONSET_TICK: Final = 0
-_TICK_APART: Final = 1  # ticks between neighbouring breakpoints, which is what states their order
+_ONSET_S: Final = 0.0
 _NO_DISPERSION: Final = 0.0  # what one shape costs the samples sharing it while none of them states a decline
 
 
 def _node_value(gain: float) -> int:
     """The step a volume envelope holds ``gain`` at, on the 0-64 grid both formats write their nodes on."""
-    return min(MAX_VOLUME, max(MIN_VOLUME, round(MAX_VOLUME * gain)))
+    return round(MAX_VOLUME * gain)
 
 
 def _decline_db_per_s(decay: LinearDecay) -> float:
@@ -60,23 +60,15 @@ def decay_dispersion(decays: Sequence[LinearDecay | None], shared: LinearDecay) 
     )
 
 
-def _ascending(ticks: Sequence[int], last_tick: int) -> tuple[int, ...]:
-    """``ticks`` made strictly increasing, each inside the last tick the format numbers.
-
-    Every breakpoint keeps room for the ones after it, so a curve running past what the format counts is
-    pulled back to the ticks that remain rather than losing the nodes that state where it ends.
-    """
-    placed: list[int] = []
-    for index, tick in enumerate(ticks):
-        lowest = _ONSET_TICK if not placed else placed[-1] + _TICK_APART
-        highest = max(lowest, last_tick - (len(ticks) - 1 - index))
-        placed.append(min(max(tick, lowest), highest))
-
-    return tuple(placed)
-
-
-def volume_envelope(decay: LinearDecay, *, tick_s: float, release_s: float, last_tick: int) -> Envelope:
-    """The curve an instrument plays its voices down by, written on the tick grid ``tick_s`` states.
+def volume_envelope(
+    decay: LinearDecay,
+    *,
+    tempo: int,
+    release_s: float,
+    tick_bound: Bound,
+    value_bound: Bound,
+) -> Envelope:
+    """The curve an instrument plays its voices down by, written for a module running at ``tempo``.
 
     Four breakpoints say the whole of a :class:`~optisample.dsp.decay.LinearDecay`: full volume at the
     onset, still full where the stored material stops following the recording, the level the note has
@@ -84,20 +76,26 @@ def volume_envelope(decay: LinearDecay, *, tick_s: float, release_s: float, last
     held note stays at the level the recording reached and a released one goes on to the fourth and dies.
     Both formats sustain on a single point, so the span names one.
 
-    Ticks are what a format counts envelope time in, so the curve holds only for the tempo ``tick_s`` was
-    read at -- which is why that tempo travels with a bank
+    The release is spelled as a breakpoint rather than as an instrument fadeout because the two formats
+    begin a fade in different places -- FastTracker 2 at the key off, Impulse Tracker where the volume
+    envelope ends -- while a curve reaching zero says the same thing to both
+    (:mod:`trackmod.core.instruments.fade`).
+
+    Ticks are what a format counts envelope time in, so the curve holds only for the tempo it was written
+    for -- which is why that tempo travels with a bank
     (:class:`~optisample.artifacts.bank.BankDocument`).
     """
-    ticks = _ascending(
-        (
-            _ONSET_TICK,
-            round(decay.start_s / tick_s),
-            round(decay.end_s / tick_s),
-            round((decay.end_s + release_s) / tick_s),
-        ),
-        last_tick,
+    breakpoints = (
+        Breakpoint(seconds=_ONSET_S, value=MAX_VOLUME),
+        Breakpoint(seconds=decay.start_s, value=MAX_VOLUME),
+        Breakpoint(seconds=decay.end_s, value=_node_value(decay.final_gain)),
+        Breakpoint(seconds=decay.end_s + release_s, value=MIN_VOLUME),
     )
-    values = (MAX_VOLUME, MAX_VOLUME, _node_value(decay.final_gain), MIN_VOLUME)
-    points = tuple(EnvelopePoint(tick=tick, value=value) for tick, value in zip(ticks, values))
-    held = len(points) - 2
-    return Envelope(points=points, sustain=EnvelopeSpan(begin=held, end=held))
+    held = len(breakpoints) - 2
+    return timed_envelope(
+        breakpoints,
+        tempo=tempo,
+        tick_bound=tick_bound,
+        value_bound=value_bound,
+        sustain=EnvelopeSpan(begin=held, end=held),
+    )

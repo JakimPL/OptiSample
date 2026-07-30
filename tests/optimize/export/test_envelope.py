@@ -7,7 +7,6 @@ import pytest
 
 from optisample.dsp.decay import LinearDecay
 from optisample.dsp.levels import gain_to_db
-from optisample.dsp.timebase import tick_seconds
 from optisample.io.tracker.target import ExportTarget
 from optisample.optimize.export.envelope import (
     NO_ENVELOPE,
@@ -18,13 +17,16 @@ from optisample.optimize.export.envelope import (
 from optisample.optimize.layers.slots import plan_slots
 from optisample.optimize.plans import InstrumentPlan
 from trackmod.core.envelopes.envelope import Envelope
+from trackmod.core.timing.clock import tick_seconds
+from trackmod.limits.bound import Bound
 from trackmod.module.protocol import TrackerModule
 from trackmod.spec.levels import MAX_VOLUME, MIN_VOLUME
 
 _TEMPO = 125
 _TICK_S = tick_seconds(_TEMPO)
 _RELEASE_S = 0.25
-_LAST_TICK = 65_535
+_TICKS = Bound(minimum=0, maximum=65_535)
+_VOLUME = Bound(minimum=MIN_VOLUME, maximum=MAX_VOLUME)
 _IT_NODES = 25
 _XM_NODES = 12
 
@@ -33,8 +35,8 @@ _MEDIUM = LinearDecay(start_s=0.5, end_s=3.0, final_gain=0.25)
 _STEEP = LinearDecay(start_s=0.5, end_s=3.0, final_gain=0.05)
 
 
-def _envelope(decay: LinearDecay, *, last_tick: int = _LAST_TICK) -> Envelope:
-    return volume_envelope(decay, tick_s=_TICK_S, release_s=_RELEASE_S, last_tick=last_tick)
+def _envelope(decay: LinearDecay, *, ticks: Bound = _TICKS) -> Envelope:
+    return volume_envelope(decay, tempo=_TEMPO, release_s=_RELEASE_S, tick_bound=ticks, value_bound=_VOLUME)
 
 
 def test_the_curve_holds_full_volume_until_the_stored_material_stops_following_the_recording() -> None:
@@ -84,7 +86,7 @@ def test_the_breakpoints_ascend_even_where_the_ramp_is_shorter_than_a_tick() -> 
 
 def test_a_curve_running_past_the_last_tick_keeps_every_breakpoint() -> None:
     """Losing a node would lose where the decline ends, so the curve is pulled back into the ticks left."""
-    envelope = _envelope(_MEDIUM, last_tick=3)
+    envelope = _envelope(_MEDIUM, ticks=Bound(minimum=0, maximum=3))
     ticks = [point.tick for point in envelope.points]
     assert ticks == sorted(set(ticks))
     assert max(ticks) <= 3

@@ -5,9 +5,9 @@ from collections.abc import Callable
 from optisample.calibrate import NoteProbe, single_note_module
 from optisample.config.render import PlaybackConfig
 from optisample.dsp.surrogate import StoredSample
-from optisample.dsp.timebase import row_seconds
 from optisample.io.tracker.target import ExportTarget
 from trackmod.core.notes.pitch import Note
+from trackmod.core.timing.clock import row_seconds
 from trackmod.spec.pitch import RATE_NOTE
 
 _PROBE_PITCH = 60

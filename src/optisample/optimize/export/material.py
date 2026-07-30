@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import Final
 
 from optisample.config.render import PlaybackConfig
-from optisample.dsp.timebase import row_seconds
 from optisample.io.tracker.target import ExportTarget
 from optisample.model import NoteEvent
 from optisample.optimize.layers.slots import SlotLayout
@@ -14,6 +13,7 @@ from trackmod.core.patterns.builder import PatternBuilder
 from trackmod.core.patterns.cell import Cell
 from trackmod.core.patterns.grid import Pattern
 from trackmod.core.songs.order import OrderList
+from trackmod.core.timing.clock import row_seconds
 
 CHANNELS: Final = 1  # the material plays one voice at a time, so one channel carries the whole song.
 

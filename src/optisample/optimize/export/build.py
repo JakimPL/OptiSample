@@ -2,7 +2,6 @@ from collections.abc import Sequence
 from typing import Final
 
 from optisample.dsp.surrogate import StoredSample
-from optisample.dsp.timebase import tick_seconds
 from optisample.model import NoteEvent
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.envelope import NO_ENVELOPE, shared_decay, volume_envelope
@@ -72,9 +71,10 @@ def slot_envelope(
 
     return volume_envelope(
         shared,
-        tick_s=tick_seconds(context.playback.tempo),
+        tempo=context.playback.tempo,
         release_s=context.envelope.release_s,
-        last_tick=context.target.max_envelope_tick,
+        tick_bound=context.target.envelope_tick_bound,
+        value_bound=context.target.envelope_value_bound,
     )
 
 

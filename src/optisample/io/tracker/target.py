@@ -7,6 +7,7 @@ from trackmod.core.notes.command import NoteCommand
 from trackmod.core.notes.pitch import Note
 from trackmod.core.patterns.cell import Cell
 from trackmod.core.songs.song import Song
+from trackmod.limits.bound import Bound
 from trackmod.limits.capability import Capability
 from trackmod.limits.compliance import Compliance
 from trackmod.limits.table import Limits
@@ -114,9 +115,14 @@ class ExportTarget:
         return self.limits.bound(Capability.SAMPLES_PER_INSTRUMENT).maximum
 
     @property
-    def max_envelope_tick(self) -> int:
-        """The last tick an envelope breakpoint may sit on, which bounds how long a written curve runs."""
-        return self.limits.bound(Capability.ENVELOPE_TICK).maximum
+    def envelope_tick_bound(self) -> Bound:
+        """The ticks an envelope breakpoint may sit on, which bounds how long a written curve runs."""
+        return self.limits.bound(Capability.ENVELOPE_TICK)
+
+    @property
+    def envelope_value_bound(self) -> Bound:
+        """The grid an envelope node's value sits on, which a fitted level is written onto."""
+        return self.limits.bound(Capability.ENVELOPE_VALUE)
 
     @property
     def min_rows(self) -> int:

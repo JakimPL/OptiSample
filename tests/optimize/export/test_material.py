@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 
 from optisample.config.render import PlaybackConfig, RenderConfig
-from optisample.dsp.timebase import row_seconds
 from optisample.io.render import openmpt123_available, render_module
 from optisample.io.tracker.target import ExportTarget
 from optisample.model import NoteEvent
@@ -15,6 +14,7 @@ from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
 from trackmod.core.notes.command import NoteCommand
 from trackmod.core.notes.pitch import Note
 from trackmod.core.patterns.cell import Cell
+from trackmod.core.timing.clock import row_seconds
 from trackmod.module.protocol import TrackerModule
 
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")

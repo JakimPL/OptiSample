@@ -3,7 +3,6 @@ from typing import Final
 from optisample.calibrate.context import NoteProbe
 from optisample.config.render import PlaybackConfig
 from optisample.dsp.surrogate import StoredSample
-from optisample.dsp.timebase import row_seconds
 from optisample.io.tracker.target import ExportTarget
 from optisample.music import sounded_note
 from optisample.optimize.export.material import CHANNELS
@@ -15,6 +14,7 @@ from trackmod.core.samples.sample import Sample
 from trackmod.core.songs.order import OrderList
 from trackmod.core.songs.playback import Playback
 from trackmod.core.songs.song import Song
+from trackmod.core.timing.clock import row_seconds
 from trackmod.module.protocol import TrackerModule
 
 DEFAULT_NAME: Final = "calib"

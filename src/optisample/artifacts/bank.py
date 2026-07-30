@@ -48,7 +48,7 @@ class BankDocument(Frozen):
 
     ``tempo`` is the clock the volume envelopes were fitted against. Both formats count envelope
     breakpoints in ticks and a tick lasts ``5 / (2 * tempo)`` seconds
-    (:func:`~optisample.dsp.timebase.tick_seconds`), so an instrument loaded into a module running at this
+    (:func:`~trackmod.core.timing.clock.tick_seconds`), so an instrument loaded into a module running at this
     tempo declines over the stretch of time its recording did.
     """
 
