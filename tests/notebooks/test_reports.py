@@ -235,11 +235,16 @@ def _loops() -> LoopsDocument:
 
 @pytest.fixture
 def looped_root(tmp_path: Path) -> Path:
-    """A loop run's output tree: its document alone, which is what the loop tables are read from."""
+    """A loop run's output tree: its document, and one recording's audition pair as real WAVs."""
     root = tmp_path / "looped"
     paths = looped_paths(root, _INSTRUMENT)
     paths.loops_json.parent.mkdir(parents=True)
     write_json(paths.loops_json, _loops())
+    folder = paths.auditions_dir / "p060_C4_v080"
+    folder.mkdir(parents=True)
+    for stem in ("looped", "recording"):
+        write_wav(folder / f"{stem}.wav", np.zeros(SR, dtype=np.float64), SR)
+
     return root
 
 
@@ -346,6 +351,18 @@ def test_each_candidate_the_ladder_climbed_past_names_the_gate_it_fell_outside(l
 
     assert [row["gate"] for row in rows] == ["timbre", "seam", "timbre"]
     assert rows[0]["key"] == "p060_C4_v080"
+
+
+def test_a_loop_audition_opens_with_the_recording_its_loop_is_judged_against(looped_root: Path) -> None:
+    assert reports.loop_audition_keys(looped_root, _INSTRUMENT) == ["p060_C4_v080"]
+    clips = reports.loop_auditions(looped_root, _INSTRUMENT, "p060_C4_v080")
+
+    assert [clip.label for clip in clips] == ["recording", "looped"]
+    assert all(clip.path.is_file() for clip in clips)
+
+
+def test_a_root_no_loop_run_touched_offers_no_auditions(tmp_path: Path) -> None:
+    assert reports.loop_audition_keys(tmp_path, _INSTRUMENT) == []
 
 
 def test_auditions_open_with_the_recording_the_rest_are_judged_against(reduced_root: Path) -> None:

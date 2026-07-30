@@ -102,10 +102,8 @@ every report and artifact tree states what it left behind:
 - **The bandwidth pre-pass** measures the band each recording occupies and the interval it is played
   at, and settles the format the sample is stored at: the lowest rung of `sweep.rates` reaching that band,
   at the configured depth. The stored format follows from the recording alone, so the allocation spends its
-  bytes on zone width, sample count, stored length and which loop, and every sample it does keep carries
-  the band its recording asked for. It also lays out the loops each recording offers — `placements` starts through the sustain, each at the
-  lengths `length_multiples` asks for and each clearing the `min_loop_s` floor — and measures the seam and
-  the timbre distance of every one, which `reduction.json` reports so a stored loop can be argued with.
+  bytes on zone width, sample count and whether a sample stores its loop or the span it plays, and every
+  sample it does keep carries the band its recording asked for.
 - **Pitch-zone grouping** bounds its own search with `max_zone_semitones` and reuses a scored
   `(representative, encoding, key)` reconstruction across every zone containing it.
 
@@ -150,9 +148,9 @@ A dataset reproduces its survivors exactly under the key it was reduced with; re
 coarser key projects several identities onto one survivor, which then reports the identity of the first
 note that reaches it.
 
-### Running the three in a row
+### Running the stages in a row
 
-`optisample pipeline` is the chain the three commands above make, under one output root:
+`optisample pipeline` is the chain `subset`, `loop`, `reduce` and `optimize` make, under one output root:
 
 ```bash
 optisample pipeline path/to/Piano.notes.json \
@@ -164,17 +162,18 @@ optisample pipeline path/to/Piano.notes.json \
 ```
 artifacts/
   0_subset/      # the slice taken of the source, as a dataset of the same shape
-  1_reduced/     # what the pre-optimization stage reduced that to, plus its reduction.json and auditions
-  2_optimized/   # the artifacts allocated from it, one directory per instrument and strategy
+  1_looped/      # the loop each recording is stored around, plus its loops.json and auditions
+  2_reduced/     # what the pre-optimization stage reduced that to, plus its reduction.json and auditions
+  3_optimized/   # the artifacts allocated from it, one directory per instrument and strategy
 ```
 
 Each stage reads back the dataset the one before it wrote, so the allocation reaches the sweep having
-paid the ingest over the surviving recordings alone. Leaving `--fraction` out reduces the source itself
-and the run begins at `1_reduced`, which is how a dataset already sliced — or small enough to run whole —
-goes through the same command. Every stage directory is what that stage writes when it is reached on its
-own, so a chained run and the three commands typed out reach the same artifacts.
+paid the ingest over the surviving recordings alone. Leaving `--fraction` out settles loops over the source
+itself and the run begins at `1_looped`, which is how a dataset already sliced — or small enough to run
+whole — goes through the same command. Every stage directory is what that stage writes when it is reached
+on its own, so a chained run and the four commands typed out reach the same artifacts.
 
-It takes every ingest, reduction and allocation flag those commands take. `--max-layers` and
+It takes every ingest, looping, reduction and allocation flag those commands take. `--max-layers` and
 `--max-samples` reach the allocating stage, while the reduction between them runs at the configured
 split and cap — which is what keeps its dataset the one any allocation off it reads back.
 
@@ -227,16 +226,65 @@ same way, and the objective picks. A 16-bit encoding is enumerated uncompressed,
 already sits below anything compression could protect. The `comp` column in `report.txt` and the `_c` in an
 audition filename say which way each sample went.
 
-## Looping: a held note that declines
+## Looping: a stage that settles what a sample repeats
 
 A looped sample is stored as the attack plus one loop region, and playback wraps that region for as long
-as the note is held. On its own that holds one level forever, which suits an organ and lies about a piano.
-So the encoder fits a **linear decay** beside the PCM (`src/optisample/dsp/decay.py`): the level the loop
-region holds, the levels the recording falls to past it read in short windows, and a least-squares line
-through them saying where the material ends up. `render` plays a held note down that ramp, so a struck
-note stored as attack plus loop declines the way its recording did — which is what lets a note held for a
-minute cost a second of PCM. Material that holds its level to the end states no decline and carries no
-ramp.
+as the note is held — which is what lets a note held for a minute cost a second of PCM.
+
+Where a note turns periodic, how long a loop holds its timbre, and whether the wrap is clean are properties
+of the recording rather than of the budget, so **a stage of its own settles them** (`src/opticonfig/loop/`),
+ahead of the reduction and at the rate the analysis runs at. Each recording is offered the loops its
+geometry allows — `placements` starts through the sustain, each at the lengths `length_multiples` asks for
+and each clearing the `min_loop_s` floor — ordered cheapest first, meaning earliest and shortest. The first
+one clearing both quality gates is the loop the sample is stored around:
+
+```yaml
+max_seam_step: 4.0              # wrap step, in units of the frame-to-frame motion the waveform makes there
+max_spectral_distance_db: 12.0  # log-spectral distance between the loop and the stretch it stands in for
+```
+
+The gates are the aggressiveness dial: tighten them and the search climbs past the cheap loops toward
+longer ones that hold up, and a recording with nothing clearing them is stored over the span its material
+plays instead. Every candidate climbed past is kept beside the one settled on, naming the gate it fell
+outside, so `loops.json` states why a sample stores what it stores. Settling once, at the analysis rate,
+is also what lets the seam be measured on the resolution a 440 Hz note actually has — 109 frames per cycle
+at 48 kHz against 18 at 8 kHz.
+
+The allocation then prices **two** encodings per key, the settled loop and the trimmed span, so a loop is
+bought where the objective prefers it while the loop search itself is paid once per recording.
+
+### Settling loops on their own
+
+`optisample loop` runs that stage and stops, writing the dataset the reduction picks up from:
+
+```bash
+optisample loop path/to/Piano.notes.json --budget-kb 96 --out looped
+optisample reduce looped/Piano.notes.json --budget-kb 96      # picks up from there
+```
+
+```
+looped/
+  Piano.notes.json                 # one entry per played note, pointing at the recording serving it
+  Piano/0000_p060_C4_v100.wav      # one WAV per recording, exactly as the stage analysed it
+  loops/Piano/
+    loops.json                     # the loop each recording keeps, and the candidates climbed past
+    auditions/p060_C4/             # recording.wav beside the loop played out against it
+```
+
+The WAVs are the ingest's own output — onset-aligned, at the run's one rate — so the frames a loop names
+index straight into them, and every stage after this one only shortens them. The auditions are what makes
+the stage judgeable by ear on its own: each one wraps the loop several times and puts the fitted decline
+over it, which turns a seam step or a level pulse into a rhythm a listener hears.
+
+### A held note that declines
+
+Wrapping a region holds one level forever, which suits an organ and lies about a piano. So the stage fits a
+**linear decay** beside the loop it settles (`src/optisample/dsp/decay.py`): the level the loop region
+holds, the levels the recording falls to past it read in short windows, and a least-squares line through
+them saying where the material ends up. It is fitted over the whole recording rather than the stretch the
+candidates were searched over, so every level the material states reaches the ramp. `render` plays a held
+note down it, so a struck note stored as attack plus loop declines the way its recording did. Material that
+holds its level to the end states no decline and carries no ramp.
 
 The ramp begins exactly where the stored material ends, so every stored frame sounds as it was stored;
 only what the loop repeats is brought down. Its seconds run on the played timeline, which is the clock a
@@ -491,8 +539,8 @@ Scoring pitch zones............... 100%     12/12     [00:07<00:00]
 ```
 
 `--seed` fixes the dither so a run reproduces byte for byte; every other flag above is shared with
-`optisample reduce` (see below), and `optisample pipeline` takes all of them at once to run the slice,
-the reduction and the allocation in a row under one output root.
+`optisample loop` and `optisample reduce` (see above), and `optisample pipeline` takes all of them at once
+to run the slice, the looping, the reduction and the allocation in a row under one output root.
 
 Bars are drawn when stderr is a terminal, so redirected output stays clean; `--no-progress` silences them
 at a terminal too. Results keep to stdout either way.

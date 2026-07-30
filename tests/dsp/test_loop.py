@@ -4,15 +4,17 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from optisample.config.loop import LoopConfig
+from optisample.config.loop import GeometryConfig, SeamConfig
 from optisample.dsp.loop import (
     _QUALITY_FFT,
     Loop,
     _autocorrelation,
     _estimate_period,
     crossfade_loop,
+    loop_at_rate,
     loop_candidates,
     loop_quality,
+    seam_frames,
     shortest_loop_frames,
 )
 
@@ -233,3 +235,51 @@ def test_a_silent_loop_region_reports_no_seam(geometry_config: GeometryConfig) -
 
 def test_a_loop_of_one_frame_has_no_step_to_measure_the_seam_against(geometry_config: GeometryConfig) -> None:
     assert loop_quality(_sine(SR), Loop(start=100, end=101), SR, geometry_config, fade_len=_FADE).seam_step == 0.0
+
+
+# --- a loop on a copy stored at another rate -------------------------------------------------------
+
+
+def test_scaling_a_loop_onto_a_cheaper_copy_covers_the_same_stretch_of_material() -> None:
+    """The stage settles a loop once, so a copy stored lower reaches the same region by the rate ratio."""
+    loop = Loop(start=4_000, end=12_000)
+
+    scaled = loop_at_rate(loop, SR, SR // 4, frames=SR)
+
+    assert scaled == Loop(start=1_000, end=3_000)
+
+
+def test_a_scaled_loop_ends_inside_the_frames_the_copy_holds() -> None:
+    """The end names a frame a player can wrap from, so it is held inside what the copy actually stores."""
+    loop = Loop(start=100, end=SR)
+
+    scaled = loop_at_rate(loop, SR, SR, frames=1_000)
+
+    assert scaled is not None
+    assert scaled.end == 1_000
+
+
+def test_a_rate_too_low_for_the_settled_bounds_to_survive_answers_with_no_loop() -> None:
+    """A loop of a few frames scales to fewer than two, which names no wrap, so the trim carries the sample."""
+    assert loop_at_rate(Loop(start=0, end=4), SR, SR // 1_000, frames=SR) is None
+
+
+def test_the_seam_length_reaches_every_rate_a_sample_is_kept_at(seam_config: SeamConfig) -> None:
+    """One setting in seconds is what a blend is stated as, so a lower rate blends over fewer frames."""
+    assert seam_frames(seam_config, SR) == round(seam_config.crossfade_s * SR)
+    assert seam_frames(seam_config, SR // 2) < seam_frames(seam_config, SR)
+
+
+def test_the_wrap_of_a_declining_region_is_read_against_the_motion_it_lands_in(
+    geometry_config: GeometryConfig,
+) -> None:
+    """An average over the whole region would price the wrap in motion it never sits next to."""
+    ramp = np.exp(-np.arange(4 * SR, dtype=np.float64) / (0.6 * SR))
+    declining = ramp * _sine(4 * SR)
+    steady = _sine(4 * SR)
+    loop = Loop(start=10 * PERIOD, end=10 * PERIOD + shortest_loop_frames(PERIOD, SR, geometry_config))
+
+    fell = loop_quality(declining, loop, SR, geometry_config, fade_len=_FADE).seam_step
+    held = loop_quality(steady, loop, SR, geometry_config, fade_len=_FADE).seam_step
+
+    assert fell == pytest.approx(held, abs=1.0)  # the decline moves the reading by less than one step

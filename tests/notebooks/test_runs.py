@@ -52,6 +52,7 @@ def _flag(command: list[str], name: str) -> list[str]:
 def test_each_stage_invokes_its_own_subcommand(fields: runs.Fields) -> None:
     for command, subcommand in (
         (runs.subset_command(fields), "subset"),
+        (runs.loop_command(fields, fields.source), "loop"),
         (runs.reduce_command(fields, fields.source), "reduce"),
         (runs.optimize_command(fields, fields.source), "optimize"),
     ):
@@ -93,6 +94,7 @@ def test_looping_and_rendering_are_asked_off_by_their_own_flags(fields: runs.Fie
 
 def test_each_stage_writes_under_its_own_root(fields: runs.Fields) -> None:
     assert _flag(runs.subset_command(fields), "--out") == [str(fields.out_root / "subset")]
+    assert _flag(runs.loop_command(fields, fields.source), "--out") == [str(fields.out_root / "looped")]
     assert _flag(runs.reduce_command(fields, fields.source), "--out") == [str(fields.out_root / "reduced")]
     assert _flag(runs.optimize_command(fields, fields.source), "--out") == [str(fields.out_root / "artifacts")]
 
@@ -100,16 +102,25 @@ def test_each_stage_writes_under_its_own_root(fields: runs.Fields) -> None:
 # --- which dataset each stage reads --------------------------------------------------------------------
 
 
-def test_reduction_reads_the_source_until_a_subset_exists(fields: runs.Fields) -> None:
-    assert runs.reduction_source(fields) == fields.source
+def test_looping_reads_the_source_until_a_subset_exists(fields: runs.Fields) -> None:
+    assert runs.looping_source(fields) == fields.source
     _make(fields.subset)
-    assert runs.reduction_source(fields) == fields.subset
+    assert runs.looping_source(fields) == fields.subset
 
 
 def test_a_whole_fraction_leaves_the_source_worth_reading_directly(fields: runs.Fields) -> None:
     whole = replace(fields, fraction=1.0)
     _make(whole.subset)
-    assert runs.reduction_source(whole) == whole.source
+    assert runs.looping_source(whole) == whole.source
+
+
+def test_reduction_prefers_the_looped_dataset_once_it_is_there(fields: runs.Fields) -> None:
+    """The frames a settled loop names index into the looped recordings, so reducing those carries it on."""
+    assert runs.reduction_source(fields) == fields.source
+    _make(fields.subset)
+    assert runs.reduction_source(fields) == fields.subset
+    _make(fields.looped)
+    assert runs.reduction_source(fields) == fields.looped
 
 
 def test_allocation_prefers_the_reduced_dataset_once_it_is_there(fields: runs.Fields) -> None:

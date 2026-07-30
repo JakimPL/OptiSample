@@ -100,14 +100,13 @@ def _write_auditions(looped: LoopedInstrument, out_dir: Path, seam: int, progres
     folder and the ones present are exactly the loops a listener has to judge.
     """
     loaded = looped.loaded
-    keys = sorted(key for key, settlement in looped.settlements.items() if settlement.loops)
+    judged = [
+        (key, settlement.stored)
+        for key, settlement in sorted(looped.settlements.items())
+        if settlement.stored is not None
+    ]
     written = 0
-    for key in progress.track(keys, label=_AUDITION_LABEL, total=len(keys)):
-        settlement = looped.settlements[key]
-        stored = settlement.stored
-        if stored is None:
-            continue
-
+    for key, stored in progress.track(judged, label=_AUDITION_LABEL, total=len(judged)):
         folder = out_dir / key.label
         folder.mkdir(parents=True, exist_ok=True)
         signal = loaded.audio[key]

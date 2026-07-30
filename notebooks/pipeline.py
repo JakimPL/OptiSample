@@ -59,6 +59,7 @@ def _(mo):
         | stage | writes |
         |---|---|
         | `subset` | the share of a dataset that still spans its pitch and velocity ranges |
+        | `loop` | the loop each recording is stored around, and every settled loop played out as audio |
         | `reduce` | the survivors, the format each key stores at, and every swept encoding as audio |
         | `optimize` | the byte-budgeted plan, the module, and per-note A/B against the recording |
         """)
@@ -72,7 +73,9 @@ def _(Path, mo, root, runs):
 
     source_notes = mo.ui.text(value=str(_default.notes_json), label="source .notes.json", full_width=True)
     source_samples = mo.ui.text(value=str(_default.samples_dir), label="source samples dir", full_width=True)
-    out_root = mo.ui.text(value=str(root), label="run root — subset/ reduced/ artifacts/ land here", full_width=True)
+    out_root = mo.ui.text(
+        value=str(root), label="run root — subset/ looped/ reduced/ artifacts/ land here", full_width=True
+    )
     instrument = mo.ui.text(value="Piano", label="instrument id")
     mo.vstack([mo.md("## Dataset"), source_notes, source_samples, out_root, instrument])
     return instrument, out_root, source_notes, source_samples
@@ -177,13 +180,14 @@ def _(
         seed=int(seed.value),
         render=bool(render.value),
     )
+    loop_input = runs.looping_source(fields)
     reduce_input = runs.reduction_source(fields)
     optimize_input = runs.allocation_source(fields)
-    return fields, optimize_input, reduce_input
+    return fields, loop_input, optimize_input, reduce_input
 
 
 @app.cell
-def _(fields, mo, optimize_input, reduce_input, runs):
+def _(fields, loop_input, mo, optimize_input, reduce_input, runs):
     def shell_line(command):
         return " ".join(["optisample", *command[3:]])
 
@@ -193,13 +197,16 @@ def _(fields, mo, optimize_input, reduce_input, runs):
         ```bash
         {shell_line(runs.subset_command(fields))}
 
+        {shell_line(runs.loop_command(fields, loop_input))}
+
         {shell_line(runs.reduce_command(fields, reduce_input))}
 
         {shell_line(runs.optimize_command(fields, optimize_input))}
         ```
 
-        `reduce` reads `{reduce_input.notes_json}` · `optimize` reads `{optimize_input.notes_json}` —
-        the reduced dataset once one exists, so the allocation reaches the sweep having paid only the ingest.
+        `loop` reads `{loop_input.notes_json}` · `reduce` reads `{reduce_input.notes_json}` ·
+        `optimize` reads `{optimize_input.notes_json}` — each stage prefers the dataset the one before it
+        left, so a settled loop reaches the allocation over the recordings its frames index into.
         """)
     return (shell_line,)
 
@@ -224,15 +231,16 @@ def _(mo):
 @app.cell
 def _(mo):
     subset_button = mo.ui.run_button(label="Run subset")
+    loop_button = mo.ui.run_button(label="Run loop")
     reduce_button = mo.ui.run_button(label="Run reduce")
     optimize_button = mo.ui.run_button(label="Run optimize")
     mo.vstack(
         [
             mo.md("### Run — a button blocks its own cell until the stage finishes"),
-            mo.hstack([subset_button, reduce_button, optimize_button], justify="start", gap=1),
+            mo.hstack([subset_button, loop_button, reduce_button, optimize_button], justify="start", gap=1),
         ]
     )
-    return optimize_button, reduce_button, subset_button
+    return loop_button, optimize_button, reduce_button, subset_button
 
 
 @app.cell
@@ -244,6 +252,17 @@ def _(fields, mo, runs, stage_view, subset_button):
 
     stage_view(subset_outcome, "subset")
     return (subset_outcome,)
+
+
+@app.cell
+def _(fields, loop_button, loop_input, mo, runs, stage_view):
+    loop_outcome = None
+    if loop_button.value:
+        with mo.status.spinner(title="settling loops: measuring seams, climbing the ladder, auditioning..."):
+            loop_outcome = runs.run_stage("loop", runs.loop_command(fields, loop_input), fields)
+
+    stage_view(loop_outcome, "loop")
+    return (loop_outcome,)
 
 
 @app.cell
@@ -278,8 +297,80 @@ def _(mo):
 
 
 @app.cell
+def _(audioio, io, mo, preview_normalize, read_wav):
+    def clip_player(clip):
+        signal, rate = read_wav(clip.path)
+        return mo.vstack(
+            [
+                mo.md(f"**{clip.label}**"),
+                mo.audio(io.BytesIO(audioio.to_wav_bytes(signal, rate, normalize=preview_normalize.value))),
+            ]
+        )
+
+    return (clip_player,)
+
+
+@app.cell
 def _(mo):
-    mo.md("""## Reduction — what the pre-optimization stage decided""")
+    mo.md("""## Looping — the loop each recording is stored around""")
+    return
+
+
+@app.cell
+def _(fields, loop_outcome, mo, reports):
+    loop_outcome
+    looped_root = fields.looped_root
+    loops_doc = None
+    if reports.has_loops(looped_root, fields.instrument_id):
+        loops_doc = reports.read_loop_document(looped_root, fields.instrument_id)
+
+    mo.stop(loops_doc is None, mo.md(f"*No `loops.json` under `{looped_root}` yet — run **loop**.*"))
+    _settled = reports.loop_rows(loops_doc)
+    mo.vstack(
+        [
+            mo.md(
+                f"**{loops_doc.instrument_id}** settled at **{loops_doc.sample_rate} Hz** — "
+                f"{len(_settled)} of {len(loops_doc.recordings)} recordings stored around a loop."
+            ),
+            mo.md("**Settled loops** — what each one repeats, and what measuring it said:"),
+            mo.ui.table(_settled, selection=None, page_size=10),
+            mo.md("**Stored over the span they play** — the recordings no loop was settled for, and what was tried:"),
+            mo.ui.table(reports.unlooped_rows(loops_doc), selection=None, page_size=10),
+            mo.md("**Climbed past** — every cheaper candidate, and the gate it fell outside:"),
+            mo.ui.table(reports.rejected_loop_rows(loops_doc), selection=None, page_size=10),
+        ]
+    )
+    return loops_doc, looped_root
+
+
+@app.cell
+def _(fields, looped_root, mo, reports):
+    _keys = reports.loop_audition_keys(looped_root, fields.instrument_id)
+    mo.stop(not _keys, mo.md("*No loop auditions were written.*"))
+    loop_audition_key = mo.ui.dropdown(options=_keys, value=_keys[0], label="audition recording")
+    mo.vstack(
+        [mo.md("### Auditions — each loop played out against the recording it was taken from"), loop_audition_key]
+    )
+    return (loop_audition_key,)
+
+
+@app.cell
+def _(clip_player, fields, loop_audition_key, looped_root, mo, reports):
+    mo.hstack(
+        [
+            clip_player(clip)
+            for clip in reports.loop_auditions(looped_root, fields.instrument_id, loop_audition_key.value)
+        ],
+        justify="start",
+        wrap=True,
+        gap=1,
+    )
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md("""---\n## Reduction — what the pre-optimization stage decided""")
     return
 
 
@@ -308,8 +399,6 @@ def _(fields, mo, reduce_outcome, reports):
             mo.ui.table(_recordings, selection=None, page_size=10),
             mo.md("**Stored format** — the band each pitch asked for, and the format it is stored at:"),
             mo.ui.table(reports.stored_format_rows(reduced_doc.reduction), selection=None, page_size=10),
-            mo.md("**Loop candidates** — where each pitch may loop, and what the seam and the timbre cost:"),
-            mo.ui.table(reports.loop_rows(reduced_doc.reduction), selection=None, page_size=10),
             mo.md("**Survivors** — the dataset an allocation picks up from:"),
             mo.ui.table(reports.survivor_rows(reduced_doc), selection=None, page_size=10),
         ]
@@ -329,33 +418,14 @@ def _(fields, mo, reduced_root, reports):
 
 
 @app.cell
-def _(
-    audioio,
-    audition_pitch,
-    fields,
-    io,
-    mo,
-    preview_normalize,
-    read_wav,
-    reduced_root,
-    reports,
-):
-    def clip_player(clip):
-        signal, rate = read_wav(clip.path)
-        return mo.vstack(
-            [
-                mo.md(f"**{clip.label}**"),
-                mo.audio(io.BytesIO(audioio.to_wav_bytes(signal, rate, normalize=preview_normalize.value))),
-            ]
-        )
-
+def _(audition_pitch, clip_player, fields, mo, reduced_root, reports):
     mo.hstack(
         [clip_player(clip) for clip in reports.auditions(reduced_root, fields.instrument_id, audition_pitch.value)],
         justify="start",
         wrap=True,
         gap=1,
     )
-    return (clip_player,)
+    return
 
 
 @app.cell

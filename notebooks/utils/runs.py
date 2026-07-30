@@ -13,6 +13,7 @@ from optisample.io.note_extractor import NOTES_SUFFIX
 
 _PACKAGE: Final = "optisample"
 _SUBSET_ROOT: Final = "subset"
+_LOOPED_ROOT: Final = "looped"
 _REDUCED_ROOT: Final = "reduced"
 _ARTIFACTS_ROOT: Final = "artifacts"
 _LOGS_ROOT: Final = "logs"
@@ -42,8 +43,8 @@ class Dataset:
 class Fields:
     """Every CLI field the notebook exposes as a control, in the shape the commands read them.
 
-    One bundle stands behind all three stages, so a control moved once reaches whichever of them runs
-    next and the reduced dataset an allocation picks up was narrowed under the same knobs.
+    One bundle stands behind every stage, so a control moved once reaches whichever of them runs next
+    and the reduced dataset an allocation picks up was narrowed under the same knobs.
     """
 
     source: Dataset
@@ -69,6 +70,11 @@ class Fields:
         return self.out_root / _SUBSET_ROOT
 
     @property
+    def looped_root(self) -> Path:
+        """The directory ``loop`` writes its dataset, its loop decisions and its auditions into."""
+        return self.out_root / _LOOPED_ROOT
+
+    @property
     def reduced_root(self) -> Path:
         """The directory ``reduce`` writes its dataset, its reduction report and its auditions into."""
         return self.out_root / _REDUCED_ROOT
@@ -77,6 +83,11 @@ class Fields:
     def subset(self) -> Dataset:
         """Where ``subset`` writes the share of the source spanning its pitch and velocity ranges."""
         return Dataset.rooted(self.subset_root, self.instrument_id)
+
+    @property
+    def looped(self) -> Dataset:
+        """Where ``loop`` writes the recordings it settled a loop over, as the reduction reads them back."""
+        return Dataset.rooted(self.looped_root, self.instrument_id)
 
     @property
     def reduced(self) -> Dataset:
@@ -109,7 +120,7 @@ def discover(root: Path) -> Dataset | None:
 
 
 def _ingest_flags(fields: Fields, dataset: Dataset) -> list[str]:
-    """The flags ``optimize`` and ``reduce`` share, as the notebook's controls stand."""
+    """The flags ``loop``, ``reduce`` and ``optimize`` share, as the notebook's controls stand."""
     flags = [
         str(dataset.notes_json),
         "--samples-dir",
@@ -158,6 +169,19 @@ def subset_command(fields: Fields) -> list[str]:
         f"{fields.fraction:g}",
         "--out",
         str(fields.subset_root),
+    ]
+
+
+def loop_command(fields: Fields, dataset: Dataset) -> list[str]:
+    """The ``optisample loop`` invocation settling the loop each recording of ``dataset`` is stored around."""
+    return [
+        sys.executable,
+        "-m",
+        _PACKAGE,
+        "loop",
+        *_ingest_flags(fields, dataset),
+        "--out",
+        str(fields.looped_root),
     ]
 
 
@@ -252,7 +276,19 @@ def allocation_source(fields: Fields) -> Dataset:
 
 
 def reduction_source(fields: Fields) -> Dataset:
-    """The dataset reduction reads: the subset once it exists, else the source as it was given."""
+    """The dataset reduction reads: the looped one once it exists, else what looping itself would read.
+
+    Reducing the looped dataset is what carries the loop each recording was settled around into the
+    allocation, since the frames a loop names index into exactly those files.
+    """
+    if fields.looped.ready:
+        return fields.looped
+
+    return looping_source(fields)
+
+
+def looping_source(fields: Fields) -> Dataset:
+    """The dataset the loop stage reads: the subset once it exists, else the source as it was given."""
     if fields.takes_whole_source or not fields.subset.ready:
         return fields.source
 

@@ -24,6 +24,7 @@ from optisample.optimize.plans import FIRST_LAYER
 
 _STRATEGIES: Final = ("ungrouped", "grouped")
 _REFERENCE_STEM: Final = "reference"
+_RECORDING_STEM: Final = "recording"
 _REFERENCE_TAIL: Final = "_ref.wav"
 _ON: Final = "on"
 _OFF: Final = "-"
@@ -380,13 +381,29 @@ class Clip:
     path: Path
 
 
-def audition_pitches(root: Path, instrument_id: str) -> list[str]:
-    """The pitch folders a reduce run filled with auditions, in keyboard order."""
-    auditions_dir = reduced_paths(root, instrument_id).auditions_dir
+def _audition_folders(auditions_dir: Path) -> list[str]:
+    """The folders an auditioning stage left under ``auditions_dir``, in keyboard order."""
     if not auditions_dir.is_dir():
         return []
 
     return sorted(folder.name for folder in auditions_dir.iterdir() if folder.is_dir())
+
+
+def audition_pitches(root: Path, instrument_id: str) -> list[str]:
+    """The pitch folders a reduce run filled with auditions, in keyboard order."""
+    return _audition_folders(reduced_paths(root, instrument_id).auditions_dir)
+
+
+def loop_audition_keys(root: Path, instrument_id: str) -> list[str]:
+    """The recordings a loop run auditioned its settled loop for, in keyboard order."""
+    return _audition_folders(looped_paths(root, instrument_id).auditions_dir)
+
+
+def loop_auditions(root: Path, instrument_id: str, key: str) -> list[Clip]:
+    """One recording, followed by the loop settled for it played out against it."""
+    folder = looped_paths(root, instrument_id).auditions_dir / key
+    files = sorted(folder.glob("*.wav"), key=lambda wav: wav.stem != _RECORDING_STEM)
+    return [Clip(label=wav.stem, path=wav) for wav in files]
 
 
 def auditions(root: Path, instrument_id: str, pitch: str) -> list[Clip]:

@@ -47,16 +47,17 @@ at the ladder's **lowest rung reaching** it. The budget is not consulted.
 
 What the allocation spends bytes on is therefore everything else:
 
-| The reduction settles | The allocation trades |
+| Settled before the budget | The allocation trades |
 |---|---|
-| stored rate, depth, compression | zone width, sample count |
-| how long a recording may run (§5) | which loop, or the trimmed span |
+| stored rate, depth, compression (the reduction) | zone width, sample count |
+| how long a recording may run, §5 (the reduction) | the settled loop, or the trimmed span |
+| which loop a recording repeats, §8a (the loop stage) | how many velocity bands a key stores |
 
 The consequence is worth stating plainly. **A budget too small for the formats its recordings ask for is
 infeasible, and the run says so** rather than quietly storing everything duller:
 
 ```
-ungrouped: infeasible (budget 97553 B too small; cheapest allocation needs 106554 B)
+ungrouped: infeasible (budget 97553 B too small; cheapest allocation needs 106540 B)
 ```
 
 Every allocation stage raises that
@@ -109,15 +110,15 @@ Measured against the shipped demo at 96 KiB, the floor is also what decides whet
 
 | `content_floor_db` | demo piano, ungrouped | demo piano, grouped |
 |---|---|---|
-| `45` | 1.4372 / 63 640 B | 1.1639 / 55 556 B |
-| `60` (shipped) | **0.0973 / 70 644 B** | **0.0973 / 70 644 B** |
-| `70` | 28.7238 / 94 752 B | 0.9605 / 83 182 B |
-| `80` | infeasible | 0.9602 / 92 862 B |
+| `45` | 1.4375 / 63 640 B | 1.1650 / 46 652 B |
+| `60` (shipped) | **0.0979 / 70 644 B** | **0.0985 / 70 644 B** |
+| `70` | 36.2265 / 91 066 B | 0.9603 / 83 182 B |
+| `80` | infeasible | 0.9603 / 92 862 B |
 
 Two readings worth carrying away. A floor too **low** stores less band than the budget could afford (45
 scores fifteen times worse than 60 while spending fewer bytes). A floor too **high** forces the allocation
 to buy its bytes back the only way it still can — by storing loops of notes too short to loop well, which
-is what the 28.7 reading is, and past that by not fitting at all.
+is what the 36.2 reading is, and past that by not fitting at all.
 
 **The ladder's floor is a real bound.** Below its cheapest rung a clip has nowhere to go, however little
 band it occupies: at `--content-floor-db 45` the demo's C3 asks for 1.4 kHz while the cheapest rung is
@@ -199,7 +200,7 @@ by 7.9–8.8 s: the budget bought roughly six seconds of near-inaudible decay at
 | `reduce.trim.tail_floor` | `reduce/trim.yaml` | Where a decay stops counting as content — `1e-4` is −80 dB, which keeps far more tail than a tracker ever plays audibly. `1e-3` (−60 dB) is defensible. |
 
 `max_length_s` is read at **every** ingest, including one reading an already-reduced dataset, so you can
-re-allocate off `1_reduced/` with a lower cap and see the effect without re-reducing.
+re-allocate off `2_reduced/` with a lower cap and see the effect without re-reducing.
 
 ## 6. Sample count, zone width, layers
 
@@ -300,15 +301,33 @@ Three things read as "a tail after the piano decays":
    transient. Where takes overlap like this, a length cap is also a content decision: the 5 s cap now
    shipped keeps the note and leaves the neighbour out.
 
-**Levers.** The grid now enumerates the trimmed sample beside every loop candidate
-(`optimize/sweep.yaml: loop_choices`), so a loop is bought only where the objective prefers it to storing
-the recording as played; `--no-loop` pins the grid to the trimmed sample alone. `loop.min_loop_s` is a
-floor every candidate clears, which is what keeps a loop from shrinking to the stutter the run above
-stored. `loop.placements` spreads the starts through the sustain and `loop.length_multiples` offers each
-start at several lengths, so a note that changes as it rings can be looped where it has settled;
-`reduction.json` states each candidate's seam and timbre distance, and the notebook's **Loop candidates**
-table reads them back. What a loop settles at is then brought down by the fitted decay rather than by a
-gate refusing the loop, so the lever for "this rings on" is the export gap above, not a looping threshold.
+**Levers.** Which loop a sample repeats is settled by the loop stage (§8a), so the grid offers the settled
+loop beside the trimmed sample and a loop is bought only where the objective prefers it to storing the
+recording as played; `--no-loop` leaves the stage off and pins the grid to the trimmed sample alone.
+`loop.min_loop_s` is a floor every candidate clears, which is what keeps a loop from shrinking to the
+stutter the run above stored. What a loop settles at is then brought down by the fitted decay, so the lever
+for "this rings on" is the export gap above rather than a looping threshold.
+
+### 8a. Which loop a sample repeats
+
+The loop stage (`src/opticonfig/loop/`) settles that per recording, before any byte is allocated and at the
+rate the analysis runs at. Three groups tune it:
+
+- **`loop/geometry.yaml`** lays out what is on offer. `placements` spreads the starts through the sustain
+  and `length_multiples` offers each start at several lengths, so a note that changes as it rings can be
+  looped where it has settled. `min_loop_s` floors the length, `min_periods` keeps a loop from beating at
+  its own rate, and `min_hz` / `max_hz` / `min_correlation` bound what counts as periodic at all.
+- **`loop/quality.yaml`** holds the two gates, which are the aggressiveness dial. `max_seam_step: 4.0`
+  bounds the step at the wrap, measured in units of the frame-to-frame motion the waveform makes there, so
+  the reading means the same on a loud attack and a quiet decay. `max_spectral_distance_db: 12.0` bounds how
+  far the loop's timbre sits from the stretch it stands in for. Candidates are climbed cheapest first —
+  earliest and shortest — and the first clearing both is kept, so tightening a gate buys a longer, better
+  loop and loosening one buys bytes.
+- **`loop/seam.yaml`** sets the crossfade the wrap is blended over (`crossfade_s: 0.01`).
+
+`loops.json` states the loop each recording keeps and every candidate climbed past with the gate it fell
+outside, so a retune reads off the last run rather than guessing. `1_looped/loops/<id>/auditions/` holds
+each loop played out against its recording, which is the by-ear reading of the same decision.
 
 For *where* the cut lands, `max_length_s` is no help — it is a ceiling, and the clicking samples sit far
 under it. The knob that reaches `trim_s` is `reduce.events.duration_bucket_ratio`, which rounds every
@@ -320,13 +339,13 @@ cut, and costs up to twice the bytes for it. `quantize.release_fade_s` handles t
 **"The whole pack is lo-fi."** The stored band is what the reduction read, so start there: raise
 `--content-floor-db` (§3) and see what the rungs become. If the budget then will not fit, buy the room the
 usual way — cap the length further (`max_length_s: 3.0`), refuse 8-bit (`--depth 16`), then narrow the
-zones (`max_zone_semitones: 7`). Re-allocate off `1_reduced/` — both are read at every ingest, so no
+zones (`max_zone_semitones: 7`). Re-allocate off `2_reduced/` — both are read at every ingest, so no
 re-reduce is needed.
 
 ```bash
 cp -r src/opticonfig myconfig           # --config takes a directory laid out like the bundled one
 $EDITOR myconfig/reduce/trim.yaml       # max_length_s: 3.0
-optisample optimize artifacts/1_reduced/Piano.notes.json \
+optisample optimize artifacts/2_reduced/Piano.notes.json \
     --budget-kb 512 --strategy grouped --max-layers 3 --depth 16 \
     --config myconfig --no-render --out artifacts/tuned
 ```
@@ -361,9 +380,12 @@ as the format numbers. Each extra sample is charged a reserve, so the run states
 | `reduce.events.duration_bucket_ratio` | `reduce/events.yaml` | Samples are cut mid-decay and click. |
 | `metrics.preprocess.dynamic_range_db` | `analysis/metrics.yaml` | The solver pays for material you cannot hear. |
 | `optimize.budget.energy_exponent` | `optimize/budget.yaml` | Quiet notes are getting a budget share out of proportion. |
-| `--no-loop` | CLI (`optimize/sweep.yaml: loop_choices`) | Looped decays ring on. |
-| `loop.min_loop_s` | `codec/loop.yaml` | Loops are short enough to buzz at their own rate. |
-| `loop.placements`, `loop.length_multiples` | `codec/loop.yaml` | The loop sits where the note has not settled yet. |
+| `--no-loop` | CLI (leaves the loop stage off) | Looped decays ring on. |
+| `loop.quality.max_seam_step` | `loop/quality.yaml` | A wrap ticks or clicks. |
+| `loop.quality.max_spectral_distance_db` | `loop/quality.yaml` | A held note keeps a timbre the recording moves away from. |
+| `loop.geometry.min_loop_s` | `loop/geometry.yaml` | Loops are short enough to buzz at their own rate. |
+| `loop.geometry.placements`, `loop.geometry.length_multiples` | `loop/geometry.yaml` | The loop sits where the note has not settled yet. |
+| `loop.seam.crossfade_s` | `loop/seam.yaml` | The wrap is continuous but audible as a texture change. |
 
 `--config` takes a **directory** laid out the way the bundled one is -- a stage per directory, a group per
 file -- so copy the whole `src/opticonfig/` tree and edit the copy.
