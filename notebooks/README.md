@@ -22,7 +22,7 @@ Every CLI flag as a control and every stage's output as an explorer. A run shell
 above it, so anything found here is reproducible from a shell.
 
 **Controls** — the source dataset and run root; subset fraction; budget; tracker format; strategy;
-interpolation; dedupe key; shortlist size; stored rates and bit depths; looping; ground-truth render;
+interpolation; dedupe key; content floor; rate ladder and bit depth; looping; ground-truth render;
 workers; dither seed. One bundle stands behind all three stages, so a control moved once reaches
 whichever stage runs next.
 
@@ -33,9 +33,9 @@ reads the reduced dataset, so the sweep is reached having paid only the ingest. 
 filed under `<run root>/logs/`.
 
 **Reduction explorer** — each axis read as `before -> after`, every kept recording measured against
-the material its pitch asks of it, the narrowed grid per pitch, and the survivors written. Then the
-**auditions**: the recording a pitch was judged against, beside every shortlisted encoding rendered
-to audio — the shortlist made audible before the sweep is paid for.
+the material its pitch asks of it, the format each pitch is stored at, and the survivors written. Then
+the **auditions**: the recording a pitch was judged against, beside every encoding the sweep runs
+rendered to audio — the stored format made audible before the sweep is paid for.
 
 **Allocation explorer** — the byte accounting, the encoding each kept item spends its bytes on (one
 table shape for both strategies), and where every item landed on the rate-distortion plane. Then the

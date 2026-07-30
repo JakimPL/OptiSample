@@ -124,9 +124,9 @@ class StoredFormat:
 def _lowest_rung(rates: Sequence[int], useful_rate: float) -> int:
     """The lowest rung of ``rates`` reaching ``useful_rate``, which is the cheapest rate carrying the band.
 
-    Rounding up is what keeps the stored band the recording's own: a rung under the bound drops content
-    the material still plays. The clip's own rate is the ladder's top rung and no bound reaches past it
-    (:func:`_audible_rate_hz` caps at the analysis Nyquist), so a rung always answers.
+    Rounding up keeps the stored band as wide as the recording's own, so every frequency the material still
+    plays survives storage. The clip's own rate is the ladder's top rung and every bound lands at or under
+    it (:func:`_audible_rate_hz` caps at the analysis Nyquist), so a rung always answers.
     """
     return min(rate for rate in rates if rate >= useful_rate)
 
@@ -136,8 +136,8 @@ def format_from_band(content_hz: float, demand: ClipDemand, context: FormatInput
 
     The demand enters here and nowhere else: the interval the sample is transposed by lowers the rate
     that stays audible, and the ladder's lowest rung reaching what remains is the rate the sample is kept
-    at. So the second zone to ask the same recording for the same stored length is answered without
-    measuring anything again.
+    at. So the second zone to ask the same recording for the same stored length is answered from the band
+    already measured.
     """
     useful_rate = _audible_rate_hz(content_hz, demand.delta_semitones, context.sample_rate, context.bandwidth)
     depth_bits = context.sweep.depth

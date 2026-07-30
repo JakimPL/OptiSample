@@ -53,7 +53,7 @@ class Event(MergedEvent):
         """The stretch of the source note a reconstruction of this class is measured over.
 
         The class is scored over ``duration_s``, so the ground truth runs for exactly that long. One
-        accessor, so the objective, the A/B pair and the shortlist auditions all measure over the same
+        accessor, so the objective, the A/B pair and the reduction's auditions all measure over the same
         stretch of recording.
         """
         return _scored_span(self.reference, self.duration_s, sample_rate)
@@ -109,7 +109,7 @@ class PitchTask:
         """The note class worth listening to at this pitch: the most-played one, ties going to the longest.
 
         Every artifact that renders one note per pitch renders this one, so the A/B pair and the
-        shortlist auditions are heard at the dynamic and length the material spends the most time on.
+        reduction's auditions are heard at the dynamic and length the material spends the most time on.
         """
         return max(self.events, key=lambda event: (event.weight, event.duration_s))
 
@@ -117,7 +117,7 @@ class PitchTask:
 def render_event(stored: StoredSample, event: Event, *, pitch: int, sample_rate: int) -> Signal:
     """The audio ``stored`` produces for one note class: repitched to ``pitch``, at its volume and length.
 
-    The one reconstruction the objective, the A/B pair and the shortlist auditions all listen to, so a
+    The one reconstruction the objective, the A/B pair and the reduction's auditions all listen to, so a
     fidelity score and the WAV written beside it describe the same audio.
     """
     return render(stored, sample_rate, pitch=pitch, volume=event.volume, duration_s=event.duration_s)
