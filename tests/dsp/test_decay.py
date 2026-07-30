@@ -5,6 +5,7 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.dsp.decay import LinearDecay, fit_linear_decay
+from optisample.dsp.levels import db_to_gain
 from optisample.dsp.loop import Loop
 
 SR = 8_000
@@ -12,10 +13,21 @@ FREQ = 200.0
 FRAMES = 3 * SR
 LOOP = Loop(start=SR // 2, end=SR)
 _WINDOW = round(0.05 * SR)  # the stretch one level reading covers, which is what a trend is read in
+_RING_DB = -12.0  # the fall a struck note makes over the recording, as steep as the level gate admits
 
 
 def _sine(envelope: NDArray[np.float64] | float, frames: int = FRAMES) -> NDArray[np.float64]:
     return envelope * np.sin(2.0 * np.pi * FREQ * np.arange(frames, dtype=np.float64) / SR)
+
+
+def _ringing() -> NDArray[np.float64]:
+    """A struck note: one pitch under a level falling at the steady rate in decibels a ringing note keeps.
+
+    This is the material the fitted ramp reads a final level off, so a test measuring how close the ramp
+    lands measures it on the decline the fit is drawn for.
+    """
+    seconds = np.arange(FRAMES, dtype=np.float64) / SR
+    return _sine(db_to_gain(_RING_DB * seconds * SR / FRAMES))
 
 
 def _level(signal: NDArray[np.float64]) -> float:
@@ -41,7 +53,7 @@ def test_the_ramp_holds_the_stored_material_and_falls_away_past_it() -> None:
 
 
 def test_a_struck_note_declines_to_the_level_its_recording_ends_on() -> None:
-    signal = _sine(np.linspace(1.0, 0.1, FRAMES))
+    signal = _ringing()
 
     decay = fit_linear_decay(signal, SR, LOOP)
 
@@ -97,7 +109,7 @@ def test_material_stating_no_decline_carries_no_decay(name: str, envelope: NDArr
 
 def test_a_loop_reaching_the_end_of_its_recording_declines_through_the_region_itself() -> None:
     """The region is stored flat, so the fall it made from ``loop.start`` on is the ramp that restores it."""
-    signal = _sine(np.linspace(1.0, 0.1, FRAMES))
+    signal = _ringing()
 
     decay = fit_linear_decay(signal, SR, Loop(start=SR, end=FRAMES))
 

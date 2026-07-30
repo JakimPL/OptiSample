@@ -22,6 +22,7 @@ from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
 from optisample.optimize.tasks import StoredRecordings
 from optisample.optimize.velocity_map import VelocityVolumeMap
 from tests.optimize.export.demo import (
+    DEFAULT_BUDGET_KB,
     PITCHES,
     SR,
     VELOCITIES,
@@ -87,9 +88,10 @@ def build(
     def _build(
         material: list[NoteEvent] | None = None,
         tracker_format: TrackerFormat | None = None,
+        budget_kb: float = DEFAULT_BUDGET_KB,
     ) -> tuple[InstrumentPlan, TrackerModule]:
         settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depth=16))
-        plan = optimize_instrument(demo_instrument(), recordings(demo_audio, SR), settings)
+        plan = optimize_instrument(demo_instrument(budget_kb), recordings(demo_audio, SR), settings)
         module = build_module(
             plan,
             recordings(demo_audio, SR),

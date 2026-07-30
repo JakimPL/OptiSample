@@ -21,7 +21,7 @@ from optisample.optimize.tasks import AudioMap
 
 SR = 22_050
 _HELD_S = 3.0
-_BRIEF_S = 0.2  # under the shortest accepted loop, so this pitch is stored over the span it plays
+_BRIEF_SHARE = 0.5  # the share of the shortest accepted loop a recording holds to be stored over its own span
 _LOOPABLE = 60
 _BRIEF = 72
 _AUDITION_FILES = 2  # each folder holds the recording and the loop played out against it
@@ -33,23 +33,29 @@ def _tone(freq: float, duration_s: float) -> NDArray[np.float64]:
 
 
 @pytest.fixture
-def audio() -> AudioMap:
+def brief_s(loop_floor_s: float) -> float:
+    """A span the shortest accepted loop outruns, so the pitch holding it is stored over what it plays."""
+    return _BRIEF_SHARE * loop_floor_s
+
+
+@pytest.fixture
+def audio(brief_s: float) -> AudioMap:
     """One recording a loop fits inside, and one too short for the shortest accepted loop."""
     return {
         SampleKey(_LOOPABLE, 100): _tone(220.0, _HELD_S),
-        SampleKey(_BRIEF, 100): _tone(440.0, _BRIEF_S),
+        SampleKey(_BRIEF, 100): _tone(440.0, brief_s),
     }
 
 
 @pytest.fixture
-def instrument() -> InstrumentSpec:
+def instrument(brief_s: float) -> InstrumentSpec:
     return InstrumentSpec(
         id="pad",
         budget_kb=96.0,
         samples=[SourceSample(file=Path(f"{pitch}.wav"), pitch=pitch, velocity=100) for pitch in (_LOOPABLE, _BRIEF)],
         material=[
             NoteEvent(pitch=_LOOPABLE, velocity=100, duration_s=_HELD_S, count=2),
-            NoteEvent(pitch=_BRIEF, velocity=100, duration_s=_BRIEF_S, count=1),
+            NoteEvent(pitch=_BRIEF, velocity=100, duration_s=brief_s, count=1),
         ],
     )
 

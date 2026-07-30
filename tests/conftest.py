@@ -104,6 +104,18 @@ def quality_config(config: OptiConfig) -> QualityConfig:
 
 
 @pytest.fixture
+def loop_floor_s(config: OptiConfig) -> float:
+    """The span loop detection asks of a recording: the attack it skips, the shortest loop, and the tail.
+
+    A test wanting material a loop fits inside states a length above this, and one wanting material stored
+    over the span it plays states a length under it, so both read off the shipped geometry rather than a
+    number that happened to sit on the right side of it.
+    """
+    geometry = config.loop.geometry
+    return geometry.attack_skip_s + geometry.min_loop_s + geometry.tail_skip_s
+
+
+@pytest.fixture
 def loop(config: OptiConfig) -> Callable[..., LoopConfig]:
     """Factory: the bundled loop stage with the given groups overridden (re-validated)."""
 

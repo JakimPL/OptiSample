@@ -363,7 +363,7 @@ def test_grouping_is_feasible_where_ungrouped_is_not(
     audio: dict[SampleKey, NDArray[np.float64]], recordings: Recordings
 ) -> None:
     settings = _settings(GRID_TINY)
-    inst = _instrument(10.0)  # room for one shared sample, not for three separate ones
+    inst = _instrument(4.0)  # room for one shared sample, not for three separate ones
     with pytest.raises(BudgetInfeasibleError):
         optimize_instrument(inst, recordings(audio, SR), settings)
     grouped = optimize_instrument_grouped(inst, recordings(audio, SR), settings)

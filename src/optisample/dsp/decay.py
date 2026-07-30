@@ -4,7 +4,7 @@ from typing import Final
 import numpy as np
 from numpy.typing import NDArray
 
-from optisample.dsp.levels import level_trend
+from optisample.dsp.levels import decay_trend, level_trend
 from optisample.dsp.loop import Loop
 
 Signal = NDArray[np.float64]
@@ -49,11 +49,12 @@ def fit_linear_decay(signal: Signal, sample_rate: int, loop: Loop) -> LinearDeca
 
     The stored region is held at the level it starts on (:func:`~optisample.dsp.loop.level_loop`), so the
     ramp holds unit gain up to ``loop.start`` and states the fall the recording makes from there. The level
-    the region holds is the line through its own readings read at its first frame, and where a held note ends
-    up is the line through everything from ``loop.start`` on read at the last
-    (:func:`~optisample.dsp.levels.level_trend`), so the ratio of the two is how far the note is played down
-    by the time the material runs out. Reading both off the same windows is what makes the decline this ramp
-    restores the one levelling erased.
+    the region holds is the line through its own readings read at its first frame, which is the same reading
+    levelling pinned it to (:func:`~optisample.dsp.levels.level_trend`). Where a held note ends up is read
+    off everything from ``loop.start`` on, as the line those readings make in decibels
+    (:func:`~optisample.dsp.levels.decay_trend`) -- the domain a ringing note falls straight in, so the
+    reading holds at the far end of a remainder however long the loop left it. The ratio of the two is how
+    far the note is played down by the time the material runs out.
 
     Returns ``None`` where the recording states no decline worth playing a note down by: a region or a
     remainder too short for a line to be drawn through, a region starting from silence, or a level still
@@ -61,11 +62,11 @@ def fit_linear_decay(signal: Signal, sample_rate: int, loop: Loop) -> LinearDeca
     """
     remaining = np.asarray(signal[loop.start :], dtype=np.float64)
     region = np.asarray(signal[loop.start : loop.end], dtype=np.float64)
-    held, onward = level_trend(region, sample_rate), level_trend(remaining, sample_rate)
+    held, onward = level_trend(region, sample_rate), decay_trend(remaining, sample_rate)
     if held is None or onward is None or held.at(0.0) <= _LEVEL_FLOOR:
         return NO_DECAY
 
-    final_gain = max(onward.at(remaining.size / sample_rate), 0.0) / held.at(0.0)
+    final_gain = onward.at(remaining.size / sample_rate) / held.at(0.0)
     if final_gain > _STEADY_GAIN:
         return NO_DECAY
 

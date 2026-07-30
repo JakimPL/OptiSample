@@ -306,8 +306,10 @@ Three things read as "a tail after the piano decays":
 loop beside the trimmed sample and a loop is bought only where the objective prefers it to storing the
 recording as played; `--no-loop` leaves the stage off and pins the grid to the trimmed sample alone.
 `loop.geometry.min_loop_s` is a floor every candidate clears, which is what keeps a loop from shrinking to
-the stutter the run above stored. What a loop settles at is then brought down by the fitted decay, so the lever
-for "this rings on" is the export gap above rather than a looping threshold.
+the stutter the run above stored. It is a knob rather than a guard: whatever it is set to, the candidate
+offered is at least one analysis window long, so the timbre gate measures every loop it passes
+([`shortest_loop_frames`](../src/optisample/dsp/loop.py)). What a loop settles at is then brought down by the
+fitted decay, so the lever for "this rings on" is the export gap above rather than a looping threshold.
 
 ### 8a. Which loop a sample repeats
 
@@ -316,8 +318,10 @@ rate the analysis runs at. Three groups tune it:
 
 - **`loop/geometry.yaml`** lays out what is on offer. `placements` spreads the starts through the sustain
   and `length_multiples` offers each start at several lengths, so a note that changes as it rings can be
-  looped where it has settled. `min_loop_s` floors the length, `min_periods` keeps a loop from beating at
-  its own rate, and `min_hz` / `max_hz` / `min_correlation` bound what counts as periodic at all.
+  looped where it has settled. `min_loop_s: 0.1` floors the length in seconds, `min_periods` keeps a loop
+  from beating at its own rate, and `min_hz` / `max_hz` / `min_correlation` bound what counts as periodic at
+  all. A third floor is the code's own: a candidate spans at least the window a spectrum is read over, which
+  is what leaves the gates below deciding rather than the seconds floor.
 - **`loop/quality.yaml`** holds the three gates, which are the aggressiveness dial. `max_seam_step: 4.0`
   bounds the step at the wrap, measured in units of the frame-to-frame motion the waveform makes there, so
   the reading means the same on a loud attack and a quiet decay. `max_level_drift_db: 12.0` bounds how far

@@ -13,7 +13,9 @@ class GeometryConfig(ConfigModel):
     autocorrelation peak a recording clears to count as periodic at all. ``attack_skip_s`` and
     ``tail_skip_s`` bound the steady window a loop is placed inside, so a loop begins past the onset
     transient and ends before the release. ``min_periods`` and ``min_loop_s`` together set the shortest loop
-    that may be stored, which every candidate clears.
+    that may be stored, which every candidate clears, alongside the analysis window the quality gates read a
+    candidate over (:func:`~optisample.dsp.loop.shortest_loop_frames`) -- so however short a floor is asked
+    for, the loop offered is one every gate measured.
 
     ``placements`` is how many starts are spread through the steady window and ``length_multiples`` the
     lengths each start is offered as multiples of that floor, so the two say how wide a ladder

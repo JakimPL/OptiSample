@@ -29,6 +29,7 @@ _TICKS = Bound(minimum=0, maximum=65_535)
 _VOLUME = Bound(minimum=MIN_VOLUME, maximum=MAX_VOLUME)
 _IT_NODES = 25
 _XM_NODES = 12
+_LOOPED_BUDGET_KB = 40.0  # tight enough that a plan buys the bytes a loop saves, and wide enough to be feasible
 
 _GENTLE = LinearDecay(start_s=0.5, end_s=3.0, final_gain=0.6)
 _MEDIUM = LinearDecay(start_s=0.5, end_s=3.0, final_gain=0.25)
@@ -146,8 +147,10 @@ def test_the_written_module_plays_a_looped_note_down_rather_than_ringing(
 
     Only a looped span carries a decline (a trimmed one keeps every level in its own material), so an
     instrument storing no loop leaves its voices alone and at least one storing a loop writes the curve.
+    The budget is tight enough that the bytes a loop saves are worth what holding a region at one level
+    costs, which is the trade the solver declines wherever the material fits whole.
     """
-    plan, module = build()
+    plan, module = build(budget_kb=_LOOPED_BUDGET_KB)
     song = module.song
     layout = plan_slots(plan, target)
     carried = [instrument.volume_envelope is not None for instrument in song.instruments]

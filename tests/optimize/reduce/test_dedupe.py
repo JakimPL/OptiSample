@@ -13,16 +13,11 @@ from optisample.optimize.reduce.dedupe import required_duration_s, select_record
 from optisample.progress import NO_PROGRESS
 
 SR = 22_050
-NOTE_S = 0.2  # short enough that the loop floor, not the transposition headroom, sets the requirement
+NOTE_S = 0.02  # short enough that the loop floor, not the transposition headroom, sets the requirement
+PADDING_S = 0.5  # what every split in the padding test pads a recording by in total
+UNDER_FLOOR_S = 0.1  # how far a length is set under the floor where the test asks for one that falls short
 
 ReduceFactory = Callable[..., ReduceConfig]
-
-
-@pytest.fixture
-def loop_floor_s(loop_config: LoopConfig) -> float:
-    """The sustain loop detection needs: the attack it skips, the shortest loop, and the tail."""
-    geometry = loop_config.geometry
-    return geometry.attack_skip_s + geometry.min_loop_s + geometry.tail_skip_s
 
 
 @pytest.fixture
@@ -88,7 +83,11 @@ def test_the_loop_floor_holds_the_requirement_up_through_the_trim(
 def test_keeps_the_shortest_recording_that_covers_the_material(
     reduce: ReduceFactory, loop_config: LoopConfig, wav: Callable[[str, float], Path], loop_floor_s: float
 ) -> None:
-    lengths = {"0000_long.wav": 1.5, "0001_enough.wav": loop_floor_s + 0.1, "0002_short.wav": 0.3}
+    lengths = {
+        "0000_long.wav": 1.5,
+        "0001_enough.wav": loop_floor_s + 0.1,
+        "0002_short.wav": loop_floor_s - UNDER_FLOOR_S,
+    }
     samples = [SourceSample(file=wav(name, length), pitch=60, velocity=100) for name, length in lengths.items()]
 
     selections = select_recordings(instrument(samples, one_note()), reduce(), loop_config.geometry, NO_PROGRESS)
@@ -101,11 +100,11 @@ def test_keeps_the_shortest_recording_that_covers_the_material(
 
 
 def test_keeps_the_longest_recording_when_none_covers_the_material(
-    reduce: ReduceFactory, loop_config: LoopConfig, wav: Callable[[str, float], Path]
+    reduce: ReduceFactory, loop_config: LoopConfig, wav: Callable[[str, float], Path], loop_floor_s: float
 ) -> None:
     samples = [
-        SourceSample(file=wav("0000_shorter.wav", 0.2), pitch=60, velocity=100),
-        SourceSample(file=wav("0001_longer.wav", 0.4), pitch=60, velocity=100),
+        SourceSample(file=wav("0000_shorter.wav", loop_floor_s / 3), pitch=60, velocity=100),
+        SourceSample(file=wav("0001_longer.wav", loop_floor_s / 2), pitch=60, velocity=100),
     ]
 
     kept = select_recordings(instrument(samples, one_note()), reduce(), loop_config.geometry, NO_PROGRESS)[0]
@@ -115,7 +114,7 @@ def test_keeps_the_longest_recording_when_none_covers_the_material(
     assert kept.duration_s < kept.required_duration_s
 
 
-@pytest.mark.parametrize(("lead_in_s", "trail_out_s"), [(0.5, 0.0), (0.0, 0.5), (0.2, 0.3)])
+@pytest.mark.parametrize(("lead_in_s", "trail_out_s"), [(PADDING_S, 0.0), (0.0, PADDING_S), (0.2, 0.3)])
 def test_the_padding_around_a_note_is_removed_before_a_recording_is_measured(
     reduce: ReduceFactory,
     loop_config: LoopConfig,
@@ -125,8 +124,9 @@ def test_the_padding_around_a_note_is_removed_before_a_recording_is_measured(
     trail_out_s: float,
 ) -> None:
     """A recording is ranked on the span from its onset to its release, which is all of it that is stored."""
+    recorded_s = loop_floor_s + PADDING_S - UNDER_FLOOR_S  # padding aside, a span the floor outruns
     padded = SourceSample(
-        file=wav("0000_padded.wav", loop_floor_s + 0.1),
+        file=wav("0000_padded.wav", recorded_s),
         pitch=60,
         velocity=100,
         lead_in_s=lead_in_s,
@@ -135,7 +135,7 @@ def test_the_padding_around_a_note_is_removed_before_a_recording_is_measured(
 
     kept = select_recordings(instrument([padded], one_note()), reduce(), loop_config.geometry, NO_PROGRESS)[0]
 
-    assert kept.duration_s == pytest.approx(loop_floor_s + 0.1 - lead_in_s - trail_out_s, abs=1e-3)
+    assert kept.duration_s == pytest.approx(recorded_s - lead_in_s - trail_out_s, abs=1e-3)
     assert not kept.covers_material  # the padding is not part of the note
 
 

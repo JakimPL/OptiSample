@@ -109,9 +109,17 @@ def _decaying(sine: Callable[..., NDArray[np.float64]], *, half_life_s: float) -
     return np.exp(-np.arange(tone.size, dtype=np.float64) / (half_life_s * SR)) * tone
 
 
-def _tail_level(signal: NDArray[np.float64]) -> float:
-    """Level of the last quarter second of ``signal`` -- where a held note's decline shows."""
-    return float(np.sqrt(np.mean(signal[-SR // 4 :] ** 2)))
+_END_WINDOW_S = 0.05  # one level reading, the window the ramp's own final level is fitted on
+
+
+def _end_level(signal: NDArray[np.float64]) -> float:
+    """Level of the last reading of ``signal`` -- where a held note's decline has arrived.
+
+    Read over the window the ramp's final level is fitted on, so the two are compared on the same footing.
+    The straight ramp between there and the loop sits above the curve a struck note falls on, which is the
+    shape a fitted envelope answers rather than the level the ramp lands on.
+    """
+    return float(np.sqrt(np.mean(signal[-round(_END_WINDOW_S * SR) :] ** 2)))
 
 
 def test_a_held_loop_declines_the_way_the_recording_it_stands_for_did(
@@ -131,8 +139,8 @@ def test_a_held_loop_declines_the_way_the_recording_it_stands_for_did(
     attack_frames = output_frame(stored, stored.loop.start, SR, _ROOT)
 
     assert np.allclose(held[:attack_frames], ringing[:attack_frames])  # the attack plays at the level it holds
-    assert _tail_level(held) == pytest.approx(_tail_level(source), rel=0.5)
-    assert _tail_level(ringing) > 5.0 * _tail_level(source)  # the same loop, left to ring at its own level
+    assert _end_level(held) == pytest.approx(_end_level(source), rel=0.5)
+    assert _end_level(ringing) > 5.0 * _end_level(source)  # the same loop, left to ring at its own level
 
 
 def test_a_sample_carrying_no_decay_plays_at_the_level_it_was_stored_at(

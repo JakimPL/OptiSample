@@ -175,15 +175,32 @@ def test_the_cheapest_candidate_declines_where_the_steady_region_holds_less_than
     geometry_config: GeometryConfig,
 ) -> None:
     # 400 Hz at 8 kHz -> period 20; a 700-frame tone leaves ~140 steady frames after the attack, far under
-    # the 0.5 s floor, so the region has no loop long enough to store.
+    # the floor, so the region has no loop long enough to store.
     assert _cheapest(_sine(700, freq=400.0), geometry_config) is None
 
 
-def test_the_floor_is_read_in_whole_periods_covering_both_bounds(geometry_config: GeometryConfig) -> None:
-    floor_s = shortest_loop_frames(PERIOD, SR, geometry_config) / SR
-    assert floor_s >= geometry_config.min_loop_s
-    assert shortest_loop_frames(PERIOD, SR, geometry_config) % PERIOD == 0
+def test_the_floor_is_read_in_whole_periods_covering_every_bound(geometry_config: GeometryConfig) -> None:
+    floor = shortest_loop_frames(PERIOD, SR, geometry_config)
+
+    assert floor / SR >= geometry_config.min_loop_s
+    assert floor >= _QUALITY_FFT  # the window a candidate's timbre is read over
+    assert floor % PERIOD == 0
     assert shortest_loop_frames(SR, SR, geometry_config) == geometry_config.min_periods * SR  # a period past the floor
+
+
+def test_a_floor_asked_shorter_than_one_analysis_window_still_offers_a_readable_region(
+    geometry_config: GeometryConfig,
+) -> None:
+    """A gate reading a region too short to hold a spectrum would wave it through, so none is offered.
+
+    This is what makes the seconds floor a tuning knob rather than a guard: however short it is set, and
+    however high the material is pitched, the candidate the ladder offers is one the timbre gate measured.
+    """
+    high_freq = 800.0
+    asked = geometry_config.model_copy(update={"min_loop_s": 1e-4, "min_periods": 1})
+
+    assert shortest_loop_frames(SR / high_freq, SR, asked) >= _QUALITY_FFT
+    assert all(loop.length >= _QUALITY_FFT for loop in loop_candidates(_sine(4 * SR, freq=high_freq), SR, asked))
 
 
 # --- the candidates a clip chooses among ----------------------------------------------------------
@@ -228,12 +245,15 @@ def test_candidates_stay_inside_the_steady_region_and_stand_apart(geometry_confi
 def test_a_length_the_region_lacks_room_for_shrinks_onto_the_whole_periods_that_fit(
     geometry_config: GeometryConfig,
 ) -> None:
-    # A 1 s tone has room for the 0.5 s floor twice over but not for twice the floor from the attack skip.
-    signal = _sine(SR)
+    # A tone holding the floor and half of it again has room for one candidate at the floor, and for the
+    # length above it only once that length is brought back onto the whole periods left before the tail.
+    floor = shortest_loop_frames(PERIOD, SR, geometry_config)
+    skipped = int((geometry_config.attack_skip_s + geometry_config.tail_skip_s) * SR)
+    signal = _sine(skipped + floor + floor // 2)
     tail = signal.size - int(geometry_config.tail_skip_s * SR)
     longest = max(loop_candidates(signal, SR, geometry_config), key=lambda loop: loop.length)
 
-    assert longest.length > shortest_loop_frames(PERIOD, SR, geometry_config)
+    assert longest.length > floor
     assert longest.length % PERIOD == 0
     assert longest.end <= tail
 

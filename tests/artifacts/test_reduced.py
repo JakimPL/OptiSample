@@ -35,6 +35,7 @@ Recordings = Callable[..., StoredRecordings]
 SR = 44_100
 PITCHES = (60, 62, 64)
 VELOCITIES = (60, 100)
+_TRIMMED_ONLY = 1  # the encodings a pitch offering no loop is swept at, which is the trimmed span alone
 
 
 def _looped(instrument: InstrumentSpec, audio: AudioMap, settings: OptimizeSettings) -> LoopedInstrument:
@@ -178,8 +179,9 @@ def test_an_audition_is_named_by_the_encoding_it_holds(reduced: ReducedInstrumen
     stem = f"r{stored['target_rate']}_d{stored['depth_bits']}" + ("_c" if stored["compress"] else "")
 
     auditions = sorted(path.name for path in folder.glob("*.wav") if path.stem != "reference")
+    looped = [f"{stem}_loop.wav"] if grid["swept"] > _TRIMMED_ONLY else []
 
-    assert auditions == sorted([f"{stem}.wav"] + [f"{stem}_loop{choice}.wav" for choice in range(grid["swept"] - 1)])
+    assert auditions == sorted([f"{stem}.wav", *looped])
 
 
 def test_an_audition_runs_as_long_as_the_note_it_stands_for(reduced: ReducedInstrument) -> None:

@@ -3,7 +3,7 @@ min_hz: 40.0             # lowest fundamental searched for a loop period
 max_hz: 2000.0           # highest fundamental searched
 min_correlation: 0.3     # autocorrelation-peak floor a recording clears to count as periodic
 min_periods: 3           # a loop shorter than this beats/buzzes audibly
-min_loop_s: 0.5          # floor on loop length in seconds (spans several vibrato cycles)
+min_loop_s: 0.1          # floor on loop length in seconds (spans several vibrato cycles)
 placements: 3            # loop starts spread through the steady window
 length_multiples: [1, 2] # loop lengths offered at each start, as multiples of the floor
 attack_skip_s: 0.05      # onset skipped before period estimation / loop placement

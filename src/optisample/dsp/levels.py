@@ -80,6 +80,25 @@ class LevelTrend:
         return self.mean_level + self.slope * (moment_s - self.mean_s)
 
 
+@dataclass(frozen=True)
+class DecayTrend:
+    """The straight line through a stretch's level readings in decibels, in seconds from its own first frame.
+
+    A ringing note loses a steady number of decibels a second, so its readings lie on a line once they are
+    read as levels rather than as amplitudes, and the line states where the note has reached at any moment
+    it spans. Fitting the same readings in amplitude follows a curve instead, which reads the far end of a
+    long stretch well under the level the material holds there.
+    """
+
+    mean_db: float
+    mean_s: float
+    slope_db: float
+
+    def at(self, moment_s: float) -> float:
+        """The amplitude the line reads at ``moment_s`` seconds into the stretch it was drawn through."""
+        return db_to_gain(self.mean_db + self.slope_db * (moment_s - self.mean_s))
+
+
 def _block_levels(signal: Signal, block: int) -> tuple[Signal, Signal]:
     """The level of each whole ``block``-frame window of ``signal``, and the frame each one centres on."""
     count = signal.size // block
@@ -87,14 +106,12 @@ def _block_levels(signal: Signal, block: int) -> tuple[Signal, Signal]:
     return np.sqrt(np.mean(windows**2, axis=1)), (np.arange(count, dtype=np.float64) + 0.5) * block
 
 
-def level_trend(signal: Signal, sample_rate: int) -> LevelTrend | None:
-    """The line ``signal``'s own level readings make, in seconds from its first frame.
+def _readings(signal: Signal, sample_rate: int) -> tuple[Signal, Signal] | None:
+    """``signal``'s level readings and the moment each one centres on, in seconds from its first frame.
 
-    The level is read in short windows so the line follows the material's envelope past the phase of its
-    waveform, and every reading is given to the fit, which is what lets the body of a stretch set its slope.
-
-    Returns ``None`` for a stretch holding fewer than ``_MIN_READINGS`` whole windows, which is too little
-    for a line to be drawn through.
+    The level is read in short windows so a line drawn through the readings follows the material's envelope
+    past the phase of its waveform. Returns ``None`` for a stretch holding fewer than ``_MIN_READINGS`` whole
+    windows, which is too little for a line to be drawn through.
     """
     block = max(1, round(_LEVEL_WINDOW_S * sample_rate))
     data = np.asarray(signal, dtype=np.float64)
@@ -102,11 +119,43 @@ def level_trend(signal: Signal, sample_rate: int) -> LevelTrend | None:
         return None
 
     levels, centres = _block_levels(data, block)
-    seconds = centres / sample_rate
+    return levels, centres / sample_rate
+
+
+def _line(values: Signal, seconds: Signal) -> tuple[float, float, float]:
+    """Mean value, mean moment, and slope of the least-squares line through ``values`` against ``seconds``."""
     mean_s = float(np.mean(seconds))
     centered = seconds - mean_s
-    return LevelTrend(
-        mean_level=float(np.mean(levels)),
-        mean_s=mean_s,
-        slope=float(np.sum(centered * levels) / np.sum(centered**2)),
-    )
+    return float(np.mean(values)), mean_s, float(np.sum(centered * values) / np.sum(centered**2))
+
+
+def level_trend(signal: Signal, sample_rate: int) -> LevelTrend | None:
+    """The line ``signal``'s own level readings make, in seconds from its first frame.
+
+    Every reading is given to the fit, which is what lets the body of a stretch set its slope. Returns
+    ``None`` for a stretch holding too few readings for a line (:func:`_readings`).
+    """
+    readings = _readings(signal, sample_rate)
+    if readings is None:
+        return None
+
+    levels, seconds = readings
+    mean_level, mean_s, slope = _line(levels, seconds)
+    return LevelTrend(mean_level=mean_level, mean_s=mean_s, slope=slope)
+
+
+def decay_trend(signal: Signal, sample_rate: int) -> DecayTrend | None:
+    """The line ``signal``'s own level readings make in decibels, in seconds from its first frame.
+
+    This is the reading to take of material that rings: a note losing a steady number of decibels a second
+    puts its readings on a straight line here, so the fit states the level the note reaches at the far end
+    of a stretch as well as at its middle. Returns ``None`` for a stretch holding too few readings for a
+    line (:func:`_readings`).
+    """
+    readings = _readings(signal, sample_rate)
+    if readings is None:
+        return None
+
+    levels, seconds = readings
+    mean_db, mean_s, slope_db = _line(gain_to_db(levels), seconds)
+    return DecayTrend(mean_db=mean_db, mean_s=mean_s, slope_db=slope_db)

@@ -312,7 +312,7 @@ def test_tight_budget_marks_ungrouped_infeasible_but_dumps_grouped(
     recordings: Recordings,
 ) -> None:
     out = tmp_path / "tight"
-    result = dump_instrument(_instrument(10.0), recordings(demo_audio_map(), SR), out, NO_RENDER)
+    result = dump_instrument(_instrument(4.0), recordings(demo_audio_map(), SR), out, NO_RENDER)
     by_name = {plan.name: plan for plan in result.plans}
     assert by_name["ungrouped"].feasible is False
     assert (out / "ungrouped" / "INFEASIBLE.txt").is_file()

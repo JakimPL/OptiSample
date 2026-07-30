@@ -235,8 +235,9 @@ Where a note turns periodic, how long a loop holds its timbre, and whether the w
 of the recording rather than of the budget, so **a stage of its own settles them** (`src/opticonfig/loop/`),
 ahead of the reduction and at the rate the analysis runs at. Each recording is offered the loops its
 geometry allows — `placements` starts through the sustain, each at the lengths `length_multiples` asks for
-and each clearing the `min_loop_s` floor — ordered cheapest first, meaning earliest and shortest. The first
-one clearing every quality gate is the loop the sample is stored around:
+and each clearing the `min_loop_s` floor and the window a spectrum is read over — ordered cheapest first,
+meaning earliest and shortest. The first one clearing every quality gate is the loop the sample is stored
+around, and every candidate is long enough for all three gates to have measured it:
 
 ```yaml
 max_seam_step: 4.0              # wrap step, in units of the frame-to-frame motion the waveform makes there

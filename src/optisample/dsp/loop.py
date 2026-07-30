@@ -180,13 +180,22 @@ def _steady_region(
 
 
 def shortest_loop_frames(period: float, sample_rate: int, config: GeometryConfig) -> int:
-    """The shortest loop the config accepts: whole periods covering ``min_periods`` and ``min_loop_s``.
+    """The shortest loop worth offering: whole periods covering ``min_periods``, ``min_loop_s``, and a spectrum.
 
     Rounding the period count up makes ``min_loop_s`` a floor every stored loop clears, which is what
     keeps a loop long enough to carry the material's own movement instead of buzzing at its rate. The
     whole periods land on a frame boundary, which is where a loop's bounds live.
+
+    A third floor holds the region at one analysis window or longer, so :func:`_spectral_distance` reads a
+    spectrum off every candidate the ladder offers and the timbre gate judges each of them on a measurement
+    of its own. That is what lets ``min_loop_s`` be set as short as the material allows: the gates stay the
+    constraint at any floor, because a loop the gates could only wave through is never offered.
     """
-    periods = max(config.min_periods, ceil(config.min_loop_s * sample_rate / period))
+    periods = max(
+        config.min_periods,
+        ceil(config.min_loop_s * sample_rate / period),
+        ceil(_QUALITY_FFT / period),
+    )
     return round(periods * period)
 
 
@@ -445,8 +454,10 @@ def _spectral_shape(signal: Signal) -> Signal:
 def _spectral_distance(region: Signal, material: Signal) -> float:
     """Root-mean-square log-spectral distance in decibels between two stretches of the same recording.
 
-    A stretch shorter than one analysis window carries too little for a spectrum to be read off, so it
-    reports a distance of 0.0.
+    Both stretches carry a spectrum once they hold an analysis window each. Every candidate the ladder
+    offers clears that on the region side (:func:`shortest_loop_frames`), so what remains is a loop
+    reaching so far into its recording that the material past it holds less than a window -- a stretch the
+    loop gives up nothing by standing in for, which reads 0.0.
     """
     if region.size < _QUALITY_FFT or material.size < _QUALITY_FFT:
         return 0.0
