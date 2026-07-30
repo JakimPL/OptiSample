@@ -15,8 +15,11 @@ _HELD_S = 3.0  # long enough for the geometry to lay out several candidates and 
 
 LoopFactory = Callable[..., LoopConfig]
 
-_WIDE_OPEN: Final = {"max_seam_step": 1e9, "max_spectral_distance_db": 1e9}
-_SHUT: Final = {"max_seam_step": 1e-9, "max_spectral_distance_db": 1e9}
+_OPEN: Final = 1e9  # a gate nothing measures past, which leaves the one under test to decide alone
+_SHUT: Final = 1e-9  # a gate nothing clears, which is how a whole ladder is made to report
+
+_WIDE_OPEN: Final = {"max_seam_step": _OPEN, "max_level_drift_db": _OPEN, "max_spectral_distance_db": _OPEN}
+_SEAM_SHUT: Final = {**_WIDE_OPEN, "max_seam_step": _SHUT}
 
 
 def _tone(duration_s: float = _HELD_S, freq: float = _FREQ) -> NDArray[np.float64]:
@@ -53,7 +56,7 @@ def test_a_loop_is_stored_no_earlier_than_the_attack_the_geometry_skips(loop: Lo
 
 def test_every_candidate_the_ladder_climbs_past_names_the_gate_it_fell_outside(loop: LoopFactory) -> None:
     """A gate nothing can clear leaves the whole ladder reported, so the reason is readable per candidate."""
-    settlement = settle_loop(_tone(), SR, loop(quality=_SHUT), search_s=_HELD_S)
+    settlement = settle_loop(_tone(), SR, loop(quality=_SEAM_SHUT), search_s=_HELD_S)
 
     assert settlement.stored is None
     assert settlement.rejected != ()
@@ -63,7 +66,7 @@ def test_every_candidate_the_ladder_climbs_past_names_the_gate_it_fell_outside(l
 def test_a_loop_holding_a_timbre_the_material_moves_away_from_is_climbed_past(loop: LoopFactory) -> None:
     """A recording that brightens halfway leaves its early loops holding a timbre the rest no longer has."""
     brightened = np.concatenate([_tone(1.5), _tone(1.5, freq=5 * _FREQ)])
-    config = loop(quality={"max_seam_step": 1e9, "max_spectral_distance_db": 1e-9})
+    config = loop(quality={**_WIDE_OPEN, "max_spectral_distance_db": _SHUT})
 
     settlement = settle_loop(brightened, SR, config, search_s=_HELD_S)
 
@@ -75,7 +78,7 @@ def test_a_loop_holding_a_timbre_the_material_moves_away_from_is_climbed_past(lo
 
 def test_the_ladder_is_climbed_cheapest_first(loop: LoopFactory) -> None:
     """Candidates are tried in the order they cost, so what is rejected is always cheaper than what is kept."""
-    tight = loop(quality={"max_seam_step": 1.0, "max_spectral_distance_db": 1e9})
+    tight = loop(quality={**_WIDE_OPEN, "max_seam_step": 1.0})
     settlement = settle_loop(_decaying(), SR, tight, search_s=_HELD_S)
 
     ends = [rejected.loop.end for rejected in settlement.rejected]
@@ -109,7 +112,17 @@ def test_a_struck_note_carries_the_decline_the_recording_goes_on_making(loop: Lo
     decay = settlement.stored.decay
     assert decay is not None
     assert decay.final_gain < 1.0
-    assert decay.start_s == settlement.stored.loop.end / SR
+    assert decay.start_s == settlement.stored.loop.start / SR  # the region is stored at one level from here on
+
+
+def test_a_region_falling_faster_than_the_gate_admits_is_climbed_past(loop: LoopFactory) -> None:
+    """Flattening a steep region means fighting it, so the gate turns one away the way the other gates do."""
+    config = loop(quality={**_WIDE_OPEN, "max_level_drift_db": _SHUT})
+
+    settlement = settle_loop(_decaying(), SR, config, search_s=_HELD_S)
+
+    assert not settlement.loops
+    assert {rejected.gate for rejected in settlement.rejected} == {Gate.LEVEL}
 
 
 def test_the_decline_is_read_over_the_whole_recording_rather_than_the_span_searched(loop: LoopFactory) -> None:

@@ -236,10 +236,11 @@ of the recording rather than of the budget, so **a stage of its own settles them
 ahead of the reduction and at the rate the analysis runs at. Each recording is offered the loops its
 geometry allows — `placements` starts through the sustain, each at the lengths `length_multiples` asks for
 and each clearing the `min_loop_s` floor — ordered cheapest first, meaning earliest and shortest. The first
-one clearing both quality gates is the loop the sample is stored around:
+one clearing every quality gate is the loop the sample is stored around:
 
 ```yaml
 max_seam_step: 4.0              # wrap step, in units of the frame-to-frame motion the waveform makes there
+max_level_drift_db: 12.0        # fall across the region that holding it at one level has to flatten
 max_spectral_distance_db: 12.0  # log-spectral distance between the loop and the stretch it stands in for
 ```
 
@@ -249,6 +250,25 @@ plays instead. Every candidate climbed past is kept beside the one settled on, n
 outside, so `loops.json` states why a sample stores what it stores. Settling once, at the analysis rate,
 is also what lets the seam be measured on the resolution a 440 Hz note actually has — 109 frames per cycle
 at 48 kHz against 18 at 8 kHz.
+
+### Making the wrap inaudible
+
+Two things are done to the region before it is stored, both at the resolution the split bought.
+
+**The end is matched to the start.** A period read off a finite window lands between frames, and a loop
+spans a hundred of them, so a whole count of rounded periods drifts part-way through a cycle by the time it
+wraps. The peak of the autocorrelation is read between frames by the parabola through its top three, and the
+end is then chosen within half a period of the whole count by maximising how alike the approach to the end
+and the approach to the start measure — so the wrap lands on the phase the material left.
+
+**The region is held at one level, and the seam is blended.** A struck note's region falls across itself, so
+a player wrapping it steps the level back up once per round — a 0.5 s loop pulses at 2 Hz. Dividing the
+region by the line through its own level readings, pinned at the loop start, holds it at one amplitude; the
+decline it gave up is handed to the fitted decay below. The seam is then blended over a share of the loop
+(`fade_share: 0.125`, floored in seconds and bounded by the material ahead of the start) with each side
+weighted by how alike the two measure: material that repeats exactly is left untouched, material whose
+partials have drifted apart keeps its level across the blend. On the demo piano the level step across one
+wrap falls from **+2.6…+2.9 dB to −0.4…−0.6 dB**.
 
 The allocation then prices **two** encodings per key, the settled loop and the trimmed span, so a loop is
 bought where the objective prefers it while the loop search itself is paid once per recording.
@@ -279,16 +299,17 @@ over it, which turns a seam step or a level pulse into a rhythm a listener hears
 ### A held note that declines
 
 Wrapping a region holds one level forever, which suits an organ and lies about a piano. So the stage fits a
-**linear decay** beside the loop it settles (`src/optisample/dsp/decay.py`): the level the loop region
-holds, the levels the recording falls to past it read in short windows, and a least-squares line through
+**linear decay** beside the loop it settles (`src/optisample/dsp/decay.py`): the level the region is held
+at, the levels the recording falls to from there read in short windows, and a least-squares line through
 them saying where the material ends up. It is fitted over the whole recording rather than the stretch the
 candidates were searched over, so every level the material states reaches the ramp. `render` plays a held
 note down it, so a struck note stored as attack plus loop declines the way its recording did. Material that
 holds its level to the end states no decline and carries no ramp.
 
-The ramp begins exactly where the stored material ends, so every stored frame sounds as it was stored;
-only what the loop repeats is brought down. Its seconds run on the played timeline, which is the clock a
-tracker's volume envelope runs on, so every key sounding the sample declines over the same stretch of time.
+The ramp begins at the loop start, which is where the stored material stops following the recording's own
+envelope: the attack sounds as it was recorded, and from there the ramp restores exactly the decline
+levelling erased. Its seconds run on the played timeline, which is the clock a tracker's volume envelope
+runs on, so every key sounding the sample declines over the same stretch of time.
 
 **The written module does not carry that envelope yet.** `optimize/export/build.py` writes each
 `Instrument` with no `volume_envelope` and no `fadeout`, so an exported looped note rings at the loop's

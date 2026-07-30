@@ -5,15 +5,18 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.config.loop import GeometryConfig, SeamConfig
+from optisample.dsp.levels import level_trend
 from optisample.dsp.loop import (
     _QUALITY_FFT,
     Loop,
     _autocorrelation,
     _estimate_period,
     crossfade_loop,
+    level_loop,
     loop_at_rate,
     loop_candidates,
     loop_quality,
+    prepare_loop,
     seam_frames,
     shortest_loop_frames,
 )
@@ -21,12 +24,18 @@ from optisample.dsp.loop import (
 SR = 8_000
 FREQ = 200.0
 PERIOD = int(round(SR / FREQ))  # 40 frames
-_FADE = 80  # 10 ms of blend at this rate, which is what the bundled seam asks for
+UNEVEN_FREQ = 210.0  # a period of 38.1 frames, which no whole number of frames lands on
+UNEVEN_PERIOD = SR / UNEVEN_FREQ
 
 
 def _sine(n: int, freq: float = FREQ, amp: float = 0.8) -> NDArray[np.float64]:
     t = np.arange(n, dtype=np.float64) / SR
     return amp * np.sin(2.0 * np.pi * freq * t)
+
+
+def _seam(fade_share: float) -> SeamConfig:
+    """A seam asking for a stated share of the loop, so a test reads one blend rather than the shipped one."""
+    return SeamConfig(fade_share=fade_share, min_fade_s=0.0)
 
 
 def _cheapest(signal: NDArray[np.float64], config: GeometryConfig) -> Loop | None:
@@ -35,8 +44,27 @@ def _cheapest(signal: NDArray[np.float64], config: GeometryConfig) -> Loop | Non
     return candidates[0] if candidates else None
 
 
+def _wrap_mismatch(signal: NDArray[np.float64], loop: Loop) -> float:
+    """How far the material after the loop end stands from the material a wrap lands back on."""
+    window = round(UNEVEN_PERIOD)
+    return float(np.max(np.abs(signal[loop.end : loop.end + window] - signal[loop.start : loop.start + window])))
+
+
+def _level_of(signal: NDArray[np.float64]) -> float:
+    return float(np.sqrt(np.mean(signal**2)))
+
+
 def test_estimate_period_recovers_the_fundamental(geometry_config: GeometryConfig) -> None:
     assert _estimate_period(_sine(SR), SR, geometry_config) == pytest.approx(PERIOD, abs=1)
+
+
+def test_a_period_falling_between_frames_is_read_between_them(geometry_config: GeometryConfig) -> None:
+    """The parabola through the peak is what states a lag a whole number of frames lands beside."""
+    period = _estimate_period(_sine(SR, freq=UNEVEN_FREQ), SR, geometry_config)
+
+    assert period is not None
+    assert period == pytest.approx(UNEVEN_PERIOD, abs=0.1)
+    assert abs(period - round(period)) > 0.05  # the frame it would have been read at sits elsewhere
 
 
 def test_the_cheapest_candidate_on_a_pure_tone_is_an_integer_number_of_periods(geometry_config: GeometryConfig) -> None:
@@ -85,17 +113,49 @@ def test_crossfade_pulls_the_seam_toward_continuity() -> None:
     ramp = np.linspace(0.3, 1.0, n)
     signal = ramp * np.sin(2.0 * np.pi * FREQ * np.arange(n) / SR)
     loop = Loop(start=10 * PERIOD, end=18 * PERIOD)
+    seam = _seam(0.125)
+    fade = seam_frames(loop, SR, seam)
     raw_gap = abs(signal[loop.end - 1] - signal[loop.start - 1])
-    faded = crossfade_loop(signal, loop, fade_len=PERIOD)
-    faded_gap = abs(faded[loop.end - 1] - signal[loop.start - 1])
-    assert faded_gap < raw_gap
-    assert np.array_equal(faded[: loop.end - PERIOD], signal[: loop.end - PERIOD])  # only the seam changed
+
+    faded = crossfade_loop(signal, loop, SR, seam)
+
+    assert abs(faded[loop.end - 1] - signal[loop.start - 1]) < raw_gap
+    assert np.array_equal(faded[: loop.end - fade], signal[: loop.end - fade])  # only the seam changed
 
 
-def test_crossfade_is_a_noop_without_room_before_the_loop() -> None:
+def test_a_loop_the_material_ahead_of_it_holds_no_room_for_wraps_as_it_stands() -> None:
     signal = _sine(SR)
     loop = Loop(start=0, end=4 * PERIOD)  # no frames precede the start to blend from
-    assert np.array_equal(crossfade_loop(signal, loop, fade_len=PERIOD), signal)
+
+    assert np.array_equal(crossfade_loop(signal, loop, SR, _seam(0.5)), signal)
+
+
+def test_a_blend_of_material_that_has_drifted_apart_holds_the_level_it_had() -> None:
+    """Reading the weighting off how alike the two sides measure is what keeps the blend from dipping."""
+    noise = np.random.default_rng(0).standard_normal(SR)
+    loop = Loop(start=SR // 2, end=SR)
+    seam = _seam(0.25)
+    fade = seam_frames(loop, SR, seam)
+    middle = slice(loop.end - 3 * fade // 4, loop.end - fade // 4)  # the middle half of the blend
+    progress = np.linspace(0.0, 1.0, fade, endpoint=True)
+    summing_to_one = (1.0 - progress) * noise[loop.end - fade : loop.end] + progress * noise[
+        loop.start - fade : loop.start
+    ]
+
+    blended = crossfade_loop(noise, loop, SR, seam)[middle]
+
+    assert _level_of(blended) == pytest.approx(_level_of(noise), rel=0.1)
+    assert _level_of(blended) > 1.2 * _level_of(summing_to_one[fade // 4 : 3 * fade // 4])  # the dip it avoids
+
+
+def test_a_blend_of_material_that_repeats_exactly_leaves_it_as_it_was() -> None:
+    """Two stretches a whole number of periods apart are the same material, so the blend has nothing to move."""
+    signal = _sine(SR)
+    loop = Loop(start=10 * PERIOD, end=18 * PERIOD)
+
+    blended = crossfade_loop(signal, loop, SR, _seam(0.25))
+
+    assert np.allclose(blended, signal, atol=1e-9)
 
 
 # --- degenerate inputs ---------------------------------------------------------------------------
@@ -184,29 +244,123 @@ def test_material_a_loop_has_no_purchase_on_offers_no_candidates(geometry_config
     assert loop_candidates(rng.standard_normal(SR), SR, geometry_config) == ()
 
 
+def test_a_candidate_on_a_period_that_falls_between_frames_wraps_onto_the_material_it_left(
+    geometry_config: GeometryConfig,
+) -> None:
+    """A period rounded to a frame drifts over the hundred rounds a loop spans; matching the end closes it."""
+    signal = _sine(4 * SR, freq=UNEVEN_FREQ)
+    loop = _cheapest(signal, geometry_config)
+    assert loop is not None
+
+    whole_frames = round(loop.length / UNEVEN_PERIOD) * round(UNEVEN_PERIOD)
+    rounded = Loop(start=loop.start, end=loop.start + whole_frames)
+
+    assert _wrap_mismatch(signal, loop) < _wrap_mismatch(signal, rounded)
+
+
+def test_a_matched_end_stays_inside_the_length_the_geometry_laid_out(geometry_config: GeometryConfig) -> None:
+    """Matching moves an end by up to half a period, which leaves every candidate clearing the floor."""
+    floor = shortest_loop_frames(UNEVEN_PERIOD, SR, geometry_config)
+    candidates = loop_candidates(_sine(4 * SR, freq=UNEVEN_FREQ), SR, geometry_config)
+
+    assert candidates != ()
+    assert all(loop.length >= floor for loop in candidates)
+    assert all(loop.length >= round(geometry_config.min_loop_s * SR) for loop in candidates)
+
+
+# --- the level a stored region holds ----------------------------------------------------------------
+
+
+_GENTLE_TAU_S = 3.0  # a note falling by about the level drift the shipped gate admits over a 2 s region
+_STEEP_TAU_S = 0.6  # a note falling far past it, which is the region the gate is there to turn away
+_LOOP = Loop(start=SR, end=3 * SR)
+
+
+def _declining(frames: int, tau_s: float) -> NDArray[np.float64]:
+    """A struck note: one pitch throughout, under an amplitude that falls away over ``tau_s`` as it rings."""
+    return np.exp(-np.arange(frames, dtype=np.float64) / (tau_s * SR)) * _sine(frames)
+
+
+def test_a_region_that_falls_as_it_rings_is_held_at_the_level_it_starts_on() -> None:
+    """A region falling across itself steps the level back up on every wrap, which is the pulse a loop makes."""
+    signal = _declining(4 * SR, _GENTLE_TAU_S)
+    loop = _LOOP
+    window = round(0.1 * SR)
+
+    levelled = level_loop(signal, loop, SR)
+
+    opening = _level_of(levelled[loop.start : loop.start + window])
+    closing = _level_of(levelled[loop.end - window : loop.end])
+    assert closing == pytest.approx(opening, rel=0.05)
+    assert opening == pytest.approx(_level_of(signal[loop.start : loop.start + window]), rel=0.05)
+
+
+def test_levelling_leaves_the_attack_the_region_runs_out_of_untouched() -> None:
+    """Pinning the gain at the loop start is what runs the attack into the region without a step."""
+    signal = _declining(4 * SR, _GENTLE_TAU_S)
+    loop = _LOOP
+
+    levelled = level_loop(signal, loop, SR)
+
+    assert np.array_equal(levelled[: loop.start], signal[: loop.start])
+    assert np.array_equal(levelled[loop.end :], signal[loop.end :])
+    assert levelled[loop.start] == pytest.approx(signal[loop.start], rel=0.01)
+
+
+@pytest.mark.parametrize(
+    "loop",
+    [
+        pytest.param(Loop(start=100, end=140), id="a region too short for a line through its levels"),
+        pytest.param(Loop(start=0, end=SR), id="a region starting from silence"),
+    ],
+)
+def test_a_region_with_no_level_to_hold_is_left_as_it_stands(loop: Loop) -> None:
+    signal = np.concatenate([np.zeros(SR), _sine(SR)])
+
+    assert np.array_equal(level_loop(signal, loop, SR), signal)
+
+
+def test_a_prepared_region_is_held_at_one_level_and_blended_at_its_wrap() -> None:
+    """Levelling before the blend is what leaves the blend joining phase over two stretches of one level."""
+    signal = _declining(4 * SR, _GENTLE_TAU_S)
+    loop = _LOOP
+
+    seam = _seam(0.125)
+    fade = seam_frames(loop, SR, seam)
+
+    prepared = prepare_loop(signal, loop, SR, seam)
+
+    trend = level_trend(prepared[loop.start : loop.end - fade], SR)  # the stretch the blend leaves alone
+    assert trend is not None
+    assert trend.at((loop.length - fade) / SR) == pytest.approx(trend.at(0.0), rel=0.1)
+    assert abs(prepared[loop.end - 1] - prepared[loop.start - 1]) < abs(signal[loop.end - 1] - signal[loop.start - 1])
+
+
 # --- what a loop is worth --------------------------------------------------------------------------
 
 
-def test_a_crossfaded_seam_reads_as_a_step_the_waveform_itself_could_have_made(geometry_config: GeometryConfig) -> None:
+def test_a_crossfaded_seam_reads_as_a_step_the_waveform_itself_could_have_made(
+    geometry_config: GeometryConfig, seam_config: SeamConfig
+) -> None:
     signal = _sine(4 * SR)
     loop = _cheapest(signal, geometry_config)
     assert loop is not None
 
-    quality = loop_quality(signal, loop, SR, geometry_config, fade_len=_FADE)
+    quality = loop_quality(signal, loop, SR, geometry_config, seam_config)
 
     assert quality.seam_step < 2.0  # whole periods from a zero crossing: the wrap is the waveform's own motion
 
 
 def test_a_loop_holding_a_timbre_the_material_moves_away_from_reports_the_distance(
-    geometry_config: GeometryConfig,
+    geometry_config: GeometryConfig, seam_config: SeamConfig
 ) -> None:
     steady = _sine(2 * SR)
     brightened = steady + 0.5 * _sine(2 * SR, freq=5 * FREQ)
     loop = _cheapest(steady, geometry_config)
     assert loop is not None
 
-    held = loop_quality(np.concatenate([steady, steady]), loop, SR, geometry_config, fade_len=_FADE)
-    moved = loop_quality(np.concatenate([steady, brightened]), loop, SR, geometry_config, fade_len=_FADE)
+    held = loop_quality(np.concatenate([steady, steady]), loop, SR, geometry_config, seam_config)
+    moved = loop_quality(np.concatenate([steady, brightened]), loop, SR, geometry_config, seam_config)
 
     assert moved.spectral_distance > held.spectral_distance
 
@@ -219,22 +373,44 @@ def test_a_loop_holding_a_timbre_the_material_moves_away_from_reports_the_distan
     ],
 )
 def test_a_loop_the_material_barely_outlasts_reports_no_distance(
-    geometry_config: GeometryConfig, left_over: int
+    geometry_config: GeometryConfig, seam_config: SeamConfig, left_over: int
 ) -> None:
     signal = _sine(2 * SR)
     tail = signal.size - int(geometry_config.tail_skip_s * SR)
     end = tail - left_over
     reaching = Loop(start=end - shortest_loop_frames(PERIOD, SR, geometry_config), end=end)
 
-    assert loop_quality(signal, reaching, SR, geometry_config, fade_len=_FADE).spectral_distance == 0.0
+    assert loop_quality(signal, reaching, SR, geometry_config, seam_config).spectral_distance == 0.0
 
 
-def test_a_silent_loop_region_reports_no_seam(geometry_config: GeometryConfig) -> None:
-    assert loop_quality(np.zeros(SR), Loop(start=100, end=500), SR, geometry_config, fade_len=_FADE).seam_step == 0.0
+def test_a_silent_loop_region_reports_no_seam(geometry_config: GeometryConfig, seam_config: SeamConfig) -> None:
+    assert loop_quality(np.zeros(SR), Loop(start=100, end=500), SR, geometry_config, seam_config).seam_step == 0.0
 
 
-def test_a_loop_of_one_frame_has_no_step_to_measure_the_seam_against(geometry_config: GeometryConfig) -> None:
-    assert loop_quality(_sine(SR), Loop(start=100, end=101), SR, geometry_config, fade_len=_FADE).seam_step == 0.0
+def test_a_loop_of_one_frame_has_no_step_to_measure_the_seam_against(
+    geometry_config: GeometryConfig, seam_config: SeamConfig
+) -> None:
+    assert loop_quality(_sine(SR), Loop(start=100, end=101), SR, geometry_config, seam_config).seam_step == 0.0
+
+
+def test_a_region_falling_as_it_rings_states_the_drift_levelling_had_to_flatten(
+    geometry_config: GeometryConfig, seam_config: SeamConfig
+) -> None:
+    """The drift is read off the recording, so it states the gain flattening asked of the material."""
+    steep = loop_quality(_declining(4 * SR, _STEEP_TAU_S), _LOOP, SR, geometry_config, seam_config)
+    gentle = loop_quality(_declining(4 * SR, _GENTLE_TAU_S), _LOOP, SR, geometry_config, seam_config)
+    held = loop_quality(_sine(4 * SR), _LOOP, SR, geometry_config, seam_config)
+
+    assert steep.level_drift_db > gentle.level_drift_db > held.level_drift_db
+    assert held.level_drift_db == pytest.approx(0.0, abs=0.1)
+
+
+def test_a_region_too_short_for_a_level_line_states_no_drift(
+    geometry_config: GeometryConfig, seam_config: SeamConfig
+) -> None:
+    quality = loop_quality(_declining(SR, _STEEP_TAU_S), Loop(start=100, end=140), SR, geometry_config, seam_config)
+
+    assert quality.level_drift_db == 0.0
 
 
 # --- a loop on a copy stored at another rate -------------------------------------------------------
@@ -264,14 +440,31 @@ def test_a_rate_too_low_for_the_settled_bounds_to_survive_answers_with_no_loop()
     assert loop_at_rate(Loop(start=0, end=4), SR, SR // 1_000, frames=SR) is None
 
 
-def test_the_seam_length_reaches_every_rate_a_sample_is_kept_at(seam_config: SeamConfig) -> None:
-    """One setting in seconds is what a blend is stated as, so a lower rate blends over fewer frames."""
-    assert seam_frames(seam_config, SR) == round(seam_config.crossfade_s * SR)
-    assert seam_frames(seam_config, SR // 2) < seam_frames(seam_config, SR)
+def test_a_longer_loop_is_blended_over_a_longer_stretch_of_itself() -> None:
+    """A share of the loop is what the blend is stated as, so every round is blended the same way."""
+    seam = _seam(0.25)
+    short, long = Loop(start=SR, end=SR + 400), Loop(start=SR, end=SR + 4_000)
+
+    assert seam_frames(short, SR, seam) == 100
+    assert seam_frames(long, SR, seam) == 1_000
+
+
+@pytest.mark.parametrize(
+    ("loop", "expected"),
+    [
+        pytest.param(Loop(start=SR, end=SR + 2_000), 400, id="a share under the floor blends over the floor"),
+        pytest.param(Loop(start=200, end=SR), 200, id="the room before the start is all a blend reaches for"),
+        pytest.param(Loop(start=SR, end=SR + 80), 80, id="the region is all a blend has to rewrite"),
+    ],
+)
+def test_the_blend_is_floored_in_seconds_and_bounded_by_the_room_around_it(loop: Loop, expected: int) -> None:
+    seam = SeamConfig(fade_share=0.05, min_fade_s=0.05)
+
+    assert seam_frames(loop, SR, seam) == expected
 
 
 def test_the_wrap_of_a_declining_region_is_read_against_the_motion_it_lands_in(
-    geometry_config: GeometryConfig,
+    geometry_config: GeometryConfig, seam_config: SeamConfig
 ) -> None:
     """An average over the whole region would price the wrap in motion it never sits next to."""
     ramp = np.exp(-np.arange(4 * SR, dtype=np.float64) / (0.6 * SR))
@@ -279,7 +472,7 @@ def test_the_wrap_of_a_declining_region_is_read_against_the_motion_it_lands_in(
     steady = _sine(4 * SR)
     loop = Loop(start=10 * PERIOD, end=10 * PERIOD + shortest_loop_frames(PERIOD, SR, geometry_config))
 
-    fell = loop_quality(declining, loop, SR, geometry_config, fade_len=_FADE).seam_step
-    held = loop_quality(steady, loop, SR, geometry_config, fade_len=_FADE).seam_step
+    fell = loop_quality(declining, loop, SR, geometry_config, seam_config).seam_step
+    held = loop_quality(steady, loop, SR, geometry_config, seam_config).seam_step
 
     assert fell == pytest.approx(held, abs=1.0)  # the decline moves the reading by less than one step

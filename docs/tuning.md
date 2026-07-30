@@ -57,7 +57,7 @@ The consequence is worth stating plainly. **A budget too small for the formats i
 infeasible, and the run says so** rather than quietly storing everything duller:
 
 ```
-ungrouped: infeasible (budget 97553 B too small; cheapest allocation needs 106540 B)
+ungrouped: infeasible (budget 97553 B too small; cheapest allocation needs 128630 B)
 ```
 
 Every allocation stage raises that
@@ -111,14 +111,15 @@ Measured against the shipped demo at 96 KiB, the floor is also what decides whet
 | `content_floor_db` | demo piano, ungrouped | demo piano, grouped |
 |---|---|---|
 | `45` | 1.4375 / 63 640 B | 1.1650 / 46 652 B |
-| `60` (shipped) | **0.0979 / 70 644 B** | **0.0985 / 70 644 B** |
-| `70` | 36.2265 / 91 066 B | 0.9603 / 83 182 B |
+| `60` (shipped) | **0.0983 / 70 644 B** | **0.0985 / 70 644 B** |
+| `70` | infeasible | 0.6298 / 97 092 B |
 | `80` | infeasible | 0.9603 / 92 862 B |
 
 Two readings worth carrying away. A floor too **low** stores less band than the budget could afford (45
-scores fifteen times worse than 60 while spending fewer bytes). A floor too **high** forces the allocation
-to buy its bytes back the only way it still can — by storing loops of notes too short to loop well, which
-is what the 36.2 reading is, and past that by not fitting at all.
+scores fifteen times worse than 60 while spending fewer bytes). A floor too **high** asks for a band the
+budget has no room for: at 70 the ungrouped strategy, which buys its bytes back only by dropping samples,
+has no allocation that fits at all, and the grouped one spends nearly the whole budget to score six times
+worse than the shipped floor does.
 
 **The ladder's floor is a real bound.** Below its cheapest rung a clip has nowhere to go, however little
 band it occupies: at `--content-floor-db 45` the demo's C3 asks for 1.4 kHz while the cheapest rung is
@@ -284,11 +285,10 @@ Three things read as "a tail after the piano decays":
 2. **A loop on decaying material.** The run above was taken under a sustain gate that let short recordings
    of low struck notes through — over 1.3–1.8 s a bass note has fallen only 5.7–5.8 dB — and stored them
    as the shortest loop allowed, ringing at that level until the next note cut them. Struck material is
-   loopable by design now: the decline is carried beside the PCM as a
-   [`LinearDecay`](../src/optisample/dsp/decay.py), fitted from the level the loop holds and the levels
-   the recording falls to past it, and [`render`](../src/optisample/dsp/surrogate/render.py) plays a held
-   note down it. So the objective scores a piano note as attack + loop + decline, which is what makes a
-   long note cheap.
+   loopable by design now: the region is stored at one level, the decline it gave up is carried beside the
+   PCM as a [`LinearDecay`](../src/optisample/dsp/decay.py) fitted from `loop.start` on, and
+   [`render`](../src/optisample/dsp/surrogate/render.py) plays a held note down it. So the objective scores
+   a piano note as attack + loop + decline, which is what makes a long note cheap.
 
    **The written module does not carry that envelope yet.** `optimize/export/build.py` writes each
    `Instrument` with no `volume_envelope` and no `fadeout`, so an exported looped note holds the loop's
@@ -304,8 +304,8 @@ Three things read as "a tail after the piano decays":
 **Levers.** Which loop a sample repeats is settled by the loop stage (§8a), so the grid offers the settled
 loop beside the trimmed sample and a loop is bought only where the objective prefers it to storing the
 recording as played; `--no-loop` leaves the stage off and pins the grid to the trimmed sample alone.
-`loop.min_loop_s` is a floor every candidate clears, which is what keeps a loop from shrinking to the
-stutter the run above stored. What a loop settles at is then brought down by the fitted decay, so the lever
+`loop.geometry.min_loop_s` is a floor every candidate clears, which is what keeps a loop from shrinking to
+the stutter the run above stored. What a loop settles at is then brought down by the fitted decay, so the lever
 for "this rings on" is the export gap above rather than a looping threshold.
 
 ### 8a. Which loop a sample repeats
@@ -317,13 +317,26 @@ rate the analysis runs at. Three groups tune it:
   and `length_multiples` offers each start at several lengths, so a note that changes as it rings can be
   looped where it has settled. `min_loop_s` floors the length, `min_periods` keeps a loop from beating at
   its own rate, and `min_hz` / `max_hz` / `min_correlation` bound what counts as periodic at all.
-- **`loop/quality.yaml`** holds the two gates, which are the aggressiveness dial. `max_seam_step: 4.0`
+- **`loop/quality.yaml`** holds the three gates, which are the aggressiveness dial. `max_seam_step: 4.0`
   bounds the step at the wrap, measured in units of the frame-to-frame motion the waveform makes there, so
-  the reading means the same on a loud attack and a quiet decay. `max_spectral_distance_db: 12.0` bounds how
-  far the loop's timbre sits from the stretch it stands in for. Candidates are climbed cheapest first —
-  earliest and shortest — and the first clearing both is kept, so tightening a gate buys a longer, better
-  loop and loosening one buys bytes.
-- **`loop/seam.yaml`** sets the crossfade the wrap is blended over (`crossfade_s: 0.01`).
+  the reading means the same on a loud attack and a quiet decay. `max_level_drift_db: 12.0` bounds how far
+  the region's own level falls across it, which is the gain holding it at one level asks of the material;
+  levelling reaches +12 dB, so a looser setting admits regions it flattens only in part.
+  `max_spectral_distance_db: 12.0` bounds how far the loop's timbre sits from the stretch it stands in for.
+  Candidates are climbed cheapest first — earliest and shortest — and the first clearing all three is kept,
+  so tightening a gate buys a longer, better loop and loosening one buys bytes.
+- **`loop/seam.yaml`** sizes the blend the wrap is made over: `fade_share: 0.125` of the loop's own length,
+  floored at `min_fade_s: 0.01` and bounded by the material ahead of the loop start. A share rather than a
+  fixed stretch is what blends every round the same way; the weighting law is read off how alike the two
+  sides measure, so a tone that repeats exactly is left untouched and material whose partials have drifted
+  apart still holds its level across the blend.
+
+**The region is held at one level.** A struck note's loop region falls across itself, so a player wrapping
+it steps the level back up once per round. The stage divides the region by the line through its own level
+readings, pinned at `loop.start`, and hands the decline it erased to the fitted `LinearDecay` — which now
+starts at `loop.start` rather than `loop.end`, since that is where the stored material stops following the
+recording. On the demo piano the level step across one wrap falls from +2.6…+2.9 dB to −0.4…−0.6 dB: what
+was a pulse at the loop's rate becomes the note going on declining.
 
 `loops.json` states the loop each recording keeps and every candidate climbed past with the gate it fell
 outside, so a retune reads off the last run rather than guessing. `1_looped/loops/<id>/auditions/` holds
@@ -382,10 +395,11 @@ as the format numbers. Each extra sample is charged a reserve, so the run states
 | `optimize.budget.energy_exponent` | `optimize/budget.yaml` | Quiet notes are getting a budget share out of proportion. |
 | `--no-loop` | CLI (leaves the loop stage off) | Looped decays ring on. |
 | `loop.quality.max_seam_step` | `loop/quality.yaml` | A wrap ticks or clicks. |
+| `loop.quality.max_level_drift_db` | `loop/quality.yaml` | A held note pulses at the loop's rate, or its tail sounds lifted and noisy. |
 | `loop.quality.max_spectral_distance_db` | `loop/quality.yaml` | A held note keeps a timbre the recording moves away from. |
 | `loop.geometry.min_loop_s` | `loop/geometry.yaml` | Loops are short enough to buzz at their own rate. |
 | `loop.geometry.placements`, `loop.geometry.length_multiples` | `loop/geometry.yaml` | The loop sits where the note has not settled yet. |
-| `loop.seam.crossfade_s` | `loop/seam.yaml` | The wrap is continuous but audible as a texture change. |
+| `loop.seam.fade_share`, `loop.seam.min_fade_s` | `loop/seam.yaml` | The wrap is continuous but audible as a texture change. |
 
 `--config` takes a **directory** laid out the way the bundled one is -- a stage per directory, a group per
 file -- so copy the whole `src/opticonfig/` tree and edit the copy.

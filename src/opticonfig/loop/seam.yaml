@@ -1,2 +1,3 @@
 # How the wrap is blended (optisample.config.loop.SeamConfig).
-crossfade_s: 0.01 # stretch before the loop end ramped toward the frames preceding the loop start
+fade_share: 0.125 # share of the loop length blended into its wrap, bounded by the room before the start
+min_fade_s: 0.01 # floor on the blend in seconds, so a short loop still wraps over audible motion

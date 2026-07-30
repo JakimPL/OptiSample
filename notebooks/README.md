@@ -33,10 +33,10 @@ looping reads the subset once it exists, reduction reads the looped dataset, and
 reduced one, so the sweep is reached having paid only the ingest. Every transcript is filed under
 `<run root>/logs/`.
 
-**Looping explorer** — the loop each recording keeps with the seam step and timbre distance it measured,
-the recordings stored over the span they play instead, and every cheaper candidate the ladder climbed
-past beside the gate it fell outside. Then the **auditions**: each recording beside its loop played out
-— wrapped several times under the fitted decline, which is how a seam step or a level pulse is heard.
+**Looping explorer** — the loop each recording keeps with the seam step, level drift and timbre distance it
+measured, the recordings stored over the span they play instead, and every cheaper candidate the ladder
+climbed past beside the gate it fell outside. Then the **auditions**: each recording beside its loop played
+out — wrapped several times under the fitted decline, which is how a seam step or a level pulse is heard.
 
 **Reduction explorer** — each axis read as `before -> after`, every kept recording measured against
 the material its pitch asks of it, the format each pitch is stored at, and the survivors written. Then

@@ -127,9 +127,10 @@ def test_a_held_loop_declines_the_way_the_recording_it_stands_for_did(
 
     held = render(stored, SR, pitch=_ROOT, duration_s=2.0)
     ringing = render(replace(stored, decay=None), SR, pitch=_ROOT, duration_s=2.0)
-    stored_frames = output_frame(stored, stored.frames, SR, _ROOT)
+    assert stored.loop is not None
+    attack_frames = output_frame(stored, stored.loop.start, SR, _ROOT)
 
-    assert np.allclose(held[:stored_frames], ringing[:stored_frames])  # the stored material sounds as stored
+    assert np.allclose(held[:attack_frames], ringing[:attack_frames])  # the attack plays at the level it holds
     assert _tail_level(held) == pytest.approx(_tail_level(source), rel=0.5)
     assert _tail_level(ringing) > 5.0 * _tail_level(source)  # the same loop, left to ring at its own level
 

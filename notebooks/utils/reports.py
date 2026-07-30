@@ -125,9 +125,10 @@ def stored_format_rows(reduction: ReductionDocument) -> list[Row]:
 def loop_rows(document: LoopsDocument) -> list[Row]:
     """One row per recording stored around a loop, with the loop it kept and what measuring it said.
 
-    ``seam`` counts the wrap's jump in the frame-to-frame motion the waveform makes there and ``timbre_db``
-    the distance between the loop's spectrum and the material past it, so a row states the case for the loop
-    that was stored. ``rejected`` counts the cheaper candidates the ladder climbed past to reach it.
+    ``seam`` counts the wrap's jump in the frame-to-frame motion the waveform makes there, ``drift_db`` the
+    fall across the region that holding it at one level flattened, and ``timbre_db`` the distance between the
+    loop's spectrum and the material past it, so a row states the case for the loop that was stored.
+    ``rejected`` counts the cheaper candidates the ladder climbed past to reach it.
     """
     return [
         {
@@ -138,6 +139,7 @@ def loop_rows(document: LoopsDocument) -> list[Row]:
             "end_s": round(record.stored.end_s, 3),
             "length_s": round(record.stored.end_s - record.stored.start_s, 3),
             "seam": round(record.stored.quality.seam_step, 2),
+            "drift_db": round(record.stored.quality.level_drift_db, 2),
             "timbre_db": round(record.stored.quality.spectral_distance, 2),
             "rejected": len(record.rejected),
         }
@@ -178,6 +180,7 @@ def rejected_loop_rows(document: LoopsDocument) -> list[Row]:
             "start_s": round(rejected.start_s, 3),
             "end_s": round(rejected.end_s, 3),
             "seam": round(rejected.quality.seam_step, 2),
+            "drift_db": round(rejected.quality.level_drift_db, 2),
             "timbre_db": round(rejected.quality.spectral_distance, 2),
             "gate": rejected.gate,
         }

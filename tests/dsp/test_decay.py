@@ -11,6 +11,7 @@ SR = 8_000
 FREQ = 200.0
 FRAMES = 3 * SR
 LOOP = Loop(start=SR // 2, end=SR)
+_WINDOW = round(0.05 * SR)  # the stretch one level reading covers, which is what a trend is read in
 
 
 def _sine(envelope: NDArray[np.float64] | float, frames: int = FRAMES) -> NDArray[np.float64]:
@@ -45,11 +46,23 @@ def test_a_struck_note_declines_to_the_level_its_recording_ends_on() -> None:
     decay = fit_linear_decay(signal, SR, LOOP)
 
     assert decay is not None
-    assert decay.start_s == pytest.approx(LOOP.end / SR)
+    assert decay.start_s == pytest.approx(LOOP.start / SR)
     assert decay.end_s == pytest.approx(FRAMES / SR)
-    held = _level(signal[LOOP.start : LOOP.end])
-    ends_on = _level(signal[-round(0.05 * SR) :])
+    held = _level(signal[LOOP.start : LOOP.start + _WINDOW])
+    ends_on = _level(signal[-_WINDOW:])
     assert decay.final_gain * held == pytest.approx(ends_on, rel=0.1)
+
+
+def test_the_ramp_starts_where_the_stored_region_stops_following_the_recording() -> None:
+    """The region is stored at one level from ``loop.start`` on, so that is where the fall it gave up resumes."""
+    signal = _sine(np.linspace(1.0, 0.1, FRAMES))
+
+    early = fit_linear_decay(signal, SR, Loop(start=SR // 2, end=SR))
+    late = fit_linear_decay(signal, SR, Loop(start=SR, end=2 * SR))
+
+    assert early is not None and late is not None
+    assert early.start_s < late.start_s
+    assert early.final_gain < late.final_gain  # the earlier region holds a higher level to fall from
 
 
 def test_a_note_falling_further_is_played_further_down() -> None:
@@ -82,10 +95,22 @@ def test_material_stating_no_decline_carries_no_decay(name: str, envelope: NDArr
     assert fit_linear_decay(_sine(envelope), SR, LOOP) is None
 
 
-def test_a_loop_reaching_the_end_of_its_recording_has_nothing_left_to_decline_through() -> None:
+def test_a_loop_reaching_the_end_of_its_recording_declines_through_the_region_itself() -> None:
+    """The region is stored flat, so the fall it made from ``loop.start`` on is the ramp that restores it."""
     signal = _sine(np.linspace(1.0, 0.1, FRAMES))
 
-    assert fit_linear_decay(signal, SR, Loop(start=SR, end=FRAMES)) is None
+    decay = fit_linear_decay(signal, SR, Loop(start=SR, end=FRAMES))
+
+    assert decay is not None
+    assert decay.start_s == pytest.approx(1.0)
+    assert decay.final_gain * _level(signal[SR : SR + _WINDOW]) == pytest.approx(_level(signal[-_WINDOW:]), rel=0.1)
+
+
+def test_a_region_too_short_for_a_line_through_its_levels_carries_no_decay() -> None:
+    """The level the ramp falls from is read off the region, so a region holding one reading states none."""
+    signal = _sine(np.linspace(1.0, 0.1, FRAMES))
+
+    assert fit_linear_decay(signal, SR, Loop(start=SR, end=SR + _WINDOW)) is None
 
 
 def test_a_silent_loop_region_holds_no_level_to_decline_from() -> None:

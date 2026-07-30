@@ -10,8 +10,9 @@ import numpy as np
 from optisample.artifacts.dataset import note_records, tracked_ccs, write_recording
 from optisample.artifacts.paths import LoopedPaths, looped_paths
 from optisample.artifacts.serialize import LoopsDocument, WrittenSampleRecord, loops_document, write_json
+from optisample.config.loop import SeamConfig
 from optisample.dsp.decay import LinearDecay
-from optisample.dsp.loop import crossfade_loop, seam_frames
+from optisample.dsp.loop import prepare_loop
 from optisample.io.audio import write_wav
 from optisample.io.note_extractor import dump_notes
 from optisample.keys import SampleKey
@@ -71,17 +72,18 @@ def _write_recordings(looped: LoopedInstrument, samples_dir: Path) -> _Written:
     return _Written(records=tuple(records), indices=indices)
 
 
-def held_audition(signal: Signal, stored: StoredLoop, sample_rate: int, seam: int) -> Signal:
+def held_audition(signal: Signal, stored: StoredLoop, sample_rate: int, seam: SeamConfig) -> Signal:
     """The recording played out through its loop: the attack, the loop wrapped a few times, then the decline.
 
-    The loop is crossfaded first, so what is heard is the wrap a player makes rather than the raw splice,
-    and the fitted decay is put over the whole span, so the audition carries the level a held note falls to
-    as well as the seam it falls through. Wrapping :data:`_HELD_ROUNDS` times is enough for a seam step or a
-    level pulse to become a rhythm rather than a single click.
+    The region is prepared first -- held at one level and blended at the seam -- so what is heard is the wrap
+    a player makes over the waveform a sample stores, and the fitted decay is put over the whole span, so the
+    audition carries the level a held note falls to as well as the seam it falls through. Wrapping
+    :data:`_HELD_ROUNDS` times is enough for a seam step or a level pulse to become a rhythm a listener
+    catches rather than a single click.
     """
-    faded = crossfade_loop(signal, stored.loop, fade_len=seam)
-    region = faded[stored.loop.start : stored.loop.end]
-    played = np.concatenate([faded[: stored.loop.end], np.tile(region, _HELD_ROUNDS)])
+    prepared = prepare_loop(signal, stored.loop, sample_rate, seam)
+    region = prepared[stored.loop.start : stored.loop.end]
+    played = np.concatenate([prepared[: stored.loop.end], np.tile(region, _HELD_ROUNDS)])
     return _declined(played, stored.decay, sample_rate)
 
 
@@ -93,7 +95,7 @@ def _declined(played: Signal, decay: LinearDecay | None, sample_rate: int) -> Si
     return np.asarray(played * decay.envelope(played.size, sample_rate), dtype=np.float64)
 
 
-def _write_auditions(looped: LoopedInstrument, out_dir: Path, seam: int, progress: ProgressSink) -> int:
+def _write_auditions(looped: LoopedInstrument, out_dir: Path, seam: SeamConfig, progress: ProgressSink) -> int:
     """Write the recording beside its loop played out, one folder per recording that earned a loop.
 
     A recording the stage settled no loop for has nothing to audition against itself, so it contributes no
@@ -156,8 +158,7 @@ def dump_looped(
         paths.notes_json,
         tracked_ccs=tracked_ccs(material),
     )
-    seam = seam_frames(settings.loop.seam, loaded.sample_rate)
-    auditions = _write_auditions(looped, paths.auditions_dir, seam, settings.progress)
+    auditions = _write_auditions(looped, paths.auditions_dir, settings.loop.seam, settings.progress)
     paths.loops_json.parent.mkdir(parents=True, exist_ok=True)
     write_json(paths.loops_json, looped_document(looped))
     return LoopedInstrumentArtifacts(

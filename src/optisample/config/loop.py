@@ -36,12 +36,21 @@ class GeometryConfig(ConfigModel):
 class SeamConfig(ConfigModel):
     """How the wrap is blended, so a loop returns to its start on the motion the waveform already made.
 
-    ``crossfade_s`` is the stretch before the loop end that is ramped toward the frames preceding the loop
-    start, which is what carries ``signal[end - 1]`` onto ``signal[start - 1]`` and makes the wrap
-    continuous (:func:`~optisample.dsp.loop.crossfade_loop`).
+    The stretch before the loop end is ramped toward the frames preceding the loop start, which carries
+    ``signal[end - 1]`` onto ``signal[start - 1]`` and makes the wrap continuous
+    (:func:`~optisample.dsp.loop.crossfade_loop`). ``fade_share`` states how much of that stretch is blended
+    as a share of the loop's own length and ``min_fade_s`` floors it in seconds, so every loop is blended in
+    proportion to the round it makes and a short one still gets a blend long enough to carry motion. The
+    material preceding the loop start is what the blend reaches for, so that stretch bounds it
+    (:func:`~optisample.dsp.loop.seam_frames`).
+
+    The law the two sides are weighted by follows from how alike they measure
+    (:func:`~optisample.dsp.loop.crossfade_loop`), which is what holds the level of a blend of material that
+    stayed in phase and of material whose partials have drifted apart alike.
     """
 
-    crossfade_s: Annotated[float, Field(ge=0.0)]
+    fade_share: Annotated[float, Field(ge=0.0, le=1.0)]
+    min_fade_s: Annotated[float, Field(ge=0.0)]
 
 
 class QualityConfig(ConfigModel):
@@ -49,15 +58,21 @@ class QualityConfig(ConfigModel):
 
     ``max_seam_step`` bounds the wrap in units of the loop region's own typical frame-to-frame motion, so
     1.0 admits a wrap as smooth as the waveform already moves and a larger value admits a step a listener
-    starts to hear once per round. ``max_spectral_distance_db`` bounds the log-spectral distance between the
-    loop region and the stretch it plays in place of, so a loop holds a timbre the material still has.
+    starts to hear once per round. ``max_level_drift_db`` bounds how far the region's own level falls across
+    it, which is the gain holding it at one level asks of the material (:func:`~optisample.dsp.loop.level_loop`):
+    a region falling faster than this is flattened only by fighting it, lifting its noise floor along with
+    its tail. Levelling reaches to a ceiling of its own, so a gate set past that ceiling admits regions the
+    line through their levels flattens in part. ``max_spectral_distance_db`` bounds the log-spectral distance
+    between the loop region and the stretch it plays in place of, so a loop holds a timbre the material
+    still has.
 
     Together they bound how aggressive a loop may be: candidates are offered cheapest first and the first
-    one clearing both is stored, so tightening either gate buys a later, longer, more faithful loop and
+    one clearing all three is stored, so tightening any gate buys a later, longer, more faithful loop and
     loosening it buys bytes.
     """
 
     max_seam_step: Annotated[float, Field(gt=0.0)]
+    max_level_drift_db: Annotated[float, Field(gt=0.0)]
     max_spectral_distance_db: Annotated[float, Field(gt=0.0)]
 
 

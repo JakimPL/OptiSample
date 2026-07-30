@@ -4,14 +4,12 @@ from typing import Final
 import numpy as np
 from numpy.typing import NDArray
 
-from optisample.dsp.levels import mean_energy
+from optisample.dsp.levels import level_trend
 from optisample.dsp.loop import Loop
 
 Signal = NDArray[np.float64]
 
 NO_DECAY: Final = None  # a stored sample whose own material carries every level it plays at
-_LEVEL_WINDOW_S: Final = 0.05  # the stretch one reading of the material's level averages over
-_MIN_READINGS: Final = 2  # readings a line can be drawn through, which is what states a decline
 _LEVEL_FLOOR: Final = 1e-12  # the level a silent stretch reads as, which leaves a ratio against it finite
 _STEADY_GAIN: Final = 0.99  # a fall of under a percent is a level held, so the ramp is left off
 
@@ -20,11 +18,11 @@ _STEADY_GAIN: Final = 0.99  # a fall of under a percent is a level held, so the 
 class LinearDecay:
     """The straight amplitude ramp a looped sample declines on, in seconds from the note's onset.
 
-    A loop repeats one region for as long as a note is held, so the sample holds the level that region
-    was recorded at. This is the decline the recording goes on making past it: unit gain up to
-    ``start_s``, a straight line down to ``final_gain`` at ``end_s``, and ``final_gain`` held for as long
-    as the note runs on. ``start_s`` is where the stored material ends, so the ramp begins exactly where
-    the sample stops carrying the recording's own envelope.
+    A loop repeats one region held at a single level for as long as a note is held, so the sample carries
+    one amplitude from ``start_s`` on. This is the decline the recording makes over that stretch: unit gain
+    up to ``start_s``, a straight line down to ``final_gain`` at ``end_s``, and ``final_gain`` held for as
+    long as the note runs on. ``start_s`` is where the stored material stops following the recording's own
+    envelope, which is where the loop region begins.
 
     Seconds run on the played timeline, which is the clock a tracker's volume envelope runs on, so every
     key sounding the sample declines over the same stretch of time as its root does.
@@ -46,58 +44,33 @@ class LinearDecay:
         return np.asarray(1.0 + progress * (self.final_gain - 1.0), dtype=np.float64)
 
 
-def _level(signal: Signal) -> float:
-    """RMS amplitude of ``signal``: the level a stretch holds, read past the phase of its waveform."""
-    return float(np.sqrt(mean_energy(signal)))
-
-
-def _block_levels(signal: Signal, block: int) -> tuple[Signal, Signal]:
-    """The level of each whole ``block``-frame window of ``signal``, and the frame each one centres on."""
-    count = signal.size // block
-    windows = np.asarray(signal[: count * block], dtype=np.float64).reshape(count, block)
-    return np.sqrt(np.mean(windows**2, axis=1)), (np.arange(count, dtype=np.float64) + 0.5) * block
-
-
-def _level_at(levels: Signal, seconds: Signal, moment_s: float) -> float:
-    """The least-squares line through the level readings, read at ``moment_s``.
-
-    Taking the line through every reading lets the body of the material set the decline: a note holding
-    its level until a short release at the very end reports the shallow fall it spent its length making,
-    and a struck note reports the steep one. A line also states the level at a moment past the readings,
-    which is where the ramp has to land.
-    """
-    centered = seconds - float(np.mean(seconds))
-    slope = float(np.sum(centered * levels) / np.sum(centered**2))
-    return float(np.mean(levels)) + slope * (moment_s - float(np.mean(seconds)))
-
-
 def fit_linear_decay(signal: Signal, sample_rate: int, loop: Loop) -> LinearDecay | None:
-    """The decline ``signal`` goes on making past the loop a sample stores of it.
+    """The decline ``signal`` makes from the loop a sample stores of it.
 
-    Storage ends at ``loop.end``, so the ramp holds unit gain up to there and what follows is read off
-    the material the loop stands in for: its level is sampled in short windows and a line drawn through
-    them (:func:`_level_at`) says where the recording ends up. The loop repeats at the level of the
-    region it holds, so the ratio of the two is how far a held note is played down by the time the
-    material runs out.
+    The stored region is held at the level it starts on (:func:`~optisample.dsp.loop.level_loop`), so the
+    ramp holds unit gain up to ``loop.start`` and states the fall the recording makes from there. The level
+    the region holds is the line through its own readings read at its first frame, and where a held note ends
+    up is the line through everything from ``loop.start`` on read at the last
+    (:func:`~optisample.dsp.levels.level_trend`), so the ratio of the two is how far the note is played down
+    by the time the material runs out. Reading both off the same windows is what makes the decline this ramp
+    restores the one levelling erased.
 
-    Returns ``None`` where the recording states no decline worth playing a note down by: material past
-    the loop holding fewer than ``_MIN_READINGS`` windows, a silent loop region, or a level still within
-    ``_STEADY_GAIN`` of the loop's own by the time the recording ends.
+    Returns ``None`` where the recording states no decline worth playing a note down by: a region or a
+    remainder too short for a line to be drawn through, a region starting from silence, or a level still
+    within ``_STEADY_GAIN`` of the region's own by the time the recording ends.
     """
-    block = max(1, round(_LEVEL_WINDOW_S * sample_rate))
-    remaining = np.asarray(signal[loop.end :], dtype=np.float64)
-    held = _level(signal[loop.start : loop.end])
-    if remaining.size < _MIN_READINGS * block or held <= _LEVEL_FLOOR:
+    remaining = np.asarray(signal[loop.start :], dtype=np.float64)
+    region = np.asarray(signal[loop.start : loop.end], dtype=np.float64)
+    held, onward = level_trend(region, sample_rate), level_trend(remaining, sample_rate)
+    if held is None or onward is None or held.at(0.0) <= _LEVEL_FLOOR:
         return NO_DECAY
 
-    levels, centres = _block_levels(remaining, block)
-    span_s = remaining.size / sample_rate
-    final_gain = max(_level_at(levels, centres / sample_rate, span_s), 0.0) / held
+    final_gain = max(onward.at(remaining.size / sample_rate), 0.0) / held.at(0.0)
     if final_gain > _STEADY_GAIN:
         return NO_DECAY
 
     return LinearDecay(
-        start_s=loop.end / sample_rate,
+        start_s=loop.start / sample_rate,
         end_s=signal.size / sample_rate,
         final_gain=final_gain,
     )

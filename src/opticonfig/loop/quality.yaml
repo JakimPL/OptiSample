@@ -1,3 +1,4 @@
 # What a loop must measure to be worth storing (optisample.config.loop.QualityConfig).
 max_seam_step: 4.0              # wrap step, in units of the frame-to-frame motion the waveform makes there
+max_level_drift_db: 12.0        # fall across the region that holding it at one level has to flatten
 max_spectral_distance_db: 12.0  # log-spectral distance between the loop and the stretch it stands in for

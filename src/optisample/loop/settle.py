@@ -5,7 +5,7 @@ from enum import StrEnum, unique
 
 from optisample.config.loop import LoopConfig, QualityConfig
 from optisample.dsp.decay import LinearDecay, fit_linear_decay
-from optisample.dsp.loop import Loop, LoopQuality, loop_candidates, loop_quality, seam_frames
+from optisample.dsp.loop import Loop, LoopQuality, loop_candidates, loop_quality
 from optisample.dsp.surrogate import NO_LOOP, SettledLoop
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.metrics.base import Signal
@@ -16,6 +16,7 @@ class Gate(StrEnum):
     """The measurement a candidate fell outside of, which is the reason the ladder climbed past it."""
 
     SEAM = "seam"
+    LEVEL = "level"
     TIMBRE = "timbre"
 
 
@@ -72,14 +73,18 @@ class Settlement:
 
 
 def _failed_gate(quality: LoopQuality, config: QualityConfig) -> Gate | None:
-    """The gate ``quality`` falls outside of, reading the wrap first and the timbre after.
+    """The gate ``quality`` falls outside of, read in the order the artefacts are heard in.
 
-    Returns ``None`` for a candidate clearing both, which is a loop worth storing. The seam is read first
-    because a step at the wrap is heard once per round wherever the timbre sits, so it is the stricter
-    complaint of the two.
+    Returns ``None`` for a candidate clearing every gate, which is a loop worth storing. The wrap comes
+    first because a step there is a click once per round wherever the rest sits, the level next because
+    flattening a steep region lifts its noise along with its tail, and the timbre last because a loop
+    holding a sound the material has moved on from is the subtlest of the three.
     """
     if quality.seam_step > config.max_seam_step:
         return Gate.SEAM
+
+    if quality.level_drift_db > config.max_level_drift_db:
+        return Gate.LEVEL
 
     if quality.spectral_distance > config.max_spectral_distance_db:
         return Gate.TIMBRE
@@ -110,17 +115,16 @@ def settle_loop(
     Candidates are measured over the first ``search_s`` of the recording -- the longest stretch the
     material asks of it -- because a loop ending past that stores more than keeping the played span would
     and so wins nothing. The ladder is climbed cheapest first (:func:`_ladder`) and the first candidate
-    clearing both quality gates is kept, so the loop stored is the most aggressive one the recording
+    clearing every quality gate is kept, so the loop stored is the most aggressive one the recording
     supports and the gates are what say how aggressive that is.
 
     The decline is fitted over the whole recording rather than the searched stretch, so the ramp a held
     note falls on is read off every level the recording states.
     """
     searched = signal[: seconds_to_frames(search_s, sample_rate)]
-    fade_len = seam_frames(config.seam, sample_rate)
     rejected: list[RejectedLoop] = []
     for loop in _ladder(searched, sample_rate, config):
-        quality = loop_quality(searched, loop, sample_rate, config.geometry, fade_len=fade_len)
+        quality = loop_quality(searched, loop, sample_rate, config.geometry, config.seam)
         gate = _failed_gate(quality, config.quality)
         if gate is None:
             decay = fit_linear_decay(signal, sample_rate, loop)

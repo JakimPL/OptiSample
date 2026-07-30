@@ -231,13 +231,15 @@ class StoredFormatRecord(Frozen):
 
 
 class LoopQualityRecord(Frozen):
-    """What measuring a loop said about it: the wrap it makes, and the timbre it holds on to.
+    """What measuring a loop said about it: the wrap it makes, the level it holds, the timbre it holds on to.
 
-    ``seam_step`` reads the wrap in units of the loop region's own frame-to-frame motion, and
+    ``seam_step`` reads the wrap in units of the loop region's own frame-to-frame motion,
+    ``level_drift_db`` the fall across the region that holding it at one level had to flatten, and
     ``spectral_distance`` the decibel distance between the loop's timbre and the material past it.
     """
 
     seam_step: float
+    level_drift_db: float
     spectral_distance: float
 
 
@@ -575,7 +577,11 @@ def _decay_record(decay: LinearDecay | None) -> DecayRecord | None:
 
 def _loop_quality_record(quality: LoopQuality) -> LoopQualityRecord:
     """What measuring one candidate said about it, read out into the document's own fields."""
-    return LoopQualityRecord(seam_step=quality.seam_step, spectral_distance=quality.spectral_distance)
+    return LoopQualityRecord(
+        seam_step=quality.seam_step,
+        level_drift_db=quality.level_drift_db,
+        spectral_distance=quality.spectral_distance,
+    )
 
 
 def _settled_loop_record(stored: StoredLoop, sample_rate: int) -> SettledLoopRecord:

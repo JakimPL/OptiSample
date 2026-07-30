@@ -34,8 +34,8 @@ def _stage_type(annotation: type[Any] | None) -> type[StageConfig] | None:
 def _group_payload(directory: Path | None, name: str, annotation: type[Any] | None) -> Any:
     """The raw settings one field of :class:`OptiConfig` is built from.
 
-    A stage reads one file per group from the directory it names, so ``codec.loop`` comes from
-    ``codec/loop.yaml``; every other group is a file of its own name.
+    A stage reads one file per group from the directory it names, so ``loop.seam`` comes from
+    ``loop/seam.yaml``; every other group is a file of its own name.
     """
     stage = _stage_type(annotation)
     if stage is None:

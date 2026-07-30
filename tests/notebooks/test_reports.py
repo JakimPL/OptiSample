@@ -187,8 +187,8 @@ def _metrics() -> MetricsDocument:
     )
 
 
-def _quality(seam: float, timbre: float) -> LoopQualityRecord:
-    return LoopQualityRecord(seam_step=seam, spectral_distance=timbre)
+def _quality(seam: float, drift: float, timbre: float) -> LoopQualityRecord:
+    return LoopQualityRecord(seam_step=seam, level_drift_db=drift, spectral_distance=timbre)
 
 
 def _loops() -> LoopsDocument:
@@ -209,11 +209,11 @@ def _loops() -> LoopsDocument:
                     end=4_400,
                     start_s=0.05,
                     end_s=0.55,
-                    quality=_quality(1.25, 3.5),
+                    quality=_quality(1.25, 2.0, 3.5),
                     decay=DecayRecord(start_s=0.55, end_s=2.0, final_gain=0.25),
                 ),
                 rejected=[
-                    RejectedLoopRecord(start_s=0.05, end_s=0.30, quality=_quality(0.9, 14.0), gate="timbre"),
+                    RejectedLoopRecord(start_s=0.05, end_s=0.30, quality=_quality(0.9, 2.0, 14.0), gate="timbre"),
                 ],
             ),
             RecordingLoopsRecord(
@@ -225,8 +225,8 @@ def _loops() -> LoopsDocument:
                 search_s=1.5,
                 stored=None,
                 rejected=[
-                    RejectedLoopRecord(start_s=0.05, end_s=0.55, quality=_quality(6.0, 2.0), gate="seam"),
-                    RejectedLoopRecord(start_s=0.60, end_s=1.10, quality=_quality(1.0, 20.0), gate="timbre"),
+                    RejectedLoopRecord(start_s=0.05, end_s=0.55, quality=_quality(6.0, 2.0, 2.0), gate="seam"),
+                    RejectedLoopRecord(start_s=0.60, end_s=1.10, quality=_quality(1.0, 2.0, 20.0), gate="timbre"),
                 ],
             ),
         ],
