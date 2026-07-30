@@ -311,10 +311,21 @@ envelope: the attack sounds as it was recorded, and from there the ramp restores
 levelling erased. Its seconds run on the played timeline, which is the clock a tracker's volume envelope
 runs on, so every key sounding the sample declines over the same stretch of time.
 
-**The written module does not carry that envelope yet.** `optimize/export/build.py` writes each
-`Instrument` with no `volume_envelope` and no `fadeout`, so an exported looped note rings at the loop's
-level while the objective scores it declining. Until the envelope is written, `--no-loop` is the lever that
-closes the gap.
+**The written module carries that decline as a volume envelope.** `optimize/export/build.py` gives every
+instrument the curve its own samples state ([`export/envelope.py`](src/optisample/optimize/export/envelope.py)):
+full volume through the attack, still full where the loop begins, the level the recording fell to by the
+end of its ramp, and silence a release later. The third breakpoint is the sustain point, so a held note
+stays where the recording left it and a released one goes on to the fourth and dies.
+
+A format gives the envelope to the *instrument* rather than the sample, so every sample a written slot
+holds shares one curve — the median decline among them. What that costs the sample it suits worst is
+reported per instrument as `envelope_drift_db` in `plan.json`, which is the reading that says whether the
+keys sharing an envelope are better written as several instruments.
+
+Ticks are what a format counts envelope time in, so a curve is only right at the tempo it was fitted at. A
+written module carries its own clock, so it is safe on its own; a `.bank` entry is an instrument lifted out
+of that module and carries none, which is why the manifest states the `tempo` its envelopes were fitted
+against.
 
 ## Velocity layers: trading samples for dynamics
 

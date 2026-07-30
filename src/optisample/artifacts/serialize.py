@@ -22,6 +22,7 @@ from optisample.loop.settle import RejectedLoop, Settlement, StoredLoop
 from optisample.music import note_name
 from optisample.optimize.export.build import instrument_name
 from optisample.optimize.export.coverage import KeyCoverage
+from optisample.optimize.export.envelope import decay_dispersion, shared_decay
 from optisample.optimize.layers.slots import InstrumentSlot, SlotLayout
 from optisample.optimize.plans import (
     GroupedInstrumentPlan,
@@ -37,6 +38,7 @@ from optisample.optimize.velocity_map import VelocityVolumeMap
 from trackmod.module.size import SizeReport
 
 _OPTIONAL_HEAD: Final = ("method", "pitches", "reserve", "zones")
+NO_DRIFT: Final = 0.0  # what one envelope costs an instrument whose samples state no decline to share
 
 
 class Frozen(BaseModel):
@@ -154,6 +156,11 @@ class InstrumentRecord(Frozen):
     ``highest_pitch``, which are the keys its samples were stored for. ``keys`` counts those keys and
     ``objective_share`` what their notes carry of the plan's objective, so the records add up to what the
     whole plan covers, stores and scores.
+
+    ``envelope_drift_db`` is the widest decibel gap the one volume envelope this instrument carries leaves
+    a sample of its own by the end of that sample's ramp. A format gives the envelope to the instrument
+    rather than the sample, so keys declining at different rates share one curve, and this states what
+    that costs the worst of them -- the reading that says whether the instrument is worth splitting.
     """
 
     index: int
@@ -169,6 +176,7 @@ class InstrumentRecord(Frozen):
     stored_bytes: int
     weight: float
     objective_share: float
+    envelope_drift_db: float
 
 
 class ReserveRecord(Frozen):
@@ -740,7 +748,19 @@ def _pitch_item(unit: SampleUnit, stored: StoredSample) -> PitchItemRecord:
     )
 
 
-def _instrument_record(index: int, slot: InstrumentSlot, name: str) -> InstrumentRecord:
+def _envelope_drift_db(slot: InstrumentSlot, encoded: Sequence[StoredSample]) -> float:
+    """What the one envelope this slot carries costs the sample of its own it suits worst."""
+    decays = [encoded[index].decay for index in slot.samples]
+    shared = shared_decay(decays)
+    return NO_DRIFT if shared is None else decay_dispersion(decays, shared)
+
+
+def _instrument_record(
+    index: int,
+    slot: InstrumentSlot,
+    name: str,
+    encoded: Sequence[StoredSample],
+) -> InstrumentRecord:
     pitches = slot.pitches
     return InstrumentRecord(
         index=index,
@@ -756,13 +776,18 @@ def _instrument_record(index: int, slot: InstrumentSlot, name: str) -> Instrumen
         stored_bytes=slot.stored_bytes,
         weight=slot.weight,
         objective_share=slot.objective_share,
+        envelope_drift_db=_envelope_drift_db(slot, encoded),
     )
 
 
-def _instrument_records(plan: StrategyPlan, layout: SlotLayout) -> list[InstrumentRecord]:
+def _instrument_records(
+    plan: StrategyPlan,
+    layout: SlotLayout,
+    encoded: Sequence[StoredSample],
+) -> list[InstrumentRecord]:
     """One record per written instrument, named exactly as the module's own instrument list names it."""
     return [
-        _instrument_record(index, slot, instrument_name(plan.instrument_id, layout, index))
+        _instrument_record(index, slot, instrument_name(plan.instrument_id, layout, index), encoded)
         for index, slot in enumerate(layout.slots)
     ]
 
@@ -808,7 +833,7 @@ def plan_document(
     keyboard = _keyboard_record(coverage)
     reduction = reduction_document(plan.reduction)
     velocity_map = _velocity_map_document(plan.velocity_map)
-    instruments = _instrument_records(plan, layout)
+    instruments = _instrument_records(plan, layout, encoded)
     if plan.strategy == "grouped":
         return PlanDocument(
             strategy="grouped",

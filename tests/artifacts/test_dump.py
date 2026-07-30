@@ -9,6 +9,7 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.artifacts import DumpSettings, dump_instrument, dump_project
+from optisample.artifacts.bank import MANIFEST_VERSION
 from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import ReduceConfig
@@ -75,7 +76,11 @@ def _settings() -> OptimizeSettings:
 
 
 NO_RENDER = DumpSettings(
-    optimize=_settings(), render=_CONFIG.export.render, playback=_CONFIG.export.playback, render_ground_truth=False
+    optimize=_settings(),
+    render=_CONFIG.export.render,
+    playback=_CONFIG.export.playback,
+    envelope=_CONFIG.export.envelope,
+    render_ground_truth=False,
 )
 
 
@@ -182,8 +187,9 @@ def test_the_bank_names_the_instruments_it_carries(generous: Path) -> None:
         base = generous / name
         bank = _bank(base)
         held = _held(base)
-        assert bank["version"] == 2
+        assert bank["version"] == MANIFEST_VERSION
         assert bank["name"] == "piano"
+        assert bank["tempo"] == _CONFIG.export.playback.tempo
         assert len(bank["layers"]) == len(_load(base / "plan.json")["instruments"])
         assert [layer["source"]["file"] for layer in bank["layers"]] == held
 
@@ -281,7 +287,12 @@ def test_ground_truth_render_produces_real_audio(tmp_path: Path, demo_audio_map:
         _settled_recordings(instrument, demo_audio_map((60, 62))),
         out,
         # render_ground_truth defaults True
-        DumpSettings(optimize=_settings(), render=_CONFIG.export.render, playback=_CONFIG.export.playback),
+        DumpSettings(
+            optimize=_settings(),
+            render=_CONFIG.export.render,
+            playback=_CONFIG.export.playback,
+            envelope=_CONFIG.export.envelope,
+        ),
     )
     assert all(plan.rendered for plan in result.plans if plan.feasible)
     module_wav = out / "grouped" / "render" / "module.wav"
@@ -330,6 +341,7 @@ def test_strategy_flags_restrict_which_plans_run(
         optimize=_settings(),
         render=_CONFIG.export.render,
         playback=_CONFIG.export.playback,
+        envelope=_CONFIG.export.envelope,
         render_ground_truth=False,
         ungrouped=False,
     )

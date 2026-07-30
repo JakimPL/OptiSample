@@ -63,6 +63,7 @@ def no_render_settings(tiny_settings: OptimizeSettings) -> DumpSettings:
         optimize=tiny_settings,
         render=_CONFIG.export.render,
         playback=_CONFIG.export.playback,
+        envelope=_CONFIG.export.envelope,
         render_ground_truth=False,
     )
 

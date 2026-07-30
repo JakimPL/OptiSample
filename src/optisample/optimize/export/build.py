@@ -1,13 +1,17 @@
 from collections.abc import Sequence
 from typing import Final
 
+from optisample.dsp.surrogate import StoredSample
+from optisample.dsp.timebase import tick_seconds
 from optisample.model import NoteEvent
 from optisample.optimize.export.context import ExportContext
+from optisample.optimize.export.envelope import NO_ENVELOPE, shared_decay, volume_envelope
 from optisample.optimize.export.material import CHANNELS, Voicing, material_patterns
 from optisample.optimize.export.samples import plan_samples
-from optisample.optimize.layers.slots import ONE_SLOT, SlotLayout, plan_slots
+from optisample.optimize.layers.slots import ONE_SLOT, InstrumentSlot, SlotLayout, plan_slots
 from optisample.optimize.plans import SINGLE_LAYER, StrategyPlan
 from optisample.optimize.tasks import StoredRecordings
+from trackmod.core.envelopes.envelope import Envelope
 from trackmod.core.instruments.instrument import Instrument
 from trackmod.core.instruments.keymap import Keymap
 from trackmod.core.songs.playback import Playback
@@ -50,10 +54,44 @@ def instrument_name(instrument_id: str, layout: SlotLayout, index: int) -> str:
     return f"{instrument_id[: max(_SHORTEST_ID, _NAME_CHARS - len(axes) - 1)]} {axes}"
 
 
-def _slot_instruments(plan: StrategyPlan, layout: SlotLayout, keymaps: Sequence[Keymap]) -> tuple[Instrument, ...]:
+def slot_envelope(
+    slot: InstrumentSlot,
+    stored: Sequence[StoredSample],
+    context: ExportContext,
+) -> Envelope | None:
+    """The volume curve one written instrument plays every voice it starts down by.
+
+    A looped sample holds one level for as long as a note is held, so the decline the recording made past
+    that point lives in the envelope rather than the waveform. The envelope belongs to the instrument and
+    the slot holds several samples, so one shape answers for all of them
+    (:func:`~optisample.optimize.export.envelope.shared_decay`).
+    """
+    shared = shared_decay([stored[index].decay for index in slot.samples])
+    if shared is None:
+        return NO_ENVELOPE
+
+    return volume_envelope(
+        shared,
+        tick_s=tick_seconds(context.playback.tempo),
+        release_s=context.envelope.release_s,
+        last_tick=context.target.max_envelope_tick,
+    )
+
+
+def _slot_instruments(
+    plan: StrategyPlan,
+    layout: SlotLayout,
+    keymaps: Sequence[Keymap],
+    stored: Sequence[StoredSample],
+    context: ExportContext,
+) -> tuple[Instrument, ...]:
     """One instrument per written slot, so a note's dynamic and pitch name the one it plays."""
     return tuple(
-        Instrument(name=instrument_name(plan.instrument_id, layout, index), keymap=keymap)
+        Instrument(
+            name=instrument_name(plan.instrument_id, layout, index),
+            keymap=keymap,
+            volume_envelope=slot_envelope(layout.slots[index], stored, context),
+        )
         for index, keymap in enumerate(keymaps)
     )
 
@@ -72,7 +110,7 @@ def build_song(
     clock -- is the same for both strategies, so it lives here once.
     """
     layout = plan_slots(plan, context.target)
-    samples, keymaps = plan_samples(plan, layout, recordings, context)
+    planned = plan_samples(plan, layout, recordings, context)
     voicing = Voicing(layout=layout, velocity_map=plan.velocity_map)
     patterns, order = material_patterns(material, voicing, context.playback, context.target)
     return Song(
@@ -80,8 +118,8 @@ def build_song(
         channels=CHANNELS,
         patterns=patterns,
         order=order,
-        instruments=_slot_instruments(plan, layout, keymaps),
-        samples=samples,
+        instruments=_slot_instruments(plan, layout, planned.keymaps, planned.stored, context),
+        samples=planned.samples,
         playback=Playback(speed=context.playback.speed, tempo=context.playback.tempo),
     )
 

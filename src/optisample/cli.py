@@ -473,6 +473,7 @@ def _dump_settings(
         optimize=_optimize_settings(config, args, _layers_config(config, args), _budget_config(config, args)),
         render=config.export.render,
         playback=config.export.playback,
+        envelope=config.export.envelope,
         render_ground_truth=not args.no_render,
         grouped=args.strategy in ("both", "grouped"),
         ungrouped=args.strategy in ("both", "ungrouped"),

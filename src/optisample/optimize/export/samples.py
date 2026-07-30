@@ -1,4 +1,5 @@
 from collections.abc import Iterator, Sequence
+from dataclasses import dataclass
 from typing import Final
 
 import numpy as np
@@ -23,6 +24,20 @@ from trackmod.spec.levels import MAX_VOLUME
 _SAMPLE_LABEL_CHARS: Final = 13  # instrument-id chars kept before the " <note> v<velocity>" suffix, XM's 22.
 _UNIT_GAIN: Final = 1.0  # what a sample stored without scaling plays back at
 _QUIETEST_GAIN: Final = 1  # the softest step that still sounds, so a quiet sample is heard rather than dropped
+
+
+@dataclass(frozen=True)
+class PlannedSamples:
+    """What a plan is written as: the stored waveforms, the keys routed onto them, and how each was encoded.
+
+    ``samples`` and ``keymaps`` are what the song carries; ``stored`` is the encoder's own answer for each
+    sample, in the same order, which is where the decline a note is played down by is read from. Keeping
+    the three together lets one instrument's envelope be fitted from the very samples it starts.
+    """
+
+    samples: tuple[Sample, ...]
+    keymaps: tuple[Keymap, ...]
+    stored: tuple[StoredSample, ...]
 
 
 def encode_plan_units(
@@ -148,7 +163,7 @@ def plan_samples(
     layout: SlotLayout,
     recordings: StoredRecordings,
     context: ExportContext,
-) -> tuple[tuple[Sample, ...], tuple[Keymap, ...]]:
+) -> PlannedSamples:
     """Re-encode each unit's representative and map every key it serves onto the resulting sample.
 
     Units are encoded in order from one seeded RNG, so the byte layout reproduces the plan exactly. The
@@ -177,4 +192,8 @@ def plan_samples(
         )
         for (unit, stored), gain in zip(encoded, gains)
     )
-    return samples, _slot_keymaps(layout, context.target)
+    return PlannedSamples(
+        samples=samples,
+        keymaps=_slot_keymaps(layout, context.target),
+        stored=tuple(stored for _, stored in encoded),
+    )

@@ -6,7 +6,7 @@ from typing import Final
 from optisample.artifacts.serialize import Frozen, VelocityMapDocument
 from optisample.optimize.layers.slots import ONE_SLOT, SlotLayout
 
-MANIFEST_VERSION: Final = 2  # the manifest shape stated out loud, so a consumer reads the one it knows
+MANIFEST_VERSION: Final = 3  # the manifest shape stated out loud, so a consumer reads the one it knows
 _VELOCITY_AXIS: Final = "velocity"  # the axis name a selector spells its velocity band under
 _PITCH_AXIS: Final = "pitch"  # the axis name a selector spells its run of keys under
 
@@ -45,10 +45,16 @@ class BankDocument(Frozen):
     by the dynamic it was struck at and the instrument's own keymap then picks the sample. Every entry a
     layer names is held in the bank itself, so the manifest and the instruments it points at travel as
     one unit however the bank is copied or renamed.
+
+    ``tempo`` is the clock the volume envelopes were fitted against. Both formats count envelope
+    breakpoints in ticks and a tick lasts ``5 / (2 * tempo)`` seconds
+    (:func:`~optisample.dsp.timebase.tick_seconds`), so an instrument loaded into a module running at this
+    tempo declines over the stretch of time its recording did.
     """
 
     version: int
     name: str
+    tempo: int
     layers: list[LayerRecord]
 
 
@@ -82,6 +88,7 @@ def bank_document(
     layout: SlotLayout,
     entries: Sequence[str],
     velocity_map: VelocityMapDocument,
+    tempo: int,
 ) -> BankDocument:
     """The bank ``layout`` is played through: one layer per written instrument, in the order they were written.
 
@@ -89,10 +96,11 @@ def bank_document(
     the dynamics and, where its band was split across several instruments, the keys it answers, so the
     manifest says out loud what the allocation decided and a note reaches the instrument meant for it.
     Every layer carries the map the whole plan measured, which is the dynamic each of its samples was
-    stored at.
+    stored at, and the bank states the ``tempo`` its envelopes were fitted against.
     """
     return BankDocument(
         version=MANIFEST_VERSION,
         name=name,
+        tempo=tempo,
         layers=[_layer_record(layout, index, entry, velocity_map) for index, entry in enumerate(entries)],
     )

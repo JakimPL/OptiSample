@@ -12,6 +12,7 @@ from optisample.optimize.plans import SampleUnit
 _SPLIT = VelocityLayers((VelocityBand(0, 50), VelocityBand(51, MIDI_MAX_VELOCITY)))
 _EXTENSION = ".iti"
 _NAME = "piano"
+_TEMPO = 125
 _PER_INSTRUMENT = 12  # samples one instrument owns in a format numbering few of them
 _CUT_KEYS = range(60, 84)
 _VOLUMES = [velocity // 2 for velocity in range(MIDI_MAX_VELOCITY + 1)]
@@ -38,7 +39,7 @@ def _entries(layout: SlotLayout) -> tuple[str, ...]:
 
 
 def _bank(layout: SlotLayout, entries: Sequence[str]) -> BankDocument:
-    return bank_document(_NAME, layout, entries, _velocity_map())
+    return bank_document(_NAME, layout, entries, _velocity_map(), _TEMPO)
 
 
 def _unit(pitch: int) -> SampleUnit:

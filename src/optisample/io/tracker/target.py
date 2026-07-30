@@ -114,6 +114,11 @@ class ExportTarget:
         return self.limits.bound(Capability.SAMPLES_PER_INSTRUMENT).maximum
 
     @property
+    def max_envelope_tick(self) -> int:
+        """The last tick an envelope breakpoint may sit on, which bounds how long a written curve runs."""
+        return self.limits.bound(Capability.ENVELOPE_TICK).maximum
+
+    @property
     def min_rows(self) -> int:
         """The shortest pattern this format accepts, which laid-out material is padded up to."""
         return self.limits.bound(Capability.PATTERN_ROWS).minimum

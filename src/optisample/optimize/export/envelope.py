@@ -1,0 +1,103 @@
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Final
+
+from optisample.dsp.decay import LinearDecay
+from optisample.dsp.levels import gain_to_db
+from trackmod.core.envelopes.envelope import Envelope
+from trackmod.core.envelopes.point import EnvelopePoint
+from trackmod.core.envelopes.span import EnvelopeSpan
+from trackmod.spec.levels import MAX_VOLUME, MIN_VOLUME
+
+NO_ENVELOPE: Final = None  # what an instrument whose samples carry every level they play at leaves behind
+
+_ONSET_TICK: Final = 0
+_TICK_APART: Final = 1  # ticks between neighbouring breakpoints, which is what states their order
+_NO_DISPERSION: Final = 0.0  # what one shape costs the samples sharing it while none of them states a decline
+
+
+def _node_value(gain: float) -> int:
+    """The step a volume envelope holds ``gain`` at, on the 0-64 grid both formats write their nodes on."""
+    return min(MAX_VOLUME, max(MIN_VOLUME, round(MAX_VOLUME * gain)))
+
+
+def _decline_db_per_s(decay: LinearDecay) -> float:
+    """How steeply a note is played down, in decibels a second, which is what one shared shape has to match."""
+    return gain_to_db(decay.final_gain) / decay.span_s
+
+
+def shared_decay(decays: Sequence[LinearDecay | None]) -> LinearDecay | None:
+    """The one decline every voice an instrument starts is played down by.
+
+    A volume envelope belongs to the instrument, so the samples written into one slot answer to a single
+    shape however differently each was recorded to decline. The member falling at the median rate is taken
+    whole, which keeps the written curve a decline some recording actually makes rather than an average of
+    several that no key plays. :func:`decay_dispersion` states what the others give up for it.
+
+    Returns ``None`` where no sample in the slot states a decline, which leaves that instrument's voices at
+    the level their own material carries.
+    """
+    stated = [decay for decay in decays if decay is not None]
+    if not stated:
+        return NO_ENVELOPE
+
+    return sorted(stated, key=_decline_db_per_s)[len(stated) // 2]
+
+
+def decay_dispersion(decays: Sequence[LinearDecay | None], shared: LinearDecay) -> float:
+    """The widest decibel gap ``shared`` leaves a sample of the same instrument by the end of its own ramp.
+
+    Each member states where its note lands; the shared curve puts it somewhere else by the time that
+    member's ramp is through. The largest of those gaps is what one envelope per instrument costs, and it is
+    the reading that says whether the keys sharing one are better written as several instruments.
+    """
+    rate = _decline_db_per_s(shared)
+    stated = [decay for decay in decays if decay is not None]
+    return max(
+        (abs(gain_to_db(decay.final_gain) - rate * decay.span_s) for decay in stated),
+        default=_NO_DISPERSION,
+    )
+
+
+def _ascending(ticks: Sequence[int], last_tick: int) -> tuple[int, ...]:
+    """``ticks`` made strictly increasing, each inside the last tick the format numbers.
+
+    Every breakpoint keeps room for the ones after it, so a curve running past what the format counts is
+    pulled back to the ticks that remain rather than losing the nodes that state where it ends.
+    """
+    placed: list[int] = []
+    for index, tick in enumerate(ticks):
+        lowest = _ONSET_TICK if not placed else placed[-1] + _TICK_APART
+        highest = max(lowest, last_tick - (len(ticks) - 1 - index))
+        placed.append(min(max(tick, lowest), highest))
+
+    return tuple(placed)
+
+
+def volume_envelope(decay: LinearDecay, *, tick_s: float, release_s: float, last_tick: int) -> Envelope:
+    """The curve an instrument plays its voices down by, written on the tick grid ``tick_s`` states.
+
+    Four breakpoints say the whole of a :class:`~optisample.dsp.decay.LinearDecay`: full volume at the
+    onset, still full where the stored material stops following the recording, the level the note has
+    fallen to once the ramp is through, and silence a release later. The third is the sustain point, so a
+    held note stays at the level the recording reached and a released one goes on to the fourth and dies.
+    Both formats sustain on a single point, so the span names one.
+
+    Ticks are what a format counts envelope time in, so the curve holds only for the tempo ``tick_s`` was
+    read at -- which is why that tempo travels with a bank
+    (:class:`~optisample.artifacts.bank.BankDocument`).
+    """
+    ticks = _ascending(
+        (
+            _ONSET_TICK,
+            round(decay.start_s / tick_s),
+            round(decay.end_s / tick_s),
+            round((decay.end_s + release_s) / tick_s),
+        ),
+        last_tick,
+    )
+    values = (MAX_VOLUME, MAX_VOLUME, _node_value(decay.final_gain), MIN_VOLUME)
+    points = tuple(EnvelopePoint(tick=tick, value=value) for tick, value in zip(ticks, values))
+    held = len(points) - 2
+    return Envelope(points=points, sustain=EnvelopeSpan(begin=held, end=held))

@@ -1,0 +1,2 @@
+# The volume envelope written beside an instrument (optisample.config.export.EnvelopeConfig).
+release_s: 0.25 # how long a released note takes to fall silent, past the decline the recording states

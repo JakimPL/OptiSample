@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+from optisample.config.export import EnvelopeConfig
 from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.model import InstrumentSpec, NoteEvent
 from optisample.optimize.layers.bands import VelocityLayers
@@ -15,14 +16,15 @@ from optisample.progress import ProgressSink
 class DumpSettings:
     """What to dump and how (bundled to keep call sites small).
 
-    ``optimize``/``render``/``playback`` carry the config the run needs; the CLI builds them from a
-    loaded ``OptiConfig`` (see :func:`optisample.cli._dump_settings`). The remaining flags are
+    ``optimize``/``render``/``playback``/``envelope`` carry the config the run needs; the CLI builds them
+    from a loaded ``OptiConfig`` (see :func:`optisample.cli._dump_settings`). The remaining flags are
     behavioural toggles, so they keep ergonomic defaults.
     """
 
     optimize: OptimizeSettings
     render: RenderConfig
     playback: PlaybackConfig
+    envelope: EnvelopeConfig
     render_ground_truth: bool = True  # render module + per-note through openmpt123 if it is installed
     grouped: bool = True
     ungrouped: bool = True

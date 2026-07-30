@@ -228,6 +228,9 @@ def instrument_rows(plan: PlanDocument) -> list[Row]:
     plan's vocabulary is read: how the budget was divided between velocity resolution and everything
     else. A plan keeping one recording per key in one band reports the single instrument it is written
     as, and a band a format writes as several instruments reports the stretch of keyboard each holds.
+
+    ``drift_db`` reads what the one volume envelope an instrument carries costs the sample of its own it
+    suits worst, which is what says whether the keys sharing it want writing as several instruments.
     """
     return [
         {
@@ -239,6 +242,7 @@ def instrument_rows(plan: PlanDocument) -> list[Row]:
             "kib": round(bytes_to_kib(instrument.stored_bytes), 3),
             "weight_s": round(instrument.weight, 2),
             "objective": round(instrument.objective_share, 4),
+            "drift_db": round(instrument.envelope_drift_db, 2),
         }
         for instrument in plan.instruments
     ]

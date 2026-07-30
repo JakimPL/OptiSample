@@ -104,6 +104,7 @@ def _export_context(dump_context: DumpContext) -> ExportContext:
         encode=dump_context.eval_context.encode,
         playback=settings.playback,
         target=settings.optimize.target,
+        envelope=settings.envelope,
         seed=settings.optimize.seed,
     )
 

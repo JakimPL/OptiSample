@@ -204,8 +204,13 @@ def sweep_context(config: OptiConfig, composite: CompositeFidelity, storage: Sto
 
 @pytest.fixture
 def export_context(config: OptiConfig, target: ExportTarget) -> ExportContext:
-    """The exporter context (encode + playback + target) built from the bundled config, seed 0."""
-    return ExportContext(encode=config.encode, playback=config.export.playback, target=target)
+    """The exporter context (encode + playback + target + envelope) built from the bundled config, seed 0."""
+    return ExportContext(
+        encode=config.encode,
+        playback=config.export.playback,
+        target=target,
+        envelope=config.export.envelope,
+    )
 
 
 @pytest.fixture

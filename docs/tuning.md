@@ -290,11 +290,12 @@ Three things read as "a tail after the piano decays":
    [`render`](../src/optisample/dsp/surrogate/render.py) plays a held note down it. So the objective scores
    a piano note as attack + loop + decline, which is what makes a long note cheap.
 
-   **The written module does not carry that envelope yet.** `optimize/export/build.py` writes each
-   `Instrument` with no `volume_envelope` and no `fadeout`, so an exported looped note holds the loop's
-   level while its score says it declines: the module sounds worse than the number. While that gap is
-   open, `--no-loop` is what closes it — and it costs bytes, since the trimmed sample stores every second
-   it sounds for.
+   **The written module carries that envelope**, so the module now sounds like its number.
+   `optimize/export/build.py` writes each `Instrument` with the volume curve its own samples state
+   ([`export/envelope.py`](../src/optisample/optimize/export/envelope.py)), sustaining on the level the
+   recording reached and releasing to silence over `export.envelope.release_s`. Because a format gives the
+   envelope to the instrument rather than the sample, the samples in one written slot share the median
+   decline among them; `envelope_drift_db` in `plan.json` states what that costs the worst-served sample.
 3. **A neighbouring note inside the take.** One 10.16 s source take decays to −52 dB and then re-attacks to
    −19 dB, 0.29 s before it ends — the following event in the performance, captured inside this note's take.
    the 10 s cap in force at the time cut right at that onset, so the stored sample ended *on* the
@@ -400,6 +401,7 @@ as the format numbers. Each extra sample is charged a reserve, so the run states
 | `loop.geometry.min_loop_s` | `loop/geometry.yaml` | Loops are short enough to buzz at their own rate. |
 | `loop.geometry.placements`, `loop.geometry.length_multiples` | `loop/geometry.yaml` | The loop sits where the note has not settled yet. |
 | `loop.seam.fade_share`, `loop.seam.min_fade_s` | `loop/seam.yaml` | The wrap is continuous but audible as a texture change. |
+| `export.envelope.release_s` | `export/envelope.yaml` | A released note is cut off abruptly, or hangs on after the key is let go. |
 
 `--config` takes a **directory** laid out the way the bundled one is -- a stage per directory, a group per
 file -- so copy the whole `src/opticonfig/` tree and edit the copy.

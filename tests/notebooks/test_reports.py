@@ -124,6 +124,7 @@ def _plan(strategy: str) -> PlanDocument:
                 stored_bytes=48_500,
                 weight=4.0,
                 objective_share=12.3456,
+                envelope_drift_db=1.5,
             )
         ],
     }
