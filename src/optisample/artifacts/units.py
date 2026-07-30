@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from optisample.artifacts.context import DumpContext
 from optisample.artifacts.serialize import PlanDocument, plan_document
 from optisample.dsp.surrogate import StoredSample
+from optisample.keys import SampleKey
 from optisample.model import NoteEvent
 from optisample.optimize.export import build_module
 from optisample.optimize.export.context import ExportContext
@@ -16,7 +17,6 @@ from optisample.optimize.plans import (
     InstrumentPlan,
     StrategyPlan,
 )
-from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.report import format_grouping_report, format_report
 from optisample.optimize.tasks import PitchTask
 from trackmod.module.protocol import TrackerModule
@@ -80,8 +80,7 @@ def build_units(plan: StrategyPlan, dump_context: DumpContext) -> tuple[Unit, ..
     tasks = dump_context.layer_tasks(plan.layers)
     encoded = encode_plan_units(
         plan.sample_units(),
-        dump_context.audio,
-        dump_context.sample_rate,
+        dump_context.recordings,
         dump_context.eval_context.encode,
         dump_context.settings.optimize.seed,
     )
@@ -122,7 +121,7 @@ def make_kind(plan: InstrumentPlan | GroupedInstrumentPlan, dump_context: DumpCo
     encoded = [unit.stored for unit in units]
 
     def make_module(material: Sequence[NoteEvent]) -> TrackerModule:
-        return build_module(plan, dump_context.audio, dump_context.sample_rate, list(material), export_context)
+        return build_module(plan, dump_context.recordings, list(material), export_context)
 
     module = make_module(dump_context.material)
     size = module.size()

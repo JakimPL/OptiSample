@@ -5,10 +5,9 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from optisample.config.optimize import TRIMMED_ONLY, SweepConfig
+from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import BandwidthConfig, ReduceConfig
 from optisample.dsp.spectral import bandlimit
-from optisample.dsp.surrogate import TRIMMED
 from optisample.optimize.reduce.bandwidth import (
     ClipDemand,
     clip_band_hz,
@@ -47,16 +46,12 @@ class _Context:
 
 @pytest.fixture
 def make_context(sweep: SweepFactory, reduce: ReduceFactory) -> Callable[..., _Context]:
-    """Factory: a context over the explicit ``_RATES`` ladder, varying the knobs a test needs.
-
-    The loop axis is pinned to the trimmed sample alone unless a test asks for more, so a test counting
-    the encodings offered states the axis it is reasoning about rather than tracking the bundled sweep.
-    """
+    """Factory: a context over the explicit ``_RATES`` ladder, varying the knobs a test needs."""
 
     def _build(*, bandwidth: dict[str, object] | None = None, **grid: object) -> _Context:
         return _Context(
             sample_rate=SR,
-            sweep=sweep(rates=_RATES, **{"loop_choices": TRIMMED_ONLY, **grid}),
+            sweep=sweep(rates=_RATES, **grid),
             bandwidth=reduce(bandwidth=bandwidth or {}).bandwidth,
         )
 
@@ -196,27 +191,31 @@ def test_the_same_clip_earns_the_same_format_every_time(make_context: Callable[.
 # --- what the sweep is offered ------------------------------------------------------------------------
 
 
-def test_every_loop_choice_is_offered_at_the_one_settled_format(make_context: Callable[..., _Context]) -> None:
-    """The format is settled before the sweep, so what the sweep prices is how the sample carries on."""
-    context = make_context(loop_choices=2)
+def test_both_stored_spans_are_offered_at_the_one_settled_format(make_context: Callable[..., _Context]) -> None:
+    """The format is settled before the sweep, so what the sweep prices is how far the sample carries on."""
+    context = make_context()
     stored = stored_format(broadband(), UNTRANSPOSED, context)
 
-    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S)
+    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S, loops=True)
 
-    assert [params.loop_choice for params in offered] == [TRIMMED, 0, 1]
+    assert [params.looped for params in offered] == [False, True]
     assert {(params.target_rate, params.depth_bits, params.compress) for params in offered} == {
         (stored.target_rate, stored.depth_bits, stored.compress)
     }
 
 
 def test_the_stored_length_reaches_every_encoding_offered(make_context: Callable[..., _Context]) -> None:
-    context = make_context(loop_choices=2)
+    context = make_context()
     stored = stored_format(broadband(), UNTRANSPOSED, context)
-    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S)
+    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S, loops=True)
     assert {params.trim_s for params in offered} == {_TRIM_S}
 
 
-def test_a_run_leaving_loops_off_offers_the_trimmed_sample_alone(make_context: Callable[..., _Context]) -> None:
-    context = make_context(loop_choices=TRIMMED_ONLY)
+def test_a_clip_with_no_settled_loop_offers_the_trimmed_span_alone(make_context: Callable[..., _Context]) -> None:
+    """Nothing prices a loop for a recording the loop stage found none in, so the played span stands alone."""
+    context = make_context()
     stored = stored_format(broadband(), UNTRANSPOSED, context)
-    assert [params.loop_choice for params in stored_encodings(stored, context.sweep, trim_s=_TRIM_S)] == [TRIMMED]
+
+    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S, loops=False)
+
+    assert [params.looped for params in offered] == [False]

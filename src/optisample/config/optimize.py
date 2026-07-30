@@ -9,11 +9,10 @@ from optisample.config.stage import StageConfig
 Method = Literal["exact", "lagrangian"]
 
 EVERY_SAMPLE: Final = 0  # the ``max_samples`` value that keeps whatever the target format numbers
-TRIMMED_ONLY: Final = 0  # the ``loop_choices`` value offering the trimmed sample alone
 
 
 class SweepConfig(ConfigModel):
-    """What one clip may be stored as: the format it is kept at, and the loops the sweep prices.
+    """What one clip may be stored as: the format it is kept at, and how its stored span is bounded.
 
     ``rates`` is the ladder a stored rate is chosen from, and a clip's own rate joins it, so the ladder
     states the rates worth stepping down to and leaves "store it as recorded" to follow from the recording
@@ -22,16 +21,15 @@ class SweepConfig(ConfigModel):
     material that reaches it. ``depth`` is the depth every stored sample keeps, and ``compress`` applies
     dynamics on the way to the quantizer where the depth is shallow enough to hear the headroom it buys.
 
-    ``loop_choices`` is how far into :func:`~optisample.dsp.loop.loop_candidates` the sweep reaches, and
-    the trimmed sample is enumerated beside them, so the frontier prices a loop against storing none and
-    keeps whichever the objective prefers. :data:`TRIMMED_ONLY` sweeps the trimmed sample by itself.
+    What the sweep then prices per sample is the stored span: keeping the played length against keeping the
+    attack plus the loop the loop stage settled, which
+    :func:`~optisample.optimize.reduce.bandwidth.stored_encodings` enumerates in that order.
     """
 
     rates: Annotated[tuple[int, ...], Field(min_length=1)]
     depth: Annotated[int, Field(gt=0)]
     dither: bool
     noise_shaping: bool
-    loop_choices: Annotated[int, Field(ge=TRIMMED_ONLY)]
     compress: bool
 
 

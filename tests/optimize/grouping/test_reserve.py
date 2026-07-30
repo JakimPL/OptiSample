@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from optisample.dsp.surrogate import EncodingParams
+from optisample.keys import SampleKey
 from optisample.optimize.dp import BudgetInfeasibleError
 from optisample.optimize.grouping.cost_model import ZoneSegment
 from optisample.optimize.grouping.reserve import (
@@ -12,7 +13,6 @@ from optisample.optimize.grouping.reserve import (
     solve_within_cap,
 )
 from optisample.optimize.plans import NO_RESERVE, ZoneOption
-from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.tasks import Event, PitchTask
 
 _PITCHES = (60, 61, 62, 63)

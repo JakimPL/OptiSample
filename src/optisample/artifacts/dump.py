@@ -33,9 +33,10 @@ from optisample.optimize.dp import AllocationInfeasibleError
 from optisample.optimize.grouping.optimize import allocate_instrument_grouped
 from optisample.optimize.orchestrate import RunInputs, allocate_instrument, prepare_run
 from optisample.optimize.orchestrate.audio import load_instrument_audio
+from optisample.optimize.orchestrate.looping import run_loops
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
-from optisample.optimize.tasks import AudioMap, Event, PitchTask, render_event
+from optisample.optimize.tasks import Event, PitchTask, StoredRecordings, render_event
 
 _Allocator = Callable[[InstrumentSpec, RunInputs, OptimizeSettings], InstrumentPlan | GroupedInstrumentPlan]
 
@@ -234,8 +235,7 @@ def _optimize_and_dump(
 
 def dump_instrument(
     instrument: InstrumentSpec,
-    audio: AudioMap,
-    sample_rate: int,
+    recordings: StoredRecordings,
     out_dir: Path | str,
     settings: DumpSettings,
 ) -> DumpResult:
@@ -244,9 +244,8 @@ def dump_instrument(
     out_dir.mkdir(parents=True, exist_ok=True)
     dump_context = DumpContext(
         instrument=instrument,
-        audio=audio,
-        sample_rate=sample_rate,
-        inputs=prepare_run(instrument, audio, sample_rate, settings.optimize),
+        recordings=recordings,
+        inputs=prepare_run(instrument, recordings, settings.optimize),
         settings=settings,
     )
     strategies = [
@@ -289,14 +288,14 @@ def dump_project(
         loaded = load_instrument_audio(
             instrument,
             settings.optimize.reduce,
-            settings.optimize.encode.loop,
+            settings.optimize.loop.geometry,
             settings.progress,
         )
+        looped = run_loops(loaded, settings.optimize)
         results.append(
             dump_instrument(
                 loaded.instrument,
-                loaded.audio,
-                loaded.sample_rate,
+                looped.recordings,
                 out_dir / instrument.id,
                 settings,
             ),

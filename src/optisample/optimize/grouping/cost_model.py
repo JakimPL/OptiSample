@@ -4,6 +4,7 @@ from itertools import accumulate
 from typing import Final
 
 from optisample.dsp.surrogate import EncodingParams
+from optisample.keys import SampleKey
 from optisample.music import semitone_ratio
 from optisample.optimize.grouping.stores import (
     ServedKey,
@@ -21,7 +22,6 @@ from optisample.optimize.reduce.bandwidth import (
     format_from_band,
     stored_encodings,
 )
-from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.tasks import EvalContext, PitchTask
 from optisample.progress import ProgressSink
 
@@ -134,7 +134,7 @@ class _BandCache:
             )
 
         stored = format_from_band(self.bands[key], demand, self.context)
-        return stored_encodings(stored, self.context.sweep, trim_s=demand.trim_s)
+        return stored_encodings(stored, self.context.sweep, trim_s=demand.trim_s, loops=rep_task.loops)
 
 
 def candidate_zones(segments: Sequence[ZoneSegment], max_semitones: int) -> list[_Candidate]:

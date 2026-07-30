@@ -9,15 +9,17 @@ from typing import Final, get_args
 from optisample.artifacts import (
     DumpResult,
     DumpSettings,
+    LoopedInstrumentArtifacts,
     PipelineSettings,
     ReducedInstrument,
     dump_project,
+    loop_project,
     reduce_project,
     run_pipeline,
 )
 from optisample.config import OptiConfig, load_config
 from optisample.config.layers import LayersConfig
-from optisample.config.optimize import TRIMMED_ONLY, BudgetConfig, SweepConfig
+from optisample.config.optimize import BudgetConfig, SweepConfig
 from optisample.config.reduce import DedupeKey, ReduceConfig
 from optisample.config.render import Interpolation
 from optisample.config.tracker import TrackerConfig, TrackerFormat
@@ -38,6 +40,7 @@ _INTERPOLATIONS: Final = get_args(Interpolation)
 _FORMATS: Final = tuple(TrackerFormat)
 _DEDUPE_KEYS: Final = tuple(DedupeKey)
 _ARTIFACTS_OUT: Final = Path("artifacts")
+_LOOPED_OUT: Final = Path("looped")
 _REDUCED_OUT: Final = Path("reduced")
 _SUBSET_OUT: Final = Path("subset")
 
@@ -146,7 +149,7 @@ def _ingest_parser() -> argparse.ArgumentParser:
     ingest.add_argument(
         "--no-loop",
         action="store_true",
-        help="Sweep the trimmed sample alone, leaving every loop candidate off the grid",
+        help="Store every sample over the span its material plays, leaving the loop stage off",
     )
     ingest.add_argument(
         "--dedupe-key",
@@ -295,6 +298,16 @@ def _describe_reduce(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _describe_loop(parser: argparse.ArgumentParser) -> None:
+    """Add what settling loops alone asks for beyond the shared ingest flags."""
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=_LOOPED_OUT,
+        help="Directory to write the looped dataset, its loop decisions and its auditions into",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="optisample",
@@ -320,6 +333,13 @@ def build_parser() -> argparse.ArgumentParser:
             "pipeline",
             parents=[*staged, ingest, allocation],
             help="Slice, reduce and optimize a .notes.json in a row, each stage under its own directory",
+        )
+    )
+    _describe_loop(
+        sub.add_parser(
+            "loop",
+            parents=[*staged, ingest],
+            help="Settle the loop each recording is stored around and write what it decided",
         )
     )
     _describe_reduce(
@@ -423,14 +443,15 @@ def _optimize_settings(
             **config.optimize.sweep.model_dump(),
             "rates": tuple(args.rates) if args.rates else config.optimize.sweep.rates,
             "depth": args.depth if args.depth is not None else config.optimize.sweep.depth,
-            "loop_choices": TRIMMED_ONLY if args.no_loop else config.optimize.sweep.loop_choices,
         }
     )
     return OptimizeSettings(
         sweep=grid,
+        loop=config.loop,
         reduce=_reduce_config(config, args),
         layers=layers,
-        encode=config.codec.encode,
+        encode=config.encode,
+        loops=not args.no_loop,
         metrics=config.analysis.metrics,
         velocity=config.optimize.velocity,
         method=budget.method,
@@ -520,6 +541,14 @@ def _print_subset(dataset: SubsetDataset) -> None:
     print(f"  samples -> {dataset.source.recordings_dir}")
 
 
+def _print_looped(result: LoopedInstrumentArtifacts) -> None:
+    """State where one instrument's looped dataset landed and how many of its recordings earned a loop."""
+    print(f"{result.instrument_id}: {result.paths.notes_json}  [{result.elapsed_s:.1f}s]")
+    print(f"  {result.looped} of {result.recordings} recordings looped -> {result.paths.samples_dir}")
+    print(f"  {result.auditions} auditions -> {result.paths.auditions_dir}")
+    print(f"  loops -> {result.paths.loops_json}")
+
+
 def _print_reduced(result: ReducedInstrument) -> None:
     """State where one instrument's reduced dataset landed and what the stage left it holding."""
     print(f"{result.instrument_id}: {result.paths.notes_json}  [{result.elapsed_s:.1f}s]")
@@ -545,6 +574,14 @@ def _print_plans(result: DumpResult) -> None:
 def _plan_total(results: Sequence[DumpResult]) -> float:
     """The wall-clock every strategy of every instrument took together, which closes an allocating run."""
     return sum(plan.elapsed_s for result in results for plan in result.plans)
+
+
+def _run_loop(config: OptiConfig, args: argparse.Namespace) -> None:
+    manifest = load_source(_source(args), _ingest_settings(args))
+    for result in loop_project(
+        manifest, args.out, _optimize_settings(config, args, config.optimize.layers, config.optimize.budget)
+    ):
+        _print_looped(result)
 
 
 def _run_reduce(config: OptiConfig, args: argparse.Namespace) -> None:
@@ -580,6 +617,7 @@ def _run_pipeline(config: OptiConfig, args: argparse.Namespace) -> None:
     if run.subset is not None:
         _print_subset(run.subset)
 
+    _print_looped(run.looped)
     _print_reduced(run.reduced)
     _print_plans(run.optimized)
     print(f"total: {run.elapsed_s:.1f}s")
@@ -631,6 +669,8 @@ def main(argv: list[str] | None = None) -> None:
             _run_synth(config, args)
         case "subset":
             _run_subset(args)
+        case "loop":
+            _dispatch(lambda: _run_loop(config, args), args)
         case "reduce":
             _dispatch(lambda: _run_reduce(config, args), args)
         case "optimize":

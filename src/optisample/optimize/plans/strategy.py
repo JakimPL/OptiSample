@@ -2,8 +2,8 @@ from dataclasses import dataclass
 from typing import Final, Literal, Protocol
 
 from optisample.dsp.surrogate import EncodingParams
+from optisample.keys import SampleKey
 from optisample.optimize.layers.bands import VelocityLayers
-from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.reduce.summary import ReductionSummary
 from optisample.optimize.velocity_map import VelocityVolumeMap
 

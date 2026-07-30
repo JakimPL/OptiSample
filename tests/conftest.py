@@ -6,9 +6,10 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.config import OptiConfig, load_config
-from optisample.config.codec import EncodeConfig, LoopConfig, QuantizeConfig
+from optisample.config.codec import EncodeConfig, QuantizeConfig
 from optisample.config.dynamics import DynamicsConfig
 from optisample.config.layers import LayersConfig
+from optisample.config.loop import GeometryConfig, LoopConfig, QualityConfig, SeamConfig
 from optisample.config.metrics import MetricsConfig
 from optisample.config.optimize import (
     BudgetConfig,
@@ -21,20 +22,21 @@ from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.config.spectral import SpectralConfig
 from optisample.config.synth import SynthConfig
 from optisample.config.tracker import TrackerFormat
-from optisample.dsp.loop import LoopQuality
-from optisample.dsp.surrogate import EncodeContext, EncodingParams
+from optisample.dsp.surrogate import NO_LOOP, EncodeContext, EncodingParams, SettledLoop
 from optisample.io.note_extractor import IngestSettings
 from optisample.io.tracker.target import ExportTarget, export_target
+from optisample.keys import SampleKey
+from optisample.loop.settle import settle_loop
 from optisample.metrics import CompositeFidelity, build_composite
+from optisample.metrics.base import Signal
 from optisample.model import ProjectSpec
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.operating_points import SweepContext
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.reduce.bandwidth import StoredFormat
-from optisample.optimize.reduce.grids import MeasuredLoop, NarrowedGrid
-from optisample.optimize.reduce.keys import SampleKey
+from optisample.optimize.reduce.grids import NarrowedGrid
 from optisample.optimize.reduce.summary import KeptRecording, ReductionSummary
-from optisample.optimize.tasks import AudioMap, TaskInputs
+from optisample.optimize.tasks import AudioMap, LoopMap, StoredRecordings, TaskInputs
 from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
 from optisample.synth import NoteSpec, synthesize
 from trackmod.module.storage import Storage
@@ -83,7 +85,32 @@ def ingest_settings() -> Callable[..., IngestSettings]:
 
 @pytest.fixture
 def loop_config(config: OptiConfig) -> LoopConfig:
-    return config.codec.loop
+    return config.loop
+
+
+@pytest.fixture
+def geometry_config(config: OptiConfig) -> GeometryConfig:
+    return config.loop.geometry
+
+
+@pytest.fixture
+def seam_config(config: OptiConfig) -> SeamConfig:
+    return config.loop.seam
+
+
+@pytest.fixture
+def quality_config(config: OptiConfig) -> QualityConfig:
+    return config.loop.quality
+
+
+@pytest.fixture
+def loop(config: OptiConfig) -> Callable[..., LoopConfig]:
+    """Factory: the bundled loop stage with the given groups overridden (re-validated)."""
+
+    def _build(**overrides: object) -> LoopConfig:
+        return LoopConfig.model_validate({**config.loop.model_dump(), **overrides})
+
+    return _build
 
 
 @pytest.fixture
@@ -93,7 +120,7 @@ def quantize_config(config: OptiConfig) -> QuantizeConfig:
 
 @pytest.fixture
 def encode_config(config: OptiConfig) -> EncodeConfig:
-    return config.codec.encode
+    return config.encode
 
 
 @pytest.fixture
@@ -172,13 +199,13 @@ def storage(target: ExportTarget) -> Storage:
 @pytest.fixture
 def sweep_context(config: OptiConfig, composite: CompositeFidelity, storage: Storage) -> SweepContext:
     """The scoring context an encoding sweep runs under, built from the bundled config."""
-    return SweepContext(composite=composite, encode=config.codec.encode, storage=storage)
+    return SweepContext(composite=composite, encode=config.encode, storage=storage)
 
 
 @pytest.fixture
 def export_context(config: OptiConfig, target: ExportTarget) -> ExportContext:
     """The exporter context (encode + playback + target) built from the bundled config, seed 0."""
-    return ExportContext(encode=config.codec.encode, playback=config.export.playback, target=target)
+    return ExportContext(encode=config.encode, playback=config.export.playback, target=target)
 
 
 @pytest.fixture
@@ -237,9 +264,11 @@ def task_inputs(config: OptiConfig) -> Callable[..., TaskInputs]:
         reduce: ReduceConfig | None = None,
         sample_rate: int = _NOTE_SR,
         energy_exponent: float | None = None,
+        settled: LoopMap | None = None,
     ) -> TaskInputs:
         return TaskInputs(
             audio=audio,
+            settled={} if settled is None else settled,
             velocity_map=velocity_map,
             reduce=reduce if reduce is not None else config.reduce,
             sample_rate=sample_rate,
@@ -277,6 +306,7 @@ def optimize_settings(config: OptiConfig, target: ExportTarget) -> Callable[...,
     def _build(
         *,
         sweep: SweepConfig,
+        loop: LoopConfig | None = None,
         reduce: ReduceConfig | None = None,
         layers: LayersConfig | None = None,
         method: Method | None = None,
@@ -285,9 +315,10 @@ def optimize_settings(config: OptiConfig, target: ExportTarget) -> Callable[...,
     ) -> OptimizeSettings:
         return OptimizeSettings(
             sweep=sweep,
+            loop=loop if loop is not None else config.loop,
             reduce=reduce if reduce is not None else config.reduce,
             layers=layers if layers is not None else config.optimize.layers,
-            encode=config.codec.encode,
+            encode=config.encode,
             metrics=config.analysis.metrics,
             velocity=config.optimize.velocity,
             method=method if method is not None else config.optimize.budget.method,
@@ -307,16 +338,64 @@ def make_encode_ctx(config: OptiConfig) -> Callable[..., EncodeContext]:
     ``seed`` (when given) seeds the dither RNG; the default leaves it ``None`` so encoding uses the
     surrogate's own fixed-seed fallback -- matching the pre-config call sites. ``release_fade_s``
     overrides the ramp closing a stored span, which is what a test isolating the codec alone sets to zero.
+    ``settled`` is the loop the clip was settled around, which a test asking for a looped span supplies.
     """
 
-    def _build(root_pitch: int, *, seed: int | None = None, release_fade_s: float | None = None) -> EncodeContext:
+    def _build(
+        root_pitch: int,
+        *,
+        seed: int | None = None,
+        release_fade_s: float | None = None,
+        settled: SettledLoop | None = NO_LOOP,
+    ) -> EncodeContext:
         rng = np.random.default_rng(seed) if seed is not None else None
         encode = (
-            config.codec.encode
+            config.encode
             if release_fade_s is None
-            else config.codec.encode.model_copy(update={"release_fade_s": release_fade_s})
+            else config.encode.model_copy(update={"release_fade_s": release_fade_s})
         )
-        return EncodeContext(root_pitch=root_pitch, config=encode, rng=rng)
+        return EncodeContext(root_pitch=root_pitch, config=encode, settled=settled, rng=rng)
+
+    return _build
+
+
+@pytest.fixture(scope="session")
+def recordings(config: OptiConfig) -> Callable[..., StoredRecordings]:
+    """Factory: the recordings a run encodes from, with each one's loop settled the way the stage would.
+
+    Candidates are searched over the whole of each recording, so a test gets the loop the material supports
+    rather than bounds it picked. ``loops=False`` leaves every recording unlooped, which is what a test about
+    the trimmed span alone asks for.
+    """
+
+    def _build(audio: AudioMap, sample_rate: int, *, loops: bool = True) -> StoredRecordings:
+        settled = {
+            key: _settled(signal, sample_rate, config.loop) if loops else NO_LOOP for key, signal in audio.items()
+        }
+        return StoredRecordings(audio=audio, settled=settled, sample_rate=sample_rate)
+
+    return _build
+
+
+def _settled(signal: Signal, sample_rate: int, config: LoopConfig) -> SettledLoop | None:
+    """The loop the stage settles over the whole of ``signal``, which is what an encode is handed."""
+    settlement = settle_loop(signal, sample_rate, config, search_s=signal.size / sample_rate)
+    return None if settlement.stored is None else settlement.stored.settled
+
+
+@pytest.fixture
+def settle(config: OptiConfig) -> Callable[..., SettledLoop | None]:
+    """Factory: the loop the stage settles for a signal, which is what an encode is handed.
+
+    Runs the real settlement, so a test encoding a looped span is stored around the loop the stage would
+    have chosen for that recording rather than around bounds a test picked.
+    """
+
+    def _build(
+        signal: Signal, sample_rate: int, *, search_s: float, loop: LoopConfig | None = None
+    ) -> SettledLoop | None:
+        settlement = settle_loop(signal, sample_rate, loop if loop is not None else config.loop, search_s=search_s)
+        return None if settlement.stored is None else settlement.stored.settled
 
     return _build
 
@@ -356,7 +435,6 @@ def reduction() -> ReductionSummary:
                 useful_rate_hz=10_500.0,
                 stored=StoredFormat(target_rate=11_025, depth_bits=16, compress=False),
                 encodings=(EncodingParams(target_rate=11_025, depth_bits=16),),
-                loops=(MeasuredLoop(choice=0, start_s=0.05, end_s=0.55, quality=LoopQuality(1.2, 3.4)),),
             ),
         ),
     )

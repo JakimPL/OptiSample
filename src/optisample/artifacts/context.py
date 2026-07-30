@@ -7,7 +7,7 @@ from optisample.optimize.layers.bands import VelocityLayers
 from optisample.optimize.layers.tasks import layered_tasks
 from optisample.optimize.orchestrate import RunInputs
 from optisample.optimize.orchestrate.settings import OptimizeSettings
-from optisample.optimize.tasks import AudioMap, EvalContext, PitchTask
+from optisample.optimize.tasks import EvalContext, PitchTask, StoredRecordings
 from optisample.progress import ProgressSink
 
 
@@ -43,10 +43,14 @@ class DumpContext:
     """
 
     instrument: InstrumentSpec
-    audio: AudioMap
-    sample_rate: int
+    recordings: StoredRecordings
     inputs: RunInputs
     settings: DumpSettings
+
+    @property
+    def sample_rate(self) -> int:
+        """The rate every recording was analysed at, which every stored sample is measured against."""
+        return self.recordings.sample_rate
 
     @property
     def material(self) -> tuple[NoteEvent, ...]:

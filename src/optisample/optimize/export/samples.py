@@ -4,7 +4,7 @@ from typing import Final
 import numpy as np
 
 from optisample.config.codec import EncodeConfig
-from optisample.dsp.surrogate import EncodeContext, StoredSample, encode
+from optisample.dsp.surrogate import NO_LOOP, EncodeContext, StoredSample, encode
 from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.base import Signal
 from optisample.music import note_name, sounded_note
@@ -12,7 +12,7 @@ from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.coverage import covered_routing
 from optisample.optimize.layers.slots import InstrumentSlot, SlotLayout
 from optisample.optimize.plans import SampleUnit, StrategyPlan
-from optisample.optimize.tasks import AudioMap
+from optisample.optimize.tasks import StoredRecordings
 from optisample.optimize.velocity_map import VelocityVolumeMap
 from trackmod.core.instruments.keymap import KeyAssignment, Keymap, routed_keymap
 from trackmod.core.notes.pitch import Note
@@ -27,8 +27,7 @@ _QUIETEST_GAIN: Final = 1  # the softest step that still sounds, so a quiet samp
 
 def encode_plan_units(
     units: Sequence[SampleUnit],
-    audio: AudioMap,
-    sample_rate: int,
+    recordings: StoredRecordings,
     encode_config: EncodeConfig,
     seed: int,
 ) -> Iterator[tuple[SampleUnit, StoredSample]]:
@@ -36,19 +35,21 @@ def encode_plan_units(
 
     The exporter and the artifact dumper share this loop so the decoded PCM stays byte-identical between
     the written module and the inspection WAVs. One RNG advances once per unit in iteration order, so
-    every stored sample's dither is reproducible from ``seed``.
+    every stored sample's dither is reproducible from ``seed``. ``recordings`` supplies the loop each one was
+    settled around, which is what a unit asking to be stored looped is stored around here too.
     """
     rng = np.random.default_rng(seed)
     for unit in units:
-        representative: Signal = audio[unit.representative_key]
+        representative: Signal = recordings.audio[unit.representative_key]
         encode_context = EncodeContext(
             root_pitch=unit.representative,
             config=encode_config,
+            settled=recordings.settled.get(unit.representative_key, NO_LOOP),
             rng=rng,
         )
         yield unit, encode(
             representative,
-            sample_rate,
+            recordings.sample_rate,
             unit.params,
             encode_context,
         )
@@ -145,8 +146,7 @@ def _slot_keymaps(layout: SlotLayout, target: ExportTarget) -> tuple[Keymap, ...
 def plan_samples(
     plan: StrategyPlan,
     layout: SlotLayout,
-    audio: AudioMap,
-    sample_rate: int,
+    recordings: StoredRecordings,
     context: ExportContext,
 ) -> tuple[tuple[Sample, ...], tuple[Keymap, ...]]:
     """Re-encode each unit's representative and map every key it serves onto the resulting sample.
@@ -160,8 +160,7 @@ def plan_samples(
     encoded = list(
         encode_plan_units(
             plan.sample_units(),
-            audio,
-            sample_rate,
+            recordings,
             context.encode,
             context.seed,
         )

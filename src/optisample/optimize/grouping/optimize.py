@@ -2,9 +2,10 @@ from optisample.model import InstrumentSpec
 from optisample.optimize.layers.allocate import allocate_layers
 from optisample.optimize.orchestrate import RunInputs, prepare_run
 from optisample.optimize.orchestrate.audio import load_run_audio
+from optisample.optimize.orchestrate.looping import run_loops
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import GroupedInstrumentPlan
-from optisample.optimize.tasks import AudioMap
+from optisample.optimize.tasks import StoredRecordings
 
 
 def allocate_instrument_grouped(
@@ -37,12 +38,11 @@ def allocate_instrument_grouped(
 
 def optimize_instrument_grouped(
     instrument: InstrumentSpec,
-    audio: AudioMap,
-    sample_rate: int,
+    recordings: StoredRecordings,
     settings: OptimizeSettings,
 ) -> GroupedInstrumentPlan:
     """Optimize one instrument with pitch-zone grouping and return a structured plan."""
-    inputs = prepare_run(instrument, audio, sample_rate, settings)
+    inputs = prepare_run(instrument, recordings, settings)
     return allocate_instrument_grouped(instrument, inputs, settings)
 
 
@@ -50,6 +50,6 @@ def run_instrument_grouped(
     instrument: InstrumentSpec,
     settings: OptimizeSettings,
 ) -> GroupedInstrumentPlan:
-    """Load an instrument's recordings from disk and optimize it with grouping."""
-    loaded = load_run_audio(instrument, settings)
-    return optimize_instrument_grouped(loaded.instrument, loaded.audio, loaded.sample_rate, settings)
+    """Load an instrument's recordings from disk, settle its loops, and optimize it with grouping."""
+    looped = run_loops(load_run_audio(instrument, settings), settings)
+    return optimize_instrument_grouped(looped.loaded.instrument, looped.recordings, settings)

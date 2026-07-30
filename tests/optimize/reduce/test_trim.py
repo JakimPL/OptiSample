@@ -5,9 +5,9 @@ import numpy as np
 import pytest
 
 from optisample.config.reduce import ReduceConfig
+from optisample.keys import SampleKey
 from optisample.metrics.base import Signal
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
-from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.reduce.trim import (
     NO_SCREEN,
     carries_signal,

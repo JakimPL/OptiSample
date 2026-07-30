@@ -5,9 +5,10 @@ from pathlib import Path
 from typing import Final
 
 from notebooks.utils.views import Row
-from optisample.artifacts.paths import PlanPaths, plan_paths, reduced_paths
+from optisample.artifacts.paths import PlanPaths, looped_paths, plan_paths, reduced_paths
 from optisample.artifacts.serialize import (
     EncodingRecord,
+    LoopsDocument,
     MetricsDocument,
     PitchItemRecord,
     PlanDocument,
@@ -15,6 +16,7 @@ from optisample.artifacts.serialize import (
     ReductionDocument,
     StoredFormatRecord,
     ZoneItemRecord,
+    read_loops,
 )
 from optisample.metrics import bytes_to_kib
 from optisample.music import labelled_pitch, note_name
@@ -39,6 +41,16 @@ def read_reduced(root: Path, instrument_id: str) -> ReducedDocument:
     return ReducedDocument.model_validate_json(
         reduced_paths(root, instrument_id).reduction_json.read_text(encoding="utf-8")
     )
+
+
+def has_loops(root: Path, instrument_id: str) -> bool:
+    """Whether a loop run has left its document under ``root``, so the loop explorer has something to read."""
+    return looped_paths(root, instrument_id).loops_json.is_file()
+
+
+def read_loop_document(root: Path, instrument_id: str) -> LoopsDocument:
+    """The document a loop run left beside the dataset it wrote under ``root``."""
+    return read_loops(looped_paths(root, instrument_id).loops_json)
 
 
 def read_plan(paths: PlanPaths) -> PlanDocument:
@@ -109,26 +121,67 @@ def stored_format_rows(reduction: ReductionDocument) -> list[Row]:
     ]
 
 
-def loop_rows(reduction: ReductionDocument) -> list[Row]:
-    """One row per loop candidate the sweep may store a pitch around, with what each is worth.
+def loop_rows(document: LoopsDocument) -> list[Row]:
+    """One row per recording stored around a loop, with the loop it kept and what measuring it said.
 
-    ``seam`` counts the wrap's jump in the loop's own frame-to-frame steps and ``timbre_db`` the distance
-    between the loop's spectrum and the material past it, so a row states the case for the loop the
-    allocation went on to buy.
+    ``seam`` counts the wrap's jump in the frame-to-frame motion the waveform makes there and ``timbre_db``
+    the distance between the loop's spectrum and the material past it, so a row states the case for the loop
+    that was stored. ``rejected`` counts the cheaper candidates the ladder climbed past to reach it.
     """
     return [
         {
-            "pitch": grid.pitch,
-            "note": grid.note,
-            "choice": loop.choice,
-            "start_s": round(loop.start_s, 3),
-            "end_s": round(loop.end_s, 3),
-            "length_s": round(loop.end_s - loop.start_s, 3),
-            "seam": round(loop.seam_step, 2),
-            "timbre_db": round(loop.spectral_distance, 2),
+            "key": record.key,
+            "pitch": record.pitch,
+            "note": record.note,
+            "start_s": round(record.stored.start_s, 3),
+            "end_s": round(record.stored.end_s, 3),
+            "length_s": round(record.stored.end_s - record.stored.start_s, 3),
+            "seam": round(record.stored.quality.seam_step, 2),
+            "timbre_db": round(record.stored.quality.spectral_distance, 2),
+            "rejected": len(record.rejected),
         }
-        for grid in reduction.grids
-        for loop in grid.loops
+        for record in document.recordings
+        if record.stored is not None
+    ]
+
+
+def unlooped_rows(document: LoopsDocument) -> list[Row]:
+    """One row per recording stored over the span it plays, with how many candidates were measured for it.
+
+    A recording reaches this table either because its material is too short for the shortest accepted loop,
+    which shows as ``tried`` of zero, or because every candidate fell outside a gate.
+    """
+    return [
+        {
+            "key": record.key,
+            "pitch": record.pitch,
+            "note": record.note,
+            "search_s": round(record.search_s, 3),
+            "tried": len(record.rejected),
+        }
+        for record in document.recordings
+        if record.stored is None
+    ]
+
+
+def rejected_loop_rows(document: LoopsDocument) -> list[Row]:
+    """One row per candidate the ladder climbed past, with the gate it fell outside of.
+
+    Reading these beside :func:`loop_rows` says why a recording ended up stored around a later loop, or
+    around none, which is what retuning the quality gates is read off.
+    """
+    return [
+        {
+            "key": record.key,
+            "note": record.note,
+            "start_s": round(rejected.start_s, 3),
+            "end_s": round(rejected.end_s, 3),
+            "seam": round(rejected.quality.seam_step, 2),
+            "timbre_db": round(rejected.quality.spectral_distance, 2),
+            "gate": rejected.gate,
+        }
+        for record in document.recordings
+        for rejected in record.rejected
     ]
 
 

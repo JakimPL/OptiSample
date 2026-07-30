@@ -6,11 +6,11 @@ import pytest
 from optisample.config.render import RenderConfig
 from optisample.dsp.surrogate.params import EncodingParams
 from optisample.io.render import openmpt123_available, render_module
+from optisample.keys import SampleKey
 from optisample.optimize.export.build import _NAME_CHARS, instrument_name
 from optisample.optimize.layers.bands import UNSPLIT, VelocityBand, VelocityLayers
 from optisample.optimize.layers.slots import SlotLayout, pack_slots
 from optisample.optimize.plans import GroupedInstrumentPlan, SampleUnit
-from optisample.optimize.reduce.keys import SampleKey
 from tests.optimize.export.demo import demo_material
 from tests.optimize.export.test_material import song_cells
 from trackmod.core.notes.command import NoteCommand

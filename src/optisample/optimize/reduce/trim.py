@@ -8,9 +8,9 @@ import numpy as np
 
 from optisample.config.reduce import TrimConfig
 from optisample.dsp.levels import peak_amplitude
+from optisample.keys import SampleKey
 from optisample.metrics.base import Signal
 from optisample.model import InstrumentSpec, NoteEvent
-from optisample.optimize.reduce.keys import SampleKey
 
 _SILENT: Final = 0  # a recording reaching the floor nowhere holds no content to keep
 

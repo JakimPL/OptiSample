@@ -14,9 +14,11 @@ from pydantic import (
 )
 
 from optisample.config.reduce import DedupeKey
-from optisample.dsp.decay import LinearDecay
-from optisample.dsp.loop import Loop
-from optisample.dsp.surrogate import StoredSample
+from optisample.dsp.decay import NO_DECAY, LinearDecay
+from optisample.dsp.loop import Loop, LoopQuality
+from optisample.dsp.surrogate import NO_LOOP, SettledLoop, StoredSample
+from optisample.keys import SampleKey
+from optisample.loop.settle import RejectedLoop, Settlement, StoredLoop
 from optisample.music import note_name
 from optisample.optimize.export.build import instrument_name
 from optisample.optimize.export.coverage import KeyCoverage
@@ -28,7 +30,6 @@ from optisample.optimize.plans import (
     SampleUnit,
     StrategyPlan,
 )
-from optisample.optimize.reduce.grids import MeasuredLoop
 from optisample.optimize.reduce.summary import ReductionSummary
 from optisample.optimize.reduce.trim import RecordingScreen
 from optisample.optimize.tasks import EvalContext, PitchTask, score_events
@@ -229,26 +230,82 @@ class StoredFormatRecord(Frozen):
     compress: bool
 
 
-class LoopCandidateRecord(Frozen):
-    """One loop a pitch's sample may be stored around: where it sits, and how well it stands in.
+class LoopQualityRecord(Frozen):
+    """What measuring a loop said about it: the wrap it makes, and the timbre it holds on to.
 
     ``seam_step`` reads the wrap in units of the loop region's own frame-to-frame motion, and
     ``spectral_distance`` the decibel distance between the loop's timbre and the material past it.
     """
 
-    choice: int
-    start_s: float
-    end_s: float
     seam_step: float
     spectral_distance: float
 
 
+class SettledLoopRecord(Frozen):
+    """The loop one recording is stored around, in frames of the recording the stage wrote beside this.
+
+    Frames are what a player wraps between and seconds are where a listener hears it, so both are stated.
+    ``decay`` is the ramp a note held past the stored span falls on, where the recording states one to make.
+    """
+
+    start: int
+    end: int
+    start_s: float
+    end_s: float
+    quality: LoopQualityRecord
+    decay: DecayRecord | None
+
+
+class RejectedLoopRecord(Frozen):
+    """A candidate the ladder climbed past, and the gate it fell outside of.
+
+    Reading these says why a recording ended up stored around a later loop, or around none: each entry is
+    a cheaper loop that was measured and found wanting on ``gate``.
+    """
+
+    start_s: float
+    end_s: float
+    quality: LoopQualityRecord
+    gate: str
+
+
+class RecordingLoopsRecord(Frozen):
+    """What the loop stage decided for one recording: the loop it keeps, and the ones it climbed past.
+
+    ``cc`` carries the controller buckets its identity was keyed under, so a reader rebuilds the same
+    :class:`~optisample.keys.SampleKey` the audio is held under. ``search_s`` is the stretch candidates were
+    measured over, which is the longest note the material plays at this pitch.
+    """
+
+    key: str
+    pitch: int
+    note: str
+    velocity: int
+    cc: list[tuple[int, int]]
+    search_s: float
+    stored: SettledLoopRecord | None
+    rejected: list[RejectedLoopRecord]
+
+
+class LoopsDocument(Frozen):
+    """Every loop one instrument's recordings were settled around, beside the dataset they were read from.
+
+    ``sample_rate`` is the rate the recordings were analysed at, which the frames in every
+    :class:`SettledLoopRecord` are counted in. Reading this back is what lets a later stage store the loops
+    a run already settled, hand-tuned or as they came.
+    """
+
+    instrument_id: str
+    sample_rate: int
+    recordings: list[RecordingLoopsRecord]
+
+
 class NarrowedGridRecord(Frozen):
-    """What the pre-pass settled for one pitch: the band it read, the format it stores at, and its loops.
+    """What the pre-pass settled for one pitch: the band it read and the format it stores at.
 
     ``useful_rate_hz`` is the rate the recording's own content asks for and ``stored`` the ladder rung
     reaching it, so a reader sees both the measurement and the format it named. ``swept`` counts the
-    encodings the sweep then runs for this pitch, which is that one format over each loop choice.
+    encodings the sweep then runs for this pitch, which is that one format over the stored spans it offers.
     """
 
     pitch: int
@@ -256,7 +313,6 @@ class NarrowedGridRecord(Frozen):
     useful_rate_hz: float
     stored: StoredFormatRecord
     swept: int
-    loops: list[LoopCandidateRecord]
 
 
 class ReductionDocument(Frozen):
@@ -465,17 +521,6 @@ def screen_record(screen: RecordingScreen) -> ScreenRecord:
     )
 
 
-def _loop_candidate_record(loop: MeasuredLoop) -> LoopCandidateRecord:
-    """One measured loop candidate as the document states it, its quality read out into its own fields."""
-    return LoopCandidateRecord(
-        choice=loop.choice,
-        start_s=loop.start_s,
-        end_s=loop.end_s,
-        seam_step=loop.quality.seam_step,
-        spectral_distance=loop.quality.spectral_distance,
-    )
-
-
 def reduction_document(reduction: ReductionSummary) -> ReductionDocument:
     """The pre-optimization stage's own outcome as a document, for the plan tree and the reduced dataset.
 
@@ -509,7 +554,6 @@ def reduction_document(reduction: ReductionSummary) -> ReductionDocument:
                     compress=grid.stored.compress,
                 ),
                 swept=len(grid.encodings),
-                loops=[_loop_candidate_record(loop) for loop in grid.loops],
             )
             for grid in reduction.grids
         ],
@@ -527,6 +571,116 @@ def _decay_record(decay: LinearDecay | None) -> DecayRecord | None:
         return None
 
     return DecayRecord(start_s=decay.start_s, end_s=decay.end_s, final_gain=decay.final_gain)
+
+
+def _loop_quality_record(quality: LoopQuality) -> LoopQualityRecord:
+    """What measuring one candidate said about it, read out into the document's own fields."""
+    return LoopQualityRecord(seam_step=quality.seam_step, spectral_distance=quality.spectral_distance)
+
+
+def _settled_loop_record(stored: StoredLoop, sample_rate: int) -> SettledLoopRecord:
+    """The loop a recording is stored around, stated in frames and in seconds alike."""
+    return SettledLoopRecord(
+        start=stored.loop.start,
+        end=stored.loop.end,
+        start_s=stored.loop.start / sample_rate,
+        end_s=stored.loop.end / sample_rate,
+        quality=_loop_quality_record(stored.quality),
+        decay=_decay_record(stored.decay),
+    )
+
+
+def _rejected_loop_record(rejected: RejectedLoop, sample_rate: int) -> RejectedLoopRecord:
+    """One candidate the ladder climbed past, placed in the note by the second."""
+    return RejectedLoopRecord(
+        start_s=rejected.loop.start / sample_rate,
+        end_s=rejected.loop.end / sample_rate,
+        quality=_loop_quality_record(rejected.quality),
+        gate=rejected.gate.value,
+    )
+
+
+def loops_document(
+    instrument_id: str,
+    sample_rate: int,
+    settlements: Mapping[SampleKey, Settlement],
+    searched: Mapping[SampleKey, float],
+) -> LoopsDocument:
+    """What the loop stage decided for one instrument, as the document written beside its dataset.
+
+    Recordings come out in key order, so the document a run writes reads the same way twice over the same
+    dataset. ``searched`` states the stretch each recording's candidates were measured over.
+    """
+    return LoopsDocument(
+        instrument_id=instrument_id,
+        sample_rate=sample_rate,
+        recordings=[
+            RecordingLoopsRecord(
+                key=key.label,
+                pitch=key.pitch,
+                note=note_name(key.pitch),
+                velocity=key.velocity,
+                cc=list(key.cc),
+                search_s=searched[key],
+                stored=(
+                    None
+                    if settlements[key].stored is None
+                    else _settled_loop_record(_stored_of(settlements[key]), sample_rate)
+                ),
+                rejected=[_rejected_loop_record(rejected, sample_rate) for rejected in settlements[key].rejected],
+            )
+            for key in sorted(settlements)
+        ],
+    )
+
+
+def _stored_of(settlement: Settlement) -> StoredLoop:
+    """The loop ``settlement`` kept, for a caller that has already established it kept one.
+
+    Raises:
+        ValueError: if the settlement kept none, which a caller reaching here has already ruled out.
+    """
+    if settlement.stored is None:
+        raise ValueError("settlement stores no loop")
+
+    return settlement.stored
+
+
+def _settled_key(record: RecordingLoopsRecord) -> SampleKey:
+    """The identity one document entry names, rebuilt as the audio map holds it."""
+    return SampleKey(pitch=record.pitch, velocity=record.velocity, cc=tuple(record.cc))
+
+
+def read_loops(path: Path) -> LoopsDocument:
+    """The loops document at ``path``, validated against its own shape."""
+    return LoopsDocument.model_validate_json(path.read_text(encoding="utf-8"))
+
+
+def settled_loops(document: LoopsDocument) -> dict[SampleKey, SettledLoop | None]:
+    """The loops a document states, in the shape every encode reads them through.
+
+    Frames come back as they were written, so a document read beside the dataset it was measured over names
+    the same stretches of the same recordings.
+    """
+    return {
+        _settled_key(record): (
+            NO_LOOP
+            if record.stored is None
+            else SettledLoop(
+                loop=Loop(start=record.stored.start, end=record.stored.end),
+                decay=_read_decay(record.stored.decay),
+            )
+        )
+        for record in document.recordings
+    }
+
+
+def _read_decay(record: DecayRecord | None) -> LinearDecay | None:
+    """The ramp one document entry states, where it states one."""
+    if record is None:
+        return NO_DECAY
+
+    return LinearDecay(start_s=record.start_s, end_s=record.end_s, final_gain=record.final_gain)
 
 
 def _budget_record(plan: StrategyPlan) -> BudgetRecord:

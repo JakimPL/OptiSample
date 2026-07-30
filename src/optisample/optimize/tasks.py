@@ -6,18 +6,33 @@ import numpy as np
 from optisample.config.codec import EncodeConfig
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import BandwidthConfig, ReduceConfig, Representatives, ZoneConfig
-from optisample.dsp.surrogate import StoredSample, closed_reference, render
+from optisample.dsp.surrogate import NO_LOOP, SettledLoop, StoredSample, closed_reference, render
 from optisample.dsp.timebase import seconds_to_frames
+from optisample.keys import SampleKey, nearest_key
 from optisample.metrics.base import Signal
 from optisample.metrics.composite import CompositeFidelity, QualityReport, evaluate
 from optisample.model import InstrumentSpec, NoteEvent
 from optisample.optimize.reduce.events import MergedEvent, merge_events
-from optisample.optimize.reduce.keys import SampleKey, nearest_key
 from optisample.optimize.velocity_map import VelocityVolumeMap
 from optisample.optimize.weighting import energy_weight
 from trackmod.module.storage import Storage
 
 AudioMap = Mapping[SampleKey, Signal]
+LoopMap = Mapping[SampleKey, SettledLoop | None]
+
+
+@dataclass(frozen=True)
+class StoredRecordings:
+    """The recordings a stage encodes from: their audio, the loop each is stored around, and their rate.
+
+    The three travel together wherever a recording is encoded -- the sweep, the export and every artifact
+    re-encoding a plan -- because a loop names frames of one recording at one rate, so they are carried as
+    one value and read apart where a stage needs a part of them.
+    """
+
+    audio: AudioMap
+    settled: LoopMap
+    sample_rate: int
 
 
 def _scored_span(reference: Signal, duration_s: float, sample_rate: int) -> Signal:
@@ -75,7 +90,8 @@ class PitchTask:
     ``candidates`` lists the survivors at this pitch that may be stored as its sample, ``representative``
     being the recording of the first-listed one. Under the default ``nearest_loudest`` policy that is the
     single recording nearest the loudest velocity played here; ``all`` offers every survivor, so a
-    timbral variant can compete for the slot.
+    timbral variant can compete for the slot. ``settled`` is the loop the loop stage decided for that
+    recording, which every encoding of it is stored around.
     """
 
     pitch: int
@@ -84,6 +100,12 @@ class PitchTask:
     representative: Signal
     candidates: tuple[SampleKey, ...]
     events: tuple[Event, ...]
+    settled: SettledLoop | None = NO_LOOP
+
+    @property
+    def loops(self) -> bool:
+        """Whether this pitch's recording has a loop to be stored around, which the sweep prices."""
+        return self.settled is not None
 
     @property
     def objective_weight(self) -> float:
@@ -155,10 +177,12 @@ class TaskInputs:
     ``velocity_map`` fixes the volume each note renders at and ``reduce`` how far merging widens a class,
     which together decide what one scored class stands for. ``sample_rate`` and ``energy_exponent``
     settle what that class costs: the stretch of its recording it is scored over, and how steeply that
-    stretch's energy scales the distortion measured on it.
+    stretch's energy scales the distortion measured on it. ``settled`` carries what the loop stage decided
+    for each survivor, so a task reaches its recording's loop by the same key the audio is held under.
     """
 
     audio: AudioMap
+    settled: LoopMap
     velocity_map: VelocityVolumeMap
     reduce: ReduceConfig
     sample_rate: int
@@ -235,6 +259,7 @@ def _build_pitch_task(
         inputs.audio[representative_key],
         _candidate_keys(available, representative_key, inputs.reduce.dedupe.representatives),
         scored,
+        inputs.settled.get(representative_key, NO_LOOP),
     )
 
 

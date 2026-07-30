@@ -3,11 +3,11 @@ from collections.abc import Sequence
 from optisample.artifacts.bank import MANIFEST_VERSION, BankDocument, bank_document
 from optisample.artifacts.serialize import VelocityMapDocument
 from optisample.dsp.surrogate.params import EncodingParams
+from optisample.keys import SampleKey
 from optisample.music import MIDI_HIGHEST_PITCH, MIDI_LOWEST_PITCH, MIDI_MAX_VELOCITY
 from optisample.optimize.layers.bands import UNSPLIT, VelocityBand, VelocityLayers
 from optisample.optimize.layers.slots import InstrumentSlot, SlotLayout, pack_slots
 from optisample.optimize.plans import SampleUnit
-from optisample.optimize.reduce.keys import SampleKey
 
 _SPLIT = VelocityLayers((VelocityBand(0, 50), VelocityBand(51, MIDI_MAX_VELOCITY)))
 _EXTENSION = ".iti"

@@ -1,4 +1,4 @@
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
 
@@ -11,6 +11,7 @@ from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import ReduceConfig
 from optisample.io.audio import write_wav
 from optisample.io.tracker.target import export_target
+from optisample.keys import SampleKey
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.dp import BudgetInfeasibleError
 from optisample.optimize.grouping import build_zone_options, zone_hull
@@ -37,11 +38,12 @@ from optisample.optimize.orchestrate import optimize_instrument, prepare_run
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import GroupedInstrumentPlan, ZoneOption
 from optisample.optimize.reduce.bandwidth import ClipDemand
-from optisample.optimize.reduce.keys import SampleKey
-from optisample.optimize.tasks import EvalContext, Event, PitchTask
+from optisample.optimize.tasks import EvalContext, Event, PitchTask, StoredRecordings
 from optisample.parallel import IN_PROCESS
 from optisample.progress import NO_PROGRESS
 from optisample.synth import NoteSpec, synthesize
+
+Recordings = Callable[..., StoredRecordings]
 
 SR = 44_100
 PITCHES = (60, 62, 64)
@@ -69,10 +71,11 @@ def _settings(sweep: SweepConfig, **sections: Mapping[str, object]) -> OptimizeS
     leaves the budgets below about what a handful of them cost -- the scale the merging behaviour shows at.
     """
     return OptimizeSettings(
+        loop=_CONFIG.loop,
         sweep=sweep,
         reduce=_reduce(**{"bandwidth": {"ceiling_hz": _STORED_CEILING_HZ}, **sections}),
         layers=_CONFIG.optimize.layers,
-        encode=_CONFIG.codec.encode,
+        encode=_CONFIG.encode,
         metrics=_CONFIG.analysis.metrics,
         velocity=_CONFIG.optimize.velocity,
         method=_CONFIG.optimize.budget.method,
@@ -126,22 +129,25 @@ def audio() -> dict[SampleKey, NDArray[np.float64]]:
 @pytest.fixture(scope="module")
 def options48(
     audio: dict[SampleKey, NDArray[np.float64]],
+    recordings: Recordings,
 ) -> tuple[list[PitchTask], dict[tuple[int, int], tuple[ZoneOption, ...]]]:
-    inputs = prepare_run(_instrument(48.0), audio, SR, _settings(GRID))
+    inputs = prepare_run(_instrument(48.0), recordings(audio, SR), _settings(GRID))
     segments = _one_layer(inputs.tasks)
     (options,) = build_zone_options(segments, inputs.context, workers=IN_PROCESS, progress=NO_PROGRESS)
     return list(inputs.tasks), options
 
 
 @pytest.fixture(scope="module")
-def plan48(audio: dict[SampleKey, NDArray[np.float64]]) -> GroupedInstrumentPlan:
-    return optimize_instrument_grouped(_instrument(48.0), audio, SR, _settings(GRID))
+def plan48(audio: dict[SampleKey, NDArray[np.float64]], recordings: Recordings) -> GroupedInstrumentPlan:
+    return optimize_instrument_grouped(_instrument(48.0), recordings(audio, SR), _settings(GRID))
 
 
 @pytest.fixture(scope="module")
-def dithered(audio: dict[SampleKey, NDArray[np.float64]]) -> tuple[list[PitchTask], EvalContext]:
+def dithered(
+    audio: dict[SampleKey, NDArray[np.float64]], recordings: Recordings
+) -> tuple[list[PitchTask], EvalContext]:
     """A run whose encodes draw dither, so a shared stream and a per-identity one tell apart."""
-    inputs = prepare_run(_instrument(48.0), audio, SR, _settings(GRID_DITHERED))
+    inputs = prepare_run(_instrument(48.0), recordings(audio, SR), _settings(GRID_DITHERED))
     return list(inputs.tasks), inputs.context
 
 
@@ -303,8 +309,9 @@ def test_scoring_shared_across_processes_reads_the_same_as_scoring_in_one(
 
 def test_zone_options_read_the_same_however_the_scoring_was_shared_out(
     audio: dict[SampleKey, NDArray[np.float64]],
+    recordings: Recordings,
 ) -> None:
-    inputs = prepare_run(_instrument(48.0), audio, SR, _settings(GRID_DITHERED))
+    inputs = prepare_run(_instrument(48.0), recordings(audio, SR), _settings(GRID_DITHERED))
     segments = _one_layer(inputs.tasks)
     alone = build_zone_options(segments, inputs.context, workers=IN_PROCESS, progress=NO_PROGRESS)
     shared = build_zone_options(segments, inputs.context, workers=_SHARED, progress=NO_PROGRESS)
@@ -315,9 +322,11 @@ def test_zone_options_read_the_same_however_the_scoring_was_shared_out(
 
 
 def test_grouping_is_never_worse_than_ungrouped_at_a_feasible_budget(
-    audio: dict[SampleKey, NDArray[np.float64]], plan48: GroupedInstrumentPlan
+    audio: dict[SampleKey, NDArray[np.float64]],
+    plan48: GroupedInstrumentPlan,
+    recordings: Recordings,
 ) -> None:
-    ungrouped = optimize_instrument(_instrument(48.0), audio, SR, _settings(GRID))
+    ungrouped = optimize_instrument(_instrument(48.0), recordings(audio, SR), _settings(GRID))
     assert plan48.objective <= ungrouped.objective + 1e-9  # singletons are always in the search space
     assert plan48.used_bytes <= plan48.sample_budget_bytes
 
@@ -341,31 +350,36 @@ def test_every_stored_sample_states_its_share_of_the_objective(plan48: GroupedIn
 
 def test_a_span_cap_below_the_key_spacing_leaves_every_key_its_own_zone(
     audio: dict[SampleKey, NDArray[np.float64]],
+    recordings: Recordings,
 ) -> None:
     """The allocation steps between the ranges the cap left, and still covers the keyboard."""
     settings = _settings(GRID_TINY, grouping={"max_zone_semitones": 1})
-    grouped = optimize_instrument_grouped(_instrument(48.0), audio, SR, settings)
+    grouped = optimize_instrument_grouped(_instrument(48.0), recordings(audio, SR), settings)
     assert grouped.pitches == PITCHES  # the keys sit two semitones apart, so no pair may merge
     assert all(len(zone.pitches) == 1 for zone in grouped.zones)
 
 
-def test_grouping_is_feasible_where_ungrouped_is_not(audio: dict[SampleKey, NDArray[np.float64]]) -> None:
+def test_grouping_is_feasible_where_ungrouped_is_not(
+    audio: dict[SampleKey, NDArray[np.float64]], recordings: Recordings
+) -> None:
     settings = _settings(GRID_TINY)
     inst = _instrument(10.0)  # room for one shared sample, not for three separate ones
     with pytest.raises(BudgetInfeasibleError):
-        optimize_instrument(inst, audio, SR, settings)
-    grouped = optimize_instrument_grouped(inst, audio, SR, settings)
+        optimize_instrument(inst, recordings(audio, SR), settings)
+    grouped = optimize_instrument_grouped(inst, recordings(audio, SR), settings)
     assert len(grouped.zones) < len(PITCHES)  # keys had to be merged to fit
     assert set(grouped.pitches) == set(PITCHES)  # but every key is still covered
     assert grouped.used_bytes <= grouped.sample_budget_bytes
 
 
-def test_grouping_raises_when_even_one_merged_zone_overflows(audio: dict[SampleKey, NDArray[np.float64]]) -> None:
+def test_grouping_raises_when_even_one_merged_zone_overflows(
+    audio: dict[SampleKey, NDArray[np.float64]], recordings: Recordings
+) -> None:
     with pytest.raises(BudgetInfeasibleError):
-        optimize_instrument_grouped(_instrument(1.0), audio, SR, _settings(GRID_TINY))
+        optimize_instrument_grouped(_instrument(1.0), recordings(audio, SR), _settings(GRID_TINY))
 
 
-def test_grouping_handles_the_sustained_archetype() -> None:
+def test_grouping_handles_the_sustained_archetype(recordings: Recordings) -> None:
     pitches = (60, 62, 64)
     audio = {
         SampleKey(pitch, 100): synthesize(
@@ -376,7 +390,7 @@ def test_grouping_handles_the_sustained_archetype() -> None:
     samples = [SourceSample(file=Path(f"{pitch}.wav"), pitch=pitch, velocity=100) for pitch in pitches]
     material = [NoteEvent(pitch=pitch, velocity=100, duration_s=0.5, count=3) for pitch in pitches]
     inst = InstrumentSpec(id="strings", budget_kb=10.0, samples=samples, material=material)
-    grouped = optimize_instrument_grouped(inst, audio, SR, _settings(GRID_TINY))
+    grouped = optimize_instrument_grouped(inst, recordings(audio, SR), _settings(GRID_TINY))
     assert set(grouped.pitches) == set(pitches)  # the pad archetype groups the same way the piano does
     assert len(grouped.zones) < len(pitches)  # tight budget forces at least one merge
     assert grouped.used_bytes <= grouped.sample_budget_bytes

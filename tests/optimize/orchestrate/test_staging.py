@@ -9,8 +9,8 @@ from numpy.typing import NDArray
 from optisample.config.codec import EncodeConfig
 from optisample.config.tracker import TrackerFormat
 from optisample.io.tracker.target import ExportTarget
+from optisample.keys import SampleKey
 from optisample.optimize.orchestrate.staging import instrument_peak, staged_encode
-from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.tasks import AudioMap
 
 _LOUD = 0.8
@@ -63,8 +63,8 @@ def test_staging_moves_the_reference_and_leaves_every_other_setting_alone(
     audio: AudioMap, encode_config: EncodeConfig, retarget: Retarget
 ) -> None:
     staged = staged_encode(encode_config, retarget(TrackerFormat.XM), audio)
-    assert (staged.loop, staged.dynamics, staged.headroom_db) == (
-        encode_config.loop,
+    assert (staged.seam, staged.dynamics, staged.headroom_db) == (
+        encode_config.seam,
         encode_config.dynamics,
         encode_config.headroom_db,
     )

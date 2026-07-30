@@ -37,12 +37,13 @@ SweepFactory = Callable[..., SweepConfig]
 
 @dataclass(frozen=True)
 class _Clip:
-    """A stand-in pitch task, carrying a field beyond the three narrowing reads of a stored clip."""
+    """A stand-in pitch task, carrying a field beyond the four narrowing reads of a stored clip."""
 
     pitch: int
     representative: NDArray[np.float64]
     max_duration_s: float
     scored_classes: int
+    loops: bool = False
 
 
 def _decayed_noise(duration_s: float, seed: int) -> NDArray[np.float64]:
@@ -58,7 +59,6 @@ def context(encode_config: EncodeConfig, sweep: SweepFactory, reduce: ReduceFact
     """A narrowing context whose stored rate is chosen from the explicit ``_RATES`` ladder."""
     return GridContext(
         sample_rate=SR,
-        encode=encode_config,
         sweep=sweep(rates=_RATES),
         bandwidth=reduce().bandwidth,
     )
@@ -99,7 +99,7 @@ def test_a_grid_holds_the_encodings_the_sweep_will_run_for_that_pitch(
     settled = stored_format(clip.representative, demand, context)
 
     assert grid.stored == settled
-    assert grid.encodings == stored_encodings(settled, context.sweep, trim_s=_NOTE_S)
+    assert grid.encodings == stored_encodings(settled, context.sweep, trim_s=_NOTE_S, loops=clip.loops)
 
 
 def test_a_grids_stored_rate_carries_the_band_it_measured(clips: tuple[_Clip, ...], context: GridContext) -> None:
@@ -109,12 +109,15 @@ def test_a_grids_stored_rate_carries_the_band_it_measured(clips: tuple[_Clip, ..
     assert grid.stored.target_rate >= grid.useful_rate_hz
 
 
-def test_a_clip_is_read_through_the_three_fields_narrowing_needs(
-    clips: tuple[_Clip, ...], context: GridContext
-) -> None:
+def test_a_clip_is_read_through_the_four_fields_narrowing_needs(clips: tuple[_Clip, ...], context: GridContext) -> None:
     """Anything a pitch task carries beyond them stays with the caller, which is what a worker is spared."""
     clip = clips[0]
-    request = ClipRequest(pitch=clip.pitch, representative=clip.representative, max_duration_s=clip.max_duration_s)
+    request = ClipRequest(
+        pitch=clip.pitch,
+        representative=clip.representative,
+        max_duration_s=clip.max_duration_s,
+        loops=clip.loops,
+    )
     assert narrow_grid(request, context) == narrow_grid(clip, context)
 
 

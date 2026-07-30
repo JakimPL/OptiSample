@@ -14,6 +14,7 @@ from optisample.config.tracker import TrackerFormat
 from optisample.dsp.surrogate import EncodingParams, StoredSample
 from optisample.io.render import openmpt123_available, render_module
 from optisample.io.tracker.target import ExportTarget
+from optisample.keys import SampleKey
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.music import MIDI_MAX_VELOCITY
 from optisample.optimize.export import build_module
@@ -34,8 +35,8 @@ from optisample.optimize.plans import (
     Zone,
     ZoneOption,
 )
-from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.reduce.summary import ReductionSummary
+from optisample.optimize.tasks import StoredRecordings
 from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
 from tests.optimize.export.demo import SR
 from trackmod.core.instruments.keymap import KeyAssignment
@@ -45,6 +46,8 @@ from trackmod.module.storage import Storage
 from trackmod.spec.levels import MAX_VOLUME
 from trackmod.spec.pitch import RATE_NOTE
 from trackmod.trackers.xm.spec.sizes import NAME_BYTES as _NARROWEST_NAME_BYTES
+
+Recordings = Callable[..., StoredRecordings]
 
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
 
@@ -121,6 +124,7 @@ def test_a_pitch_the_format_does_not_number_raises(
     optimize_settings: Callable[..., OptimizeSettings],
     sweep: Callable[..., SweepConfig],
     piano_note: Callable[..., NDArray[np.float64]],
+    recordings: Recordings,
 ) -> None:
     audio = {SampleKey(_UNREACHABLE_PITCH, 100): piano_note(60, 100, seed=60 * 200 + 100)}
     instrument = InstrumentSpec(
@@ -130,9 +134,9 @@ def test_a_pitch_the_format_does_not_number_raises(
         material=[NoteEvent(pitch=_UNREACHABLE_PITCH, velocity=100, duration_s=0.4)],
     )
     settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depth=16))
-    plan = optimize_instrument(instrument, audio, SR, settings)
+    plan = optimize_instrument(instrument, recordings(audio, SR), settings)
     with pytest.raises(ValueError, match="outside the IT key range"):
-        build_module(plan, audio, SR, instrument.material or [], export_context)
+        build_module(plan, recordings(audio, SR), instrument.material or [], export_context)
 
 
 def _encoded(gain: float, velocity: int = _LOUDEST_VELOCITY) -> tuple[SampleUnit, StoredSample]:
@@ -273,6 +277,7 @@ def test_a_grouped_pitch_the_format_does_not_number_raises(
     storage: Storage,
     piano_note: Callable[..., NDArray[np.float64]],
     reduction: ReductionSummary,
+    recordings: Recordings,
 ) -> None:
     option = ZoneOption(
         representative=_UNREACHABLE_PITCH,
@@ -303,7 +308,7 @@ def test_a_grouped_pitch_the_format_does_not_number_raises(
     )
     audio = {SampleKey(_UNREACHABLE_PITCH, 100): piano_note(60, 100, seed=60 * 200 + 100)}
     with pytest.raises(ValueError, match="outside the IT key range"):
-        build_module(plan, audio, SR, [], export_context)
+        build_module(plan, recordings(audio, SR), [], export_context)
 
 
 # --- looping ---------------------------------------------------------------------------------------
@@ -323,6 +328,7 @@ def looped_build(
     optimize_settings: Callable[..., OptimizeSettings],
     sweep: Callable[..., SweepConfig],
     export_context: ExportContext,
+    recordings: Recordings,
 ) -> Callable[..., tuple[InstrumentPlan, TrackerModule]]:
     """Optimize a periodic pad whose budget only a loop fits, so the stored sample is attack + one loop."""
 
@@ -335,9 +341,9 @@ def looped_build(
             samples=[SourceSample(file=Path("60.wav"), pitch=60, velocity=100)],
             material=material,
         )
-        settings = optimize_settings(sweep=sweep(rates=(_LOOP_RATE,), depth=16, dither=False, loop_choices=1))
-        plan = optimize_instrument(instrument, audio, SR, settings)
-        return plan, build_module(plan, audio, SR, material, export_context)
+        settings = optimize_settings(sweep=sweep(rates=(_LOOP_RATE,), depth=16, dither=False))
+        plan = optimize_instrument(instrument, recordings(audio, SR), settings)
+        return plan, build_module(plan, recordings(audio, SR), material, export_context)
 
     return _looped_build
 

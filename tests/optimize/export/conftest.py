@@ -8,6 +8,7 @@ from numpy.typing import NDArray
 from optisample.config.optimize import SweepConfig
 from optisample.config.tracker import TrackerFormat
 from optisample.io.tracker.target import ExportTarget
+from optisample.keys import SampleKey
 from optisample.model import NoteEvent
 from optisample.optimize.export import build_module
 from optisample.optimize.export.context import ExportContext
@@ -18,7 +19,7 @@ from optisample.optimize.layers.slots import pack_slots
 from optisample.optimize.orchestrate import optimize_instrument
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
-from optisample.optimize.reduce.keys import SampleKey
+from optisample.optimize.tasks import StoredRecordings
 from optisample.optimize.velocity_map import VelocityVolumeMap
 from tests.optimize.export.demo import (
     PITCHES,
@@ -28,6 +29,8 @@ from tests.optimize.export.demo import (
     demo_material,
 )
 from trackmod.module.protocol import TrackerModule
+
+Recordings = Callable[..., StoredRecordings]
 
 _GROUPED_BUDGET_KB = 8.0
 _LAYERED_BUDGET_KB = 96.0  # room for a sample per key of every band, so a velocity split is affordable
@@ -73,6 +76,7 @@ def build(
     sweep: Callable[..., SweepConfig],
     as_format: Callable[[TrackerFormat | None], ExportContext],
     demo_audio: dict[SampleKey, NDArray[np.float64]],
+    recordings: Recordings,
 ) -> Callable[..., tuple[InstrumentPlan, TrackerModule]]:
     """Optimize the demo instrument over a 2x2 encoding grid and export it to a module.
 
@@ -85,11 +89,10 @@ def build(
         tracker_format: TrackerFormat | None = None,
     ) -> tuple[InstrumentPlan, TrackerModule]:
         settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depth=16))
-        plan = optimize_instrument(demo_instrument(), demo_audio, SR, settings)
+        plan = optimize_instrument(demo_instrument(), recordings(demo_audio, SR), settings)
         module = build_module(
             plan,
-            demo_audio,
-            SR,
+            recordings(demo_audio, SR),
             material if material is not None else demo_material(),
             as_format(tracker_format),
         )
@@ -104,13 +107,14 @@ def grouped_build(
     sweep: Callable[..., SweepConfig],
     export_context: ExportContext,
     demo_audio: dict[SampleKey, NDArray[np.float64]],
+    recordings: Recordings,
 ) -> Callable[..., tuple[GroupedInstrumentPlan, TrackerModule]]:
     """A tight-budget grouped build: one cheap operating point forces both keys into one shared zone."""
 
     def _grouped_build(budget_kb: float = _GROUPED_BUDGET_KB) -> tuple[GroupedInstrumentPlan, TrackerModule]:
         settings = optimize_settings(sweep=sweep(rates=(11_025,), depth=8, dither=False))
-        plan = optimize_instrument_grouped(demo_instrument(budget_kb), demo_audio, SR, settings)
-        module = build_module(plan, demo_audio, SR, demo_material(), export_context)
+        plan = optimize_instrument_grouped(demo_instrument(budget_kb), recordings(demo_audio, SR), settings)
+        module = build_module(plan, recordings(demo_audio, SR), demo_material(), export_context)
         return plan, module
 
     return _grouped_build
@@ -122,13 +126,14 @@ def layered_build(
     sweep: Callable[..., SweepConfig],
     export_context: ExportContext,
     demo_audio: dict[SampleKey, NDArray[np.float64]],
+    recordings: Recordings,
 ) -> Callable[..., tuple[GroupedInstrumentPlan, TrackerModule]]:
     """A generous grouped build: pitch 60 is played at both dynamics, so a velocity split can pay."""
 
     def _layered_build(budget_kb: float = _LAYERED_BUDGET_KB) -> tuple[GroupedInstrumentPlan, TrackerModule]:
         settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depth=16))
-        plan = optimize_instrument_grouped(demo_instrument(budget_kb), demo_audio, SR, settings)
-        module = build_module(plan, demo_audio, SR, demo_material(), export_context)
+        plan = optimize_instrument_grouped(demo_instrument(budget_kb), recordings(demo_audio, SR), settings)
+        module = build_module(plan, recordings(demo_audio, SR), demo_material(), export_context)
         return plan, module
 
     return _layered_build

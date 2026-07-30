@@ -8,9 +8,10 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.dsp.surrogate import (
-    TRIMMED,
+    NO_LOOP,
     EncodeContext,
     EncodingParams,
+    SettledLoop,
     StoredSample,
     closed_reference,
     encode,
@@ -23,6 +24,9 @@ from trackmod.spec.levels import MAX_VOLUME
 SR = 44_100
 _TRIM_S = 0.5
 _ROOT = 60
+_TONE_S = 2.0  # a recording long enough for the stage to place a loop inside and still leave a tail
+
+SettleLoop = Callable[..., SettledLoop | None]
 _OCTAVE_UP = 72
 
 
@@ -87,10 +91,13 @@ def test_render_duration_pads_and_truncates(
 
 
 def test_render_loop_sustains_a_note_held_past_the_stored_length(
-    sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
+    sine: Callable[..., NDArray[np.float64]],
+    make_encode_ctx: Callable[..., EncodeContext],
+    settle: SettleLoop,
 ) -> None:
-    params = EncodingParams(target_rate=SR, depth_bits=16, loop_choice=0)
-    stored = encode(sine(440.0, dur=2.0), SR, params, make_encode_ctx(60))
+    recording = sine(440.0, dur=_TONE_S)
+    params = EncodingParams(target_rate=SR, depth_bits=16, looped=True)
+    stored = encode(recording, SR, params, make_encode_ctx(60, settled=settle(recording, SR, search_s=_TONE_S)))
     held = render(stored, SR, pitch=60, duration_s=3.0)  # far longer than the ~0.1 s stored
     assert held.size == pytest.approx(int(round(3.0 * SR)), abs=1)
     assert float(np.sqrt(np.mean(held[-SR:] ** 2))) > 0.1  # the last second still sounds (loop sustained it)
@@ -108,12 +115,14 @@ def _tail_level(signal: NDArray[np.float64]) -> float:
 
 
 def test_a_held_loop_declines_the_way_the_recording_it_stands_for_did(
-    sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
+    sine: Callable[..., NDArray[np.float64]],
+    make_encode_ctx: Callable[..., EncodeContext],
+    settle: SettleLoop,
 ) -> None:
     """A struck note stored as attack plus loop ends near the level its recording ended at."""
     source = _decaying(sine, half_life_s=0.6)
-    params = EncodingParams(target_rate=SR, depth_bits=16, loop_choice=0)
-    stored = encode(source, SR, params, make_encode_ctx(_ROOT))
+    params = EncodingParams(target_rate=SR, depth_bits=16, looped=True)
+    stored = encode(source, SR, params, make_encode_ctx(_ROOT, settled=settle(source, SR, search_s=_TONE_S)))
     assert stored.decay is not None
 
     held = render(stored, SR, pitch=_ROOT, duration_s=2.0)
@@ -126,11 +135,14 @@ def test_a_held_loop_declines_the_way_the_recording_it_stands_for_did(
 
 
 def test_a_sample_carrying_no_decay_plays_at_the_level_it_was_stored_at(
-    sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
+    sine: Callable[..., NDArray[np.float64]],
+    make_encode_ctx: Callable[..., EncodeContext],
+    settle: SettleLoop,
 ) -> None:
     """A steady recording states no decline, so nothing is put over the loop that sustains it."""
-    params = EncodingParams(target_rate=SR, depth_bits=16, loop_choice=0)
-    stored = encode(sine(440.0, dur=2.0), SR, params, make_encode_ctx(_ROOT))
+    recording = sine(440.0, dur=_TONE_S)
+    params = EncodingParams(target_rate=SR, depth_bits=16, looped=True)
+    stored = encode(recording, SR, params, make_encode_ctx(_ROOT, settled=settle(recording, SR, search_s=_TONE_S)))
 
     assert stored.decay is None
 
@@ -141,12 +153,15 @@ def test_a_sample_carrying_no_decay_plays_at_the_level_it_was_stored_at(
 def _stored_half_second(
     sine: Callable[..., NDArray[np.float64]],
     make_encode_ctx: Callable[..., EncodeContext],
+    settle: SettleLoop,
     *,
-    loop_choice: int | None,
+    looped: bool,
 ) -> StoredSample:
-    """Half a second of a steady tone, stored the way ``loop_choice`` asks and ending as that leaves it."""
-    params = EncodingParams(target_rate=SR, depth_bits=16, trim_s=_TRIM_S, loop_choice=loop_choice)
-    return encode(sine(440.0, dur=2.0), SR, params, make_encode_ctx(_ROOT))
+    """Half a second of a steady tone, stored the way ``looped`` asks and ending as that leaves it."""
+    recording = sine(440.0, dur=_TONE_S)
+    settled = settle(recording, SR, search_s=_TONE_S) if looped else NO_LOOP
+    params = EncodingParams(target_rate=SR, depth_bits=16, trim_s=_TRIM_S, looped=looped)
+    return encode(recording, SR, params, make_encode_ctx(_ROOT, settled=settled))
 
 
 def _closed_unit_reference(stored: StoredSample, pitch: int) -> NDArray[np.float64]:
@@ -161,10 +176,12 @@ def _ramped_frames(closed: NDArray[np.float64]) -> int:
 
 
 def test_the_ground_truth_closes_where_the_stored_material_stops(
-    sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
+    sine: Callable[..., NDArray[np.float64]],
+    make_encode_ctx: Callable[..., EncodeContext],
+    settle: SettleLoop,
 ) -> None:
     """The ramp a stored span stops on stands over the source as well, leaving the codec between them."""
-    stored = _stored_half_second(sine, make_encode_ctx, loop_choice=TRIMMED)
+    stored = _stored_half_second(sine, make_encode_ctx, settle, looped=False)
     played_frames = output_frame(stored, stored.frames, SR, _ROOT)
     ramp_start = output_frame(stored, stored.frames - stored.release_frames, SR, _ROOT)
     span = np.ones(played_frames, dtype=np.float64)
@@ -177,29 +194,32 @@ def test_the_ground_truth_closes_where_the_stored_material_stops(
 
 
 @pytest.mark.parametrize(
-    ("loop_choice", "held"),
+    ("looped", "held"),
     [
-        pytest.param(0, 1.0, id="a looped sample wraps at its seam, so nothing closes its ground truth"),
-        pytest.param(TRIMMED, 0.5, id="the note ends before the ramp begins"),
+        pytest.param(True, 1.0, id="a looped sample wraps at its seam, so nothing closes its ground truth"),
+        pytest.param(False, 0.5, id="the note ends before the ramp begins"),
     ],
 )
 def test_the_ground_truth_stands_as_the_recording_where_no_ramp_reaches_it(
     sine: Callable[..., NDArray[np.float64]],
     make_encode_ctx: Callable[..., EncodeContext],
-    loop_choice: int | None,
+    settle: SettleLoop,
+    looped: bool,
     held: float,
 ) -> None:
-    stored = _stored_half_second(sine, make_encode_ctx, loop_choice=loop_choice)
+    stored = _stored_half_second(sine, make_encode_ctx, settle, looped=looped)
     span = np.ones(round(held * output_frame(stored, stored.frames, SR, _ROOT)), dtype=np.float64)
 
     assert np.array_equal(closed_reference(span, stored, SR, pitch=_ROOT), span)
 
 
 def test_a_note_held_longer_than_its_sample_keeps_the_recording_past_the_ramp(
-    sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
+    sine: Callable[..., NDArray[np.float64]],
+    make_encode_ctx: Callable[..., EncodeContext],
+    settle: SettleLoop,
 ) -> None:
     """The length the ramp closes stays charged, so past the stored material the ground truth is the recording."""
-    stored = _stored_half_second(sine, make_encode_ctx, loop_choice=TRIMMED)
+    stored = _stored_half_second(sine, make_encode_ctx, settle, looped=False)
     played_frames = output_frame(stored, stored.frames, SR, _ROOT)
     ramp_start = output_frame(stored, stored.frames - stored.release_frames, SR, _ROOT)
     span = np.ones(round(1.5 * played_frames), dtype=np.float64)
@@ -212,10 +232,12 @@ def test_a_note_held_longer_than_its_sample_keeps_the_recording_past_the_ramp(
 
 
 def test_the_ramp_moves_with_the_material_when_the_sample_is_repitched(
-    sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
+    sine: Callable[..., NDArray[np.float64]],
+    make_encode_ctx: Callable[..., EncodeContext],
+    settle: SettleLoop,
 ) -> None:
     """Playing a sample an octave up runs its closing ramp twice as fast, and the ground truth follows it."""
-    stored = _stored_half_second(sine, make_encode_ctx, loop_choice=TRIMMED)
+    stored = _stored_half_second(sine, make_encode_ctx, settle, looped=False)
     at_root = _closed_unit_reference(stored, _ROOT)
     an_octave_up = _closed_unit_reference(stored, _OCTAVE_UP)
 

@@ -3,9 +3,9 @@ from collections.abc import Callable
 import pytest
 
 from optisample.config.reduce import ReduceConfig
+from optisample.keys import SampleKey
 from optisample.model import NoteEvent
 from optisample.optimize.reduce.events import bucket_duration_s, merge_events
-from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.velocity_map import VelocityVolumeMap
 
 _RATIO = 1.25  # the bundled duration_bucket_ratio, which the exactness tests override to 1.0

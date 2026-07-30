@@ -8,6 +8,7 @@ from optisample.optimize.knapsack import rd_curve
 from optisample.optimize.layers.slots import reserved_slots
 from optisample.optimize.orchestrate.audio import load_run_audio
 from optisample.optimize.orchestrate.cost_model import build_items
+from optisample.optimize.orchestrate.looping import run_loops
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.orchestrate.solve import solve_allocation
 from optisample.optimize.orchestrate.staging import staged_encode
@@ -22,6 +23,7 @@ from optisample.optimize.tasks import (
     AudioMap,
     EvalContext,
     PitchTask,
+    StoredRecordings,
     TaskInputs,
     build_tasks,
 )
@@ -69,8 +71,7 @@ def unlayered_budget(instrument: InstrumentSpec, keys: int, settings: OptimizeSe
 
 def prepare_run(
     instrument: InstrumentSpec,
-    audio: AudioMap,
-    sample_rate: int,
+    recordings: StoredRecordings,
     settings: OptimizeSettings,
 ) -> RunInputs:
     """Build the shared inputs both optimizers need: the velocity map, scoring context and pitch tasks.
@@ -85,12 +86,14 @@ def prepare_run(
     (:func:`~optisample.optimize.orchestrate.staging.staged_encode`), so every encode the run makes
     stores its clip the way the export will write it.
     """
+    audio, sample_rate = recordings.audio, recordings.sample_rate
     velocity_map = derive_velocity_map(
         loudness_by_velocity([(key.velocity, signal) for key, signal in audio.items()], sample_rate),
         settings.velocity,
     )
     task_inputs = TaskInputs(
         audio=audio,
+        settled=recordings.settled,
         velocity_map=velocity_map,
         reduce=settings.reduce,
         sample_rate=sample_rate,
@@ -99,7 +102,6 @@ def prepare_run(
     tasks = build_tasks(instrument, task_inputs)
     grid = GridContext(
         sample_rate=sample_rate,
-        encode=staged_encode(settings.encode, settings.target, audio),
         sweep=settings.sweep,
         bandwidth=settings.reduce.bandwidth,
     )
@@ -108,7 +110,7 @@ def prepare_run(
         composite=build_composite(settings.metrics),
         rng=np.random.default_rng(settings.seed),
         sweep=grid.sweep,
-        encode=grid.encode,
+        encode=staged_encode(settings.encode, settings.target, audio),
         storage=settings.target.storage,
         bandwidth=grid.bandwidth,
         grouping=settings.reduce.grouping,
@@ -120,7 +122,7 @@ def prepare_run(
         audio,
         ReductionInputs(
             reduce=settings.reduce,
-            loop=grid.encode.loop,
+            geometry=settings.loop.geometry,
             context=grid,
             workers=settings.workers,
             progress=settings.progress,
@@ -165,19 +167,18 @@ def allocate_instrument(
 
 def optimize_instrument(
     instrument: InstrumentSpec,
-    audio: AudioMap,
-    sample_rate: int,
+    recordings: StoredRecordings,
     settings: OptimizeSettings,
 ) -> InstrumentPlan:
     """Optimize one instrument's byte budget end to end and return a structured plan."""
-    inputs = prepare_run(instrument, audio, sample_rate, settings)
+    inputs = prepare_run(instrument, recordings, settings)
     return allocate_instrument(instrument, inputs, settings)
 
 
 def run_instrument(instrument: InstrumentSpec, settings: OptimizeSettings) -> InstrumentPlan:
-    """Load an instrument's recordings from disk and optimize it."""
-    loaded = load_run_audio(instrument, settings)
-    return optimize_instrument(loaded.instrument, loaded.audio, loaded.sample_rate, settings)
+    """Load an instrument's recordings from disk, settle its loops, and optimize it."""
+    looped = run_loops(load_run_audio(instrument, settings), settings)
+    return optimize_instrument(looped.loaded.instrument, looped.recordings, settings)
 
 
 __all__ = [

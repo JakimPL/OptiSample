@@ -6,13 +6,24 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.config.codec import EncodeConfig
+from optisample.config.loop import GeometryConfig
 from optisample.dsp.levels import peak_amplitude
 from optisample.dsp.quantize import headroom_peak
-from optisample.dsp.surrogate import NO_RELEASE_RAMP, TRIMMED, EncodeContext, EncodingParams, encode
+from optisample.dsp.surrogate import (
+    NO_LOOP,
+    NO_RELEASE_RAMP,
+    EncodeContext,
+    EncodingParams,
+    SettledLoop,
+    encode,
+)
 
 SR = 44_100
 _QUIET = 0.25  # the amplitude a test recording peaks at, which normalization has to lift to the headroom
 _HALF_S = 0.5
+_TONE_S = 2.0  # a recording long enough for the stage to place a loop inside and still leave a tail
+
+SettleLoop = Callable[..., SettledLoop | None]
 
 
 def _root_mean_square(pcm: NDArray[np.float64]) -> float:
@@ -48,13 +59,19 @@ def test_encode_trims_to_duration(
 
 
 def test_encode_loop_stores_attack_plus_loop_and_drops_the_tail(
-    sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
+    sine: Callable[..., NDArray[np.float64]],
+    make_encode_ctx: Callable[..., EncodeContext],
+    settle: SettleLoop,
+    geometry_config: GeometryConfig,
 ) -> None:
-    params = EncodingParams(target_rate=SR, depth_bits=16, loop_choice=0)
-    stored = encode(sine(440.0, dur=2.0), SR, params, make_encode_ctx(60))
+    recording = sine(440.0, dur=_TONE_S)
+    settled = settle(recording, SR, search_s=_TONE_S)
+    params = EncodingParams(target_rate=SR, depth_bits=16, looped=True)
+    stored = encode(recording, SR, params, make_encode_ctx(60, settled=settled))
     assert stored.loop is not None
     assert stored.frames == stored.loop.end  # storage is trimmed to [0, loop.end)
-    assert stored.frames < int(SR)  # ... attack + a ~0.5 s loop, well under the 2 s recording
+    assert stored.frames < recording.size  # ... the attack plus one loop, so the sustain tail is dropped
+    assert stored.loop.length >= round(geometry_config.min_loop_s * SR)
 
 
 def test_a_trimmed_sample_closes_on_the_release_ramp(
@@ -63,7 +80,7 @@ def test_a_trimmed_sample_closes_on_the_release_ramp(
     encode_config: EncodeConfig,
 ) -> None:
     """A cut at the length the material asks for lands mid-tone, so the stored span ends on silence."""
-    params = EncodingParams(target_rate=SR, depth_bits=16, trim_s=_HALF_S, loop_choice=TRIMMED)
+    params = EncodingParams(target_rate=SR, depth_bits=16, trim_s=_HALF_S, looped=False)
     faded = encode(sine(440.0, dur=2.0), SR, params, make_encode_ctx(60))
     stepped = encode(sine(440.0, dur=2.0), SR, params, make_encode_ctx(60, release_fade_s=0.0))
 
@@ -74,52 +91,65 @@ def test_a_trimmed_sample_closes_on_the_release_ramp(
 
 
 def test_a_looped_sample_keeps_the_wrap_point_the_crossfade_made(
-    sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
+    sine: Callable[..., NDArray[np.float64]],
+    make_encode_ctx: Callable[..., EncodeContext],
+    settle: SettleLoop,
 ) -> None:
     """A loop ends where playback returns to its start, so the span is stored as the crossfade left it."""
-    params = EncodingParams(target_rate=SR, depth_bits=16, loop_choice=0)
-    faded = encode(sine(440.0, dur=2.0), SR, params, make_encode_ctx(60))
-    unfaded = encode(sine(440.0, dur=2.0), SR, params, make_encode_ctx(60, release_fade_s=0.0))
+    recording = sine(440.0, dur=_TONE_S)
+    settled = settle(recording, SR, search_s=_TONE_S)
+    params = EncodingParams(target_rate=SR, depth_bits=16, looped=True)
+    faded = encode(recording, SR, params, make_encode_ctx(60, settled=settled))
+    unfaded = encode(recording, SR, params, make_encode_ctx(60, release_fade_s=0.0, settled=settled))
 
     assert faded.loop is not None
     assert np.array_equal(faded.pcm, unfaded.pcm)
     assert faded.release_frames == NO_RELEASE_RAMP  # nothing closes it, so nothing closes its ground truth
 
 
-def test_each_loop_choice_stores_a_loop_of_its_own(
+def test_a_stored_copy_wraps_the_same_stretch_of_the_recording_at_a_lower_rate(
+    sine: Callable[..., NDArray[np.float64]],
+    make_encode_ctx: Callable[..., EncodeContext],
+    settle: SettleLoop,
+) -> None:
+    """The loop is settled once on the recording, so a cheaper copy reaches it by scaling the bounds."""
+    recording = sine(440.0, dur=_TONE_S)
+    settled = settle(recording, SR, search_s=_TONE_S)
+    assert settled is not None
+    context = make_encode_ctx(60, settled=settled)
+    own = encode(recording, SR, EncodingParams(target_rate=SR, depth_bits=16, looped=True), context)
+    cheap = encode(recording, SR, EncodingParams(target_rate=11_025, depth_bits=16, looped=True), context)
+
+    assert own.loop == settled.loop  # stored at its own rate, the bounds are the settled ones
+    assert cheap.loop is not None
+    assert cheap.loop.start == pytest.approx(settled.loop.start / 4, abs=1)
+    assert cheap.loop.end == pytest.approx(settled.loop.end / 4, abs=1)
+
+
+def test_a_clip_the_stage_settled_no_loop_for_stores_the_trimmed_sample(
     sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
 ) -> None:
-    """The choice is what picks among the candidates, so two choices land on two different stored spans."""
-    recording = sine(440.0, dur=4.0)
-    first = encode(recording, SR, EncodingParams(target_rate=SR, depth_bits=16, loop_choice=0), make_encode_ctx(60))
-    second = encode(recording, SR, EncodingParams(target_rate=SR, depth_bits=16, loop_choice=1), make_encode_ctx(60))
-
-    assert first.loop is not None and second.loop is not None
-    assert first.loop != second.loop
-    assert second.frames == second.loop.end
-
-
-def test_a_choice_reaching_past_the_candidates_stores_the_trimmed_sample(
-    sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
-) -> None:
-    """A grid enumerates the same choices for every clip, and a clip offering fewer answers with its trim."""
-    beyond = EncodingParams(target_rate=SR, depth_bits=16, trim_s=_HALF_S, loop_choice=99)
-    stored = encode(sine(440.0, dur=2.0), SR, beyond, make_encode_ctx(60))
+    """Params ask to be looped and the settlement decides whether there is one, so the trim carries the rest."""
+    params = EncodingParams(target_rate=SR, depth_bits=16, trim_s=_HALF_S, looped=True)
+    stored = encode(sine(440.0, dur=_TONE_S), SR, params, make_encode_ctx(60, settled=NO_LOOP))
 
     assert stored.loop is None
     assert stored.frames == pytest.approx(int(round(_HALF_S * SR)), abs=2)
 
 
-def test_loop_falls_back_to_trim_on_non_periodic_material(make_encode_ctx: Callable[..., EncodeContext]) -> None:
+def test_non_periodic_material_is_settled_no_loop_and_stored_as_its_trim(
+    make_encode_ctx: Callable[..., EncodeContext], settle: SettleLoop
+) -> None:
     rng = np.random.default_rng(0)
     noise = rng.standard_normal(SR)
-    looped = encode(
-        noise, SR, EncodingParams(target_rate=SR, depth_bits=16, trim_s=0.5, loop_choice=0), make_encode_ctx(60)
-    )
-    plain = encode(
-        noise, SR, EncodingParams(target_rate=SR, depth_bits=16, trim_s=0.5, loop_choice=TRIMMED), make_encode_ctx(60)
-    )
-    assert looped.loop is None  # noise is not periodic enough to loop
+    settled = settle(noise, SR, search_s=1.0)
+    assert settled is NO_LOOP  # noise is not periodic enough to loop
+
+    params = EncodingParams(target_rate=SR, depth_bits=16, trim_s=0.5, looped=True)
+    looped = encode(noise, SR, params, make_encode_ctx(60, settled=settled))
+    plain = encode(noise, SR, replace(params, looped=False), make_encode_ctx(60))
+
+    assert looped.loop is None
     assert looped.frames == plain.frames  # ... so it is identical to the non-looped trim
 
 
@@ -167,10 +197,14 @@ def test_a_compressed_encoding_fills_more_of_the_grid_at_the_same_peak(
 
 
 def test_compression_runs_before_the_loop_seam_is_crossfaded(
-    sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
+    sine: Callable[..., NDArray[np.float64]],
+    make_encode_ctx: Callable[..., EncodeContext],
+    settle: SettleLoop,
 ) -> None:
     """Ordering the two that way is what keeps a looped sample's seam continuous on the audio stored."""
-    params = EncodingParams(target_rate=SR, depth_bits=8, loop_choice=0, compress=True, dither=False)
-    stored = encode(sine(440.0, dur=2.0), SR, params, make_encode_ctx(60))
+    recording = sine(440.0, dur=_TONE_S)
+    settled = settle(recording, SR, search_s=_TONE_S)
+    params = EncodingParams(target_rate=SR, depth_bits=8, looped=True, compress=True, dither=False)
+    stored = encode(recording, SR, params, make_encode_ctx(60, settled=settled))
     assert stored.loop is not None
     assert stored.frames == stored.loop.end

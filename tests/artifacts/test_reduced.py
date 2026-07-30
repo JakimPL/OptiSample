@@ -14,6 +14,7 @@ from optisample.artifacts.reduced import reduce_project, stored_frames
 from optisample.config.reduce import DedupeKey
 from optisample.io.audio import read_wav
 from optisample.io.note_extractor import IngestSettings, load_notes
+from optisample.keys import SampleKey
 from optisample.model import (
     InstrumentSpec,
     Manifest,
@@ -23,15 +24,22 @@ from optisample.model import (
 )
 from optisample.optimize.orchestrate import prepare_run
 from optisample.optimize.orchestrate.audio import LoadedInstrument
+from optisample.optimize.orchestrate.looping import LoopedInstrument, run_loops
 from optisample.optimize.orchestrate.settings import OptimizeSettings
-from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.reduce.summary import KeptRecording
 from optisample.optimize.reduce.trim import NO_SCREEN
-from optisample.optimize.tasks import AudioMap
+from optisample.optimize.tasks import AudioMap, StoredRecordings
+
+Recordings = Callable[..., StoredRecordings]
 
 SR = 44_100
 PITCHES = (60, 62, 64)
 VELOCITIES = (60, 100)
+
+
+def _looped(instrument: InstrumentSpec, audio: AudioMap, settings: OptimizeSettings) -> LoopedInstrument:
+    """The recordings a reduce run reads, with each one's loop settled the way the stage would."""
+    return run_loops(_loaded(instrument, audio), settings)
 
 
 def _loaded(instrument: InstrumentSpec, audio: AudioMap) -> LoadedInstrument:
@@ -75,7 +83,9 @@ def reduced(
     no_render_settings: DumpSettings,
     tmp_path: Path,
 ) -> ReducedInstrument:
-    return dump_reduced(_loaded(graded_instrument, graded_audio), tmp_path, no_render_settings.optimize)
+    return dump_reduced(
+        _looped(graded_instrument, graded_audio, no_render_settings.optimize), tmp_path, no_render_settings.optimize
+    )
 
 
 def _document(reduced: ReducedInstrument) -> dict[str, object]:
@@ -196,9 +206,12 @@ def test_a_survivor_longer_than_asked_is_trimmed_to_the_requirement(
     graded_audio: AudioMap,
     no_render_settings: DumpSettings,
     tmp_path: Path,
+    recordings: Recordings,
 ) -> None:
-    reduced = dump_reduced(_loaded(graded_instrument, graded_audio), tmp_path, no_render_settings.optimize)
-    inputs = prepare_run(graded_instrument, graded_audio, SR, no_render_settings.optimize)
+    reduced = dump_reduced(
+        _looped(graded_instrument, graded_audio, no_render_settings.optimize), tmp_path, no_render_settings.optimize
+    )
+    inputs = prepare_run(graded_instrument, recordings(graded_audio, SR), no_render_settings.optimize)
     required = {recording.key.label: recording.required_duration_s for recording in inputs.reduction.recordings}
     for sample in _document(reduced)["samples"]:  # type: ignore[attr-defined]
         held = len(graded_audio[SampleKey(*_key_parts(sample["key"]))]) / SR
@@ -225,9 +238,12 @@ def test_a_reduced_dataset_reloads_into_the_same_survivors(
     no_render_settings: DumpSettings,
     tmp_path: Path,
     ingest_settings: Callable[..., IngestSettings],
+    recordings: Recordings,
 ) -> None:
     """The point of the dataset: an allocation run reads it back and reduces to exactly what was written."""
-    reduced = dump_reduced(_loaded(graded_instrument, graded_audio), tmp_path, no_render_settings.optimize)
+    reduced = dump_reduced(
+        _looped(graded_instrument, graded_audio, no_render_settings.optimize), tmp_path, no_render_settings.optimize
+    )
     reloaded = load_notes(
         reduced.paths.notes_json,
         reduced.paths.samples_dir,
@@ -235,7 +251,7 @@ def test_a_reduced_dataset_reloads_into_the_same_survivors(
     )
     instrument = reloaded.instruments[0]
     assert len(instrument.material) == reduced.notes
-    again = prepare_run(instrument, _decode(reduced.paths.samples_dir), SR, no_render_settings.optimize)
+    again = prepare_run(instrument, recordings(_decode(reduced.paths.samples_dir), SR), no_render_settings.optimize)
     written = _document(reduced)["reduction"]  # type: ignore[assignment]
     assert again.reduction.kept_recordings == written["kept_recordings"]  # type: ignore[index]
     assert [recording.key.label for recording in again.reduction.recordings] == [
@@ -279,6 +295,7 @@ def test_the_dedupe_key_the_dataset_was_reduced_under_reaches_the_document(
 ) -> None:
     """A coarser key keeps one recording per pitch, and the document says which key that was."""
     settings = OptimizeSettings(
+        loop=no_render_settings.optimize.loop,
         sweep=no_render_settings.optimize.sweep,
         reduce=reduce(dedupe={"key": DedupeKey.PITCH}),  # type: ignore[arg-type]
         layers=no_render_settings.optimize.layers,
@@ -291,6 +308,6 @@ def test_the_dedupe_key_the_dataset_was_reduced_under_reaches_the_document(
         target=no_render_settings.optimize.target,
     )
     loudest = {SampleKey(pitch, 100): graded_audio[SampleKey(pitch, 100)] for pitch in PITCHES}
-    reduced = dump_reduced(_loaded(graded_instrument, loudest), tmp_path, settings)
+    reduced = dump_reduced(_looped(graded_instrument, loudest, settings), tmp_path, settings)
     assert reduced.survivors == len(PITCHES)
     assert _document(reduced)["dedupe_key"] == DedupeKey.PITCH.value

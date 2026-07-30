@@ -5,7 +5,7 @@ import pytest
 
 from notebooks.utils import reports
 from notebooks.utils.reports import ComparedNote
-from optisample.artifacts.paths import plan_paths, reduced_paths
+from optisample.artifacts.paths import looped_paths, plan_paths, reduced_paths
 from optisample.artifacts.serialize import (
     BudgetRecord,
     DecayRecord,
@@ -13,18 +13,22 @@ from optisample.artifacts.serialize import (
     InstrumentRecord,
     KeptRecordingRecord,
     KeyboardRecord,
-    LoopCandidateRecord,
+    LoopQualityRecord,
     LoopRecord,
+    LoopsDocument,
     MetricsDocument,
     ModuleSizeRecord,
     NarrowedGridRecord,
     NoteMetricRecord,
     PitchItemRecord,
     PlanDocument,
+    RecordingLoopsRecord,
     ReducedDocument,
     ReductionDocument,
+    RejectedLoopRecord,
     RepresentativeEventRecord,
     ScreenRecord,
+    SettledLoopRecord,
     StoredFormatRecord,
     VelocityMapDocument,
     WrittenSampleRecord,
@@ -81,10 +85,6 @@ def _reduction() -> ReductionDocument:
                 useful_rate_hz=12_345.6,
                 stored=StoredFormatRecord(target_rate=16_000, depth_bits=16, compress=False),
                 swept=4,
-                loops=[
-                    LoopCandidateRecord(choice=0, start_s=0.05, end_s=0.55, seam_step=1.25, spectral_distance=3.5),
-                    LoopCandidateRecord(choice=1, start_s=0.70, end_s=1.20, seam_step=0.75, spectral_distance=1.5),
-                ],
             ),
             NarrowedGridRecord(
                 pitch=67,
@@ -92,7 +92,6 @@ def _reduction() -> ReductionDocument:
                 useful_rate_hz=9_000.0,
                 stored=StoredFormatRecord(target_rate=11_025, depth_bits=8, compress=True),
                 swept=4,
-                loops=[],
             ),
         ],
     )
@@ -188,6 +187,62 @@ def _metrics() -> MetricsDocument:
     )
 
 
+def _quality(seam: float, timbre: float) -> LoopQualityRecord:
+    return LoopQualityRecord(seam_step=seam, spectral_distance=timbre)
+
+
+def _loops() -> LoopsDocument:
+    """A loop run's decisions: one recording stored around a loop, one stored over the span it plays."""
+    return LoopsDocument(
+        instrument_id=_INSTRUMENT,
+        sample_rate=SR,
+        recordings=[
+            RecordingLoopsRecord(
+                key="p060_C4_v080",
+                pitch=60,
+                note="C4",
+                velocity=80,
+                cc=[],
+                search_s=2.0,
+                stored=SettledLoopRecord(
+                    start=400,
+                    end=4_400,
+                    start_s=0.05,
+                    end_s=0.55,
+                    quality=_quality(1.25, 3.5),
+                    decay=DecayRecord(start_s=0.55, end_s=2.0, final_gain=0.25),
+                ),
+                rejected=[
+                    RejectedLoopRecord(start_s=0.05, end_s=0.30, quality=_quality(0.9, 14.0), gate="timbre"),
+                ],
+            ),
+            RecordingLoopsRecord(
+                key="p067_G4_v080",
+                pitch=67,
+                note="G4",
+                velocity=80,
+                cc=[],
+                search_s=1.5,
+                stored=None,
+                rejected=[
+                    RejectedLoopRecord(start_s=0.05, end_s=0.55, quality=_quality(6.0, 2.0), gate="seam"),
+                    RejectedLoopRecord(start_s=0.60, end_s=1.10, quality=_quality(1.0, 20.0), gate="timbre"),
+                ],
+            ),
+        ],
+    )
+
+
+@pytest.fixture
+def looped_root(tmp_path: Path) -> Path:
+    """A loop run's output tree: its document alone, which is what the loop tables are read from."""
+    root = tmp_path / "looped"
+    paths = looped_paths(root, _INSTRUMENT)
+    paths.loops_json.parent.mkdir(parents=True)
+    write_json(paths.loops_json, _loops())
+    return root
+
+
 @pytest.fixture
 def reduced_root(tmp_path: Path) -> Path:
     """A reduce run's output tree: its document, and one pitch's auditions as real WAVs."""
@@ -269,13 +324,28 @@ def test_a_stored_format_row_names_the_rate_depth_and_compression_it_settled_on(
     assert (rows[0]["useful_rate_hz"], rows[0]["swept"]) == (12_346, 4)
 
 
-def test_every_loop_a_pitch_may_be_stored_around_is_reported_with_what_it_costs(reduced_root: Path) -> None:
-    rows = reports.loop_rows(reports.read_reduced(reduced_root, _INSTRUMENT).reduction)
+def test_the_loop_each_recording_was_settled_around_is_reported_with_what_it_measured(looped_root: Path) -> None:
+    document = reports.read_loop_document(looped_root, _INSTRUMENT)
 
-    assert [row["pitch"] for row in rows] == [60, 60]  # the pitch offering no candidate contributes no row
-    assert [row["choice"] for row in rows] == [0, 1]
+    rows = reports.loop_rows(document)
+
+    assert [row["key"] for row in rows] == ["p060_C4_v080"]  # the recording stored unlooped contributes no row
     assert rows[0]["length_s"] == 0.5
-    assert (rows[0]["seam"], rows[0]["timbre_db"]) == (1.25, 3.5)
+    assert (rows[0]["seam"], rows[0]["timbre_db"], rows[0]["rejected"]) == (1.25, 3.5, 1)
+
+
+def test_a_recording_stored_over_the_span_it_plays_is_reported_with_what_was_tried(looped_root: Path) -> None:
+    rows = reports.unlooped_rows(reports.read_loop_document(looped_root, _INSTRUMENT))
+
+    assert [row["key"] for row in rows] == ["p067_G4_v080"]
+    assert (rows[0]["search_s"], rows[0]["tried"]) == (1.5, 2)
+
+
+def test_each_candidate_the_ladder_climbed_past_names_the_gate_it_fell_outside(looped_root: Path) -> None:
+    rows = reports.rejected_loop_rows(reports.read_loop_document(looped_root, _INSTRUMENT))
+
+    assert [row["gate"] for row in rows] == ["timbre", "seam", "timbre"]
+    assert rows[0]["key"] == "p060_C4_v080"
 
 
 def test_auditions_open_with_the_recording_the_rest_are_judged_against(reduced_root: Path) -> None:

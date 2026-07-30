@@ -1,13 +1,13 @@
 from dataclasses import dataclass
 from typing import Literal
 
+from optisample.keys import SampleKey
 from optisample.music import note_name
 from optisample.optimize.knapsack import Allocation, RDCurvePoint
 from optisample.optimize.layers.bands import UNSPLIT, VelocityLayers
 from optisample.optimize.operating_points import OperatingPoint
 from optisample.optimize.plans.budget import BudgetBreakdown, BudgetedPlanMixin
 from optisample.optimize.plans.strategy import FIRST_LAYER, Method, SampleUnit
-from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.reduce.summary import ReductionSummary
 from optisample.optimize.velocity_map import VelocityVolumeMap
 

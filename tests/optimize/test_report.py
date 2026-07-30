@@ -4,6 +4,7 @@ from dataclasses import replace
 from typing import Final
 
 from optisample.dsp.surrogate import EncodingParams
+from optisample.keys import SampleKey
 from optisample.metrics.size import bytes_to_kib
 from optisample.music import MIDI_MAX_VELOCITY
 from optisample.optimize.export.coverage import KeyCoverage
@@ -26,7 +27,6 @@ from optisample.optimize.plans import (
 )
 from optisample.optimize.plans.budget import populated_instrument_bytes
 from optisample.optimize.reduce.bandwidth import StoredFormat
-from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.reduce.summary import (
     KeptRecording,
     NarrowedGrid,
@@ -263,7 +263,7 @@ def test_every_zone_states_the_layer_it_answers_for(storage: Storage, reduction:
 
 _COVERED: Final = (KeptRecording(SampleKey(60, 100), duration_s=1.0, required_duration_s=0.8),)
 _STORED: Final = StoredFormat(target_rate=11_025, depth_bits=16, compress=False)
-_ONE_GRID: Final = (NarrowedGrid(60, 10_500.0, _STORED, (EncodingParams(target_rate=11_025, depth_bits=16),), ()),)
+_ONE_GRID: Final = (NarrowedGrid(60, 10_500.0, _STORED, (EncodingParams(target_rate=11_025, depth_bits=16),)),)
 
 
 def _summary(
@@ -317,7 +317,7 @@ def test_an_instrument_playing_nothing_says_its_format_is_yet_to_be_settled() ->
 
 def test_a_run_storing_every_key_at_one_rate_states_that_rate_once() -> None:
     """Two keys settling on the same rung read as one figure, which is what the run actually stored."""
-    second = NarrowedGrid(67, 10_500.0, _STORED, (EncodingParams(target_rate=11_025, depth_bits=16),), ())
+    second = NarrowedGrid(67, 10_500.0, _STORED, (EncodingParams(target_rate=11_025, depth_bits=16),))
     block = format_reduction_block(_summary(grids=(*_ONE_GRID, second)))
     assert "11.0 kHz stored" in block and "11.0-11.0" not in block
 

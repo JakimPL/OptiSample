@@ -9,7 +9,7 @@ import pytest
 
 from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
-from optisample.dsp.surrogate import TRIMMED, EncodingParams
+from optisample.dsp.surrogate import EncodingParams, SettledLoop
 from optisample.optimize.operating_points import (
     OperatingPoint,
     SourceClip,
@@ -23,6 +23,9 @@ from optisample.synth import NoteSpec, synthesize
 from trackmod.core.samples.depth import BitDepth
 
 SR = 44_100
+_HELD_S = 3.0  # a pad long enough for the stage to place a loop inside and still leave a sustain tail
+
+SettleLoop = Callable[..., SettledLoop | None]
 
 # synthesize is a test-signal generator here; its synth config is fixture-independent test data.
 _SYNTH = load_config().synth
@@ -54,24 +57,40 @@ def harmonic_tone(freq: float = 245.0, dur: float = 3.0) -> np.ndarray:
     )
 
 
-def stored_as(rate: int, *, loop_choice: int | None = TRIMMED, trim_s: float | None = None) -> EncodingParams:
+def stored_as(rate: int, *, looped: bool = False, trim_s: float | None = None) -> EncodingParams:
     """One encoding as the reduction settles it: a stored rate at 16 bits, held for ``trim_s``."""
-    return EncodingParams(target_rate=rate, depth_bits=16, trim_s=trim_s, dither=False, loop_choice=loop_choice)
+    return EncodingParams(target_rate=rate, depth_bits=16, trim_s=trim_s, dither=False, looped=looped)
 
 
-def test_looping_a_periodic_clip_saves_bytes_at_similar_quality(sweep_context: SweepContext) -> None:
-    clip = SourceClip(signal=harmonic_tone(dur=3.0), sample_rate=SR, root_pitch=57, duration_s=3.0)
-    plain = evaluate_encoding(clip, stored_as(SR, trim_s=3.0), sweep_context)
-    looped = evaluate_encoding(clip, stored_as(SR, loop_choice=0, trim_s=3.0), sweep_context)
+def _looped_clip(settle: SettleLoop) -> SourceClip:
+    """A periodic pad with the loop the stage settles for it, which is what a looped encoding is stored around."""
+    signal = harmonic_tone(dur=_HELD_S)
+    return SourceClip(
+        signal=signal,
+        sample_rate=SR,
+        root_pitch=57,
+        duration_s=_HELD_S,
+        settled=settle(signal, SR, search_s=_HELD_S),
+    )
+
+
+def test_looping_a_periodic_clip_saves_bytes_at_similar_quality(
+    sweep_context: SweepContext, settle: SettleLoop
+) -> None:
+    clip = _looped_clip(settle)
+    plain = evaluate_encoding(clip, stored_as(SR, trim_s=_HELD_S), sweep_context)
+    looped = evaluate_encoding(clip, stored_as(SR, looped=True, trim_s=_HELD_S), sweep_context)
     assert looped.stored_bytes < plain.stored_bytes // 2  # dropping the 3 s sustain tail is a big saving
     assert looped.distortion < 0.1  # the whole-period loop reconstructs the exactly-periodic tone
 
 
-def test_looping_is_pareto_optimal_on_the_frontier_when_it_helps(sweep_context: SweepContext) -> None:
-    clip = SourceClip(signal=harmonic_tone(dur=3.0), sample_rate=SR, root_pitch=57, duration_s=3.0)
-    offered = [stored_as(rate, loop_choice=choice, trim_s=3.0) for rate in (SR, 11_025) for choice in (TRIMMED, 0)]
+def test_looping_is_pareto_optimal_on_the_frontier_when_it_helps(
+    sweep_context: SweepContext, settle: SettleLoop
+) -> None:
+    clip = _looped_clip(settle)
+    offered = [stored_as(rate, looped=looped, trim_s=_HELD_S) for rate in (SR, 11_025) for looped in (False, True)]
     hull = lower_convex_hull([evaluate_encoding(clip, params, sweep_context) for params in offered])
-    assert any(op.params.loop_choice is not None for op in hull)  # a looped config survives onto the hull
+    assert any(op.params.looped for op in hull)  # a looped config survives onto the hull
 
 
 def test_the_swept_rates_are_the_ladder_a_recording_reaches_down_to(sweep: Callable[..., SweepConfig]) -> None:

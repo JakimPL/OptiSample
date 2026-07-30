@@ -9,8 +9,8 @@ from typing import Final
 import numpy as np
 
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, StoredSample, encode
+from optisample.keys import SampleKey
 from optisample.optimize.reduce.events import EventIdentity
-from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.tasks import EvalContext, Event, PitchTask, score_event, weighted_distortion
 from optisample.parallel import map_workers
 from optisample.progress import ProgressSink
@@ -127,6 +127,7 @@ def _stored_sample(request: StoreRequest, params: EncodingParams, context: EvalC
     encode_context = EncodeContext(
         root_pitch=request.stored_key.pitch,
         config=context.encode,
+        settled=request.representative.settled,
         rng=dither(context.seed, request.stored_key, params),
     )
     return encode(request.representative.representative, context.sample_rate, params, encode_context)

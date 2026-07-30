@@ -48,26 +48,27 @@ def test_yaml_lists_coerce_to_tuples() -> None:
     assert isinstance(cfg.synth.presets[0].material, tuple)
 
 
-def test_encode_is_derived_from_loop_quantize_and_dynamics() -> None:
+def test_encode_is_derived_from_the_stages_that_own_its_parts() -> None:
+    """The seam comes from the loop stage and the shaping from the codec stage, gathered into one bundle."""
     cfg = load_config()
-    assert cfg.codec.encode.loop == cfg.codec.loop
-    assert cfg.codec.encode.dynamics == cfg.codec.dynamics
-    assert cfg.codec.encode.headroom_db == cfg.codec.quantize.headroom_db
+    assert cfg.encode.seam == cfg.loop.seam
+    assert cfg.encode.dynamics == cfg.codec.dynamics
+    assert cfg.encode.headroom_db == cfg.codec.quantize.headroom_db
 
 
 def test_a_freshly_loaded_encode_config_names_no_instrument_to_normalize_against() -> None:
     """The reference is a per-instrument measurement, so config alone leaves each clip on its own peak."""
-    assert load_config().codec.encode.peak_reference is None
+    assert load_config().encode.peak_reference is None
 
 
 @pytest.mark.parametrize(
     ("parts", "setting", "value", "read"),
     [
         pytest.param(
-            ("codec", "loop"),
+            ("loop", "geometry"),
             "min_loop_s",
             0.75,
-            lambda cfg: cfg.codec.loop.min_loop_s,
+            lambda cfg: cfg.loop.geometry.min_loop_s,
             id="a stage reads each of its groups from a file in the directory naming the stage",
         ),
         pytest.param(
@@ -99,7 +100,7 @@ def test_missing_group_file_raises(tmp_path: Path) -> None:
 
 def test_unknown_key_is_rejected(tmp_path: Path) -> None:
     _bundled_copy(tmp_path)
-    _retune(tmp_path, "codec", "loop", bogus_key=1)
+    _retune(tmp_path, "loop", "geometry", bogus_key=1)
 
     with pytest.raises(ValidationError):
         load_config(tmp_path)

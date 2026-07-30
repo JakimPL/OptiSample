@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import pytest
 
 from optisample.config.reduce import DedupeConfig, DedupeKey, Representatives
-from optisample.optimize.reduce.keys import (
+from optisample.keys import (
     DedupeGroup,
     SampleKey,
     cc_buckets,

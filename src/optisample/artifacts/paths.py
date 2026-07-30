@@ -9,11 +9,14 @@ from optisample.io.note_extractor import NOTES_SUFFIX
 _AUDITIONS_DIR: Final = "auditions"
 _REDUCTION_DIR: Final = "reduction"
 _REDUCTION_JSON: Final = "reduction.json"
+_LOOPS_DIR: Final = "loops"
+_LOOPS_JSON: Final = "loops.json"
 _MODULE_STEM: Final = "module"
 _CONTAINER_EXTENSION: Final = ".bank"
 _SUBSET_STAGE: Final = "0_subset"
-_REDUCED_STAGE: Final = "1_reduced"
-_OPTIMIZED_STAGE: Final = "2_optimized"
+_LOOPED_STAGE: Final = "1_looped"
+_REDUCED_STAGE: Final = "2_reduced"
+_OPTIMIZED_STAGE: Final = "3_optimized"
 
 
 @dataclass(frozen=True)
@@ -21,12 +24,14 @@ class PipelinePaths:
     """Where each stage of a chained run lands under one output root.
 
     The names are numbered in the order the stages run, so the tree reads as the route a dataset took:
-    the slice taken of the source, what the pre-optimization stage reduced it to, and the artifacts
-    allocated from that. Each directory is the output root of the stage that writes it, so the same
-    stage reached on its own through ``subset``, ``reduce`` or ``optimize`` fills it identically.
+    the slice taken of the source, the loops settled on its recordings, what the pre-optimization stage
+    reduced that to, and the artifacts allocated from it. Each directory is the output root of the stage
+    that writes it, so the same stage reached on its own through ``subset``, ``loop``, ``reduce`` or
+    ``optimize`` fills it identically.
     """
 
     subset_dir: Path
+    looped_dir: Path
     reduced_dir: Path
     optimized_dir: Path
 
@@ -35,8 +40,36 @@ def pipeline_paths(out_dir: Path) -> PipelinePaths:
     """The stage directories a chained run writes under ``out_dir``."""
     return PipelinePaths(
         subset_dir=out_dir / _SUBSET_STAGE,
+        looped_dir=out_dir / _LOOPED_STAGE,
         reduced_dir=out_dir / _REDUCED_STAGE,
         optimized_dir=out_dir / _OPTIMIZED_STAGE,
+    )
+
+
+@dataclass(frozen=True)
+class LoopedPaths:
+    """Where one instrument's looped dataset and its loop decisions land under the output root.
+
+    ``notes_json`` and ``samples_dir`` are the sibling pair a later ingest resolves by default, so the
+    output root is itself a NoteExtractor dataset -- the recordings as the stage analysed them, onset
+    aligned and at one rate, which is what makes the frames a loop names index into them. What the stage
+    decided sits apart under ``loops_json``, and ``auditions_dir`` holds each loop played out.
+    """
+
+    notes_json: Path
+    samples_dir: Path
+    loops_json: Path
+    auditions_dir: Path
+
+
+def looped_paths(out_dir: Path, instrument_id: str) -> LoopedPaths:
+    """The tree one instrument's loop run writes under ``out_dir``."""
+    loops_dir = out_dir / _LOOPS_DIR / instrument_id
+    return LoopedPaths(
+        notes_json=out_dir / f"{instrument_id}{NOTES_SUFFIX}",
+        samples_dir=out_dir / instrument_id,
+        loops_json=loops_dir / _LOOPS_JSON,
+        auditions_dir=loops_dir / _AUDITIONS_DIR,
     )
 
 

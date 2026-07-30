@@ -7,10 +7,10 @@ import pytest
 from optisample.config.tracker import TrackerFormat
 from optisample.dsp.surrogate import EncodingParams
 from optisample.io.tracker.target import ExportTarget
+from optisample.keys import SampleKey
 from optisample.music import sounded_note
 from optisample.optimize.export.coverage import covered_routing, key_coverage, played_keys
 from optisample.optimize.plans import FIRST_LAYER, SampleUnit
-from optisample.optimize.reduce.keys import SampleKey
 from trackmod.core.instruments.keymap import KeyAssignment, Keymap, routed_keymap
 from trackmod.core.notes.pitch import Note
 

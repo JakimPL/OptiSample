@@ -7,7 +7,7 @@ from optisample.optimize.export.material import CHANNELS, Voicing, material_patt
 from optisample.optimize.export.samples import plan_samples
 from optisample.optimize.layers.slots import ONE_SLOT, SlotLayout, plan_slots
 from optisample.optimize.plans import SINGLE_LAYER, StrategyPlan
-from optisample.optimize.tasks import AudioMap
+from optisample.optimize.tasks import StoredRecordings
 from trackmod.core.instruments.instrument import Instrument
 from trackmod.core.instruments.keymap import Keymap
 from trackmod.core.songs.playback import Playback
@@ -60,8 +60,7 @@ def _slot_instruments(plan: StrategyPlan, layout: SlotLayout, keymaps: Sequence[
 
 def build_song(
     plan: StrategyPlan,
-    audio: AudioMap,
-    sample_rate: int,
+    recordings: StoredRecordings,
     material: Sequence[NoteEvent],
     context: ExportContext,
 ) -> Song:
@@ -73,7 +72,7 @@ def build_song(
     clock -- is the same for both strategies, so it lives here once.
     """
     layout = plan_slots(plan, context.target)
-    samples, keymaps = plan_samples(plan, layout, audio, sample_rate, context)
+    samples, keymaps = plan_samples(plan, layout, recordings, context)
     voicing = Voicing(layout=layout, velocity_map=plan.velocity_map)
     patterns, order = material_patterns(material, voicing, context.playback, context.target)
     return Song(
@@ -89,10 +88,9 @@ def build_song(
 
 def build_module(
     plan: StrategyPlan,
-    audio: AudioMap,
-    sample_rate: int,
+    recordings: StoredRecordings,
     material: Sequence[NoteEvent],
     context: ExportContext,
 ) -> TrackerModule:
     """Assemble a complete module from either strategy's plan, bound to the target tracker format."""
-    return context.target.bind(build_song(plan, audio, sample_rate, material, context))
+    return context.target.bind(build_song(plan, recordings, material, context))

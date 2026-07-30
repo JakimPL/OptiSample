@@ -15,6 +15,7 @@ from optisample.config.reduce import ReduceConfig
 from optisample.io.audio import read_wav, write_wav
 from optisample.io.render import openmpt123_available
 from optisample.io.tracker.target import export_target
+from optisample.keys import SampleKey
 from optisample.model import (
     InstrumentSpec,
     Manifest,
@@ -22,9 +23,14 @@ from optisample.model import (
     ProjectSpec,
     SourceSample,
 )
+from optisample.optimize.orchestrate.audio import LoadedInstrument
+from optisample.optimize.orchestrate.looping import run_loops
 from optisample.optimize.orchestrate.settings import OptimizeSettings
-from optisample.optimize.reduce.keys import SampleKey
+from optisample.optimize.reduce.trim import NO_SCREEN
+from optisample.optimize.tasks import AudioMap, StoredRecordings
 from trackmod.trackers.it.instrument_file import ITInstrumentFile
+
+Recordings = Callable[..., StoredRecordings]
 
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
 
@@ -54,10 +60,11 @@ def _settings() -> OptimizeSettings:
         {**_CONFIG.optimize.sweep.model_dump(), "rates": (11_025,), "depth": 8, "dither": False}
     )
     return OptimizeSettings(
+        loop=_CONFIG.loop,
         sweep=grid,
         reduce=_narrow_band_reduce(),
         layers=_CONFIG.optimize.layers,
-        encode=_CONFIG.codec.encode,
+        encode=_CONFIG.encode,
         metrics=_CONFIG.analysis.metrics,
         velocity=_CONFIG.optimize.velocity,
         method=_CONFIG.optimize.budget.method,
@@ -88,10 +95,16 @@ def _instrument(budget_kb: float, pitches: tuple[int, ...] = PITCHES) -> Instrum
     return InstrumentSpec(id="piano", budget_kb=budget_kb, samples=samples, material=material)
 
 
+def _settled_recordings(instrument: InstrumentSpec, audio: AudioMap) -> StoredRecordings:
+    """The recordings a dump run encodes from, with each one's loop settled the way the stage would."""
+    loaded = LoadedInstrument(instrument=instrument, audio=dict(audio), sample_rate=SR, screen=NO_SCREEN)
+    return run_loops(loaded, NO_RENDER.optimize).recordings
+
+
 @pytest.fixture(scope="module")
 def generous(tmp_path_factory: pytest.TempPathFactory, demo_audio_map: AudioFactory) -> Path:
     out = tmp_path_factory.mktemp("generous")
-    dump_instrument(_instrument(48.0), demo_audio_map(), SR, out, NO_RENDER)
+    dump_instrument(_instrument(48.0), _settled_recordings(_instrument(48.0), demo_audio_map()), out, NO_RENDER)
     return out
 
 
@@ -262,10 +275,10 @@ def test_no_render_skips_the_render_directory(generous: Path) -> None:
 @requires_openmpt
 def test_ground_truth_render_produces_real_audio(tmp_path: Path, demo_audio_map: AudioFactory) -> None:
     out = tmp_path / "gt"
+    instrument = _instrument(48.0, (60, 62))
     result = dump_instrument(
-        _instrument(48.0, (60, 62)),
-        demo_audio_map((60, 62)),
-        SR,
+        instrument,
+        _settled_recordings(instrument, demo_audio_map((60, 62))),
         out,
         # render_ground_truth defaults True
         DumpSettings(optimize=_settings(), render=_CONFIG.export.render, playback=_CONFIG.export.playback),
@@ -283,10 +296,12 @@ def test_ground_truth_render_produces_real_audio(tmp_path: Path, demo_audio_map:
 
 
 def test_tight_budget_marks_ungrouped_infeasible_but_dumps_grouped(
-    tmp_path: Path, demo_audio_map: AudioFactory
+    tmp_path: Path,
+    demo_audio_map: AudioFactory,
+    recordings: Recordings,
 ) -> None:
     out = tmp_path / "tight"
-    result = dump_instrument(_instrument(10.0), demo_audio_map(), SR, out, NO_RENDER)
+    result = dump_instrument(_instrument(10.0), recordings(demo_audio_map(), SR), out, NO_RENDER)
     by_name = {plan.name: plan for plan in result.plans}
     assert by_name["ungrouped"].feasible is False
     assert (out / "ungrouped" / "INFEASIBLE.txt").is_file()
@@ -295,9 +310,11 @@ def test_tight_budget_marks_ungrouped_infeasible_but_dumps_grouped(
     assert (out / "grouped" / CONTAINER).is_file()
 
 
-def test_impossible_budget_marks_both_infeasible(tmp_path: Path, demo_audio_map: AudioFactory) -> None:
+def test_impossible_budget_marks_both_infeasible(
+    tmp_path: Path, demo_audio_map: AudioFactory, recordings: Recordings
+) -> None:
     out = tmp_path / "impossible"
-    result = dump_instrument(_instrument(1.0), demo_audio_map(), SR, out, NO_RENDER)
+    result = dump_instrument(_instrument(1.0), recordings(demo_audio_map(), SR), out, NO_RENDER)
     assert all(not plan.feasible for plan in result.plans)
     assert all(plan.reason for plan in result.plans)
 
@@ -305,7 +322,9 @@ def test_impossible_budget_marks_both_infeasible(tmp_path: Path, demo_audio_map:
 # --- strategy selection + determinism ------------------------------------------------------------
 
 
-def test_strategy_flags_restrict_which_plans_run(tmp_path: Path, demo_audio_map: AudioFactory) -> None:
+def test_strategy_flags_restrict_which_plans_run(
+    tmp_path: Path, demo_audio_map: AudioFactory, recordings: Recordings
+) -> None:
     out = tmp_path / "grouped-only"
     settings = DumpSettings(
         optimize=_settings(),
@@ -314,15 +333,15 @@ def test_strategy_flags_restrict_which_plans_run(tmp_path: Path, demo_audio_map:
         render_ground_truth=False,
         ungrouped=False,
     )
-    result = dump_instrument(_instrument(48.0), demo_audio_map(), SR, out, settings)
+    result = dump_instrument(_instrument(48.0), recordings(demo_audio_map(), SR), out, settings)
     assert [plan.name for plan in result.plans] == ["grouped"]
     assert not (out / "ungrouped").exists()
 
 
-def test_dump_is_deterministic(tmp_path: Path, demo_audio_map: AudioFactory) -> None:
+def test_dump_is_deterministic(tmp_path: Path, demo_audio_map: AudioFactory, recordings: Recordings) -> None:
     first, second = tmp_path / "a", tmp_path / "b"
-    dump_instrument(_instrument(48.0), demo_audio_map(), SR, first, NO_RENDER)
-    dump_instrument(_instrument(48.0), demo_audio_map(), SR, second, NO_RENDER)
+    dump_instrument(_instrument(48.0), recordings(demo_audio_map(), SR), first, NO_RENDER)
+    dump_instrument(_instrument(48.0), recordings(demo_audio_map(), SR), second, NO_RENDER)
     assert (first / "grouped" / CONTAINER).read_bytes() == (second / "grouped" / CONTAINER).read_bytes()
     # The stored-sample WAVs decode identically (only libsndfile's PEAK-chunk timestamp differs on disk).
     audio_a, _ = read_wav(next((first / "grouped" / "samples").glob("*.wav")))
@@ -377,7 +396,7 @@ def layered(tmp_path_factory: pytest.TempPathFactory, piano_note: Callable[..., 
     ]
     instrument = InstrumentSpec(id="piano", budget_kb=192.0, samples=samples, material=material)
     out = tmp_path_factory.mktemp("layered")
-    dump_instrument(instrument, audio, SR, out, NO_RENDER)
+    dump_instrument(instrument, _settled_recordings(instrument, audio), out, NO_RENDER)
     return out
 
 

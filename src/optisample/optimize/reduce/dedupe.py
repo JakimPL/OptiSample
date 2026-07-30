@@ -5,18 +5,18 @@ from dataclasses import dataclass
 from sys import maxsize
 from typing import Final
 
-from optisample.config.codec import LoopConfig
+from optisample.config.loop import GeometryConfig
 from optisample.config.reduce import ReduceConfig
 from optisample.io.audio import probe_wav
 from optisample.io.note_extractor import index_of_wav
-from optisample.model import InstrumentSpec, NoteEvent, SourceSample
-from optisample.music import semitone_ratio
-from optisample.optimize.reduce.keys import (
+from optisample.keys import (
     DedupeGroup,
     SampleKey,
     dedupe_group,
     sample_key,
 )
+from optisample.model import InstrumentSpec, NoteEvent, SourceSample
+from optisample.music import semitone_ratio
 from optisample.progress import ProgressSink
 
 _UNINDEXED: Final = maxsize  # a recording whose filename carries no render index ranks after indexed ones
@@ -65,7 +65,7 @@ def holds_material(duration_s: float, required_s: float) -> bool:
     return duration_s >= required_s
 
 
-def required_duration_s(longest_note_s: float, reduce: ReduceConfig, loop: LoopConfig) -> float:
+def required_duration_s(longest_note_s: float, reduce: ReduceConfig, geometry: GeometryConfig) -> float:
     """Seconds a kept recording must hold at a pitch for the material there to play in full.
 
     Three demands set the length. A sample serving keys above its own root runs faster by
@@ -76,7 +76,7 @@ def required_duration_s(longest_note_s: float, reduce: ReduceConfig, loop: LoopC
     leaves alone -- which holds the requirement up wherever the trim would cut under it.
     """
     transposed = longest_note_s * semitone_ratio(reduce.dedupe.transposition_headroom_semitones)
-    loop_floor = loop.attack_skip_s + loop.min_loop_s + loop.tail_skip_s
+    loop_floor = geometry.attack_skip_s + geometry.min_loop_s + geometry.tail_skip_s
     return max(min(transposed, reduce.trim.max_length_s), loop_floor)
 
 
@@ -137,18 +137,18 @@ def _keep(candidates: Sequence[Candidate], required_s: float) -> Candidate:
 def select_recordings(
     instrument: InstrumentSpec,
     reduce: ReduceConfig,
-    loop: LoopConfig,
+    geometry: GeometryConfig,
     progress: ProgressSink,
 ) -> tuple[Selection, ...]:
     """Reduce the recorded grid to one survivor per identity, shrinking what the optimizer explores.
 
     A tracker stores one sample per key, so every recording sharing a
-    :class:`~optisample.optimize.reduce.keys.DedupeGroup` competes for a single slot. The shortest
+    :class:`~optisample.keys.DedupeGroup` competes for a single slot. The shortest
     survivor that still covers its pitch's requirement (see :func:`required_duration_s`) leaves the
     encoder the least material to work through; when every recording in a group falls short, the longest
     one keeps as much of the note as was recorded, and its :attr:`Selection.covers_material` says so.
 
-    Selections come back in :class:`~optisample.optimize.reduce.keys.SampleKey` order, so the audio map,
+    Selections come back in :class:`~optisample.keys.SampleKey` order, so the audio map,
     the pitch tasks and every label derived from them are stable across runs.
     """
     longest = longest_note_by_pitch(instrument.material)
@@ -160,7 +160,7 @@ def select_recordings(
 
     selections = []
     for group, candidates in groups.items():
-        required_s = required_duration_s(longest.get(group.pitch, NO_MATERIAL_S), reduce, loop)
+        required_s = required_duration_s(longest.get(group.pitch, NO_MATERIAL_S), reduce, geometry)
         kept = _keep(candidates, required_s)
         selections.append(
             Selection(

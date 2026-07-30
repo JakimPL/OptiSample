@@ -5,13 +5,16 @@ from typing import Final
 import numpy as np
 from numpy.typing import NDArray
 
-from optisample.config.codec import LoopConfig
+from optisample.config.loop import GeometryConfig, SeamConfig
 from optisample.config.spectral import StftParams
+from optisample.dsp.resample import resampled_frame_count
 from optisample.dsp.spectral import stft_magnitude
 
 Signal = NDArray[np.float64]
 
 _MIN_STEADY_FRAMES: Final = 8
+_MIN_LOOP_FRAMES: Final = 2  # frames a wrap needs to name two distinct ends
+_SEAM_WINDOW_SHARE: Final = 100  # share of a loop read on each side of the wrap as the motion it lands in
 _QUALITY_FFT: Final = 1024  # window the loop region and the stretch it stands for are compared over
 _QUALITY_HOP: Final = 512
 _AMPLITUDE_DB: Final = 20.0  # decibels per decade of amplitude
@@ -70,7 +73,7 @@ def _autocorrelation(signal: Signal) -> Signal:
 def _estimate_period(
     signal: Signal,
     sample_rate: int,
-    config: LoopConfig,
+    config: GeometryConfig,
 ) -> int | None:
     """Fundamental period in frames from the strongest autocorrelation peak in the pitched band.
 
@@ -110,7 +113,7 @@ def _snap_ascending_zero(signal: Signal, index: int, radius: int) -> int:
 def _steady_bounds(
     signal: Signal,
     sample_rate: int,
-    config: LoopConfig,
+    config: GeometryConfig,
 ) -> tuple[int, int]:
     """The ``[attack, tail)`` frame window to analyse: past the onset transient, before the release."""
     attack = int(config.attack_skip_s * sample_rate)
@@ -121,7 +124,7 @@ def _steady_bounds(
 def _steady_region(
     signal: Signal,
     sample_rate: int,
-    config: LoopConfig,
+    config: GeometryConfig,
 ) -> _SteadyRegion | None:
     """The window a loop may be placed in, together with the period it repeats at.
 
@@ -144,7 +147,7 @@ def _steady_region(
     return _SteadyRegion(attack=attack, tail=tail, period=period)
 
 
-def shortest_loop_frames(period: int, sample_rate: int, config: LoopConfig) -> int:
+def shortest_loop_frames(period: int, sample_rate: int, config: GeometryConfig) -> int:
     """The shortest loop the config accepts: whole periods covering ``min_periods`` and ``min_loop_s``.
 
     Rounding the period count up makes ``min_loop_s`` a floor every stored loop clears, which is what
@@ -167,7 +170,7 @@ def _fitted_length(start: int, wanted: int, region: _SteadyRegion, shortest: int
     return fitted if fitted >= shortest else None
 
 
-def _placements(signal: Signal, region: _SteadyRegion, shortest: int, config: LoopConfig) -> list[int]:
+def _placements(signal: Signal, region: _SteadyRegion, shortest: int, config: GeometryConfig) -> list[int]:
     """Loop starts spread evenly through the room the steady region has, snapped to ascending zeros.
 
     The first placement sits at the attack skip and the last as late as the shortest accepted loop still
@@ -187,16 +190,14 @@ def _placements(signal: Signal, region: _SteadyRegion, shortest: int, config: Lo
 def loop_candidates(
     signal: Signal,
     sample_rate: int,
-    config: LoopConfig,
+    config: GeometryConfig,
 ) -> tuple[Loop, ...]:
-    """Every forward loop worth offering for ``signal``, ordered so the first is the default choice.
+    """Every forward loop worth offering for ``signal``, the ladder a settlement chooses from.
 
     Each candidate spans a whole number of periods of the material (found by :func:`_estimate_period`),
     begins at an ascending zero crossing, and lies inside the steady region between the attack skip and
-    the tail skip. Placement runs outermost and length innermost, so a caller taking the first few
-    candidates sees both axes early: the loop the attack leads into at each accepted length, then the
-    same at placements further into the note. Candidate 0 is therefore the shortest accepted loop right
-    after the attack, which is the one :func:`detect_loop` answers with.
+    the tail skip. Placement runs outermost and length innermost, so the ladder covers both axes: the loop
+    the attack leads into at each accepted length, then the same at placements further into the note.
 
     Storing a candidate keeps ``[0, loop.end)`` -- the attack plus one loop region -- and the sustain
     tail past it is where the bytes are saved. Lengths are the multiples of the shortest accepted loop
@@ -222,19 +223,29 @@ def loop_candidates(
     return tuple(dict.fromkeys(found))
 
 
-def detect_loop(
-    signal: Signal,
-    sample_rate: int,
-    config: LoopConfig,
-) -> Loop | None:
-    """The loop to store when one is wanted and nothing chooses among the alternatives.
+def loop_at_rate(loop: Loop, orig_rate: int, target_rate: int, *, frames: int) -> Loop | None:
+    """``loop`` scaled onto a copy of the same material stored at ``target_rate`` and ``frames`` long.
 
-    Answers with the first of :func:`loop_candidates` -- the shortest accepted loop placed right after
-    the attack -- so a caller needing one loop has the cheapest one the material supports. Returns
-    ``None`` where the material supports none.
+    Both bounds scale by the rate ratio (:func:`~optisample.dsp.resample.resampled_frame_count`), which is
+    the same map the resampler puts the material through, so the scaled loop covers the same stretch of the
+    recording. The end is held inside ``frames`` so it names a frame the copy holds.
+
+    Scaling rounds each bound to a whole frame, leaving the wrap up to half a frame off the whole periods it
+    spanned at ``orig_rate``. That is a fraction of a cycle, which :func:`crossfade_loop` blends into a ripple
+    rather than a step. Returns ``None`` where the scaled bounds leave less than ``_MIN_LOOP_FRAMES``, which
+    is a copy stored at too low a rate for this loop to survive onto.
     """
-    candidates = loop_candidates(signal, sample_rate, config)
-    return candidates[0] if candidates else None
+    start = resampled_frame_count(loop.start, orig_rate, target_rate)
+    end = min(resampled_frame_count(loop.end, orig_rate, target_rate), frames)
+    if end - start < _MIN_LOOP_FRAMES:
+        return None
+
+    return Loop(start=start, end=end)
+
+
+def seam_frames(config: SeamConfig, sample_rate: int) -> int:
+    """The blend length at ``sample_rate``, so one setting in seconds reaches every rate a sample is kept at."""
+    return round(config.crossfade_s * sample_rate)
 
 
 def crossfade_loop(signal: Signal, loop: Loop, *, fade_len: int) -> Signal:
@@ -257,12 +268,20 @@ def crossfade_loop(signal: Signal, loop: Loop, *, fade_len: int) -> Signal:
 
 
 def _seam_step(signal: Signal, loop: Loop) -> float:
-    """The jump the wrap makes, in units of the typical frame-to-frame step inside the loop region."""
+    """The jump the wrap makes, in units of the frame-to-frame motion the waveform makes right there.
+
+    The step is read against the motion in the stretches on either side of the wrap rather than across the
+    whole region, because the wrap is heard against the waveform it lands in. Material that declines as it
+    rings moves less at the end of a region than at its start, so an average taken over the whole region
+    would report a step in units of motion the wrap never sits next to.
+    """
     region = signal[loop.start : loop.end]
     if region.size < 2:
         return 0.0
 
-    typical = float(np.mean(np.abs(np.diff(region))))
+    window = max(_MIN_LOOP_FRAMES, region.size // _SEAM_WINDOW_SHARE)
+    nearby = np.concatenate([region[:window], region[-window:]])
+    typical = float(np.mean(np.abs(np.diff(nearby))))
     return float(abs(region[0] - region[-1])) / max(typical, _STEP_FLOOR)
 
 
@@ -291,17 +310,19 @@ def loop_quality(
     signal: Signal,
     loop: Loop,
     sample_rate: int,
-    config: LoopConfig,
+    config: GeometryConfig,
+    *,
+    fade_len: int,
 ) -> LoopQuality:
     """Measure what storing ``loop`` costs: the seam it wraps on, and the timbre it settles into.
 
-    The seam is read after :func:`crossfade_loop` has blended it, which is the waveform a player wraps.
-    The material a loop stands in for is the steady region past its end -- the stretch a looped sample
-    stops storing -- so a loop taken from a part of the note that has moved on in timbre reports the
-    distance. A loop reaching the end of the steady region stands in for less than one analysis window
-    and reports a distance of 0.0.
+    The seam is read after :func:`crossfade_loop` has blended it over ``fade_len`` frames, which is the
+    waveform a player wraps. The material a loop stands in for is the steady region past its end -- the
+    stretch a looped sample stops storing -- so a loop taken from a part of the note that has moved on in
+    timbre reports the distance. A loop reaching the end of the steady region stands in for less than one
+    analysis window and reports a distance of 0.0.
     """
-    faded = crossfade_loop(signal, loop, fade_len=round(config.crossfade_s * sample_rate))
+    faded = crossfade_loop(signal, loop, fade_len=fade_len)
     _, tail = _steady_bounds(signal, sample_rate, config)
     return LoopQuality(
         seam_step=_seam_step(faded, loop),

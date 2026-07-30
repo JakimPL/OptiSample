@@ -7,9 +7,10 @@ import numpy as np
 from optisample.config.codec import EncodeConfig
 from optisample.config.optimize import SweepConfig
 from optisample.dsp.surrogate import (
-    TRIMMED,
+    NO_LOOP,
     EncodeContext,
     EncodingParams,
+    SettledLoop,
     Signal,
     StoredSample,
     closed_reference,
@@ -27,12 +28,17 @@ _COMPRESSIBLE_DEPTH: Final = 8  # bits; a deeper grid's noise floor sits below w
 
 @dataclass(frozen=True, eq=False)
 class SourceClip:
-    """A recording to encode, its rate/natural pitch, and the longest duration the material needs."""
+    """A recording to encode, its rate/natural pitch, the longest duration the material needs, and its loop.
+
+    ``settled`` is what the loop stage decided for this recording, which every encoding of it is stored
+    around: the sweep prices keeping the played span against keeping the attack plus that loop.
+    """
 
     signal: Signal
     sample_rate: int
     root_pitch: int
     duration_s: float | None = None
+    settled: SettledLoop | None = NO_LOOP
 
 
 @dataclass(frozen=True)
@@ -85,16 +91,6 @@ def compresses(sweep: SweepConfig, depth: int) -> bool:
     return sweep.compress and depth <= _COMPRESSIBLE_DEPTH
 
 
-def loop_choices(sweep: SweepConfig) -> tuple[int | None, ...]:
-    """What a clip may be stored around: the trimmed sample, then each loop candidate ``sweep`` reaches.
-
-    Leading with :data:`~optisample.dsp.surrogate.params.TRIMMED` puts storing the recording as played on
-    the grid beside the loops, so the frontier decides between them on what each costs and scores rather
-    than on a setting.
-    """
-    return (TRIMMED, *range(sweep.loop_choices))
-
-
 def _reference(clip: SourceClip, stored: StoredSample) -> Signal:
     """The ground truth ``clip``'s encoding is scored against: its material, closed the way ``stored`` closes.
 
@@ -114,6 +110,7 @@ def evaluate_encoding(clip: SourceClip, params: EncodingParams, context: SweepCo
     encode_context = EncodeContext(
         root_pitch=clip.root_pitch,
         config=context.encode,
+        settled=clip.settled,
         rng=context.rng,
     )
     stored = encode(clip.signal, clip.sample_rate, params, encode_context)

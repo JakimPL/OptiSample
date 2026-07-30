@@ -4,9 +4,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from optisample.config.codec import LoopConfig
+from optisample.config.loop import GeometryConfig
 from optisample.config.reduce import ReduceConfig
 from optisample.dsp.surrogate import EncodingParams
+from optisample.keys import SampleKey
 from optisample.metrics.base import Signal
 from optisample.model import InstrumentSpec
 from optisample.optimize.reduce.dedupe import (
@@ -21,7 +22,6 @@ from optisample.optimize.reduce.grids import (
     StoredClip,
     narrow_grids,
 )
-from optisample.optimize.reduce.keys import SampleKey
 from optisample.progress import ProgressSink
 
 
@@ -62,7 +62,7 @@ class ReductionSummary:
 
     Each pair states one axis of the reduction: the recorded grid down to one survivor per identity, the
     material down to the classes that reconstruct alike, and the whole rate ladder down to the one format
-    each pitch is stored at, swept over its loop choices. ``grids`` covers the samples the ungrouped
+    each pitch is stored at, swept over the stored spans it offers. ``grids`` covers the samples the ungrouped
     strategy stores, one per played pitch; pitch-zone grouping settles a format again per zone, from what
     that zone's span asks of its representative.
     """
@@ -97,13 +97,13 @@ class ReductionSummary:
 class ReductionInputs:
     """The run-wide inputs the summary is measured against (bundled to stay under the argument limit).
 
-    ``reduce`` and ``loop`` set how long a kept recording has to be; ``context`` is what settles a stored
-    grid; ``workers`` is how many processes share the pitches out between them; and ``progress`` is where
-    the pre-pass reports how many pitches it has narrowed so far.
+    ``reduce`` and ``geometry`` set how long a kept recording has to be; ``context`` is what settles a
+    stored grid; ``workers`` is how many processes share the pitches out between them; and ``progress`` is
+    where the pre-pass reports how many pitches it has narrowed so far.
     """
 
     reduce: ReduceConfig
-    loop: LoopConfig
+    geometry: GeometryConfig
     context: GridContext
     workers: int
     progress: ProgressSink
@@ -124,7 +124,7 @@ def _kept_recordings(
             required_duration_s=required_duration_s(
                 longest.get(key.pitch, NO_MATERIAL_S),
                 inputs.reduce,
-                inputs.loop,
+                inputs.geometry,
             ),
         )
         for key in sorted(audio)

@@ -10,6 +10,7 @@ from optisample.config.layers import LayersConfig
 from optisample.config.optimize import SweepConfig
 from optisample.config.tracker import TrackerFormat
 from optisample.io.tracker.target import ExportTarget
+from optisample.keys import SampleKey
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.music import MIDI_MAX_VELOCITY
 from optisample.optimize.dp import BudgetInfeasibleError
@@ -37,8 +38,9 @@ from optisample.optimize.plans import (
     SampleReserve,
     split_budget,
 )
-from optisample.optimize.reduce.keys import SampleKey
-from optisample.optimize.tasks import AudioMap
+from optisample.optimize.tasks import AudioMap, StoredRecordings
+
+Recordings = Callable[..., StoredRecordings]
 
 SR = 44_100  # the rate the shared ``piano_note`` factory renders at
 PITCHES = (60, 64)
@@ -88,6 +90,7 @@ def allocate(
     optimize_settings: Callable[..., OptimizeSettings],
     sweep: Callable[..., SweepConfig],
     layers: Callable[..., LayersConfig],
+    recordings: Recordings,
 ) -> Callable[..., LayeredAllocation]:
     """Factory: run the layered search over ``instrument`` with the layering knobs a test varies.
 
@@ -103,7 +106,7 @@ def allocate(
             layers=layers(nodes=len(VELOCITIES), **overrides),
             max_samples=max_samples,
         )
-        return allocate_layers(instrument, prepare_run(instrument, audio, SR, settings), settings)
+        return allocate_layers(instrument, prepare_run(instrument, recordings(audio, SR), settings), settings)
 
     return _allocate
 
@@ -165,13 +168,14 @@ def test_a_band_several_splits_share_is_scored_once_between_them(
     optimize_settings: Callable[..., OptimizeSettings],
     sweep: Callable[..., SweepConfig],
     layers: Callable[..., LayersConfig],
+    recordings: Recordings,
 ) -> None:
     """A band's keys are the same wherever it appears, so the whole search scores each band once."""
     settings = optimize_settings(
         sweep=sweep(rates=(11_025,), depth=8, dither=False),
         layers=layers(max_layers=_THREE_LAYERS, nodes=len(VELOCITIES)),
     )
-    inputs = prepare_run(instrument, audio, SR, settings)
+    inputs = prepare_run(instrument, recordings(audio, SR), settings)
     layering = _Layering(instrument, inputs, settings)
     splits = tuple(partitions(velocity_cells(instrument.material, len(VELOCITIES)), _THREE_LAYERS))
 
@@ -271,12 +275,13 @@ def test_asking_for_more_layers_than_the_format_numbers_is_refused(
     sweep: Callable[..., SweepConfig],
     layers: Callable[..., LayersConfig],
     target: ExportTarget,
+    recordings: Recordings,
 ) -> None:
     settings = optimize_settings(
         sweep=sweep(rates=(11_025,), depth=8, dither=False),
         layers=layers(max_layers=target.max_instruments + 1),
     )
-    inputs = prepare_run(instrument, audio, SR, settings)
+    inputs = prepare_run(instrument, recordings(audio, SR), settings)
     with pytest.raises(ValueError, match="velocity layers"):
         allocate_layers(instrument, inputs, settings)
 
@@ -286,11 +291,11 @@ def test_the_plan_carries_the_layers_it_settled_on(
     audio: AudioMap,
     optimize_settings: Callable[..., OptimizeSettings],
     sweep: Callable[..., SweepConfig],
+    recordings: Recordings,
 ) -> None:
     plan = optimize_instrument_grouped(
         instrument,
-        audio,
-        SR,
+        recordings(audio, SR),
         optimize_settings(sweep=sweep(rates=(11_025,), depth=8, dither=False)),
     )
     assert plan.layers.count == plan.budget.instruments

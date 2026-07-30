@@ -9,13 +9,15 @@ from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import ReduceConfig
 from optisample.io.tracker.target import export_target
+from optisample.keys import SampleKey
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.grouping.optimize import optimize_instrument_grouped
 from optisample.optimize.orchestrate import optimize_instrument, prepare_run
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
-from optisample.optimize.reduce.keys import SampleKey
-from optisample.optimize.tasks import AudioMap
+from optisample.optimize.tasks import AudioMap, StoredRecordings
+
+Recordings = Callable[..., StoredRecordings]
 
 SR = 44_100
 PITCHES = (60, 62, 64)
@@ -40,10 +42,11 @@ def tiny_settings() -> OptimizeSettings:
         {**_CONFIG.optimize.sweep.model_dump(), "rates": (11_025,), "depth": 8, "dither": False}
     )
     return OptimizeSettings(
+        loop=_CONFIG.loop,
         sweep=grid,
         reduce=_narrow_band_reduce(),
         layers=_CONFIG.optimize.layers,
-        encode=_CONFIG.codec.encode,
+        encode=_CONFIG.encode,
         metrics=_CONFIG.analysis.metrics,
         velocity=_CONFIG.optimize.velocity,
         method=_CONFIG.optimize.budget.method,
@@ -78,26 +81,35 @@ def demo_instrument() -> InstrumentSpec:
 
 @pytest.fixture
 def dump_context(
-    demo_instrument: InstrumentSpec, demo_audio: AudioMap, no_render_settings: DumpSettings
+    demo_instrument: InstrumentSpec,
+    demo_audio: AudioMap,
+    no_render_settings: DumpSettings,
+    recordings: Recordings,
 ) -> DumpContext:
+    stored = recordings(demo_audio, SR)
     return DumpContext(
         instrument=demo_instrument,
-        audio=demo_audio,
-        sample_rate=SR,
-        inputs=prepare_run(demo_instrument, demo_audio, SR, no_render_settings.optimize),
+        recordings=stored,
+        inputs=prepare_run(demo_instrument, stored, no_render_settings.optimize),
         settings=no_render_settings,
     )
 
 
 @pytest.fixture
 def ungrouped_plan(
-    demo_instrument: InstrumentSpec, demo_audio: AudioMap, no_render_settings: DumpSettings
+    demo_instrument: InstrumentSpec,
+    demo_audio: AudioMap,
+    no_render_settings: DumpSettings,
+    recordings: Recordings,
 ) -> InstrumentPlan:
-    return optimize_instrument(demo_instrument, demo_audio, SR, no_render_settings.optimize)
+    return optimize_instrument(demo_instrument, recordings(demo_audio, SR), no_render_settings.optimize)
 
 
 @pytest.fixture
 def grouped_plan(
-    demo_instrument: InstrumentSpec, demo_audio: AudioMap, no_render_settings: DumpSettings
+    demo_instrument: InstrumentSpec,
+    demo_audio: AudioMap,
+    no_render_settings: DumpSettings,
+    recordings: Recordings,
 ) -> GroupedInstrumentPlan:
-    return optimize_instrument_grouped(demo_instrument, demo_audio, SR, no_render_settings.optimize)
+    return optimize_instrument_grouped(demo_instrument, recordings(demo_audio, SR), no_render_settings.optimize)

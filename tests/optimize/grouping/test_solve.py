@@ -5,12 +5,12 @@ import numpy as np
 import pytest
 
 from optisample.dsp.surrogate import EncodingParams
+from optisample.keys import SampleKey
 from optisample.optimize.dp import BudgetInfeasibleError
 from optisample.optimize.grouping import solve_grouping
 from optisample.optimize.grouping.cost_model import ZoneSegment, zone_starts
 from optisample.optimize.grouping.solve import _cheapest_partition_bytes
 from optisample.optimize.plans import NO_RESERVE, ZoneOption
-from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.tasks import Event, PitchTask
 
 

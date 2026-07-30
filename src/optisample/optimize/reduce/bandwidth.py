@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Final, Protocol
 
 import numpy as np
@@ -10,7 +10,7 @@ from optisample.dsp.spectral import content_edge_hz
 from optisample.dsp.surrogate import EncodingParams, Signal
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.music import semitone_ratio
-from optisample.optimize.operating_points import compresses, loop_choices, sweep_rates
+from optisample.optimize.operating_points import compresses, sweep_rates
 
 _RATE_PER_BANDWIDTH: Final = 2.0  # Nyquist: a stored rate carries content up to half of it
 _UNTRANSPOSED: Final = 0  # the transpose a sample plays at while it serves the key it was recorded at
@@ -167,23 +167,26 @@ def stored_encodings(
     sweep: SweepConfig,
     *,
     trim_s: float | None,
+    loops: bool,
 ) -> tuple[EncodingParams, ...]:
-    """Every encoding the sweep runs for a sample kept at ``stored``: one per loop choice, trimmed alike.
+    """Every encoding the sweep runs for a sample kept at ``stored``: the trimmed span, then the loop.
 
-    The format is settled before the sweep starts, so what the sweep prices is how the sample carries on
-    past its attack -- each loop candidate against storing the trimmed span. Enumerating them in
-    :func:`~optisample.optimize.operating_points.loop_choices` order fixes the single order every cost
-    model scores in, so the per-pitch and per-zone sweeps stay identical.
+    The format is settled before the sweep starts and the loop is settled before it too, so what the sweep
+    prices is how far the sample carries on past its attack: keeping the played span against keeping the
+    attack plus the one loop region the loop stage chose. ``loops`` states whether that clip has a loop to
+    offer, and the trimmed span leads either way, so the trimmed encoding sits at the same index for every
+    clip and the per-pitch and per-zone sweeps score in one order.
     """
-    return tuple(
-        EncodingParams(
-            target_rate=stored.target_rate,
-            depth_bits=stored.depth_bits,
-            trim_s=trim_s,
-            dither=sweep.dither,
-            noise_shaping=sweep.noise_shaping,
-            loop_choice=loop_choice,
-            compress=stored.compress,
-        )
-        for loop_choice in loop_choices(sweep)
+    trimmed = EncodingParams(
+        target_rate=stored.target_rate,
+        depth_bits=stored.depth_bits,
+        trim_s=trim_s,
+        dither=sweep.dither,
+        noise_shaping=sweep.noise_shaping,
+        looped=False,
+        compress=stored.compress,
     )
+    if not loops:
+        return (trimmed,)
+
+    return (trimmed, replace(trimmed, looped=True))

@@ -17,7 +17,6 @@ from optisample.cli import (
     main,
 )
 from optisample.config import OptiConfig
-from optisample.config.optimize import TRIMMED_ONLY
 from optisample.config.reduce import DedupeKey
 from optisample.config.tracker import TrackerFormat
 from optisample.io.audio import write_wav
@@ -67,7 +66,7 @@ def test_dump_settings_maps_grid_and_flags(config: OptiConfig) -> None:
     settings = _dump_settings(config, args)
     assert settings.optimize.sweep.rates == (11_025,)
     assert settings.optimize.sweep.depth == 8
-    assert settings.optimize.sweep.loop_choices == TRIMMED_ONLY  # --no-loop leaves the loops off the grid
+    assert settings.optimize.loops is False  # --no-loop leaves the loop stage out of the run
     assert settings.optimize.seed == 3
     assert settings.optimize.target.format is config.export.tracker.format  # unnamed, so the configured format
     assert settings.render_ground_truth is False
@@ -367,7 +366,7 @@ def test_a_chained_run_takes_a_directory_of_recordings_the_whole_way(
 
     assert len(list((out / "0_subset" / "piano").glob("*.wav"))) == 2
     assert not (out / "0_subset" / "piano.notes.json").exists()
-    assert (out / "2_optimized" / "piano" / "ungrouped" / "plan.json").is_file()
+    assert (out / "3_optimized" / "piano" / "ungrouped" / "plan.json").is_file()
     assert "2 of 3 notes" in capsys.readouterr().out
 
 
@@ -403,8 +402,9 @@ def test_pipeline_command_writes_a_directory_per_stage_it_ran(
         ]
     )
     assert (out / "0_subset" / "piano.notes.json").is_file()
-    assert (out / "1_reduced" / "piano.notes.json").is_file()
-    assert (out / "2_optimized" / "piano" / "ungrouped" / "plan.json").is_file()
+    assert (out / "1_looped" / "piano.notes.json").is_file()
+    assert (out / "2_reduced" / "piano.notes.json").is_file()
+    assert (out / "3_optimized" / "piano" / "ungrouped" / "plan.json").is_file()
     printed = capsys.readouterr().out
     assert "2 of 3 notes" in printed  # the slice it took
     assert "auditions" in printed  # what the reduction wrote
@@ -420,10 +420,11 @@ def test_the_pipeline_command_reaches_what_running_the_stages_one_at_a_time_reac
     chained, apart = tmp_path / "chained", tmp_path / "apart"
     main(["pipeline", str(tiny_notes), *flags, *allocate, "--fraction", "0.67", "--out", str(chained)])
     main(["subset", str(tiny_notes), "--fraction", "0.67", "--out", str(apart / "0_subset")])
-    main(["reduce", str(apart / "0_subset" / "piano.notes.json"), *flags, "--out", str(apart / "1_reduced")])
-    main(["optimize", str(apart / "1_reduced" / "piano.notes.json"), *flags, *allocate, "--out", str(apart / "2")])
+    main(["loop", str(apart / "0_subset" / "piano.notes.json"), *flags, "--out", str(apart / "1_looped")])
+    main(["reduce", str(apart / "1_looped" / "piano.notes.json"), *flags, "--out", str(apart / "2_reduced")])
+    main(["optimize", str(apart / "2_reduced" / "piano.notes.json"), *flags, *allocate, "--out", str(apart / "3")])
     plan = Path("piano") / "ungrouped" / "plan.json"
-    assert (chained / "2_optimized" / plan).read_text(encoding="utf-8") == (apart / "2" / plan).read_text(
+    assert (chained / "3_optimized" / plan).read_text(encoding="utf-8") == (apart / "3" / plan).read_text(
         encoding="utf-8"
     )
 
@@ -435,7 +436,7 @@ def test_the_pipeline_command_reduces_its_source_when_no_fraction_names_a_slice(
     flags = ["--budget-kb", "48", "--rate", "11025", "--depth", "8", "--no-render", "--strategy", "ungrouped"]
     main(["pipeline", str(tiny_notes), *flags, "--out", str(out)])
     assert not (out / "0_subset").exists()
-    assert (out / "2_optimized" / "piano" / "ungrouped" / "plan.json").is_file()
+    assert (out / "3_optimized" / "piano" / "ungrouped" / "plan.json").is_file()
 
 
 def test_the_allocation_caps_a_chained_run_states_reach_the_stage_that_allocates(config: OptiConfig) -> None:

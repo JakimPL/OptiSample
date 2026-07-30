@@ -3,5 +3,4 @@ rates: [8000, 11025, 16000, 22050, 28800, 32000, 37800, 44100] # ladder a rate i
 depth: 16                    # bits every stored sample keeps
 dither: true
 noise_shaping: false
-loop_choices: 3              # loop candidates swept; the trimmed sample is swept beside them
 compress: true               # applied where the depth is shallow enough to hear the headroom it buys

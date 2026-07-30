@@ -5,6 +5,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Final
 
+from optisample.artifacts.dataset import note_records, tracked_ccs, write_recording
 from optisample.artifacts.paths import ReducedPaths, reduced_paths
 from optisample.artifacts.serialize import (
     ReducedDocument,
@@ -15,14 +16,15 @@ from optisample.artifacts.serialize import (
 )
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode
 from optisample.io.audio import write_wav
-from optisample.io.note_extractor import NoteRecord, dump_notes
+from optisample.io.note_extractor import dump_notes
+from optisample.keys import SampleKey
 from optisample.metrics.base import Signal
-from optisample.model import Manifest, NoteEvent
+from optisample.model import Manifest
 from optisample.music import pitch_label
 from optisample.optimize.orchestrate import RunInputs, prepare_run
 from optisample.optimize.orchestrate.audio import LoadedInstrument, load_run_audio
+from optisample.optimize.orchestrate.looping import LoopedInstrument, run_loops
 from optisample.optimize.orchestrate.settings import OptimizeSettings
-from optisample.optimize.reduce.keys import SampleKey, nearest_key
 from optisample.optimize.reduce.summary import KeptRecording
 from optisample.optimize.reduce.trim import RecordingScreen
 from optisample.optimize.tasks import (
@@ -92,60 +94,10 @@ def _write_survivors(
     indices: dict[SampleKey, int] = {}
     for index, recording in enumerate(recordings):
         stored = audio[recording.key][: stored_frames(recording, sample_rate)]
-        name = f"{index:04d}_{recording.key.label}.wav"
-        write_wav(samples_dir / name, stored, sample_rate)
+        records.append(write_recording(stored, recording.key, index, sample_rate, samples_dir))
         indices[recording.key] = index
-        records.append(
-            WrittenSampleRecord(
-                index=index,
-                key=recording.key.label,
-                file=name,
-                frames=int(stored.size),
-                duration_s=int(stored.size) / sample_rate,
-            )
-        )
 
     return _Survivors(records=tuple(records), indices=indices)
-
-
-def _keys_by_pitch(audio: AudioMap) -> dict[int, list[SampleKey]]:
-    """The survivors available at each pitch, in key order, which is what a played note is routed among."""
-    available: dict[int, list[SampleKey]] = {}
-    for key in sorted(audio):
-        available.setdefault(key.pitch, []).append(key)
-
-    return available
-
-
-def _note_records(
-    material: Sequence[NoteEvent],
-    audio: AudioMap,
-    survivors: _Survivors,
-) -> list[NoteRecord]:
-    """Every played note as a dataset entry, pointing at the survivor it is scored against.
-
-    A note is routed by :func:`~optisample.optimize.reduce.keys.nearest_key`, the same lookup
-    :func:`~optisample.optimize.reduce.events.merge_events` scores it through, so the reduced dataset
-    pairs each note with exactly the recording the objective already measured it against. An event
-    standing for several played notes is written once per note, so the material keeps its weight.
-    """
-    available = _keys_by_pitch(audio)
-    return [
-        NoteRecord(
-            index=survivors.indices[nearest_key(available[event.pitch], event.velocity)],
-            pitch=event.pitch,
-            velocity=event.velocity,
-            duration_s=event.duration_s,
-            cc_averages=event.cc_averages,
-        )
-        for event in material
-        for _ in range(event.count)
-    ]
-
-
-def _tracked_ccs(material: Sequence[NoteEvent]) -> list[int]:
-    """Every controller the material reports an average for, which the dataset declares up front."""
-    return sorted({controller for event in material for controller in event.cc_averages})
 
 
 def _encoding_stem(params: EncodingParams) -> str:
@@ -153,8 +105,8 @@ def _encoding_stem(params: EncodingParams) -> str:
     parts = [f"r{params.target_rate}", f"d{params.depth_bits}"]
     if params.compress:
         parts.append("c")
-    if params.loop_choice is not None:
-        parts.append(f"loop{params.loop_choice}")
+    if params.looped:
+        parts.append("loop")
 
     return "_".join(parts)
 
@@ -170,7 +122,7 @@ def _audition(task: PitchTask, event: Event, params: EncodingParams, context: Ev
         task.representative,
         context.sample_rate,
         params,
-        EncodeContext(root_pitch=task.pitch, config=context.encode),
+        EncodeContext(root_pitch=task.pitch, config=context.encode, settled=task.settled),
     )
     return render_event(stored, event, pitch=task.pitch, sample_rate=context.sample_rate)
 
@@ -224,7 +176,7 @@ def _reduced_document(
 
 
 def dump_reduced(
-    loaded: LoadedInstrument,
+    looped: LoopedInstrument,
     out_dir: Path | str,
     settings: OptimizeSettings,
 ) -> ReducedInstrument:
@@ -245,12 +197,13 @@ def dump_reduced(
     trimmed to the span worth storing, and the notes those recordings can serve.
     """
     started_at = perf_counter()
+    loaded = looped.loaded
     instrument, audio, sample_rate = loaded.instrument, loaded.audio, loaded.sample_rate
     paths = reduced_paths(Path(out_dir), instrument.id)
-    inputs = prepare_run(instrument, audio, sample_rate, settings)
+    inputs = prepare_run(instrument, looped.recordings, settings)
     survivors = _write_survivors(audio, inputs.reduction.recordings, sample_rate, paths.samples_dir)
-    notes = _note_records(instrument.material, audio, survivors)
-    dump_notes(notes, paths.notes_json, tracked_ccs=_tracked_ccs(instrument.material))
+    notes = note_records(instrument.material, audio, survivors.indices)
+    dump_notes(notes, paths.notes_json, tracked_ccs=tracked_ccs(instrument.material))
     auditions = _write_all_auditions(inputs, paths.auditions_dir, settings.progress)
     paths.reduction_json.parent.mkdir(parents=True, exist_ok=True)
     write_json(paths.reduction_json, _reduced_document(loaded, survivors, inputs, settings))
@@ -274,6 +227,8 @@ def reduce_project(manifest: Manifest, out_dir: Path | str, settings: OptimizeSe
     out_dir = Path(out_dir)
     results: list[ReducedInstrument] = []
     for instrument in manifest.instruments:
-        results.append(dump_reduced(load_run_audio(instrument, settings), out_dir, settings))
+        loaded = load_run_audio(instrument, settings)
+        looped = run_loops(loaded, settings)
+        results.append(dump_reduced(looped, out_dir, settings))
 
     return results

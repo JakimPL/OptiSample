@@ -5,10 +5,12 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from optisample.config.codec import EncodeConfig, LoopConfig
-from optisample.config.optimize import TRIMMED_ONLY, SweepConfig
+from optisample.config.codec import EncodeConfig
+from optisample.config.loop import LoopConfig
+from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import ReduceConfig
 from optisample.dsp.spectral import bandlimit
+from optisample.keys import SampleKey
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.reduce.bandwidth import (
     ClipDemand,
@@ -17,7 +19,6 @@ from optisample.optimize.reduce.bandwidth import (
     useful_rate_hz,
 )
 from optisample.optimize.reduce.grids import GridContext
-from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.reduce.summary import (
     ReductionInputs,
     summarize_reduction,
@@ -29,7 +30,7 @@ SR = 22_050
 _PITCHES = (60, 67)
 _NOTE_S = 0.4
 _RATES = (16_000, 8_000, 4_000)  # an explicit ladder, so a test states which rung it expects back
-_TRIMMED_SPAN = 1  # encodings a clip is offered where the loop axis is left off: the trimmed sample alone
+_UNLOOPED_SPANS = 1  # encodings a clip with no settled loop is offered: the played span alone
 _NO_TRANSPOSE = 0
 _RATE_PER_BANDWIDTH = 2.0  # Nyquist, which turns a content-edge tolerance into a rate tolerance
 _SHARED = 2  # workers, enough to run the pre-pass apart without asking the machine for every core
@@ -46,6 +47,7 @@ class _Clip:
     representative: NDArray[np.float64]
     max_duration_s: float
     scored_classes: int
+    loops: bool = False
 
 
 def _decayed_noise(duration_s: float, seed: int) -> NDArray[np.float64]:
@@ -61,8 +63,7 @@ def context(encode_config: EncodeConfig, sweep: SweepFactory, reduce: ReduceFact
     """A narrowing context whose stored rate is chosen from the explicit ``_RATES`` ladder."""
     return GridContext(
         sample_rate=SR,
-        encode=encode_config,
-        sweep=sweep(rates=_RATES, loop_choices=TRIMMED_ONLY),
+        sweep=sweep(rates=_RATES),
         bandwidth=reduce().bandwidth,
     )
 
@@ -71,7 +72,7 @@ def context(encode_config: EncodeConfig, sweep: SweepFactory, reduce: ReduceFact
 def inputs(context: GridContext, config_dedupe: ReduceConfig, loop_config: LoopConfig) -> ReductionInputs:
     return ReductionInputs(
         reduce=config_dedupe,
-        loop=loop_config,
+        geometry=loop_config.geometry,
         context=context,
         workers=IN_PROCESS,
         progress=NO_PROGRESS,
@@ -138,7 +139,12 @@ def test_every_played_pitch_earns_the_grid_the_sweep_will_run(
     summary = summarize_reduction(instrument, clips, audio, inputs)
     demand = ClipDemand(trim_s=_NOTE_S, delta_semitones=_NO_TRANSPOSE)
     assert summary.encodings() == {
-        clip.pitch: stored_encodings(stored_format(clip.representative, demand, context), context.sweep, trim_s=_NOTE_S)
+        clip.pitch: stored_encodings(
+            stored_format(clip.representative, demand, context),
+            context.sweep,
+            trim_s=_NOTE_S,
+            loops=clip.loops,
+        )
         for clip in clips
     }
 
@@ -151,7 +157,7 @@ def test_the_swept_total_adds_up_the_pitches(
 ) -> None:
     summary = summarize_reduction(instrument, clips, audio, inputs)
     assert summary.swept == sum(len(grid.encodings) for grid in summary.grids)
-    assert summary.swept == _TRIMMED_SPAN * len(clips)  # the loop axis is off, so one encoding per pitch
+    assert summary.swept == _UNLOOPED_SPANS * len(clips)  # no clip settled a loop, so one encoding per pitch
 
 
 def test_a_pitch_keeps_the_rate_its_own_content_justifies(

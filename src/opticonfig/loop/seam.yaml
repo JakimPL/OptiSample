@@ -1,0 +1,2 @@
+# How the wrap is blended (optisample.config.loop.SeamConfig).
+crossfade_s: 0.01 # stretch before the loop end ramped toward the frames preceding the loop start

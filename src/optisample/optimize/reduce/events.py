@@ -6,8 +6,8 @@ from math import floor, log
 from typing import Final
 
 from optisample.config.reduce import EventsConfig
+from optisample.keys import SampleKey, nearest_key
 from optisample.model import NoteEvent
-from optisample.optimize.reduce.keys import SampleKey, nearest_key
 from optisample.optimize.velocity_map import VelocityVolumeMap
 
 EventIdentity = tuple[SampleKey, int, float]
@@ -85,7 +85,7 @@ def merge_events(
     """Collapse the notes at one pitch into the classes that reconstruct identically, weights summed.
 
     Scoring reads a note's velocity twice, and both readings are many-to-one:
-    :func:`~optisample.optimize.reduce.keys.nearest_key` picks the recording it is compared against, and
+    :func:`~optisample.keys.nearest_key` picks the recording it is compared against, and
     the velocity map picks the volume it renders at. Notes agreeing on both, over the same scored length,
     therefore earn the same fidelity report, so one scored class stands for all of them and carries their
     combined playing time as its weight -- an exact reduction, leaving the weighted mean it feeds

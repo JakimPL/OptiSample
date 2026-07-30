@@ -7,6 +7,7 @@ from time import perf_counter
 
 from optisample.artifacts.context import DumpResult, DumpSettings
 from optisample.artifacts.dump import dump_project
+from optisample.artifacts.looped import LoopedInstrumentArtifacts, loop_project
 from optisample.artifacts.paths import pipeline_paths
 from optisample.artifacts.reduced import ReducedInstrument, reduce_project
 from optisample.io.dataset import SourceDataset, SubsetDataset
@@ -41,6 +42,7 @@ class PipelineRun:
     """
 
     subset: SubsetDataset | None
+    looped: LoopedInstrumentArtifacts
     reduced: ReducedInstrument
     optimized: DumpResult
     elapsed_s: float
@@ -84,8 +86,20 @@ def _one_instrument[ResultT](results: Sequence[ResultT]) -> ResultT:
     return result
 
 
-def _reduced(source: SourceDataset, out_dir: Path, settings: PipelineSettings) -> ReducedInstrument:
-    """What the pre-optimization stage reduces ``source`` to, as the dataset the allocation reads back."""
+def _looped(source: SourceDataset, out_dir: Path, settings: PipelineSettings) -> LoopedInstrumentArtifacts:
+    """The loops ``source``'s recordings are stored around, as the dataset the reduction reads back.
+
+    The dataset written here holds the recordings as the ingest produced them -- onset aligned and at one
+    rate -- which is what makes the frames each settled loop names index into the audio every later stage
+    encodes from.
+    """
+    manifest = load_source(source, settings.ingest)
+    return _one_instrument(loop_project(manifest, out_dir, settings.reduce))
+
+
+def _reduced(looped: LoopedInstrumentArtifacts, out_dir: Path, settings: PipelineSettings) -> ReducedInstrument:
+    """What the pre-optimization stage reduces a looped dataset to, as the dataset the allocation reads back."""
+    source = SourceDataset(path=looped.paths.notes_json, samples_dir=looped.paths.samples_dir)
     manifest = load_source(source, settings.ingest)
     return _one_instrument(reduce_project(manifest, out_dir, settings.reduce))
 
@@ -101,17 +115,20 @@ def run_pipeline(source: SourceDataset, out_dir: Path, settings: PipelineSetting
 
     Every stage reads back the dataset the stage before it wrote, so the allocation reaches the sweep
     having paid the ingest over the surviving recordings alone, and the tree records the route it took:
-    the slice under ``0_subset``, what that reduced to under ``1_reduced``, and the artifacts allocated
-    from it under ``2_optimized``. A run naming no fraction reduces its source directly and begins at
-    ``1_reduced``, which is how an already-sliced dataset is carried through the same command.
+    the slice under ``0_subset``, the loops settled on it under ``1_looped``, what that reduced to under
+    ``2_reduced``, and the artifacts allocated from it under ``3_optimized``. A run naming no fraction
+    settles loops on its source directly and begins at ``1_looped``, which is how an already-sliced dataset
+    is carried through the same command.
     """
     started_at = perf_counter()
     paths = pipeline_paths(out_dir)
     subset = _sliced(source, paths.subset_dir, settings)
-    reduced = _reduced(_next_source(source, subset), paths.reduced_dir, settings)
+    looped = _looped(_next_source(source, subset), paths.looped_dir, settings)
+    reduced = _reduced(looped, paths.reduced_dir, settings)
     optimized = _optimized(reduced, paths.optimized_dir, settings)
     return PipelineRun(
         subset=subset,
+        looped=looped,
         reduced=reduced,
         optimized=optimized,
         elapsed_s=perf_counter() - started_at,

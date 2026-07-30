@@ -5,12 +5,9 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Final, Protocol
 
-from optisample.config.codec import EncodeConfig
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import BandwidthConfig
-from optisample.dsp.loop import Loop, LoopQuality, loop_candidates, loop_quality
 from optisample.dsp.surrogate import EncodingParams
-from optisample.dsp.timebase import seconds_to_frames
 from optisample.metrics.base import Signal
 from optisample.optimize.reduce.bandwidth import (
     ClipDemand,
@@ -28,7 +25,7 @@ _OWN_KEY: Final = 0  # a key sounding its own recording plays it at the pitch it
 
 
 class StoredClip(Protocol):
-    """What narrowing reads about the sample one pitch stores: its recording and how long it is held.
+    """What narrowing reads about the sample one pitch stores: its recording, how long it is held, its loop.
 
     Stated as a protocol so the pre-pass measures the same pitch tasks the sweep scores, while the
     reduction subpackage stays a leaf the task layer builds on.
@@ -43,49 +40,36 @@ class StoredClip(Protocol):
     @property
     def max_duration_s(self) -> float: ...
 
+    @property
+    def loops(self) -> bool: ...
+
 
 @dataclass(frozen=True)
 class ClipRequest:
-    """One pitch's stored clip as a worker receives it: the recording and the span held, alone.
+    """One pitch's stored clip as a worker receives it: the recording, the span held, and whether it loops.
 
-    Narrowing reads a clip through :class:`StoredClip`, so a worker is handed exactly those three
+    Narrowing reads a clip through :class:`StoredClip`, so a worker is handed exactly those four
     fields and the note classes scored against the clip stay in the calling process.
     """
 
     pitch: int
     representative: Signal
     max_duration_s: float
+    loops: bool
 
 
 @dataclass(frozen=True)
 class GridContext:
     """What settling a pitch's stored grid runs off, in the validated config a worker process can be handed.
 
-    ``sample_rate`` is the rate the run measures at, ``encode`` the codec config a loop is measured under,
-    ``sweep`` what a clip may be stored as, and ``bandwidth`` the knobs that read a recording's own band.
-    Every field is a small validated value, so the whole context travels to a worker as it stands.
+    ``sample_rate`` is the rate the run measures at, ``sweep`` what a clip may be stored as, and
+    ``bandwidth`` the knobs that read a recording's own band. Every field is a small validated value, so the
+    whole context travels to a worker as it stands.
     """
 
     sample_rate: int
-    encode: EncodeConfig
     sweep: SweepConfig
     bandwidth: BandwidthConfig
-
-
-@dataclass(frozen=True)
-class MeasuredLoop:
-    """One loop candidate as the report states it: where it sits in the note, and how well it stands in.
-
-    ``choice`` is the :attr:`~optisample.dsp.surrogate.EncodingParams.loop_choice` naming it. The bounds
-    are seconds into the recording, so a loop is read where a listener hears it, and ``quality`` is what
-    :func:`~optisample.dsp.loop.loop_quality` measures of it -- together, the case for or against the
-    loop the allocation went on to buy.
-    """
-
-    choice: int
-    start_s: float
-    end_s: float
-    quality: LoopQuality
 
 
 @dataclass(frozen=True)
@@ -94,42 +78,14 @@ class NarrowedGrid:
 
     ``useful_rate_hz`` is the stored rate carrying everything the recording still contributes at its own
     key (see :func:`~optisample.optimize.reduce.bandwidth.useful_rate_hz`); ``stored`` is the format the
-    ladder's lowest rung reaching it names; ``encodings`` are what the sweep then runs, that one format
-    over each loop choice; and ``loops`` are the candidates those choices name, measured on the recording
-    as it stands.
+    ladder's lowest rung reaching it names; and ``encodings`` are what the sweep then runs, that one format
+    over the stored spans the clip offers.
     """
 
     pitch: int
     useful_rate_hz: float
     stored: StoredFormat
     encodings: tuple[EncodingParams, ...]
-    loops: tuple[MeasuredLoop, ...]
-
-
-def _measured_loop(choice: int, loop: Loop, stored: Signal, context: GridContext) -> MeasuredLoop:
-    """One candidate loop placed in the note by the second and measured for what storing it would cost."""
-    return MeasuredLoop(
-        choice=choice,
-        start_s=loop.start / context.sample_rate,
-        end_s=loop.end / context.sample_rate,
-        quality=loop_quality(stored, loop, context.sample_rate, context.encode.loop),
-    )
-
-
-def _measured_loops(clip: StoredClip, context: GridContext) -> tuple[MeasuredLoop, ...]:
-    """The loop candidates the sweep reaches for one clip, measured over the stretch it holds.
-
-    Read on the recording at its own rate, which is the waveform a reader listens to and the one the
-    audition folder holds. A stored copy at a reduced rate lays its candidates out on its own resampled
-    waveform, where the same choice lands at the same place in the note, because resampling carries the
-    material's period and the analysis window alike.
-    """
-    stored = clip.representative[: seconds_to_frames(clip.max_duration_s, context.sample_rate)]
-    candidates = loop_candidates(stored, context.sample_rate, context.encode.loop)
-    return tuple(
-        _measured_loop(choice, loop, stored, context)
-        for choice, loop in enumerate(candidates[: context.sweep.loop_choices])
-    )
 
 
 def narrow_grid(clip: StoredClip, context: GridContext) -> NarrowedGrid:
@@ -147,14 +103,18 @@ def narrow_grid(clip: StoredClip, context: GridContext) -> NarrowedGrid:
         pitch=clip.pitch,
         useful_rate_hz=useful_rate_hz(clip.representative, demand, context.sample_rate, context.bandwidth),
         stored=stored,
-        encodings=stored_encodings(stored, context.sweep, trim_s=demand.trim_s),
-        loops=_measured_loops(clip, context),
+        encodings=stored_encodings(stored, context.sweep, trim_s=demand.trim_s, loops=clip.loops),
     )
 
 
 def _requested(clip: StoredClip) -> ClipRequest:
-    """One clip reduced to the three fields narrowing reads, which is all a worker needs of it."""
-    return ClipRequest(pitch=clip.pitch, representative=clip.representative, max_duration_s=clip.max_duration_s)
+    """One clip reduced to the four fields narrowing reads, which is all a worker needs of it."""
+    return ClipRequest(
+        pitch=clip.pitch,
+        representative=clip.representative,
+        max_duration_s=clip.max_duration_s,
+        loops=clip.loops,
+    )
 
 
 def narrow_grids(

@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
+from optisample.keys import SampleKey
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.music import MIDI_MAX_VELOCITY
 from optisample.optimize.layers.bands import (
@@ -14,7 +15,6 @@ from optisample.optimize.layers.bands import (
     velocity_cells,
 )
 from optisample.optimize.layers.tasks import band_instrument, band_tasks, layered_tasks
-from optisample.optimize.reduce.keys import SampleKey
 from optisample.optimize.tasks import AudioMap, PitchTask, TaskInputs, build_tasks
 from optisample.optimize.velocity_map import VelocityVolumeMap
 

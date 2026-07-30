@@ -17,7 +17,12 @@ def _evaluate_config(
     params: EncodingParams,
 ) -> OperatingPoint:
     """Encode the pitch's own representative, then score reconstruction against every event at it."""
-    encode_context = EncodeContext(root_pitch=task.pitch, config=context.encode, rng=context.rng)
+    encode_context = EncodeContext(
+        root_pitch=task.pitch,
+        config=context.encode,
+        settled=task.settled,
+        rng=context.rng,
+    )
     stored = encode(task.representative, context.sample_rate, params, encode_context)
     distortion = score_reconstruction(stored, task, context)
     return OperatingPoint(
@@ -35,7 +40,7 @@ def _sweep_plan(tasks: Sequence[PitchTask], encodings: PitchEncodings) -> list[t
     the order the sweep consumes it keeps each encode drawing the same dither as it did unlisted.
     ``encodings`` is what the bandwidth pre-pass
     (:func:`~optisample.optimize.reduce.summary.summarize_reduction`) settled per pitch -- the format its
-    recording asked for, over each loop choice -- so the sweep prices how a sample carries on.
+    recording asked for, over the stored spans it offers -- so the sweep prices how far a sample carries on.
     """
     return [(task, params) for task in tasks for params in encodings[task.pitch]]
 
