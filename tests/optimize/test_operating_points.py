@@ -46,9 +46,12 @@ def seeded(context: SweepContext, seed: int = 0) -> SweepContext:
     return dataclasses.replace(context, rng=np.random.default_rng(seed))
 
 
+_PERIODIC_HZ = 245.0
+
+
 # 245 Hz has an exact 180-frame period at 44.1 kHz, so a whole-period loop reproduces it exactly
 # (a non-integer period would make the loop play a slightly detuned pitch -- a real limitation, not a bug).
-def harmonic_tone(freq: float = 245.0, dur: float = 3.0) -> np.ndarray:
+def harmonic_tone(freq: float = _PERIODIC_HZ, dur: float = 3.0) -> np.ndarray:
     t = np.arange(int(dur * SR), dtype=np.float64) / SR
     return (
         0.6 * np.sin(2 * np.pi * freq * t)
@@ -70,7 +73,7 @@ def _looped_clip(settle: SettleLoop) -> SourceClip:
         sample_rate=SR,
         root_pitch=57,
         duration_s=_HELD_S,
-        settled=settle(signal, SR, search_s=_HELD_S),
+        settled=settle(signal, SR, root_hz=_PERIODIC_HZ, search_s=_HELD_S),
     )
 
 

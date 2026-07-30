@@ -9,6 +9,7 @@ from optisample.config.loop import LoopConfig
 from optisample.keys import SampleKey
 from optisample.loop.settle import Settlement, settle_loop
 from optisample.metrics.base import Signal
+from optisample.music import midi_to_freq
 from optisample.parallel import map_workers
 from optisample.progress import ProgressSink
 
@@ -32,9 +33,16 @@ def settle_one(request: LoopRequest, config: LoopConfig, sample_rate: int) -> Se
     """Settle the loop for one recording, reading the request and the config alone.
 
     Depending on nothing else is what lets the stage share its recordings out over processes and reach the
-    same settlement in whichever order they come back.
+    same settlement in whichever order they come back. The key names the pitch the recording sounds, so the
+    period searched and the level read are both taken over the stretch this note's own material repeats in.
     """
-    return settle_loop(request.signal, sample_rate, config, search_s=request.search_s)
+    return settle_loop(
+        request.signal,
+        sample_rate,
+        config,
+        root_hz=midi_to_freq(request.key.pitch),
+        search_s=request.search_s,
+    )
 
 
 def settle_loops(

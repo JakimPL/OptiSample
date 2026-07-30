@@ -256,22 +256,27 @@ at 48 kHz against 18 at 8 kHz.
 
 Two things are done to the region before it is stored, both at the resolution the split bought.
 
-**The end is matched to the start.** A period read off a finite window lands between frames, and a loop
-spans a hundred of them, so a whole count of rounded periods drifts part-way through a cycle by the time it
-wraps. The peak of the autocorrelation is read between frames by the parabola through its top three, and the
-end is then chosen within half a period of the whole count by maximising how alike the approach to the end
-and the approach to the start measure — so the wrap lands on the phase the material left.
+**The end is matched to the start.** The period is searched around the pitch the key already names, within a
+semitone either side of it — a band that holds the tuning a set was recorded at while excluding two rounds of
+the note, which a sweep of the whole pitched range reads instead on **19 of 120** real Piano recordings
+wherever the even harmonics run strong. A period read off a finite window then lands between frames, and a
+loop spans a hundred of them, so a whole count of rounded periods drifts part-way through a cycle by the time
+it wraps. The peak of the autocorrelation is read between frames by the parabola through its top three, and
+the end is then chosen within half a period of the whole count by maximising how alike the approach to the
+end and the approach to the start measure — so the wrap lands on the phase the material left.
 
 **The region is held at one level, and the seam is blended.** A struck note's region falls across itself, so
 a player wrapping it steps the level back up once per round — a 0.5 s loop pulses at 2 Hz. Dividing the
 region by the level its own material holds, pinned at the loop start, holds it at one amplitude; the decline
 it gave up is handed to the fitted decay below. That level is read frame by frame as a local mean square
-under a weighting spanning two periods of the lowest frequency treated as sound (`loop/envelope.yaml`), so
-it follows a region of any length and states the level the material actually holds where the loop begins. The seam is then blended over a share of the loop
+under a weighting spanning two periods of the note's own pitch, held inside the band `loop/envelope.yaml`
+bounds, so it follows a region of any length and states the level the material actually holds where the loop
+begins. The seam is then blended over a share of the loop
 (`fade_share: 0.125`, floored in seconds and bounded by the material ahead of the start) with each side
 weighted by how alike the two measure: material that repeats exactly is left untouched, material whose
-partials have drifted apart keeps its level across the blend. On the demo piano the level step across one
-wrap falls from **+2.6…+2.9 dB to −0.4…−0.6 dB**.
+partials have drifted apart keeps its level across the blend. Across 54 real Piano loops the level step at
+the wrap falls from a median **|2.65| dB to |0.21| dB**, and reading each note over its own period is worth
+**2.6×** of that against one weighting for every note alike.
 
 The allocation then prices **two** encodings per key, the settled loop and the trimmed span, so a loop is
 bought where the objective prefers it while the loop search itself is paid once per recording.

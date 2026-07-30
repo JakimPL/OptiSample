@@ -12,6 +12,7 @@ from optisample.artifacts.paths import LoopedPaths, looped_paths
 from optisample.artifacts.serialize import LoopsDocument, WrittenSampleRecord, loops_document, write_json
 from optisample.config.loop import EnvelopeConfig, SeamConfig
 from optisample.dsp.decay import LinearDecay
+from optisample.dsp.envelope import LevelReading, level_reading
 from optisample.dsp.loop import prepare_loop
 from optisample.io.audio import write_wav
 from optisample.io.note_extractor import dump_notes
@@ -19,6 +20,7 @@ from optisample.keys import SampleKey
 from optisample.loop.settle import StoredLoop
 from optisample.metrics.base import Signal
 from optisample.model import Manifest
+from optisample.music import midi_to_freq
 from optisample.optimize.orchestrate.audio import load_run_audio
 from optisample.optimize.orchestrate.looping import LoopedInstrument, run_loops
 from optisample.optimize.orchestrate.settings import OptimizeSettings
@@ -77,7 +79,7 @@ def held_audition(
     stored: StoredLoop,
     sample_rate: int,
     seam: SeamConfig,
-    envelope: EnvelopeConfig,
+    reading: LevelReading,
 ) -> Signal:
     """The recording played out through its loop: the attack, the loop wrapped a few times, then the decline.
 
@@ -87,7 +89,7 @@ def held_audition(
     :data:`_HELD_ROUNDS` times is enough for a seam step or a level pulse to become a rhythm a listener
     catches rather than a single click.
     """
-    prepared = prepare_loop(signal, stored.loop, sample_rate, seam, envelope)
+    prepared = prepare_loop(signal, stored.loop, sample_rate, seam, reading)
     region = prepared[stored.loop.start : stored.loop.end]
     played = np.concatenate([prepared[: stored.loop.end], np.tile(region, _HELD_ROUNDS)])
     return _declined(played, stored.decay, sample_rate)
@@ -111,7 +113,9 @@ def _write_auditions(
     """Write the recording beside its loop played out, one folder per recording that earned a loop.
 
     A recording the stage settled no loop for has nothing to audition against itself, so it contributes no
-    folder and the ones present are exactly the loops a listener has to judge.
+    folder and the ones present are exactly the loops a listener has to judge. Each one's level is read at
+    the pitch its key sounds, the same way the loop stage read it, so the audition wraps the waveform the
+    stage measured.
     """
     loaded = looped.loaded
     judged = [
@@ -125,7 +129,8 @@ def _write_auditions(
         folder.mkdir(parents=True, exist_ok=True)
         signal = loaded.audio[key]
         write_wav(folder / f"{_RECORDING_STEM}.wav", signal, loaded.sample_rate)
-        held = held_audition(signal, stored, loaded.sample_rate, seam, envelope)
+        reading = level_reading(loaded.sample_rate, envelope, midi_to_freq(key.pitch))
+        held = held_audition(signal, stored, loaded.sample_rate, seam, reading)
         write_wav(folder / f"{_LOOPED_STEM}.wav", held, loaded.sample_rate)
         written += 2
 

@@ -9,8 +9,10 @@ from optisample.config.stage import StageConfig
 class GeometryConfig(ConfigModel):
     """Where a loop may sit in a note and how long it runs: the search band, the window, and the lengths.
 
-    ``min_hz`` and ``max_hz`` bound the fundamental a period is searched for, and ``min_correlation`` is the
-    autocorrelation peak a recording clears to count as periodic at all. ``attack_skip_s`` and
+    ``detune_semitones`` is how far either side of the pitch a recording was played at its period is
+    searched for, which leaves room for the tuning the instrument was recorded at and for the stretch a
+    piano's own strings carry; ``min_correlation`` is the autocorrelation peak a recording clears to count
+    as periodic at all, and together the two say which material a loop has purchase on. ``attack_skip_s`` and
     ``tail_skip_s`` bound the steady window a loop is placed inside, so a loop begins past the onset
     transient and ends before the release. ``min_periods`` and ``min_loop_s`` together set the shortest loop
     that may be stored, which every candidate clears, alongside the analysis window the quality gates read a
@@ -23,8 +25,7 @@ class GeometryConfig(ConfigModel):
     is read off, which keeps the estimate on the part of the note that holds one pitch.
     """
 
-    min_hz: Annotated[float, Field(gt=0.0)]
-    max_hz: Annotated[float, Field(gt=0.0)]
+    detune_semitones: Annotated[float, Field(gt=0.0)]
     min_correlation: float
     min_periods: Annotated[int, Field(ge=1)]
     min_loop_s: Annotated[float, Field(gt=0.0)]
@@ -38,11 +39,17 @@ class GeometryConfig(ConfigModel):
 class EnvelopeConfig(ConfigModel):
     """How the level a recording holds is read off it, which is the curve levelling and the decay ramp read.
 
-    ``lowest_hz`` is the lowest frequency the reading treats as sound. The weighting spans two of its
-    periods (:func:`~optisample.dsp.envelope.power_kernel`), so the power ripple every tone from half of it
-    upward carries averages out and what the reading is left holding is the level. Raising it sharpens what
-    the curve tracks at an onset and widens the band the curve itself occupies, so it takes proportionally
-    more points to hold.
+    The weighting spans two periods of the pitch the recording was played at
+    (:func:`~optisample.dsp.envelope.power_kernel`), so the power ripple every tone from half of that pitch
+    upward carries averages out and what the reading is left holding is the level. Reading each note over
+    its own period is what has a note two octaves up followed as closely as the note below it.
+
+    ``lowest_hz`` and ``highest_hz`` bound the frequency that weighting is formed at
+    (:func:`~optisample.dsp.envelope.reading_frequency`). ``lowest_hz`` caps how long the weighting runs, so
+    the deepest notes are read over a stretch a loop region has room for; ``highest_hz`` floors it, so the
+    beating of two partials a few hertz apart stays in the carrier, where it is heard as timbre. Raising
+    ``highest_hz`` sharpens what the curve tracks at an onset and widens the band the curve itself occupies,
+    so it takes proportionally more points to hold.
 
     ``floor_db`` places the quietest level the reading states, that far under the recording's own peak. It
     holds the curve strictly positive, leaves a silent stretch at the level it was recorded at, and scales
@@ -51,6 +58,7 @@ class EnvelopeConfig(ConfigModel):
     """
 
     lowest_hz: Annotated[float, Field(gt=0.0)]
+    highest_hz: Annotated[float, Field(gt=0.0)]
     floor_db: Annotated[float, Field(gt=0.0)]
 
 

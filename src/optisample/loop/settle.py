@@ -5,6 +5,7 @@ from enum import StrEnum, unique
 
 from optisample.config.loop import LoopConfig, QualityConfig
 from optisample.dsp.decay import LinearDecay, fit_linear_decay
+from optisample.dsp.envelope import level_reading
 from optisample.dsp.loop import Loop, LoopQuality, loop_candidates, loop_quality
 from optisample.dsp.surrogate import NO_LOOP, SettledLoop
 from optisample.dsp.timebase import seconds_to_frames
@@ -92,14 +93,14 @@ def _failed_gate(quality: LoopQuality, config: QualityConfig) -> Gate | None:
     return None
 
 
-def _ladder(signal: Signal, sample_rate: int, config: LoopConfig) -> tuple[Loop, ...]:
+def _ladder(signal: Signal, sample_rate: int, config: LoopConfig, root_hz: float) -> tuple[Loop, ...]:
     """The candidates in the order the settlement tries them: cheapest first.
 
     A candidate costs what storing ``[0, loop.end)`` costs, so ordering by ``loop.end`` puts the most
     aggressive loop -- the earliest and shortest the geometry allows -- at the front. The start breaks ties
     so one recording climbs the same ladder on every run.
     """
-    candidates = loop_candidates(signal, sample_rate, config.geometry)
+    candidates = loop_candidates(signal, sample_rate, config.geometry, root_hz)
     return tuple(sorted(candidates, key=lambda loop: (loop.end, loop.start)))
 
 
@@ -108,9 +109,16 @@ def settle_loop(
     sample_rate: int,
     config: LoopConfig,
     *,
+    root_hz: float,
     search_s: float,
 ) -> Settlement:
     """The loop ``signal`` is stored around, taken from the ladder its own material offers.
+
+    ``root_hz`` is the pitch the recording was played at, which the material's period is searched around
+    (:func:`~optisample.dsp.loop.loop_candidates`) and its level read over two of
+    (:func:`~optisample.dsp.envelope.level_reading`), so both readings are taken over the stretch this note
+    repeats in. One reading serves the whole ladder, so every candidate is measured alike and the region
+    finally stored is levelled by the same curve that admitted it.
 
     Candidates are measured over the first ``search_s`` of the recording -- the longest stretch the
     material asks of it -- because a loop ending past that stores more than keeping the played span would
@@ -122,12 +130,13 @@ def settle_loop(
     note falls on is read off every level the recording states.
     """
     searched = signal[: seconds_to_frames(search_s, sample_rate)]
+    reading = level_reading(sample_rate, config.envelope, root_hz)
     rejected: list[RejectedLoop] = []
-    for loop in _ladder(searched, sample_rate, config):
-        quality = loop_quality(searched, loop, sample_rate, config)
+    for loop in _ladder(searched, sample_rate, config, root_hz):
+        quality = loop_quality(searched, loop, sample_rate, config, reading)
         gate = _failed_gate(quality, config.quality)
         if gate is None:
-            decay = fit_linear_decay(signal, sample_rate, loop, config.envelope)
+            decay = fit_linear_decay(signal, sample_rate, loop, reading)
             return Settlement(
                 stored=StoredLoop(settled=SettledLoop(loop=loop, decay=decay), quality=quality),
                 rejected=tuple(rejected),

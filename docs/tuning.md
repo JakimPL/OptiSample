@@ -319,9 +319,12 @@ rate the analysis runs at. Three groups tune it:
 - **`loop/geometry.yaml`** lays out what is on offer. `placements` spreads the starts through the sustain
   and `length_multiples` offers each start at several lengths, so a note that changes as it rings can be
   looped where it has settled. `min_loop_s: 0.1` floors the length in seconds, `min_periods` keeps a loop
-  from beating at its own rate, and `min_hz` / `max_hz` / `min_correlation` bound what counts as periodic at
-  all. A third floor is the code's own: a candidate spans at least the window a spectrum is read over, which
-  is what leaves the gates below deciding rather than the seconds floor.
+  from beating at its own rate. The period is searched around the pitch the note was played at, within
+  `detune_semitones: 1.0` either side of it, and `min_correlation` is the peak it clears to count as
+  periodic at all — on 120 real Piano recordings the reading lands a median 3.5 cents off nominal and 17.5
+  cents off at worst, so a semitone leaves room for the tuning a set was recorded at and for a piano's own
+  string stretch. A third floor is the code's own: a candidate spans at least the window a spectrum is read
+  over, which is what leaves the gates below deciding rather than the seconds floor.
 - **`loop/quality.yaml`** holds the three gates, which are the aggressiveness dial. `max_seam_step: 4.0`
   bounds the step at the wrap, measured in units of the frame-to-frame motion the waveform makes there, so
   the reading means the same on a loud attack and a quiet decay. `max_level_drift_db: 12.0` bounds how far
@@ -331,12 +334,15 @@ rate the analysis runs at. Three groups tune it:
   Candidates are climbed cheapest first — earliest and shortest — and the first clearing all three is kept,
   so tightening a gate buys a longer, better loop and loosening one buys bytes.
 - **`loop/envelope.yaml`** states how the level a recording holds is read, which is the curve levelling
-  divides a region by and the level the fitted decay falls from. `lowest_hz: 25.0` is the lowest frequency
-  treated as sound: the weighting spans two of its periods, so a tone from half of it upward reads as the
-  level it holds. Raising it sharpens what the curve tracks at an onset; on the 62-note Piano slice the
-  composite prefers it wider, which is a reading of the composite rather than of the material (§8b).
-  `floor_db: 72.0` places the quietest level the reading states under the recording's own peak, which is
-  what leaves a silent stretch silent.
+  divides a region by and the level the fitted decay falls from. The weighting spans two periods of the
+  note's own pitch, so a tone from half of that upward reads as the level it holds and a high note is
+  followed as closely as the one below it. `lowest_hz: 25.0` and `highest_hz: 100.0` bound the frequency it
+  is formed at: the low bound caps how long the weighting runs, so the deepest notes are read over a stretch
+  a 0.1 s region has room for, and the high bound floors it at 20 ms, so the beating of two partials a few
+  hertz apart stays in the carrier where it is heard as timbre. Raising `highest_hz` sharpens what the curve
+  tracks at an onset; on the 62-note Piano slice the composite prefers the weighting wider, which is a
+  reading of the composite rather than of the material (§8b). `floor_db: 72.0` places the quietest level the
+  reading states under the recording's own peak, which is what leaves a silent stretch silent.
 - **`loop/seam.yaml`** sizes the blend the wrap is made over: `fade_share: 0.125` of the loop's own length,
   floored at `min_fade_s: 0.01` and bounded by the material ahead of the loop start. A share rather than a
   fixed stretch is what blends every round the same way; the weighting law is read off how alike the two
@@ -347,8 +353,9 @@ rate the analysis runs at. Three groups tune it:
 it steps the level back up once per round. The stage divides the region by the level its own material holds
 ([`local_level_over`](../src/optisample/dsp/envelope.py)), pinned at `loop.start`, and hands the decline it
 erased to the fitted `LinearDecay` — which starts at `loop.start`, since that is where the stored material
-stops following the recording. On the demo piano the level step across one wrap falls from +2.6…+2.9 dB to
-−0.4…−0.6 dB: what was a pulse at the loop's rate becomes the note going on declining.
+stops following the recording. On 54 real Piano loops the level step across one wrap falls from a median
+|2.65| dB to |0.21| dB, and the region is left tilting |0.03| dB across itself against |1.02| dB before:
+what was a pulse at the loop's rate becomes the note going on declining.
 
 `loops.json` states the loop each recording keeps and every candidate climbed past with the gate it fell
 outside, so a retune reads off the last run rather than guessing. `1_looped/loops/<id>/auditions/` holds
@@ -356,18 +363,20 @@ each loop played out against its recording, which is the by-ear reading of the s
 
 ### 8b. What the composite says about levelling
 
-On the 62-note Piano slice at 128 KiB the plan is the same whatever `loop.envelope.lowest_hz` is set to
-within a factor of two, and the objective moves monotonically with it: 6.25 Hz reads 1.2323, 25 Hz reads
-1.2385, 40 Hz reads 1.2423, 200 Hz reads 1.2876. A 6.25 Hz weighting spans 320 ms — more than three times a
-0.1 s loop region — so the level it reads over the region is near enough constant that levelling is close to
-a no-op, and that is the setting the composite scores highest.
+On the 62-note Piano slice at 128 KiB the plan is the same however wide the level weighting is set — the
+same 23 zones, the same 18 loops — and the objective moves monotonically with the width. Held at one
+frequency for every note: 6.25 Hz reads 1.2323, 25 Hz reads 1.2381, 40 Hz reads 1.2423, 200 Hz reads 1.2876.
+A 6.25 Hz weighting spans 320 ms — more than three times a 0.1 s loop region — so the level it reads over
+the region is near enough constant that levelling is close to a no-op, and that is the setting the composite
+scores highest. Seeding the weighting from the note's own pitch reads 1.2455, which is the sharpest
+levelling of the lot and the worst score bar 200 Hz.
 
 The composite compares a stored sample against the recording over the span the sample holds, and levelling
 moves the stored waveform away from the recording on purpose: the pulse it removes is heard on the second
 round of a loop, past everything the composite looks at. So a levelling knob tuned to this objective tunes
-toward leaving the pulse in. The shipped 25 Hz is the frequency below which material stops being sound,
-chosen from the material rather than from the score, and the auditions under `1_looped/` are where the
-question is actually settled.
+toward leaving the pulse in. The shipped band is chosen from the material instead — two periods of the note
+being what averages its power ripple away — and it cuts the measured wrap pulse 2.6× against one weighting
+for every note alike. The auditions under `1_looped/` are where the question is actually settled.
 
 For *where* the cut lands, `max_length_s` is no help — it is a ceiling, and the clicking samples sit far
 under it. The knob that reaches `trim_s` is `reduce.events.duration_bucket_ratio`, which rounds every
@@ -427,7 +436,8 @@ as the format numbers. Each extra sample is charged a reserve, so the run states
 | `loop.geometry.min_loop_s` | `loop/geometry.yaml` | Loops are short enough to buzz at their own rate. |
 | `loop.geometry.placements`, `loop.geometry.length_multiples` | `loop/geometry.yaml` | The loop sits where the note has not settled yet. |
 | `loop.seam.fade_share`, `loop.seam.min_fade_s` | `loop/seam.yaml` | The wrap is continuous but audible as a texture change. |
-| `loop.envelope.lowest_hz` | `loop/envelope.yaml` | A held note pulses at the loop's rate, or a levelled region wavers where the recording was steady. |
+| `loop.envelope.highest_hz` | `loop/envelope.yaml` | A held note pulses at the loop's rate, or a levelled region wavers where the recording was steady. |
+| `loop.geometry.detune_semitones` | `loop/geometry.yaml` | A recording that is in tune loops well and one recorded off-pitch settles no loop at all. |
 | `export.envelope.release_s` | `export/envelope.yaml` | A released note is cut off abruptly, or hangs on after the key is let go. |
 
 `--config` takes a **directory** laid out the way the bundled one is -- a stage per directory, a group per

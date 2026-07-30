@@ -3,11 +3,13 @@ from dataclasses import dataclass
 from optisample.config.codec import EncodeConfig
 from optisample.dsp.decay import NO_DECAY, LinearDecay
 from optisample.dsp.dynamics import compress
+from optisample.dsp.envelope import level_reading
 from optisample.dsp.loop import Loop, loop_at_rate, prepare_loop
 from optisample.dsp.quantize import headroom_peak, normalize_peak, release_fade, requantize
 from optisample.dsp.resample import resample_to
 from optisample.dsp.surrogate.params import NO_LOOP, EncodeContext, EncodingParams
 from optisample.dsp.surrogate.sample import NO_RELEASE_RAMP, Signal, StoredSample
+from optisample.music import midi_to_freq
 
 
 @dataclass(frozen=True)
@@ -20,13 +22,17 @@ class _Span:
     decay: LinearDecay | None
 
 
-def _apply_loop(shaped: Signal, rate: int, loop: Loop, config: EncodeConfig) -> Signal:
+def _apply_loop(shaped: Signal, rate: int, loop: Loop, context: EncodeContext) -> Signal:
     """Ready the loop region to wrap and trim storage to attack + loop, which is the span a loop keeps.
 
     Preparation runs on the resampled waveform, so the region is held at the level the stored copy carries
-    and the seam is blended over exactly the frames a player wraps between.
+    and the seam is blended over exactly the frames a player wraps between. The level is read over two
+    periods of the pitch the clip was recorded at and at the rate the copy is stored at, which is the same
+    reading the loop stage levelled by and so the same waveform it measured.
     """
-    return prepare_loop(shaped, loop, rate, config.seam, config.envelope)[: loop.end]
+    config = context.config
+    reading = level_reading(rate, config.envelope, midi_to_freq(context.root_pitch))
+    return prepare_loop(shaped, loop, rate, config.seam, reading)[: loop.end]
 
 
 def _looped_span(
@@ -53,7 +59,7 @@ def _looped_span(
     if loop is None:
         return None
 
-    span = _apply_loop(shaped, params.target_rate, loop, context.config)
+    span = _apply_loop(shaped, params.target_rate, loop, context)
     return _Span(span, loop, NO_RELEASE_RAMP, settled.decay)
 
 

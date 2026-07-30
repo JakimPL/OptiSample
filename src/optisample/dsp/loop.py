@@ -1,16 +1,17 @@
 from dataclasses import dataclass
-from math import ceil, log2
+from math import ceil, floor, log2
 from typing import Final
 
 import numpy as np
 from numpy.typing import NDArray
 
-from optisample.config.loop import EnvelopeConfig, GeometryConfig, LoopConfig, SeamConfig
+from optisample.config.loop import GeometryConfig, LoopConfig, SeamConfig
 from optisample.config.spectral import StftParams
-from optisample.dsp.envelope import local_level_over
+from optisample.dsp.envelope import LevelReading, local_level_over
 from optisample.dsp.levels import gain_to_db
 from optisample.dsp.resample import resampled_frame_count
 from optisample.dsp.spectral import stft_magnitude
+from optisample.music import semitone_ratio
 
 Signal = NDArray[np.float64]
 
@@ -100,26 +101,40 @@ def _refined_lag(correlation: Signal, lag: int) -> float:
     return float(lag) + float(np.clip(0.5 * (before - after) / curvature, -0.5, 0.5))
 
 
+def _searched_lags(sample_rate: int, config: GeometryConfig, root_hz: float) -> tuple[int, int]:
+    """The lags a recording played at ``root_hz`` has its period searched over, widest lag last.
+
+    A tuning fork's worth of leeway either side of the played pitch covers the tuning a set was recorded at
+    and the stretch a piano's own strings carry, while staying well inside the octave -- which is what keeps
+    the peak found the note's own period rather than two or three of them, the reading a search over a whole
+    band lands on wherever the even harmonics run strong.
+    """
+    spread = semitone_ratio(config.detune_semitones)
+    return max(1, floor(sample_rate / (root_hz * spread))), ceil(sample_rate * spread / root_hz)
+
+
 def _estimate_period(
     signal: Signal,
     sample_rate: int,
     config: GeometryConfig,
+    root_hz: float,
 ) -> float | None:
-    """Fundamental period in frames from the strongest autocorrelation peak in the pitched band.
+    """Fundamental period in frames, from the strongest autocorrelation peak near the pitch the note was played at.
 
-    Searches lags from ``sample_rate / max_hz`` (the shortest period the band admits) to
-    ``sample_rate / min_hz`` (the longest), and reads the peak found between frames
-    (:func:`_refined_lag`). Returns ``None`` when the signal spans fewer than ``_MIN_STEADY_FRAMES``, the
-    band holds no lag at this rate, or the strongest peak stays below ``config.min_correlation`` -- each the
-    mark of material too aperiodic to loop.
+    The pitch is known from the key the recording sounds, so the search runs over the lags that pitch makes
+    (:func:`_searched_lags`) and the peak found there is read between frames (:func:`_refined_lag`).
+
+    Returns ``None`` when the signal spans fewer than ``_MIN_STEADY_FRAMES``, holds less than one period of
+    its own pitch, or peaks below ``config.min_correlation`` -- material a loop has no purchase on, either
+    because there is too little of it to read or because it repeats too loosely to wrap.
     """
     if signal.size < _MIN_STEADY_FRAMES:
         return None
 
     correlation = _autocorrelation(signal)
-    low = max(1, int(sample_rate / config.max_hz))
-    high = min(signal.size - 1, int(sample_rate / config.min_hz))
-    if high <= low:
+    low, widest = _searched_lags(sample_rate, config, root_hz)
+    high = min(signal.size - 1, widest)
+    if high < low:
         return None
 
     lag = int(np.argmax(correlation[low : high + 1])) + low
@@ -156,6 +171,7 @@ def _steady_region(
     signal: Signal,
     sample_rate: int,
     config: GeometryConfig,
+    root_hz: float,
 ) -> _SteadyRegion | None:
     """The window a loop may be placed in, together with the period it repeats at.
 
@@ -172,7 +188,7 @@ def _steady_region(
         return None
 
     window = signal[attack : min(tail, attack + int(config.max_estimation_s * sample_rate))]
-    period = _estimate_period(window, sample_rate, config)
+    period = _estimate_period(window, sample_rate, config, root_hz)
     if period is None:
         return None
 
@@ -270,11 +286,13 @@ def loop_candidates(
     signal: Signal,
     sample_rate: int,
     config: GeometryConfig,
+    root_hz: float,
 ) -> tuple[Loop, ...]:
     """Every forward loop worth offering for ``signal``, the ladder a settlement chooses from.
 
     Each candidate begins at an ascending zero crossing, spans about a whole number of periods of the
-    material (found by :func:`_estimate_period`) with its end matched to the phase the start approaches on
+    material (read off the pitch it was played at by :func:`_estimate_period`) with its end matched to the
+    phase the start approaches on
     (:func:`_matched_end`), and lies inside the steady region between the attack skip and the tail skip.
     Placement runs outermost and length innermost, so the ladder covers both axes: the loop the attack leads
     into at each accepted length, then the same at placements further into the note.
@@ -288,7 +306,7 @@ def loop_candidates(
     Returns an empty tuple for material a loop has no purchase on: a steady region too short to analyse,
     one carrying no reliable period, or one with room for less than the shortest accepted loop.
     """
-    region = _steady_region(signal, sample_rate, config)
+    region = _steady_region(signal, sample_rate, config, root_hz)
     if region is None:
         return ()
 
@@ -375,7 +393,7 @@ def crossfade_loop(signal: Signal, loop: Loop, sample_rate: int, config: SeamCon
     return out
 
 
-def level_loop(signal: Signal, loop: Loop, sample_rate: int, config: EnvelopeConfig) -> Signal:
+def level_loop(signal: Signal, loop: Loop, reading: LevelReading) -> Signal:
     """``signal`` with its loop region held at the level that region starts on; returns a copy.
 
     A region taken from material that declines as it rings falls from ``loop.start`` to ``loop.end``, so a
@@ -389,20 +407,20 @@ def level_loop(signal: Signal, loop: Loop, sample_rate: int, config: EnvelopeCon
     The gain stays under ``_MAX_LEVEL_GAIN``, so a region ringing its way down to silence is lifted only so
     far; how far flattening reaches is what ``max_level_drift_db`` bounds.
     """
-    level = local_level_over(signal, sample_rate, config, start=loop.start, end=loop.end)
+    level = local_level_over(signal, reading, start=loop.start, end=loop.end)
     out = np.array(signal, dtype=np.float64)
     out[loop.start : loop.end] *= np.clip(level[0] / level, 0.0, _MAX_LEVEL_GAIN)
     return out
 
 
-def prepare_loop(signal: Signal, loop: Loop, sample_rate: int, seam: SeamConfig, envelope: EnvelopeConfig) -> Signal:
+def prepare_loop(signal: Signal, loop: Loop, sample_rate: int, seam: SeamConfig, reading: LevelReading) -> Signal:
     """``signal`` with its loop region ready to wrap: held at one level, then blended at the seam.
 
     Levelling runs first, so the two stretches the blend joins sit at the same amplitude and the blend is
     left to join phase alone. Every stretch that measures, stores or plays a loop passes through here, which
     is what makes a report, an audition and a stored sample wrap the same waveform.
     """
-    return crossfade_loop(level_loop(signal, loop, sample_rate, envelope), loop, sample_rate, seam)
+    return crossfade_loop(level_loop(signal, loop, reading), loop, sample_rate, seam)
 
 
 def _seam_step(signal: Signal, loop: Loop) -> float:
@@ -423,7 +441,7 @@ def _seam_step(signal: Signal, loop: Loop) -> float:
     return float(abs(region[0] - region[-1])) / max(typical, _STEP_FLOOR)
 
 
-def _level_drift_db(signal: Signal, loop: Loop, sample_rate: int, config: EnvelopeConfig) -> float:
+def _level_drift_db(signal: Signal, loop: Loop, reading: LevelReading) -> float:
     """How far the loop region's own level falls across it, in decibels, positive where it declines.
 
     This is what holding the region at one level costs: the gain levelling asks of the material by the far
@@ -431,7 +449,7 @@ def _level_drift_db(signal: Signal, loop: Loop, sample_rate: int, config: Envelo
     have heard step back up once per round. A region holding its level reads ``0.0``, and one that rises
     across itself reads a negative fall, which is levelling holding it back to the level it starts on.
     """
-    level = local_level_over(signal, sample_rate, config, start=loop.start, end=loop.end)
+    level = local_level_over(signal, reading, start=loop.start, end=loop.end)
     return gain_to_db(float(level[0])) - gain_to_db(float(level[-1]))
 
 
@@ -458,7 +476,13 @@ def _spectral_distance(region: Signal, material: Signal) -> float:
     return float(np.sqrt(np.mean(difference**2)))
 
 
-def loop_quality(signal: Signal, loop: Loop, sample_rate: int, config: LoopConfig) -> LoopQuality:
+def loop_quality(
+    signal: Signal,
+    loop: Loop,
+    sample_rate: int,
+    config: LoopConfig,
+    reading: LevelReading,
+) -> LoopQuality:
     """Measure what storing ``loop`` costs: the seam it wraps on, the level it holds, and the timbre it keeps.
 
     The seam and the timbre are read off the prepared region (:func:`prepare_loop`), which is the waveform a
@@ -468,10 +492,10 @@ def loop_quality(signal: Signal, loop: Loop, sample_rate: int, config: LoopConfi
     steady region stands in for less than one analysis window and reports a distance of 0.0. The drift is
     read off the recording as it stands, which is the fall levelling had to flatten.
     """
-    prepared = prepare_loop(signal, loop, sample_rate, config.seam, config.envelope)
+    prepared = prepare_loop(signal, loop, sample_rate, config.seam, reading)
     _, tail = _steady_bounds(signal, sample_rate, config.geometry)
     return LoopQuality(
         seam_step=_seam_step(prepared, loop),
-        level_drift_db=_level_drift_db(signal, loop, sample_rate, config.envelope),
+        level_drift_db=_level_drift_db(signal, loop, reading),
         spectral_distance=_spectral_distance(prepared[loop.start : loop.end], signal[loop.end : tail]),
     )

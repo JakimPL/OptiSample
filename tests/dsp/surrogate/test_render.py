@@ -25,6 +25,7 @@ SR = 44_100
 _TRIM_S = 0.5
 _ROOT = 60
 _TONE_S = 2.0  # a recording long enough for the stage to place a loop inside and still leave a tail
+_TONE_HZ = 440.0  # the pitch every recording below is played at, which its loop is settled around
 
 SettleLoop = Callable[..., SettledLoop | None]
 _OCTAVE_UP = 72
@@ -34,7 +35,7 @@ def test_encode_render_round_trip_is_near_lossless(
     sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
 ) -> None:
     # Native rate, 16-bit, no dither, no transpose, no release ramp → only 16-bit quantization noise.
-    source = sine(440.0)
+    source = sine(_TONE_HZ)
     normalized = source / float(np.max(np.abs(source)))
     context = make_encode_ctx(60, release_fade_s=0.0)
     stored = encode(source, SR, EncodingParams(target_rate=SR, depth_bits=16, dither=False), context)
@@ -46,7 +47,7 @@ def test_encode_render_round_trip_is_near_lossless(
 def test_render_transpose_octave_halves_length(
     sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
 ) -> None:
-    stored = encode(sine(440.0), SR, EncodingParams(target_rate=SR, depth_bits=16), make_encode_ctx(60))
+    stored = encode(sine(_TONE_HZ), SR, EncodingParams(target_rate=SR, depth_bits=16), make_encode_ctx(60))
     base = render(stored, SR, pitch=60)
     octave_up = render(stored, SR, pitch=72)  # +12 semitones → plays twice as fast
     assert octave_up.size == pytest.approx(base.size // 2, abs=2)
@@ -56,7 +57,7 @@ def test_a_quiet_recording_plays_back_as_quietly_as_it_was_recorded(
     sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
 ) -> None:
     """Storing hot spends the depth on one recording; playback undoes it, so the instrument keeps its balance."""
-    quiet = 0.25 * sine(440.0)
+    quiet = 0.25 * sine(_TONE_HZ)
     stored = encode(quiet, SR, EncodingParams(target_rate=SR, depth_bits=16, dither=False), make_encode_ctx(60))
     rendered = render(stored, SR, pitch=60)
     assert float(np.max(np.abs(rendered))) == pytest.approx(0.25, rel=1e-3)
@@ -65,7 +66,9 @@ def test_a_quiet_recording_plays_back_as_quietly_as_it_was_recorded(
 def test_render_volume_scales_amplitude(
     sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
 ) -> None:
-    stored = encode(sine(440.0), SR, EncodingParams(target_rate=SR, depth_bits=16, dither=False), make_encode_ctx(60))
+    stored = encode(
+        sine(_TONE_HZ), SR, EncodingParams(target_rate=SR, depth_bits=16, dither=False), make_encode_ctx(60)
+    )
     full = render(stored, SR, pitch=60, volume=MAX_VOLUME)
     half = render(stored, SR, pitch=60, volume=MAX_VOLUME // 2)
     length = min(full.size, half.size)
@@ -75,14 +78,14 @@ def test_render_volume_scales_amplitude(
 def test_render_zero_duration_is_empty(
     sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
 ) -> None:
-    stored = encode(sine(440.0), SR, EncodingParams(target_rate=SR, depth_bits=16), make_encode_ctx(60))
+    stored = encode(sine(_TONE_HZ), SR, EncodingParams(target_rate=SR, depth_bits=16), make_encode_ctx(60))
     assert render(stored, SR, pitch=60, duration_s=0.0).size == 0
 
 
 def test_render_duration_pads_and_truncates(
     sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
 ) -> None:
-    stored = encode(sine(440.0, dur=1.0), SR, EncodingParams(target_rate=SR, depth_bits=16), make_encode_ctx(60))
+    stored = encode(sine(_TONE_HZ, dur=1.0), SR, EncodingParams(target_rate=SR, depth_bits=16), make_encode_ctx(60))
     padded = render(stored, SR, pitch=60, duration_s=2.0)  # longer than the sample → zero-padded
     truncated = render(stored, SR, pitch=60, duration_s=0.25)  # shorter → cut
     assert padded.size == pytest.approx(int(round(2.0 * SR)), abs=1)
@@ -95,9 +98,11 @@ def test_render_loop_sustains_a_note_held_past_the_stored_length(
     make_encode_ctx: Callable[..., EncodeContext],
     settle: SettleLoop,
 ) -> None:
-    recording = sine(440.0, dur=_TONE_S)
+    recording = sine(_TONE_HZ, dur=_TONE_S)
     params = EncodingParams(target_rate=SR, depth_bits=16, looped=True)
-    stored = encode(recording, SR, params, make_encode_ctx(60, settled=settle(recording, SR, search_s=_TONE_S)))
+    stored = encode(
+        recording, SR, params, make_encode_ctx(60, settled=settle(recording, SR, root_hz=_TONE_HZ, search_s=_TONE_S))
+    )
     held = render(stored, SR, pitch=60, duration_s=3.0)  # far longer than the ~0.1 s stored
     assert held.size == pytest.approx(int(round(3.0 * SR)), abs=1)
     assert float(np.sqrt(np.mean(held[-SR:] ** 2))) > 0.1  # the last second still sounds (loop sustained it)
@@ -105,7 +110,7 @@ def test_render_loop_sustains_a_note_held_past_the_stored_length(
 
 def _decaying(sine: Callable[..., NDArray[np.float64]], *, half_life_s: float) -> NDArray[np.float64]:
     """Two seconds of a struck note: a steady pitch under an amplitude that falls away as it rings."""
-    tone = sine(440.0, dur=2.0)
+    tone = sine(_TONE_HZ, dur=2.0)
     return np.exp(-np.arange(tone.size, dtype=np.float64) / (half_life_s * SR)) * tone
 
 
@@ -130,7 +135,9 @@ def test_a_held_loop_declines_the_way_the_recording_it_stands_for_did(
     """A struck note stored as attack plus loop ends near the level its recording ended at."""
     source = _decaying(sine, half_life_s=0.6)
     params = EncodingParams(target_rate=SR, depth_bits=16, looped=True)
-    stored = encode(source, SR, params, make_encode_ctx(_ROOT, settled=settle(source, SR, search_s=_TONE_S)))
+    stored = encode(
+        source, SR, params, make_encode_ctx(_ROOT, settled=settle(source, SR, root_hz=_TONE_HZ, search_s=_TONE_S))
+    )
     assert stored.decay is not None
 
     held = render(stored, SR, pitch=_ROOT, duration_s=2.0)
@@ -149,9 +156,11 @@ def test_a_sample_carrying_no_decay_plays_at_the_level_it_was_stored_at(
     settle: SettleLoop,
 ) -> None:
     """A steady recording states no decline, so nothing is put over the loop that sustains it."""
-    recording = sine(440.0, dur=_TONE_S)
+    recording = sine(_TONE_HZ, dur=_TONE_S)
     params = EncodingParams(target_rate=SR, depth_bits=16, looped=True)
-    stored = encode(recording, SR, params, make_encode_ctx(_ROOT, settled=settle(recording, SR, search_s=_TONE_S)))
+    stored = encode(
+        recording, SR, params, make_encode_ctx(_ROOT, settled=settle(recording, SR, root_hz=_TONE_HZ, search_s=_TONE_S))
+    )
 
     assert stored.decay is None
 
@@ -167,8 +176,8 @@ def _stored_half_second(
     looped: bool,
 ) -> StoredSample:
     """Half a second of a steady tone, stored the way ``looped`` asks and ending as that leaves it."""
-    recording = sine(440.0, dur=_TONE_S)
-    settled = settle(recording, SR, search_s=_TONE_S) if looped else NO_LOOP
+    recording = sine(_TONE_HZ, dur=_TONE_S)
+    settled = settle(recording, SR, root_hz=_TONE_HZ, search_s=_TONE_S) if looped else NO_LOOP
     params = EncodingParams(target_rate=SR, depth_bits=16, trim_s=_TRIM_S, looped=looped)
     return encode(recording, SR, params, make_encode_ctx(_ROOT, settled=settled))
 

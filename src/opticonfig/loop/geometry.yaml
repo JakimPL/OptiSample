@@ -1,6 +1,5 @@
 # Where a loop may sit and how long it runs (optisample.config.loop.GeometryConfig).
-min_hz: 40.0             # lowest fundamental searched for a loop period
-max_hz: 2000.0           # highest fundamental searched
+detune_semitones: 1.0    # how far either side of the played pitch the period is searched
 min_correlation: 0.3     # autocorrelation-peak floor a recording clears to count as periodic
 min_periods: 3           # a loop shorter than this beats/buzzes audibly
 min_loop_s: 0.1          # floor on loop length in seconds (spans several vibrato cycles)

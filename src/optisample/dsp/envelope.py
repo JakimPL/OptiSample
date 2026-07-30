@@ -38,21 +38,62 @@ class Decomposition:
         return np.asarray(self.level * self.carrier, dtype=np.float64)
 
 
-def power_kernel(sample_rate: int, lowest_hz: float) -> Signal:
-    """The unit-sum weighting a local mean square is read under, spanning two periods of ``lowest_hz``.
+@dataclass(frozen=True)
+class LevelReading:
+    """How one recording has its level read: the weighting a mean square is taken under, and the floor it clears.
+
+    The weighting follows from the pitch the recording was played at (:func:`level_reading`), so a note is
+    read over a stretch of its own material rather than over a span fixed for every note alike. One reading
+    serves every level taken of one recording, which is what has a candidate loop and the region finally
+    stored measured under the same weighting.
+    """
+
+    kernel: Signal
+    floor_db: float
+
+    @property
+    def reach(self) -> int:
+        """How far the weighting reaches either side of a frame, which is the material one reading spans."""
+        return self.kernel.size // 2
+
+
+def power_kernel(sample_rate: int, frequency: float) -> Signal:
+    """The unit-sum weighting a local mean square is read under, spanning two periods of ``frequency``.
 
     A tone carries its power at twice its own frequency, and a Hann weighting lasting ``span`` seconds
     answers zero at every multiple of ``1 / span`` from ``2 / span`` up. Spanning two periods of
-    ``lowest_hz`` puts that first zero on ``lowest_hz`` itself, so the ripple of every tone from half of it
+    ``frequency`` puts that first zero on ``frequency`` itself, so the ripple of every tone from half of it
     upward averages away and what the weighting leaves is the level the material holds. Between the zeros
     the shape holds the sidelobes some 31 dB down, which keeps a tone landing between two of them as flat
     as one landing on one.
 
     The tap count is odd, so the weighting reads each frame from the material centred on it.
     """
-    span = round(_PERIODS_PER_KERNEL * sample_rate / lowest_hz)
+    span = round(_PERIODS_PER_KERNEL * sample_rate / frequency)
     weighting = np.hanning(span + span % 2 + 1)
     return np.asarray(weighting / np.sum(weighting), dtype=np.float64)
+
+
+def reading_frequency(config: EnvelopeConfig, root_hz: float) -> float:
+    """The frequency a recording's weighting spans two periods of: its own pitch, held inside the config's band.
+
+    A note's own period is the stretch its power ripple repeats in, so spanning two of them is what leaves
+    the reading holding the level while a note two octaves higher is read over a proportionally shorter
+    stretch and follows its own movement just as closely.
+
+    The band bounds how far that goes either way. ``lowest_hz`` caps the span, so the deepest notes are read
+    over a stretch a loop region still has room for; ``highest_hz`` floors it, so the beating of two partials
+    a few hertz apart stays in the carrier where it is heard as timbre.
+    """
+    return min(max(root_hz, config.lowest_hz), config.highest_hz)
+
+
+def level_reading(sample_rate: int, config: EnvelopeConfig, root_hz: float) -> LevelReading:
+    """The reading a recording played at ``root_hz`` and held at ``sample_rate`` has every level taken under."""
+    return LevelReading(
+        kernel=power_kernel(sample_rate, reading_frequency(config, root_hz)),
+        floor_db=config.floor_db,
+    )
 
 
 def _weighted_mean(values: Signal, kernel: Signal) -> Signal:
@@ -65,14 +106,7 @@ def _weighted_mean(values: Signal, kernel: Signal) -> Signal:
     return np.asarray(fftconvolve(values, kernel, mode="same") / covered, dtype=np.float64)
 
 
-def local_level_over(
-    signal: Signal,
-    sample_rate: int,
-    config: EnvelopeConfig,
-    *,
-    start: int,
-    end: int,
-) -> Signal:
+def local_level_over(signal: Signal, reading: LevelReading, *, start: int, end: int) -> Signal:
     """The level ``signal`` holds over ``[start, end)``, read with the material around it the weighting spans.
 
     The weighting reaches half its taps either side of a frame, so reading a stretch together with that much
@@ -84,31 +118,28 @@ def local_level_over(
     the curve on the level the material holds: power is the quantity that averages, so the reading stays a
     true local level straight through the zero crossings the waveform makes.
     """
-    kernel = power_kernel(sample_rate, config.lowest_hz)
-    reach = kernel.size // 2
-    low, high = max(0, start - reach), min(signal.size, end + reach)
+    low, high = max(0, start - reading.reach), min(signal.size, end + reading.reach)
     read = np.asarray(signal[low:high], dtype=np.float64)
-    floor = max(db_to_gain(-config.floor_db) * peak_amplitude(signal), _QUIET_LEVEL)
-    level = np.sqrt(np.maximum(_weighted_mean(read**2, kernel), 0.0) + floor**2)
+    floor = max(db_to_gain(-reading.floor_db) * peak_amplitude(signal), _QUIET_LEVEL)
+    level = np.sqrt(np.maximum(_weighted_mean(read**2, reading.kernel), 0.0) + floor**2)
     return np.asarray(level[start - low : end - low], dtype=np.float64)
 
 
-def local_level(signal: Signal, sample_rate: int, config: EnvelopeConfig) -> Signal:
+def local_level(signal: Signal, reading: LevelReading) -> Signal:
     """The level ``signal`` holds at each of its frames: one smooth, strictly positive amplitude curve.
 
-    The curve occupies the band under ``config.lowest_hz``, so it is worth a few hundred points a note
-    however long the note runs, and it stays clear of zero by the floor
-    (:class:`~optisample.config.loop.EnvelopeConfig`), which is what makes dividing the recording by it
-    a split that can be put back together.
+    The curve occupies the band under the frequency the weighting was formed at, so it is worth a few
+    hundred points a note however long the note runs, and it stays clear of zero by the reading's floor,
+    which is what makes dividing the recording by it a split that can be put back together.
     """
-    return local_level_over(signal, sample_rate, config, start=0, end=signal.size)
+    return local_level_over(signal, reading, start=0, end=signal.size)
 
 
-def decompose(signal: Signal, sample_rate: int, config: EnvelopeConfig) -> Decomposition:
+def decompose(signal: Signal, reading: LevelReading) -> Decomposition:
     """Split ``signal`` into the level it holds and the carrier that level scales.
 
     Scaling a recording as a whole scales its level by the same amount and leaves its carrier as it stands,
     so what the split reads of a sound is a property of the sound at whatever level it was captured at.
     """
-    level = local_level(signal, sample_rate, config)
+    level = local_level(signal, reading)
     return Decomposition(level=level, carrier=np.asarray(signal / level, dtype=np.float64))

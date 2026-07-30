@@ -4,8 +4,7 @@ from typing import Final
 import numpy as np
 from numpy.typing import NDArray
 
-from optisample.config.loop import EnvelopeConfig
-from optisample.dsp.envelope import local_level_over
+from optisample.dsp.envelope import LevelReading, local_level_over
 from optisample.dsp.levels import decay_trend
 from optisample.dsp.loop import Loop
 
@@ -45,7 +44,7 @@ class LinearDecay:
         return np.asarray(1.0 + progress * (self.final_gain - 1.0), dtype=np.float64)
 
 
-def fit_linear_decay(signal: Signal, sample_rate: int, loop: Loop, config: EnvelopeConfig) -> LinearDecay | None:
+def fit_linear_decay(signal: Signal, sample_rate: int, loop: Loop, reading: LevelReading) -> LinearDecay | None:
     """The decline ``signal`` makes from the loop a sample stores of it.
 
     The stored region is held at the level it starts on (:func:`~optisample.dsp.loop.level_loop`), so the
@@ -66,7 +65,7 @@ def fit_linear_decay(signal: Signal, sample_rate: int, loop: Loop, config: Envel
     if onward is None:
         return NO_DECAY
 
-    held = float(local_level_over(signal, sample_rate, config, start=loop.start, end=loop.end)[0])
+    held = float(local_level_over(signal, reading, start=loop.start, end=loop.end)[0])
     final_gain = onward.at(remaining.size / sample_rate) / held
     if final_gain > _STEADY_GAIN:
         return NO_DECAY

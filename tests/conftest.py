@@ -30,6 +30,7 @@ from optisample.loop.settle import settle_loop
 from optisample.metrics import CompositeFidelity, build_composite
 from optisample.metrics.base import Signal
 from optisample.model import ProjectSpec
+from optisample.music import midi_to_freq
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.operating_points import SweepContext
 from optisample.optimize.orchestrate.settings import OptimizeSettings
@@ -392,16 +393,17 @@ def recordings(config: OptiConfig) -> Callable[..., StoredRecordings]:
 
     def _build(audio: AudioMap, sample_rate: int, *, loops: bool = True) -> StoredRecordings:
         settled = {
-            key: _settled(signal, sample_rate, config.loop) if loops else NO_LOOP for key, signal in audio.items()
+            key: _settled(signal, sample_rate, config.loop, midi_to_freq(key.pitch)) if loops else NO_LOOP
+            for key, signal in audio.items()
         }
         return StoredRecordings(audio=audio, settled=settled, sample_rate=sample_rate)
 
     return _build
 
 
-def _settled(signal: Signal, sample_rate: int, config: LoopConfig) -> SettledLoop | None:
+def _settled(signal: Signal, sample_rate: int, config: LoopConfig, root_hz: float) -> SettledLoop | None:
     """The loop the stage settles over the whole of ``signal``, which is what an encode is handed."""
-    settlement = settle_loop(signal, sample_rate, config, search_s=signal.size / sample_rate)
+    settlement = settle_loop(signal, sample_rate, config, root_hz=root_hz, search_s=signal.size / sample_rate)
     return None if settlement.stored is None else settlement.stored.settled
 
 
@@ -410,13 +412,25 @@ def settle(config: OptiConfig) -> Callable[..., SettledLoop | None]:
     """Factory: the loop the stage settles for a signal, which is what an encode is handed.
 
     Runs the real settlement, so a test encoding a looped span is stored around the loop the stage would
-    have chosen for that recording rather than around bounds a test picked.
+    have chosen for that recording rather than around bounds a test picked. ``root_hz`` is the pitch the
+    material was played at, which the period searched and the level read are both taken over.
     """
 
     def _build(
-        signal: Signal, sample_rate: int, *, search_s: float, loop: LoopConfig | None = None
+        signal: Signal,
+        sample_rate: int,
+        *,
+        root_hz: float,
+        search_s: float,
+        loop: LoopConfig | None = None,
     ) -> SettledLoop | None:
-        settlement = settle_loop(signal, sample_rate, loop if loop is not None else config.loop, search_s=search_s)
+        settlement = settle_loop(
+            signal,
+            sample_rate,
+            loop if loop is not None else config.loop,
+            root_hz=root_hz,
+            search_s=search_s,
+        )
         return None if settlement.stored is None else settlement.stored.settled
 
     return _build
