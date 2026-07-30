@@ -4,13 +4,14 @@ from typing import Final
 import numpy as np
 from numpy.typing import NDArray
 
-from optisample.dsp.levels import decay_trend, level_trend
+from optisample.config.loop import EnvelopeConfig
+from optisample.dsp.envelope import local_level_over
+from optisample.dsp.levels import decay_trend
 from optisample.dsp.loop import Loop
 
 Signal = NDArray[np.float64]
 
 NO_DECAY: Final = None  # a stored sample whose own material carries every level it plays at
-_LEVEL_FLOOR: Final = 1e-12  # the level a silent stretch reads as, which leaves a ratio against it finite
 _STEADY_GAIN: Final = 0.99  # a fall of under a percent is a level held, so the ramp is left off
 
 
@@ -44,29 +45,29 @@ class LinearDecay:
         return np.asarray(1.0 + progress * (self.final_gain - 1.0), dtype=np.float64)
 
 
-def fit_linear_decay(signal: Signal, sample_rate: int, loop: Loop) -> LinearDecay | None:
+def fit_linear_decay(signal: Signal, sample_rate: int, loop: Loop, config: EnvelopeConfig) -> LinearDecay | None:
     """The decline ``signal`` makes from the loop a sample stores of it.
 
     The stored region is held at the level it starts on (:func:`~optisample.dsp.loop.level_loop`), so the
     ramp holds unit gain up to ``loop.start`` and states the fall the recording makes from there. The level
-    the region holds is the line through its own readings read at its first frame, which is the same reading
-    levelling pinned it to (:func:`~optisample.dsp.levels.level_trend`). Where a held note ends up is read
-    off everything from ``loop.start`` on, as the line those readings make in decibels
-    (:func:`~optisample.dsp.levels.decay_trend`) -- the domain a ringing note falls straight in, so the
-    reading holds at the far end of a remainder however long the loop left it. The ratio of the two is how
-    far the note is played down by the time the material runs out.
+    the region holds is the one the material holds at its first frame
+    (:func:`~optisample.dsp.envelope.local_level_over`), which is the very reading levelling pinned it to.
+    Where a held note ends up is read off everything from ``loop.start`` on, as the line those readings make
+    in decibels (:func:`~optisample.dsp.levels.decay_trend`) -- the domain a ringing note falls straight in,
+    so the reading holds at the far end of a remainder however long the loop left it. The ratio of the two
+    is how far the note is played down by the time the material runs out.
 
-    Returns ``None`` where the recording states no decline worth playing a note down by: a region or a
-    remainder too short for a line to be drawn through, a region starting from silence, or a level still
-    within ``_STEADY_GAIN`` of the region's own by the time the recording ends.
+    Returns ``None`` where the recording states no decline worth playing a note down by: a remainder too
+    short for a line to be drawn through, or a level still within ``_STEADY_GAIN`` of the region's own by
+    the time the recording ends.
     """
     remaining = np.asarray(signal[loop.start :], dtype=np.float64)
-    region = np.asarray(signal[loop.start : loop.end], dtype=np.float64)
-    held, onward = level_trend(region, sample_rate), decay_trend(remaining, sample_rate)
-    if held is None or onward is None or held.at(0.0) <= _LEVEL_FLOOR:
+    onward = decay_trend(remaining, sample_rate)
+    if onward is None:
         return NO_DECAY
 
-    final_gain = onward.at(remaining.size / sample_rate) / held.at(0.0)
+    held = float(local_level_over(signal, sample_rate, config, start=loop.start, end=loop.end)[0])
+    final_gain = onward.at(remaining.size / sample_rate) / held
     if final_gain > _STEADY_GAIN:
         return NO_DECAY
 

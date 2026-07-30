@@ -31,11 +31,12 @@ class OptiConfig(ConfigModel):
         """The bundle the surrogate encoder needs, gathered from the two stages that decide its parts.
 
         The codec stage states how a span is shaped and quantized and the loop stage states how a wrap is
-        blended, so assembling the bundle here keeps each knob owned by the stage it belongs to while the
-        encoder receives one validated value.
+        blended and what level a region is held at, so assembling the bundle here keeps each knob owned by
+        the stage it belongs to while the encoder receives one validated value.
         """
         return EncodeConfig(
             seam=self.loop.seam,
+            envelope=self.loop.envelope,
             dynamics=self.codec.dynamics,
             headroom_db=self.codec.quantize.headroom_db,
             release_fade_s=self.codec.quantize.release_fade_s,

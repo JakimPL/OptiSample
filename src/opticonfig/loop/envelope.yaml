@@ -1,0 +1,3 @@
+# How the level a recording holds is read off it (optisample.config.loop.EnvelopeConfig).
+lowest_hz: 25.0 # lowest frequency treated as sound; the weighting spans two of its periods
+floor_db: 72.0 # quietest level the reading states, that far under the recording's own peak

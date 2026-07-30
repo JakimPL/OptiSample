@@ -264,8 +264,10 @@ and the approach to the start measure — so the wrap lands on the phase the mat
 
 **The region is held at one level, and the seam is blended.** A struck note's region falls across itself, so
 a player wrapping it steps the level back up once per round — a 0.5 s loop pulses at 2 Hz. Dividing the
-region by the line through its own level readings, pinned at the loop start, holds it at one amplitude; the
-decline it gave up is handed to the fitted decay below. The seam is then blended over a share of the loop
+region by the level its own material holds, pinned at the loop start, holds it at one amplitude; the decline
+it gave up is handed to the fitted decay below. That level is read frame by frame as a local mean square
+under a weighting spanning two periods of the lowest frequency treated as sound (`loop/envelope.yaml`), so
+it follows a region of any length and states the level the material actually holds where the loop begins. The seam is then blended over a share of the loop
 (`fade_share: 0.125`, floored in seconds and bounded by the material ahead of the start) with each side
 weighted by how alike the two measure: material that repeats exactly is left untouched, material whose
 partials have drifted apart keeps its level across the blend. On the demo piano the level step across one

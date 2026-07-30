@@ -35,6 +35,25 @@ class GeometryConfig(ConfigModel):
     max_estimation_s: Annotated[float, Field(gt=0.0)]
 
 
+class EnvelopeConfig(ConfigModel):
+    """How the level a recording holds is read off it, which is the curve levelling and the decay ramp read.
+
+    ``lowest_hz`` is the lowest frequency the reading treats as sound. The weighting spans two of its
+    periods (:func:`~optisample.dsp.envelope.power_kernel`), so the power ripple every tone from half of it
+    upward carries averages out and what the reading is left holding is the level. Raising it sharpens what
+    the curve tracks at an onset and widens the band the curve itself occupies, so it takes proportionally
+    more points to hold.
+
+    ``floor_db`` places the quietest level the reading states, that far under the recording's own peak. It
+    holds the curve strictly positive, leaves a silent stretch at the level it was recorded at, and scales
+    with the material, so a recording captured hot and the same recording captured quiet read as one curve
+    shifted and one carrier.
+    """
+
+    lowest_hz: Annotated[float, Field(gt=0.0)]
+    floor_db: Annotated[float, Field(gt=0.0)]
+
+
 class SeamConfig(ConfigModel):
     """How the wrap is blended, so a loop returns to its start on the motion the waveform already made.
 
@@ -79,8 +98,9 @@ class QualityConfig(ConfigModel):
 
 
 class LoopConfig(StageConfig):
-    """How one recording is looped: where the loop sits, how its wrap is blended, and what it must measure."""
+    """How one recording is looped: where the loop sits, the level it is held at, its wrap, and its gates."""
 
     geometry: GeometryConfig
+    envelope: EnvelopeConfig
     seam: SeamConfig
     quality: QualityConfig

@@ -58,29 +58,6 @@ def mean_energy(signal: Signal) -> float:
 
 
 @dataclass(frozen=True)
-class LevelTrend:
-    """The straight line through a stretch's level readings, in seconds from that stretch's own first frame.
-
-    Taking the line through every reading lets the body of the material set the slope: a note holding its
-    level until a short release at the very end states the shallow fall it spent its length making, and a
-    struck note states the steep one. A line also reads at a moment past the readings it was drawn through,
-    which is where a ramp fitted to the material has to land.
-    """
-
-    mean_level: float
-    mean_s: float
-    slope: float
-
-    @overload
-    def at(self, moment_s: float) -> float: ...
-    @overload
-    def at(self, moment_s: Signal) -> Signal: ...
-    def at(self, moment_s: float | Signal) -> float | Signal:
-        """The level the line reads at ``moment_s`` seconds into the stretch it was drawn through."""
-        return self.mean_level + self.slope * (moment_s - self.mean_s)
-
-
-@dataclass(frozen=True)
 class DecayTrend:
     """The straight line through a stretch's level readings in decibels, in seconds from its own first frame.
 
@@ -127,21 +104,6 @@ def _line(values: Signal, seconds: Signal) -> tuple[float, float, float]:
     mean_s = float(np.mean(seconds))
     centered = seconds - mean_s
     return float(np.mean(values)), mean_s, float(np.sum(centered * values) / np.sum(centered**2))
-
-
-def level_trend(signal: Signal, sample_rate: int) -> LevelTrend | None:
-    """The line ``signal``'s own level readings make, in seconds from its first frame.
-
-    Every reading is given to the fit, which is what lets the body of a stretch set its slope. Returns
-    ``None`` for a stretch holding too few readings for a line (:func:`_readings`).
-    """
-    readings = _readings(signal, sample_rate)
-    if readings is None:
-        return None
-
-    levels, seconds = readings
-    mean_level, mean_s, slope = _line(levels, seconds)
-    return LevelTrend(mean_level=mean_level, mean_s=mean_s, slope=slope)
 
 
 def decay_trend(signal: Signal, sample_rate: int) -> DecayTrend | None:

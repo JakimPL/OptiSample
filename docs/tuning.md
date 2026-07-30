@@ -330,6 +330,13 @@ rate the analysis runs at. Three groups tune it:
   `max_spectral_distance_db: 12.0` bounds how far the loop's timbre sits from the stretch it stands in for.
   Candidates are climbed cheapest first — earliest and shortest — and the first clearing all three is kept,
   so tightening a gate buys a longer, better loop and loosening one buys bytes.
+- **`loop/envelope.yaml`** states how the level a recording holds is read, which is the curve levelling
+  divides a region by and the level the fitted decay falls from. `lowest_hz: 25.0` is the lowest frequency
+  treated as sound: the weighting spans two of its periods, so a tone from half of it upward reads as the
+  level it holds. Raising it sharpens what the curve tracks at an onset; on the 62-note Piano slice the
+  composite prefers it wider, which is a reading of the composite rather than of the material (§8b).
+  `floor_db: 72.0` places the quietest level the reading states under the recording's own peak, which is
+  what leaves a silent stretch silent.
 - **`loop/seam.yaml`** sizes the blend the wrap is made over: `fade_share: 0.125` of the loop's own length,
   floored at `min_fade_s: 0.01` and bounded by the material ahead of the loop start. A share rather than a
   fixed stretch is what blends every round the same way; the weighting law is read off how alike the two
@@ -337,15 +344,30 @@ rate the analysis runs at. Three groups tune it:
   apart still holds its level across the blend.
 
 **The region is held at one level.** A struck note's loop region falls across itself, so a player wrapping
-it steps the level back up once per round. The stage divides the region by the line through its own level
-readings, pinned at `loop.start`, and hands the decline it erased to the fitted `LinearDecay` — which now
-starts at `loop.start` rather than `loop.end`, since that is where the stored material stops following the
-recording. On the demo piano the level step across one wrap falls from +2.6…+2.9 dB to −0.4…−0.6 dB: what
-was a pulse at the loop's rate becomes the note going on declining.
+it steps the level back up once per round. The stage divides the region by the level its own material holds
+([`local_level_over`](../src/optisample/dsp/envelope.py)), pinned at `loop.start`, and hands the decline it
+erased to the fitted `LinearDecay` — which starts at `loop.start`, since that is where the stored material
+stops following the recording. On the demo piano the level step across one wrap falls from +2.6…+2.9 dB to
+−0.4…−0.6 dB: what was a pulse at the loop's rate becomes the note going on declining.
 
 `loops.json` states the loop each recording keeps and every candidate climbed past with the gate it fell
 outside, so a retune reads off the last run rather than guessing. `1_looped/loops/<id>/auditions/` holds
 each loop played out against its recording, which is the by-ear reading of the same decision.
+
+### 8b. What the composite says about levelling
+
+On the 62-note Piano slice at 128 KiB the plan is the same whatever `loop.envelope.lowest_hz` is set to
+within a factor of two, and the objective moves monotonically with it: 6.25 Hz reads 1.2323, 25 Hz reads
+1.2385, 40 Hz reads 1.2423, 200 Hz reads 1.2876. A 6.25 Hz weighting spans 320 ms — more than three times a
+0.1 s loop region — so the level it reads over the region is near enough constant that levelling is close to
+a no-op, and that is the setting the composite scores highest.
+
+The composite compares a stored sample against the recording over the span the sample holds, and levelling
+moves the stored waveform away from the recording on purpose: the pulse it removes is heard on the second
+round of a loop, past everything the composite looks at. So a levelling knob tuned to this objective tunes
+toward leaving the pulse in. The shipped 25 Hz is the frequency below which material stops being sound,
+chosen from the material rather than from the score, and the auditions under `1_looped/` are where the
+question is actually settled.
 
 For *where* the cut lands, `max_length_s` is no help — it is a ceiling, and the clicking samples sit far
 under it. The knob that reaches `trim_s` is `reduce.events.duration_bucket_ratio`, which rounds every
@@ -405,6 +427,7 @@ as the format numbers. Each extra sample is charged a reserve, so the run states
 | `loop.geometry.min_loop_s` | `loop/geometry.yaml` | Loops are short enough to buzz at their own rate. |
 | `loop.geometry.placements`, `loop.geometry.length_multiples` | `loop/geometry.yaml` | The loop sits where the note has not settled yet. |
 | `loop.seam.fade_share`, `loop.seam.min_fade_s` | `loop/seam.yaml` | The wrap is continuous but audible as a texture change. |
+| `loop.envelope.lowest_hz` | `loop/envelope.yaml` | A held note pulses at the loop's rate, or a levelled region wavers where the recording was steady. |
 | `export.envelope.release_s` | `export/envelope.yaml` | A released note is cut off abruptly, or hangs on after the key is let go. |
 
 `--config` takes a **directory** laid out the way the bundled one is -- a stage per directory, a group per

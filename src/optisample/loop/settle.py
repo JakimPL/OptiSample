@@ -124,10 +124,10 @@ def settle_loop(
     searched = signal[: seconds_to_frames(search_s, sample_rate)]
     rejected: list[RejectedLoop] = []
     for loop in _ladder(searched, sample_rate, config):
-        quality = loop_quality(searched, loop, sample_rate, config.geometry, config.seam)
+        quality = loop_quality(searched, loop, sample_rate, config)
         gate = _failed_gate(quality, config.quality)
         if gate is None:
-            decay = fit_linear_decay(signal, sample_rate, loop)
+            decay = fit_linear_decay(signal, sample_rate, loop, config.envelope)
             return Settlement(
                 stored=StoredLoop(settled=SettledLoop(loop=loop, decay=decay), quality=quality),
                 rejected=tuple(rejected),

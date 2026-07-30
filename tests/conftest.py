@@ -9,7 +9,7 @@ from optisample.config import OptiConfig, load_config
 from optisample.config.codec import EncodeConfig, QuantizeConfig
 from optisample.config.dynamics import DynamicsConfig
 from optisample.config.layers import LayersConfig
-from optisample.config.loop import GeometryConfig, LoopConfig, QualityConfig, SeamConfig
+from optisample.config.loop import EnvelopeConfig, GeometryConfig, LoopConfig, QualityConfig, SeamConfig
 from optisample.config.metrics import MetricsConfig
 from optisample.config.optimize import (
     BudgetConfig,
@@ -96,6 +96,11 @@ def geometry_config(config: OptiConfig) -> GeometryConfig:
 @pytest.fixture
 def seam_config(config: OptiConfig) -> SeamConfig:
     return config.loop.seam
+
+
+@pytest.fixture
+def envelope_config(config: OptiConfig) -> EnvelopeConfig:
+    return config.loop.envelope
 
 
 @pytest.fixture

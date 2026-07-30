@@ -4,7 +4,7 @@ from pydantic import Field
 
 from optisample.config.base import ConfigModel
 from optisample.config.dynamics import DynamicsConfig
-from optisample.config.loop import SeamConfig
+from optisample.config.loop import EnvelopeConfig, SeamConfig
 from optisample.config.stage import StageConfig
 
 
@@ -28,11 +28,13 @@ class EncodeConfig(ConfigModel):
     a format keeping no per-sample multiplier so the balance between its samples is carried in the PCM.
     Left unset, each clip is normalized against its own peak and the balance is restored on playback.
 
-    ``seam`` is the blend the wrap of an already-settled loop is closed with, which is the one thing the
-    encoder still decides about a loop: where it sits comes settled from the loop stage.
+    ``seam`` is the blend the wrap of an already-settled loop is closed with and ``envelope`` the reading
+    the region is held at one level by, which are the two things the encoder still decides about a loop:
+    where it sits comes settled from the loop stage.
     """
 
     seam: SeamConfig
+    envelope: EnvelopeConfig
     dynamics: DynamicsConfig
     headroom_db: float
     release_fade_s: float

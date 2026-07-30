@@ -26,7 +26,7 @@ def _apply_loop(shaped: Signal, rate: int, loop: Loop, config: EncodeConfig) -> 
     Preparation runs on the resampled waveform, so the region is held at the level the stored copy carries
     and the seam is blended over exactly the frames a player wraps between.
     """
-    return prepare_loop(shaped, loop, rate, config.seam)[: loop.end]
+    return prepare_loop(shaped, loop, rate, config.seam, config.envelope)[: loop.end]
 
 
 def _looped_span(

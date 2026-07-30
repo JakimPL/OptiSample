@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
+from optisample.config.loop import EnvelopeConfig
 from optisample.dsp.decay import LinearDecay, fit_linear_decay
 from optisample.dsp.levels import db_to_gain
 from optisample.dsp.loop import Loop
@@ -52,10 +53,10 @@ def test_the_ramp_holds_the_stored_material_and_falls_away_past_it() -> None:
 # --- what the recording says a loop should decline to -------------------------------------------------
 
 
-def test_a_struck_note_declines_to_the_level_its_recording_ends_on() -> None:
+def test_a_struck_note_declines_to_the_level_its_recording_ends_on(envelope_config: EnvelopeConfig) -> None:
     signal = _ringing()
 
-    decay = fit_linear_decay(signal, SR, LOOP)
+    decay = fit_linear_decay(signal, SR, LOOP, envelope_config)
 
     assert decay is not None
     assert decay.start_s == pytest.approx(LOOP.start / SR)
@@ -65,32 +66,34 @@ def test_a_struck_note_declines_to_the_level_its_recording_ends_on() -> None:
     assert decay.final_gain * held == pytest.approx(ends_on, rel=0.1)
 
 
-def test_the_ramp_starts_where_the_stored_region_stops_following_the_recording() -> None:
+def test_the_ramp_starts_where_the_stored_region_stops_following_the_recording(
+    envelope_config: EnvelopeConfig,
+) -> None:
     """The region is stored at one level from ``loop.start`` on, so that is where the fall it gave up resumes."""
     signal = _sine(np.linspace(1.0, 0.1, FRAMES))
 
-    early = fit_linear_decay(signal, SR, Loop(start=SR // 2, end=SR))
-    late = fit_linear_decay(signal, SR, Loop(start=SR, end=2 * SR))
+    early = fit_linear_decay(signal, SR, Loop(start=SR // 2, end=SR), envelope_config)
+    late = fit_linear_decay(signal, SR, Loop(start=SR, end=2 * SR), envelope_config)
 
     assert early is not None and late is not None
     assert early.start_s < late.start_s
     assert early.final_gain < late.final_gain  # the earlier region holds a higher level to fall from
 
 
-def test_a_note_falling_further_is_played_further_down() -> None:
-    gentle = fit_linear_decay(_sine(np.linspace(1.0, 0.6, FRAMES)), SR, LOOP)
-    steep = fit_linear_decay(_sine(np.linspace(1.0, 0.1, FRAMES)), SR, LOOP)
+def test_a_note_falling_further_is_played_further_down(envelope_config: EnvelopeConfig) -> None:
+    gentle = fit_linear_decay(_sine(np.linspace(1.0, 0.6, FRAMES)), SR, LOOP, envelope_config)
+    steep = fit_linear_decay(_sine(np.linspace(1.0, 0.1, FRAMES)), SR, LOOP, envelope_config)
 
     assert gentle is not None and steep is not None
     assert steep.final_gain < gentle.final_gain
 
 
-def test_a_note_held_to_a_short_release_reports_the_fall_its_length_made() -> None:
+def test_a_note_held_to_a_short_release_reports_the_fall_its_length_made(envelope_config: EnvelopeConfig) -> None:
     # The body of the material sets the line, so a release at the very end tilts it rather than owning it.
     release = round(0.15 * SR)
     envelope = np.concatenate([np.ones(FRAMES - release), np.linspace(1.0, 0.0, release)])
 
-    decay = fit_linear_decay(_sine(envelope), SR, LOOP)
+    decay = fit_linear_decay(_sine(envelope), SR, LOOP, envelope_config)
 
     assert decay is not None
     assert decay.final_gain > 0.8
@@ -103,29 +106,50 @@ def test_a_note_held_to_a_short_release_reports_the_fall_its_length_made() -> No
         pytest.param("rising", np.linspace(0.2, 1.0, FRAMES), id="material still growing asks for no ramp"),
     ],
 )
-def test_material_stating_no_decline_carries_no_decay(name: str, envelope: NDArray[np.float64]) -> None:
-    assert fit_linear_decay(_sine(envelope), SR, LOOP) is None
+def test_material_stating_no_decline_carries_no_decay(
+    name: str, envelope: NDArray[np.float64], envelope_config: EnvelopeConfig
+) -> None:
+    assert fit_linear_decay(_sine(envelope), SR, LOOP, envelope_config) is None
 
 
-def test_a_loop_reaching_the_end_of_its_recording_declines_through_the_region_itself() -> None:
+def test_a_loop_reaching_the_end_of_its_recording_declines_through_the_region_itself(
+    envelope_config: EnvelopeConfig,
+) -> None:
     """The region is stored flat, so the fall it made from ``loop.start`` on is the ramp that restores it."""
     signal = _ringing()
 
-    decay = fit_linear_decay(signal, SR, Loop(start=SR, end=FRAMES))
+    decay = fit_linear_decay(signal, SR, Loop(start=SR, end=FRAMES), envelope_config)
 
     assert decay is not None
     assert decay.start_s == pytest.approx(1.0)
     assert decay.final_gain * _level(signal[SR : SR + _WINDOW]) == pytest.approx(_level(signal[-_WINDOW:]), rel=0.1)
 
 
-def test_a_region_too_short_for_a_line_through_its_levels_carries_no_decay() -> None:
-    """The level the ramp falls from is read off the region, so a region holding one reading states none."""
-    signal = _sine(np.linspace(1.0, 0.1, FRAMES))
+def test_the_ramp_reads_the_level_where_the_region_starts_however_long_the_region_runs(
+    envelope_config: EnvelopeConfig,
+) -> None:
+    """The level the ramp falls from is the one the material holds at ``loop.start``, which is where the
+    region was pinned, so a brief region and one running to the end of the recording fall to the same place.
+    """
+    signal = _ringing()
 
-    assert fit_linear_decay(signal, SR, Loop(start=SR, end=SR + _WINDOW)) is None
+    brief = fit_linear_decay(signal, SR, Loop(start=SR, end=SR + _WINDOW), envelope_config)
+    whole = fit_linear_decay(signal, SR, Loop(start=SR, end=FRAMES), envelope_config)
+
+    assert brief is not None and whole is not None
+    assert brief.final_gain == pytest.approx(whole.final_gain)
 
 
-def test_a_silent_loop_region_holds_no_level_to_decline_from() -> None:
+def test_a_recording_holding_too_little_past_the_loop_states_no_decline(envelope_config: EnvelopeConfig) -> None:
+    """Where a held note ends up is read as a line through the levels past ``loop.start``, so a remainder
+    holding one reading leaves the sample carrying every level it plays at.
+    """
+    signal = _ringing()
+
+    assert fit_linear_decay(signal, SR, Loop(start=FRAMES - _WINDOW, end=FRAMES), envelope_config) is None
+
+
+def test_a_silent_loop_region_holds_no_level_to_decline_from(envelope_config: EnvelopeConfig) -> None:
     signal = np.concatenate([np.zeros(SR), _sine(np.linspace(1.0, 0.1, 2 * SR), frames=2 * SR)])
 
-    assert fit_linear_decay(signal, SR, Loop(start=100, end=SR)) is None
+    assert fit_linear_decay(signal, SR, Loop(start=100, end=SR), envelope_config) is None

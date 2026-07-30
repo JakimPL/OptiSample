@@ -5,9 +5,10 @@ from typing import Final
 import numpy as np
 from numpy.typing import NDArray
 
-from optisample.config.loop import GeometryConfig, SeamConfig
+from optisample.config.loop import EnvelopeConfig, GeometryConfig, LoopConfig, SeamConfig
 from optisample.config.spectral import StftParams
-from optisample.dsp.levels import gain_to_db, level_trend
+from optisample.dsp.envelope import local_level_over
+from optisample.dsp.levels import gain_to_db
 from optisample.dsp.resample import resampled_frame_count
 from optisample.dsp.spectral import stft_magnitude
 
@@ -24,7 +25,6 @@ _STEP_FLOOR: Final = 1e-12
 _PEAK_CURVATURE: Final = 1e-12  # concavity a peak holds for a parabola to read a lag between frames
 _MATCH_SHARE: Final = 2  # share of a period the matched end is searched on either side of a whole count
 _CORRELATION_FLOOR: Final = 1e-24  # product of two norms a silent stretch reaches, which correlates with nothing
-_LEVEL_FLOOR: Final = 1e-12  # the level a silent stretch reads as, which leaves a ratio against it finite
 _MAX_LEVEL_GAIN: Final = 4.0  # +12 dB, the most holding a region at one level asks of the material
 
 
@@ -375,40 +375,34 @@ def crossfade_loop(signal: Signal, loop: Loop, sample_rate: int, config: SeamCon
     return out
 
 
-def level_loop(signal: Signal, loop: Loop, sample_rate: int) -> Signal:
+def level_loop(signal: Signal, loop: Loop, sample_rate: int, config: EnvelopeConfig) -> Signal:
     """``signal`` with its loop region held at the level that region starts on; returns a copy.
 
     A region taken from material that declines as it rings falls from ``loop.start`` to ``loop.end``, so a
     player wrapping it steps the level back up once per round and a held note pulses at the loop's rate.
-    Dividing the region by the line its own level readings make
-    (:func:`~optisample.dsp.levels.level_trend`) holds it at one amplitude, pinned at the level it starts on
-    so the attack runs into the region continuously and the decline the region gives up is what a fitted ramp
-    restores (:func:`~optisample.dsp.decay.fit_linear_decay`).
+    Dividing the region by the level its own material holds
+    (:func:`~optisample.dsp.envelope.local_level_over`) holds it at one amplitude, pinned at the level it
+    starts on so the attack runs into the region continuously and the decline the region gives up is what a
+    fitted ramp restores (:func:`~optisample.dsp.decay.fit_linear_decay`). The reading follows the material
+    frame by frame, so a region that swells and falls again comes out as flat as one that only falls.
 
-    The gain stays under ``_MAX_LEVEL_GAIN``, so a region whose trend reads its way down to silence is lifted
-    only so far; how far flattening reaches is what ``max_level_drift_db`` bounds. A region too short for a
-    level line, or one starting from silence, is returned as it stands.
+    The gain stays under ``_MAX_LEVEL_GAIN``, so a region ringing its way down to silence is lifted only so
+    far; how far flattening reaches is what ``max_level_drift_db`` bounds.
     """
-    region = np.asarray(signal[loop.start : loop.end], dtype=np.float64)
-    trend = level_trend(region, sample_rate)
-    if trend is None or trend.at(0.0) <= _LEVEL_FLOOR:
-        return np.asarray(signal, dtype=np.float64)
-
-    seconds = np.arange(region.size, dtype=np.float64) / sample_rate
-    gain = np.clip(trend.at(0.0) / np.maximum(trend.at(seconds), _LEVEL_FLOOR), 0.0, _MAX_LEVEL_GAIN)
+    level = local_level_over(signal, sample_rate, config, start=loop.start, end=loop.end)
     out = np.array(signal, dtype=np.float64)
-    out[loop.start : loop.end] = region * gain
+    out[loop.start : loop.end] *= np.clip(level[0] / level, 0.0, _MAX_LEVEL_GAIN)
     return out
 
 
-def prepare_loop(signal: Signal, loop: Loop, sample_rate: int, config: SeamConfig) -> Signal:
+def prepare_loop(signal: Signal, loop: Loop, sample_rate: int, seam: SeamConfig, envelope: EnvelopeConfig) -> Signal:
     """``signal`` with its loop region ready to wrap: held at one level, then blended at the seam.
 
     Levelling runs first, so the two stretches the blend joins sit at the same amplitude and the blend is
     left to join phase alone. Every stretch that measures, stores or plays a loop passes through here, which
     is what makes a report, an audition and a stored sample wrap the same waveform.
     """
-    return crossfade_loop(level_loop(signal, loop, sample_rate), loop, sample_rate, config)
+    return crossfade_loop(level_loop(signal, loop, sample_rate, envelope), loop, sample_rate, seam)
 
 
 def _seam_step(signal: Signal, loop: Loop) -> float:
@@ -429,20 +423,16 @@ def _seam_step(signal: Signal, loop: Loop) -> float:
     return float(abs(region[0] - region[-1])) / max(typical, _STEP_FLOOR)
 
 
-def _level_drift_db(signal: Signal, loop: Loop, sample_rate: int) -> float:
+def _level_drift_db(signal: Signal, loop: Loop, sample_rate: int, config: EnvelopeConfig) -> float:
     """How far the loop region's own level falls across it, in decibels, positive where it declines.
 
     This is what holding the region at one level costs: the gain levelling asks of the material by the far
     end of the region. It is read off the region as the recording made it, which is the fall a listener would
-    have heard step back up once per round. A region holding its level reads ``0.0``, and so does one too
-    short for a line to be drawn through its readings.
+    have heard step back up once per round. A region holding its level reads ``0.0``, and one that rises
+    across itself reads a negative fall, which is levelling holding it back to the level it starts on.
     """
-    region = np.asarray(signal[loop.start : loop.end], dtype=np.float64)
-    trend = level_trend(region, sample_rate)
-    if trend is None:
-        return 0.0
-
-    return gain_to_db(trend.at(0.0)) - gain_to_db(trend.at(region.size / sample_rate))
+    level = local_level_over(signal, sample_rate, config, start=loop.start, end=loop.end)
+    return gain_to_db(float(level[0])) - gain_to_db(float(level[-1]))
 
 
 def _spectral_shape(signal: Signal) -> Signal:
@@ -468,13 +458,7 @@ def _spectral_distance(region: Signal, material: Signal) -> float:
     return float(np.sqrt(np.mean(difference**2)))
 
 
-def loop_quality(
-    signal: Signal,
-    loop: Loop,
-    sample_rate: int,
-    geometry: GeometryConfig,
-    seam: SeamConfig,
-) -> LoopQuality:
+def loop_quality(signal: Signal, loop: Loop, sample_rate: int, config: LoopConfig) -> LoopQuality:
     """Measure what storing ``loop`` costs: the seam it wraps on, the level it holds, and the timbre it keeps.
 
     The seam and the timbre are read off the prepared region (:func:`prepare_loop`), which is the waveform a
@@ -484,10 +468,10 @@ def loop_quality(
     steady region stands in for less than one analysis window and reports a distance of 0.0. The drift is
     read off the recording as it stands, which is the fall levelling had to flatten.
     """
-    prepared = prepare_loop(signal, loop, sample_rate, seam)
-    _, tail = _steady_bounds(signal, sample_rate, geometry)
+    prepared = prepare_loop(signal, loop, sample_rate, config.seam, config.envelope)
+    _, tail = _steady_bounds(signal, sample_rate, config.geometry)
     return LoopQuality(
         seam_step=_seam_step(prepared, loop),
-        level_drift_db=_level_drift_db(signal, loop, sample_rate),
+        level_drift_db=_level_drift_db(signal, loop, sample_rate, config.envelope),
         spectral_distance=_spectral_distance(prepared[loop.start : loop.end], signal[loop.end : tail]),
     )
