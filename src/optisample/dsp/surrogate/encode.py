@@ -7,7 +7,7 @@ from optisample.dsp.envelope import level_reading
 from optisample.dsp.loop import Loop, loop_at_rate, prepare_loop
 from optisample.dsp.quantize import headroom_peak, normalize_peak, release_fade, requantize
 from optisample.dsp.resample import resample_to
-from optisample.dsp.surrogate.params import NO_LOOP, EncodeContext, EncodingParams
+from optisample.dsp.surrogate.params import NO_LOOP, EncodeContext, EncodingParams, SettledLoop
 from optisample.dsp.surrogate.sample import NO_RELEASE_RAMP, Signal, StoredSample
 from optisample.music import midi_to_freq
 
@@ -35,13 +35,26 @@ def _apply_loop(shaped: Signal, rate: int, loop: Loop, context: EncodeContext) -
     return prepare_loop(shaped, loop, rate, config.seam, reading)[: loop.end]
 
 
+def _asked_loop(params: EncodingParams, context: EncodeContext) -> SettledLoop | None:
+    """The loop of ``context`` these params name, of the ones the stage settled for the clip.
+
+    Answers ``None`` for params storing the played span, and for a clip the loop stage offered no loop at
+    all -- which stores the trimmed span whatever index the params carry, so an encoding priced against one
+    recording's frontier still names a stored sample when it reaches a recording with no frontier to index.
+    """
+    if params.loop_index is None or not context.settled:
+        return None
+
+    return context.settled[params.loop_index]
+
+
 def _looped_span(
     shaped: Signal,
     sample_rate: int,
     params: EncodingParams,
     context: EncodeContext,
 ) -> _Span | None:
-    """The looped span these params ask for, over the loop the clip was settled around.
+    """The looped span these params ask for, over the loop of the clip's frontier they name.
 
     The loop stage settled the region on the recording at the rate it was analysed at, so the bounds are
     scaled onto the copy being stored (:func:`~optisample.dsp.loop.loop_at_rate`) and name the frames a
@@ -51,8 +64,8 @@ def _looped_span(
     Answers ``None`` where the trimmed sample is what is wanted instead: params asking for it, a clip the
     loop stage settled no loop for, and a stored rate too low for the settled bounds to survive onto.
     """
-    settled = context.settled
-    if not params.looped or settled is None:
+    settled = _asked_loop(params, context)
+    if settled is None:
         return None
 
     loop = loop_at_rate(settled.loop, sample_rate, params.target_rate, frames=shaped.size)
@@ -114,8 +127,8 @@ def encode(
     range under the material. :attr:`StoredSample.gain` records what the normalization applied, which
     playback undoes.
 
-    With ``params.looped`` set, storage is trimmed to the attack plus the loop region the loop stage settled
-    for this clip, and that loop sustains notes held past the stored length -- cheap to store, and true to
+    With ``params.loop_index`` naming one of the clip's settled loops, storage is trimmed to the attack plus
+    that loop region, and the loop sustains notes held past the stored length -- cheap to store, and true to
     the recording as far as the loop's own timbre holds. The region is stored at one level and the decline
     the recording makes from it rides beside the PCM as a :class:`~optisample.dsp.decay.LinearDecay`, so a
     held note falls away on the ramp the material states. Storing the trimmed sample keeps ``trim_s`` worth of the

@@ -22,7 +22,7 @@ from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.config.spectral import SpectralConfig
 from optisample.config.synth import SynthConfig
 from optisample.config.tracker import TrackerFormat
-from optisample.dsp.surrogate import NO_LOOP, EncodeContext, EncodingParams, SettledLoop
+from optisample.dsp.surrogate import NO_LOOPS, EncodeContext, EncodingParams, SettledLoops
 from optisample.io.note_extractor import IngestSettings
 from optisample.io.tracker.target import ExportTarget, export_target
 from optisample.keys import SampleKey
@@ -361,7 +361,7 @@ def make_encode_ctx(config: OptiConfig) -> Callable[..., EncodeContext]:
     ``seed`` (when given) seeds the dither RNG; the default leaves it ``None`` so encoding uses the
     surrogate's own fixed-seed fallback -- matching the pre-config call sites. ``release_fade_s``
     overrides the ramp closing a stored span, which is what a test isolating the codec alone sets to zero.
-    ``settled`` is the loop the clip was settled around, which a test asking for a looped span supplies.
+    ``settled`` holds the loops the clip offers, which a test asking for a looped span supplies.
     """
 
     def _build(
@@ -369,7 +369,7 @@ def make_encode_ctx(config: OptiConfig) -> Callable[..., EncodeContext]:
         *,
         seed: int | None = None,
         release_fade_s: float | None = None,
-        settled: SettledLoop | None = NO_LOOP,
+        settled: SettledLoops = NO_LOOPS,
     ) -> EncodeContext:
         rng = np.random.default_rng(seed) if seed is not None else None
         encode = (
@@ -384,16 +384,16 @@ def make_encode_ctx(config: OptiConfig) -> Callable[..., EncodeContext]:
 
 @pytest.fixture(scope="session")
 def recordings(config: OptiConfig) -> Callable[..., StoredRecordings]:
-    """Factory: the recordings a run encodes from, with each one's loop settled the way the stage would.
+    """Factory: the recordings a run encodes from, with the loops each one offers settled as the stage would.
 
-    Candidates are searched over the whole of each recording, so a test gets the loop the material supports
+    Candidates are searched over the whole of each recording, so a test gets the loops the material supports
     rather than bounds it picked. ``loops=False`` leaves every recording unlooped, which is what a test about
     the trimmed span alone asks for.
     """
 
     def _build(audio: AudioMap, sample_rate: int, *, loops: bool = True) -> StoredRecordings:
         settled = {
-            key: _settled(signal, sample_rate, config.loop, midi_to_freq(key.pitch)) if loops else NO_LOOP
+            key: _settled(signal, sample_rate, config.loop, midi_to_freq(key.pitch)) if loops else NO_LOOPS
             for key, signal in audio.items()
         }
         return StoredRecordings(audio=audio, settled=settled, sample_rate=sample_rate)
@@ -401,18 +401,18 @@ def recordings(config: OptiConfig) -> Callable[..., StoredRecordings]:
     return _build
 
 
-def _settled(signal: Signal, sample_rate: int, config: LoopConfig, root_hz: float) -> SettledLoop | None:
-    """The loop the stage settles over the whole of ``signal``, which is what an encode is handed."""
+def _settled(signal: Signal, sample_rate: int, config: LoopConfig, root_hz: float) -> SettledLoops:
+    """The loops the stage offers over the whole of ``signal``, which is what an encode is handed."""
     settlement = settle_loop(signal, sample_rate, config, root_hz=root_hz, search_s=signal.size / sample_rate)
-    return None if settlement.stored is None else settlement.stored.settled
+    return settlement.settled
 
 
 @pytest.fixture
-def settle(config: OptiConfig) -> Callable[..., SettledLoop | None]:
-    """Factory: the loop the stage settles for a signal, which is what an encode is handed.
+def settle(config: OptiConfig) -> Callable[..., SettledLoops]:
+    """Factory: the loops the stage offers for a signal, which is what an encode is handed.
 
-    Runs the real settlement, so a test encoding a looped span is stored around the loop the stage would
-    have chosen for that recording rather than around bounds a test picked. ``root_hz`` is the pitch the
+    Runs the real settlement, so a test encoding a looped span is stored around a loop the stage would
+    have offered for that recording rather than around bounds a test picked. ``root_hz`` is the pitch the
     material was played at, which the period searched and the level read are both taken over.
     """
 
@@ -423,7 +423,7 @@ def settle(config: OptiConfig) -> Callable[..., SettledLoop | None]:
         root_hz: float,
         search_s: float,
         loop: LoopConfig | None = None,
-    ) -> SettledLoop | None:
+    ) -> SettledLoops:
         settlement = settle_loop(
             signal,
             sample_rate,
@@ -431,7 +431,7 @@ def settle(config: OptiConfig) -> Callable[..., SettledLoop | None]:
             root_hz=root_hz,
             search_s=search_s,
         )
-        return None if settlement.stored is None else settlement.stored.settled
+        return settlement.settled
 
     return _build
 

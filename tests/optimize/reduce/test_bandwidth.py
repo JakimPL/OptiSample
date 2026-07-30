@@ -8,6 +8,7 @@ from numpy.typing import NDArray
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import BandwidthConfig, ReduceConfig
 from optisample.dsp.spectral import bandlimit
+from optisample.dsp.surrogate import UNLOOPED
 from optisample.optimize.reduce.bandwidth import (
     ClipDemand,
     clip_band_hz,
@@ -191,14 +192,14 @@ def test_the_same_clip_earns_the_same_format_every_time(make_context: Callable[.
 # --- what the sweep is offered ------------------------------------------------------------------------
 
 
-def test_both_stored_spans_are_offered_at_the_one_settled_format(make_context: Callable[..., _Context]) -> None:
+def test_every_stored_span_is_offered_at_the_one_settled_format(make_context: Callable[..., _Context]) -> None:
     """The format is settled before the sweep, so what the sweep prices is how far the sample carries on."""
     context = make_context()
     stored = stored_format(broadband(), UNTRANSPOSED, context)
 
-    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S, loops=True)
+    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S, loops=3)
 
-    assert [params.looped for params in offered] == [False, True]
+    assert [params.loop_index for params in offered] == [UNLOOPED, 0, 1, 2]
     assert {(params.target_rate, params.depth_bits, params.compress) for params in offered} == {
         (stored.target_rate, stored.depth_bits, stored.compress)
     }
@@ -207,7 +208,7 @@ def test_both_stored_spans_are_offered_at_the_one_settled_format(make_context: C
 def test_the_stored_length_reaches_every_encoding_offered(make_context: Callable[..., _Context]) -> None:
     context = make_context()
     stored = stored_format(broadband(), UNTRANSPOSED, context)
-    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S, loops=True)
+    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S, loops=2)
     assert {params.trim_s for params in offered} == {_TRIM_S}
 
 
@@ -216,6 +217,6 @@ def test_a_clip_with_no_settled_loop_offers_the_trimmed_span_alone(make_context:
     context = make_context()
     stored = stored_format(broadband(), UNTRANSPOSED, context)
 
-    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S, loops=False)
+    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S, loops=0)
 
-    assert [params.looped for params in offered] == [False]
+    assert [params.loop_index for params in offered] == [UNLOOPED]

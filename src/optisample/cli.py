@@ -543,9 +543,9 @@ def _print_subset(dataset: SubsetDataset) -> None:
 
 
 def _print_looped(result: LoopedInstrumentArtifacts) -> None:
-    """State where one instrument's looped dataset landed and how many of its recordings earned a loop."""
+    """State where one instrument's looped dataset landed and how many of its recordings offer a loop."""
     print(f"{result.instrument_id}: {result.paths.notes_json}  [{result.elapsed_s:.1f}s]")
-    print(f"  {result.looped} of {result.recordings} recordings looped -> {result.paths.samples_dir}")
+    print(f"  {result.looped} of {result.recordings} recordings offer a loop -> {result.paths.samples_dir}")
     print(f"  {result.auditions} auditions -> {result.paths.auditions_dir}")
     print(f"  loops -> {result.paths.loops_json}")
 

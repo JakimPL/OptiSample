@@ -352,7 +352,7 @@ def test_looped_plan_carries_loop_points_into_the_module(
     looped_build: Callable[..., tuple[InstrumentPlan, TrackerModule]],
 ) -> None:
     plan, module = looped_build()
-    assert plan.pitches[0].chosen.params.looped  # 3 s stored whole overruns the budget
+    assert plan.pitches[0].chosen.params.loop_index is not None  # 3 s stored whole overruns the budget
     sample = module.song.samples[0]
     assert sample.loop is not None
     assert 0 <= sample.loop.begin < sample.loop.end <= sample.frames  # the loop lies inside the stored sample

@@ -16,7 +16,7 @@ from pydantic import (
 from optisample.config.reduce import DedupeKey
 from optisample.dsp.decay import NO_DECAY, LinearDecay
 from optisample.dsp.loop import Loop, LoopQuality
-from optisample.dsp.surrogate import NO_LOOP, SettledLoop, StoredSample
+from optisample.dsp.surrogate import SettledLoop, SettledLoops, StoredSample
 from optisample.keys import SampleKey
 from optisample.loop.settle import RejectedLoop, Settlement, StoredLoop
 from optisample.music import note_name
@@ -107,16 +107,20 @@ class ModuleSizeRecord(Frozen):
 class EncodingRecord(Frozen):
     """The stored-encoding block both strategies share: chosen params, geometry, cost and hull size.
 
-    ``loop`` and ``decay`` are read off the sample as re-encoding actually stored it, so they state the
-    loop a player wraps on and the ramp it is brought down by rather than what the sweep asked for. The
-    plan items (:class:`PitchItemRecord`, :class:`ZoneItemRecord`) inherit these fields so the block
-    appears once per item, flattened alongside the item's own leading fields.
+    ``loop_index`` names which of the loops the stage offered for this recording the allocation bought,
+    counting from the cheapest stored span, and is absent for an item storing the span it plays -- so how
+    much of a note the budget paid to keep is readable beside what that cost. ``loop`` and ``decay`` are
+    read off the sample as re-encoding actually stored it, so they state the loop a player wraps on and the
+    ramp it is brought down by rather than what the sweep asked for. The plan items
+    (:class:`PitchItemRecord`, :class:`ZoneItemRecord`) inherit these fields so the block appears once per
+    item, flattened alongside the item's own leading fields.
     """
 
     target_rate: int
     depth_bits: int
     compress: bool
     trim_s: float | None
+    loop_index: int | None
     loop: LoopRecord | None
     decay: DecayRecord | None
     frames: int
@@ -280,11 +284,13 @@ class RejectedLoopRecord(Frozen):
 
 
 class RecordingLoopsRecord(Frozen):
-    """What the loop stage decided for one recording: the loop it keeps, and the ones it climbed past.
+    """What the loop stage found for one recording: the loops it offers, and the ones it turned down.
 
-    ``cc`` carries the controller buckets its identity was keyed under, so a reader rebuilds the same
-    :class:`~optisample.keys.SampleKey` the audio is held under. ``search_s`` is the stretch candidates were
-    measured over, which is the longest note the material plays at this pitch.
+    ``offered`` runs from the cheapest stored span to the dearest, the order an encoding indexes them in,
+    and is empty for a recording stored over the span it plays. ``cc`` carries the controller buckets its
+    identity was keyed under, so a reader rebuilds the same :class:`~optisample.keys.SampleKey` the audio is
+    held under. ``search_s`` is the stretch candidates were measured over, which is the longest note the
+    material plays at this pitch.
     """
 
     key: str
@@ -293,12 +299,12 @@ class RecordingLoopsRecord(Frozen):
     velocity: int
     cc: list[tuple[int, int]]
     search_s: float
-    stored: SettledLoopRecord | None
+    offered: list[SettledLoopRecord]
     rejected: list[RejectedLoopRecord]
 
 
 class LoopsDocument(Frozen):
-    """Every loop one instrument's recordings were settled around, beside the dataset they were read from.
+    """Every loop one instrument's recordings offer, beside the dataset they were read from.
 
     ``sample_rate`` is the rate the recordings were analysed at, which the frames in every
     :class:`SettledLoopRecord` are counted in. Reading this back is what lets a later stage store the loops
@@ -315,7 +321,7 @@ class NarrowedGridRecord(Frozen):
 
     ``useful_rate_hz`` is the rate the recording's own content asks for and ``stored`` the ladder rung
     reaching it, so a reader sees both the measurement and the format it named. ``swept`` counts the
-    encodings the sweep then runs for this pitch, which is that one format over the stored spans it offers.
+    encodings the sweep then runs for this pitch, which is that one format over each stored span it offers.
     """
 
     pitch: int
@@ -636,28 +642,12 @@ def loops_document(
                 velocity=key.velocity,
                 cc=list(key.cc),
                 search_s=searched[key],
-                stored=(
-                    None
-                    if settlements[key].stored is None
-                    else _settled_loop_record(_stored_of(settlements[key]), sample_rate)
-                ),
+                offered=[_settled_loop_record(stored, sample_rate) for stored in settlements[key].offered],
                 rejected=[_rejected_loop_record(rejected, sample_rate) for rejected in settlements[key].rejected],
             )
             for key in sorted(settlements)
         ],
     )
-
-
-def _stored_of(settlement: Settlement) -> StoredLoop:
-    """The loop ``settlement`` kept, for a caller that has already established it kept one.
-
-    Raises:
-        ValueError: if the settlement kept none, which a caller reaching here has already ruled out.
-    """
-    if settlement.stored is None:
-        raise ValueError("settlement stores no loop")
-
-    return settlement.stored
 
 
 def _settled_key(record: RecordingLoopsRecord) -> SampleKey:
@@ -670,20 +660,16 @@ def read_loops(path: Path) -> LoopsDocument:
     return LoopsDocument.model_validate_json(path.read_text(encoding="utf-8"))
 
 
-def settled_loops(document: LoopsDocument) -> dict[SampleKey, SettledLoop | None]:
+def settled_loops(document: LoopsDocument) -> dict[SampleKey, SettledLoops]:
     """The loops a document states, in the shape every encode reads them through.
 
-    Frames come back as they were written, so a document read beside the dataset it was measured over names
-    the same stretches of the same recordings.
+    Frames come back as they were written and in the order they were offered, so a document read beside the
+    dataset it was measured over names the same stretches of the same recordings under the same indices.
     """
     return {
-        _settled_key(record): (
-            NO_LOOP
-            if record.stored is None
-            else SettledLoop(
-                loop=Loop(start=record.stored.start, end=record.stored.end),
-                decay=_read_decay(record.stored.decay),
-            )
+        _settled_key(record): tuple(
+            SettledLoop(loop=Loop(start=stored.start, end=stored.end), decay=_read_decay(stored.decay))
+            for stored in record.offered
         )
         for record in document.recordings
     }
@@ -729,6 +715,7 @@ def _encoding_record(unit: SampleUnit, stored: StoredSample) -> EncodingRecord:
         depth_bits=unit.params.depth_bits,
         compress=unit.params.compress,
         trim_s=unit.params.trim_s,
+        loop_index=unit.params.loop_index,
         loop=_loop_record(stored.loop),
         decay=_decay_record(stored.decay),
         frames=unit.frames,

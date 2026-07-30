@@ -123,28 +123,31 @@ def stored_format_rows(reduction: ReductionDocument) -> list[Row]:
 
 
 def loop_rows(document: LoopsDocument) -> list[Row]:
-    """One row per recording stored around a loop, with the loop it kept and what measuring it said.
+    """One row per loop a recording offers, with where it sits and what measuring it said.
 
-    ``seam`` counts the wrap's jump in the frame-to-frame motion the waveform makes there, ``drift_db`` the
-    fall across the region that holding it at one level flattened, and ``timbre_db`` the distance between the
-    loop's spectrum and the material past it, so a row states the case for the loop that was stored.
-    ``rejected`` counts the cheaper candidates the ladder climbed past to reach it.
+    ``offer`` is the index an encoding names the loop by, running from the cheapest stored span upward, so
+    reading the rows of one key down states the stretch of stored length the sweep gets to price. ``seam``
+    counts the wrap's jump in the frame-to-frame motion the waveform makes there, ``drift_db`` the fall
+    across the region that holding it at one level flattened, and ``timbre_db`` the distance between the
+    loop's spectrum and the material past it, so a row states the case for that one loop. ``rejected``
+    counts the candidates the ladder turned down for this recording.
     """
     return [
         {
             "key": record.key,
             "pitch": record.pitch,
             "note": record.note,
-            "start_s": round(record.stored.start_s, 3),
-            "end_s": round(record.stored.end_s, 3),
-            "length_s": round(record.stored.end_s - record.stored.start_s, 3),
-            "seam": round(record.stored.quality.seam_step, 2),
-            "drift_db": round(record.stored.quality.level_drift_db, 2),
-            "timbre_db": round(record.stored.quality.spectral_distance, 2),
+            "offer": offer,
+            "start_s": round(stored.start_s, 3),
+            "end_s": round(stored.end_s, 3),
+            "length_s": round(stored.end_s - stored.start_s, 3),
+            "seam": round(stored.quality.seam_step, 2),
+            "drift_db": round(stored.quality.level_drift_db, 2),
+            "timbre_db": round(stored.quality.spectral_distance, 2),
             "rejected": len(record.rejected),
         }
         for record in document.recordings
-        if record.stored is not None
+        for offer, stored in enumerate(record.offered)
     ]
 
 
@@ -163,15 +166,15 @@ def unlooped_rows(document: LoopsDocument) -> list[Row]:
             "tried": len(record.rejected),
         }
         for record in document.recordings
-        if record.stored is None
+        if not record.offered
     ]
 
 
 def rejected_loop_rows(document: LoopsDocument) -> list[Row]:
     """One row per candidate the ladder climbed past, with the gate it fell outside of.
 
-    Reading these beside :func:`loop_rows` says why a recording ended up stored around a later loop, or
-    around none, which is what retuning the quality gates is read off.
+    Reading these beside :func:`loop_rows` says why a recording offers the loops it does, or none at all,
+    which is what retuning the quality gates is read off.
     """
     return [
         {
@@ -207,12 +210,16 @@ def survivor_rows(document: ReducedDocument) -> list[Row]:
 
 
 def _encoding_cells(encoding: EncodingRecord) -> Row:
-    """The stored-encoding block every plan item carries, as the cells a table shows it through."""
+    """The stored-encoding block every plan item carries, as the cells a table shows it through.
+
+    ``loop`` names which of the loops the stage offered this recording the budget bought, counting from
+    the cheapest, so reading it beside ``kib`` says how much of a note the plan paid to keep.
+    """
     return {
         "rate_hz": encoding.target_rate,
         "depth": encoding.depth_bits,
         "comp": _ON if encoding.compress else _OFF,
-        "loop": _ON if encoding.loop is not None else _OFF,
+        "loop": _OFF if encoding.loop_index is None else encoding.loop_index,
         "decay_to": _OFF if encoding.decay is None else round(encoding.decay.final_gain, 3),
         "frames": encoding.frames,
         "kib": round(bytes_to_kib(encoding.stored_bytes), 3),

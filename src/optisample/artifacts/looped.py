@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
@@ -10,7 +11,7 @@ import numpy as np
 from optisample.artifacts.dataset import note_records, tracked_ccs, write_recording
 from optisample.artifacts.paths import LoopedPaths, looped_paths
 from optisample.artifacts.serialize import LoopsDocument, WrittenSampleRecord, loops_document, write_json
-from optisample.config.loop import EnvelopeConfig, SeamConfig
+from optisample.config.loop import LoopConfig, SeamConfig
 from optisample.dsp.decay import LinearDecay
 from optisample.dsp.envelope import LevelReading, level_reading
 from optisample.dsp.loop import prepare_loop
@@ -21,14 +22,14 @@ from optisample.loop.settle import StoredLoop
 from optisample.metrics.base import Signal
 from optisample.model import Manifest
 from optisample.music import midi_to_freq
-from optisample.optimize.orchestrate.audio import load_run_audio
+from optisample.optimize.orchestrate.audio import LoadedInstrument, load_run_audio
 from optisample.optimize.orchestrate.looping import LoopedInstrument, run_loops
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.progress import ProgressSink
 
 _AUDITION_LABEL: Final = "Rendering loop auditions"
 _RECORDING_STEM: Final = "recording"
-_LOOPED_STEM: Final = "looped"
+_LOOPED_STEM: Final = "looped"  # suffixed with the offer's own index, which is what an encoding names it by
 _HELD_ROUNDS: Final = 4  # times an audition wraps the loop, enough to hear a seam and a level step repeat
 
 
@@ -36,8 +37,9 @@ _HELD_ROUNDS: Final = 4  # times an audition wraps the loop, enough to hear a se
 class LoopedInstrumentArtifacts:
     """One instrument's looped dataset: where each part landed, and how much of it there is.
 
-    ``looped`` counts the recordings that ended up stored around a loop, against ``recordings`` in total, so
-    a reader sees how much of the material the stage found a loop for.
+    ``looped`` counts the recordings that offer at least one loop, against ``recordings`` in total, so a
+    reader sees how much of the material the stage found a loop for. ``auditions`` counts the files written,
+    which is one per recording plus one per loop it offers.
     """
 
     instrument_id: str
@@ -103,38 +105,47 @@ def _declined(played: Signal, decay: LinearDecay | None, sample_rate: int) -> Si
     return np.asarray(played * decay.envelope(played.size, sample_rate), dtype=np.float64)
 
 
+def _write_key_auditions(
+    loaded: LoadedInstrument,
+    key: SampleKey,
+    offered: Sequence[StoredLoop],
+    folder: Path,
+    config: LoopConfig,
+) -> int:
+    """One recording and each loop it offers played out, written into ``folder``; answers the files written.
+
+    Every offer is written, named by the index an encoding reaches it under, so the folder holds the whole
+    stretch of stored length the sweep prices and what a longer region buys is audible against what it
+    costs. The level is read at the pitch the key sounds, the same way the loop stage read it, so each
+    audition wraps the waveform the stage measured.
+    """
+    folder.mkdir(parents=True, exist_ok=True)
+    signal = loaded.audio[key]
+    write_wav(folder / f"{_RECORDING_STEM}.wav", signal, loaded.sample_rate)
+    reading = level_reading(loaded.sample_rate, config.envelope, midi_to_freq(key.pitch))
+    for index, stored in enumerate(offered):
+        held = held_audition(signal, stored, loaded.sample_rate, config.seam, reading)
+        write_wav(folder / f"{_LOOPED_STEM}{index}.wav", held, loaded.sample_rate)
+
+    return 1 + len(offered)
+
+
 def _write_auditions(
     looped: LoopedInstrument,
     out_dir: Path,
-    seam: SeamConfig,
-    envelope: EnvelopeConfig,
+    config: LoopConfig,
     progress: ProgressSink,
 ) -> int:
-    """Write the recording beside its loop played out, one folder per recording that earned a loop.
+    """Write the recording beside each loop it offers played out, one folder per recording that earned one.
 
-    A recording the stage settled no loop for has nothing to audition against itself, so it contributes no
-    folder and the ones present are exactly the loops a listener has to judge. Each one's level is read at
-    the pitch its key sounds, the same way the loop stage read it, so the audition wraps the waveform the
-    stage measured.
+    A recording the stage found no loop for has nothing to audition against itself, so it contributes no
+    folder and the ones present are exactly the loops a listener has to judge.
     """
-    loaded = looped.loaded
-    judged = [
-        (key, settlement.stored)
-        for key, settlement in sorted(looped.settlements.items())
-        if settlement.stored is not None
-    ]
-    written = 0
-    for key, stored in progress.track(judged, label=_AUDITION_LABEL, total=len(judged)):
-        folder = out_dir / key.label
-        folder.mkdir(parents=True, exist_ok=True)
-        signal = loaded.audio[key]
-        write_wav(folder / f"{_RECORDING_STEM}.wav", signal, loaded.sample_rate)
-        reading = level_reading(loaded.sample_rate, envelope, midi_to_freq(key.pitch))
-        held = held_audition(signal, stored, loaded.sample_rate, seam, reading)
-        write_wav(folder / f"{_LOOPED_STEM}.wav", held, loaded.sample_rate)
-        written += 2
-
-    return written
+    judged = [(key, settlement.offered) for key, settlement in sorted(looped.settlements.items()) if settlement.loops]
+    return sum(
+        _write_key_auditions(looped.loaded, key, offered, out_dir / key.label, config)
+        for key, offered in progress.track(judged, label=_AUDITION_LABEL, total=len(judged))
+    )
 
 
 def _searched(looped: LoopedInstrument) -> dict[SampleKey, float]:
@@ -161,9 +172,9 @@ def dump_looped(
 
     The output root is itself a NoteExtractor dataset -- one WAV per recording as the stage analysed it, and
     the material routed onto those recordings -- so the reduction picks up from here over audio the loop
-    frames already index into. Beside it, ``loops.json`` states the loop each recording keeps and the candidates climbed past, and
-    ``auditions/`` holds each loop played out against the recording it was taken from, which is what makes
-    the stage judgeable by ear on its own.
+    frames already index into. Beside it, ``loops.json`` states the loops each recording offers and the
+    candidates turned down, and ``auditions/`` holds each of those loops played out against the recording it
+    was taken from, which is what makes the stage judgeable by ear on its own.
     """
     started_at = perf_counter()
     loaded = looped.loaded
@@ -175,13 +186,7 @@ def dump_looped(
         paths.notes_json,
         tracked_ccs=tracked_ccs(material),
     )
-    auditions = _write_auditions(
-        looped,
-        paths.auditions_dir,
-        settings.loop.seam,
-        settings.loop.envelope,
-        settings.progress,
-    )
+    auditions = _write_auditions(looped, paths.auditions_dir, settings.loop, settings.progress)
     paths.loops_json.parent.mkdir(parents=True, exist_ok=True)
     write_json(paths.loops_json, looped_document(looped))
     return LoopedInstrumentArtifacts(

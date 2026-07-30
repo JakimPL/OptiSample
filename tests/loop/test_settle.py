@@ -7,7 +7,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from optisample.config.loop import LoopConfig
-from optisample.loop.settle import Gate, settle_loop
+from optisample.loop.settle import Gate, _ladder, settle_loop
 
 SR = 22_050
 _FREQ = 220.0
@@ -37,33 +37,52 @@ def _decaying(duration_s: float = _HELD_S) -> NDArray[np.float64]:
 # --- what the ladder offers -----------------------------------------------------------------------
 
 
-def test_the_cheapest_candidate_clearing_the_gates_is_the_one_stored(loop: LoopFactory) -> None:
-    """Gates open, so the front of the ladder is kept and nothing is climbed past to reach it."""
+def test_every_candidate_clearing_the_gates_is_offered(loop: LoopFactory) -> None:
+    """Gates open, so the whole ladder comes back as a frontier and none of it is turned down."""
     settlement = settle_loop(_tone(), SR, loop(quality=_WIDE_OPEN), root_hz=_FREQ, search_s=_HELD_S)
 
-    assert settlement.loops
+    assert len(settlement.offered) > 1
     assert settlement.rejected == ()
 
 
-def test_a_loop_is_stored_no_earlier_than_the_attack_the_geometry_skips(loop: LoopFactory) -> None:
+def test_the_offers_run_from_the_cheapest_stored_span_upward(loop: LoopFactory) -> None:
+    """Storing a loop keeps everything up to its end, so ordering by that end orders the frontier by cost."""
+    settlement = settle_loop(_tone(), SR, loop(quality=_WIDE_OPEN), root_hz=_FREQ, search_s=_HELD_S)
+
+    ends = [stored.loop.end for stored in settlement.offered]
+    assert ends == sorted(ends)
+    assert settlement.cheapest is settlement.offered[0]
+
+
+def test_a_longer_offer_stores_more_of_the_recording_than_a_cheaper_one(loop: LoopFactory) -> None:
+    """The frontier is a rate axis, so the offers have to differ in what they cost to be worth pricing."""
+    settlement = settle_loop(_tone(), SR, loop(quality=_WIDE_OPEN), root_hz=_FREQ, search_s=_HELD_S)
+
+    ends = {stored.loop.end for stored in settlement.offered}
+    assert len(ends) > 1
+    assert max(ends) > 2 * min(ends)
+
+
+def test_a_loop_is_offered_no_earlier_than_the_attack_the_geometry_skips(loop: LoopFactory) -> None:
     config = loop(quality=_WIDE_OPEN)
     settlement = settle_loop(_tone(), SR, config, root_hz=_FREQ, search_s=_HELD_S)
 
-    assert settlement.stored is not None
-    period = round(SR / _FREQ)
-    assert settlement.stored.loop.start >= round(config.geometry.attack_skip_s * SR) - period
+    assert settlement.loops
+    earliest = round(config.geometry.attack_skip_s * SR) - round(SR / _FREQ)
+    assert all(stored.loop.start >= earliest for stored in settlement.offered)
 
 
-def test_every_candidate_the_ladder_climbs_past_names_the_gate_it_fell_outside(loop: LoopFactory) -> None:
+def test_every_candidate_the_ladder_turns_down_names_the_gate_it_fell_outside(loop: LoopFactory) -> None:
     """A gate nothing can clear leaves the whole ladder reported, so the reason is readable per candidate."""
     settlement = settle_loop(_tone(), SR, loop(quality=_SEAM_SHUT), root_hz=_FREQ, search_s=_HELD_S)
 
-    assert settlement.stored is None
+    assert not settlement.loops
+    assert settlement.cheapest is None
     assert settlement.rejected != ()
     assert {rejected.gate for rejected in settlement.rejected} == {Gate.SEAM}
 
 
-def test_a_loop_holding_a_timbre_the_material_moves_away_from_is_climbed_past(loop: LoopFactory) -> None:
+def test_a_loop_holding_a_timbre_the_material_moves_away_from_is_turned_down(loop: LoopFactory) -> None:
     """A recording that brightens halfway leaves its early loops holding a timbre the rest no longer has."""
     brightened = np.concatenate([_tone(1.5), _tone(1.5, freq=5 * _FREQ)])
     config = loop(quality={**_WIDE_OPEN, "max_spectral_distance_db": _SHUT})
@@ -72,19 +91,21 @@ def test_a_loop_holding_a_timbre_the_material_moves_away_from_is_climbed_past(lo
 
     assert settlement.rejected != ()
     assert {rejected.gate for rejected in settlement.rejected} == {Gate.TIMBRE}
-    assert settlement.stored is not None
-    assert settlement.stored.loop.start > round(1.5 * SR)  # the loop kept sits in the brightened stretch
+    assert settlement.loops
+    # every offer that survives sits in the brightened stretch, which is the timbre the rest of the note has
+    assert all(stored.loop.start > round(1.5 * SR) for stored in settlement.offered)
 
 
-def test_the_ladder_is_climbed_cheapest_first(loop: LoopFactory) -> None:
-    """Candidates are tried in the order they cost, so what is rejected is always cheaper than what is kept."""
+def test_every_rung_the_ladder_lays_out_is_either_offered_or_named(loop: LoopFactory) -> None:
+    """Each candidate is measured, so a run accounts for all of them and none is skipped unmeasured."""
     tight = loop(quality={**_WIDE_OPEN, "max_seam_step": 1.0})
     settlement = settle_loop(_decaying(), SR, tight, root_hz=_FREQ, search_s=_HELD_S)
 
-    ends = [rejected.loop.end for rejected in settlement.rejected]
-    assert ends == sorted(ends)
-    if settlement.stored is not None:
-        assert all(end <= settlement.stored.loop.end for end in ends)
+    measured = [stored.loop for stored in settlement.offered] + [turned.loop for turned in settlement.rejected]
+    assert sorted(measured, key=lambda region: (region.end, region.start)) == sorted(
+        set(measured), key=lambda region: (region.end, region.start)
+    )
+    assert len(measured) == len(_ladder(_decaying()[: round(_HELD_S * SR)], SR, tight, _FREQ))
 
 
 # --- what the settlement carries ------------------------------------------------------------------
@@ -101,18 +122,19 @@ def test_a_loop_is_placed_inside_the_span_the_material_asks_for(loop: LoopFactor
     """A loop ending past the played span would store more than keeping that span, so none is offered there."""
     settlement = settle_loop(_tone(), SR, loop(quality=_WIDE_OPEN), root_hz=_FREQ, search_s=1.5)
 
-    assert settlement.stored is not None
-    assert settlement.stored.loop.end <= round(1.5 * SR)
+    assert settlement.loops
+    assert all(stored.loop.end <= round(1.5 * SR) for stored in settlement.offered)
 
 
 def test_a_struck_note_carries_the_decline_the_recording_goes_on_making(loop: LoopFactory) -> None:
     settlement = settle_loop(_decaying(), SR, loop(quality=_WIDE_OPEN), root_hz=_FREQ, search_s=_HELD_S)
 
-    assert settlement.stored is not None
-    decay = settlement.stored.decay
-    assert decay is not None
-    assert decay.final_gain < 1.0
-    assert decay.start_s == settlement.stored.loop.start / SR  # the region is stored at one level from here on
+    assert settlement.loops
+    for stored in settlement.offered:
+        assert stored.decay is not None
+        assert stored.decay.final_gain < 1.0
+        # each offer holds one level from its own start, so each fits its own ramp
+        assert stored.decay.start_s == stored.loop.start / SR
 
 
 def test_a_region_falling_faster_than_the_gate_admits_is_climbed_past(loop: LoopFactory) -> None:
@@ -129,8 +151,8 @@ def test_the_decline_is_read_over_the_whole_recording_rather_than_the_span_searc
     """Every level the recording states reaches the ramp, so a held note falls the way the material did."""
     settlement = settle_loop(_decaying(), SR, loop(quality=_WIDE_OPEN), root_hz=_FREQ, search_s=1.5)
 
-    assert settlement.stored is not None
-    decay = settlement.stored.decay
+    assert settlement.cheapest is not None
+    decay = settlement.cheapest.decay
     assert decay is not None
     assert decay.end_s == _HELD_S
 
@@ -158,6 +180,13 @@ def test_the_stored_loop_reads_its_region_and_its_decline_through_one_settled_va
     """What the encoder is handed and what a report states are the same value read two ways."""
     settlement = settle_loop(_tone(), SR, loop(quality=_WIDE_OPEN), root_hz=_FREQ, search_s=_HELD_S)
 
-    assert settlement.stored is not None
-    assert settlement.stored.loop is settlement.stored.settled.loop
-    assert settlement.stored.decay is settlement.stored.settled.decay
+    assert settlement.cheapest is not None
+    assert settlement.cheapest.loop is settlement.cheapest.settled.loop
+    assert settlement.cheapest.decay is settlement.cheapest.settled.decay
+
+
+def test_the_encoder_is_handed_every_offer_in_the_order_it_indexes_them(loop: LoopFactory) -> None:
+    """An encoding names a loop by its place on the frontier, so the two orders have to be the one order."""
+    settlement = settle_loop(_tone(), SR, loop(quality=_WIDE_OPEN), root_hz=_FREQ, search_s=_HELD_S)
+
+    assert settlement.settled == tuple(stored.settled for stored in settlement.offered)

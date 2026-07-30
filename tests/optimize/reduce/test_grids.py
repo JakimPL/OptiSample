@@ -43,7 +43,7 @@ class _Clip:
     representative: NDArray[np.float64]
     max_duration_s: float
     scored_classes: int
-    loops: bool = False
+    offered_loops: int = 0
 
 
 def _decayed_noise(duration_s: float, seed: int) -> NDArray[np.float64]:
@@ -99,7 +99,7 @@ def test_a_grid_holds_the_encodings_the_sweep_will_run_for_that_pitch(
     settled = stored_format(clip.representative, demand, context)
 
     assert grid.stored == settled
-    assert grid.encodings == stored_encodings(settled, context.sweep, trim_s=_NOTE_S, loops=clip.loops)
+    assert grid.encodings == stored_encodings(settled, context.sweep, trim_s=_NOTE_S, loops=clip.offered_loops)
 
 
 def test_a_grids_stored_rate_carries_the_band_it_measured(clips: tuple[_Clip, ...], context: GridContext) -> None:
@@ -116,7 +116,7 @@ def test_a_clip_is_read_through_the_four_fields_narrowing_needs(clips: tuple[_Cl
         pitch=clip.pitch,
         representative=clip.representative,
         max_duration_s=clip.max_duration_s,
-        loops=clip.loops,
+        offered_loops=clip.offered_loops,
     )
     assert narrow_grid(request, context) == narrow_grid(clip, context)
 

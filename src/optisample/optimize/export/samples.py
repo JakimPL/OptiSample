@@ -5,7 +5,7 @@ from typing import Final
 import numpy as np
 
 from optisample.config.codec import EncodeConfig
-from optisample.dsp.surrogate import NO_LOOP, EncodeContext, StoredSample, encode
+from optisample.dsp.surrogate import NO_LOOPS, EncodeContext, StoredSample, encode
 from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.base import Signal
 from optisample.music import note_name, sounded_note
@@ -51,7 +51,7 @@ def encode_plan_units(
     The exporter and the artifact dumper share this loop so the decoded PCM stays byte-identical between
     the written module and the inspection WAVs. One RNG advances once per unit in iteration order, so
     every stored sample's dither is reproducible from ``seed``. ``recordings`` supplies the loop each one was
-    settled around, which is what a unit asking to be stored looped is stored around here too.
+    offers, of which a unit asking to be stored looped names the one it was priced against.
     """
     rng = np.random.default_rng(seed)
     for unit in units:
@@ -59,7 +59,7 @@ def encode_plan_units(
         encode_context = EncodeContext(
             root_pitch=unit.representative,
             config=encode_config,
-            settled=recordings.settled.get(unit.representative_key, NO_LOOP),
+            settled=recordings.settled.get(unit.representative_key, NO_LOOPS),
             rng=rng,
         )
         yield unit, encode(

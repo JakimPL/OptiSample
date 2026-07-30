@@ -50,7 +50,7 @@ What the allocation spends bytes on is therefore everything else:
 | Settled before the budget | The allocation trades |
 |---|---|
 | stored rate, depth, compression (the reduction) | zone width, sample count |
-| how long a recording may run, §5 (the reduction) | the settled loop, or the trimmed span |
+| how long a recording may run, §5 (the reduction) | each loop offered, or the trimmed span |
 | which loop a recording repeats, §8a (the loop stage) | how many velocity bands a key stores |
 
 The consequence is worth stating plainly. **A budget too small for the formats its recordings ask for is
@@ -311,15 +311,18 @@ offered is at least one analysis window long, so the timbre gate measures every 
 ([`shortest_loop_frames`](../src/optisample/dsp/loop.py)). What a loop settles at is then brought down by the
 fitted decay, so the lever for "this rings on" is the export gap above rather than a looping threshold.
 
-### 8a. Which loop a sample repeats
+### 8a. Which loops a sample may repeat
 
-The loop stage (`src/opticonfig/loop/`) settles that per recording, before any byte is allocated and at the
-rate the analysis runs at. Three groups tune it:
+The loop stage (`src/opticonfig/loop/`) finds them per recording, before any byte is allocated and at the
+rate the analysis runs at. It offers **every** candidate clearing the gates, so which one a sample stores is
+an operating point the allocation buys rather than a decision taken ahead of it. Three groups tune it:
 
 - **`loop/geometry.yaml`** lays out what is on offer. `placements` spreads the starts through the sustain
   and `length_multiples` offers each start at several lengths, so a note that changes as it rings can be
-  looped where it has settled. `min_loop_s: 0.1` floors the length in seconds, `min_periods` keeps a loop
-  from beating at its own rate. The period is searched around the pitch the note was played at, within
+  looped where it has settled. Together they set how wide the frontier is: on 60 real Piano recordings the
+  two of them offer a median of 4 loops that all clear the gates, spanning 4.66× in stored bytes, and each
+  one costs the sweep an encoding. `min_loop_s: 0.1` floors the length in seconds, `min_periods` keeps a
+  loop from beating at its own rate. The period is searched around the pitch the note was played at, within
   `detune_semitones: 1.0` either side of it, and `min_correlation` is the peak it clears to count as
   periodic at all — on 120 real Piano recordings the reading lands a median 3.5 cents off nominal and 17.5
   cents off at worst, so a semitone leaves room for the tuning a set was recorded at and for a piano's own
@@ -331,8 +334,10 @@ rate the analysis runs at. Three groups tune it:
   the region's own level falls across it, which is the gain holding it at one level asks of the material;
   levelling reaches +12 dB, so a looser setting admits regions it flattens only in part.
   `max_spectral_distance_db: 12.0` bounds how far the loop's timbre sits from the stretch it stands in for.
-  Candidates are climbed cheapest first — earliest and shortest — and the first clearing all three is kept,
-  so tightening a gate buys a longer, better loop and loosening one buys bytes.
+  Every candidate clearing all three is offered, cheapest first — earliest and shortest — so a gate now sets
+  where the frontier starts rather than which single loop is kept: tighten one and the cheap end drops off,
+  loosen one and it extends downward. On real Piano material the gates turn down 3 candidates in 264, so
+  `min_loop_s` and the geometry above are what actually bound how aggressive a stored loop can be.
 - **`loop/envelope.yaml`** states how the level a recording holds is read, which is the curve levelling
   divides a region by and the level the fitted decay falls from. The weighting spans two periods of the
   note's own pitch, so a tone from half of that upward reads as the level it holds and a high note is
@@ -357,15 +362,18 @@ stops following the recording. On 54 real Piano loops the level step across one 
 |2.65| dB to |0.21| dB, and the region is left tilting |0.03| dB across itself against |1.02| dB before:
 what was a pulse at the loop's rate becomes the note going on declining.
 
-`loops.json` states the loop each recording keeps and every candidate climbed past with the gate it fell
-outside, so a retune reads off the last run rather than guessing. `1_looped/loops/<id>/auditions/` holds
-each loop played out against its recording, which is the by-ear reading of the same decision.
+`loops.json` states every loop a recording offers, in the order an encoding indexes them, and every
+candidate turned down with the gate it fell outside, so a retune reads off the last run rather than
+guessing. `1_looped/loops/<id>/auditions/` holds each offer played out against its recording as
+`looped<n>.wav`, which is the by-ear reading of the length axis the allocation prices.
 
 ### 8b. What the composite says about levelling
 
 On the 62-note Piano slice at 128 KiB the plan is the same however wide the level weighting is set — the
-same 23 zones, the same 18 loops — and the objective moves monotonically with the width. Held at one
-frequency for every note: 6.25 Hz reads 1.2323, 25 Hz reads 1.2381, 40 Hz reads 1.2423, 200 Hz reads 1.2876.
+same 23 zones, the same 18 loops — and the objective moves monotonically with the width. (These readings
+were taken before loop length became a priced axis, so the baseline has since moved to 19 zones at 1.2123;
+the width ordering is a property of the composite and is unchanged by that.) Held at one frequency for
+every note: 6.25 Hz reads 1.2323, 25 Hz reads 1.2381, 40 Hz reads 1.2423, 200 Hz reads 1.2876.
 A 6.25 Hz weighting spans 320 ms — more than three times a 0.1 s loop region — so the level it reads over
 the region is near enough constant that levelling is close to a no-op, and that is the setting the composite
 scores highest. Seeding the weighting from the note's own pitch reads 1.2455, which is the sharpest

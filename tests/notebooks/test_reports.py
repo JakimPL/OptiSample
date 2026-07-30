@@ -45,6 +45,7 @@ _ENCODING = {
     "depth_bits": 8,
     "compress": True,
     "trim_s": 1.5,
+    "loop_index": 1,
     "loop": LoopRecord(start=100, end=900),
     "decay": DecayRecord(start_s=0.11, end_s=1.5, final_gain=0.2),
     "frames": 16_538,
@@ -193,7 +194,7 @@ def _quality(seam: float, drift: float, timbre: float) -> LoopQualityRecord:
 
 
 def _loops() -> LoopsDocument:
-    """A loop run's decisions: one recording stored around a loop, one stored over the span it plays."""
+    """A loop run's decisions: one recording offering two loops, one stored over the span it plays."""
     return LoopsDocument(
         instrument_id=_INSTRUMENT,
         sample_rate=SR,
@@ -205,14 +206,24 @@ def _loops() -> LoopsDocument:
                 velocity=80,
                 cc=[],
                 search_s=2.0,
-                stored=SettledLoopRecord(
-                    start=400,
-                    end=4_400,
-                    start_s=0.05,
-                    end_s=0.55,
-                    quality=_quality(1.25, 2.0, 3.5),
-                    decay=DecayRecord(start_s=0.55, end_s=2.0, final_gain=0.25),
-                ),
+                offered=[
+                    SettledLoopRecord(
+                        start=400,
+                        end=4_400,
+                        start_s=0.05,
+                        end_s=0.55,
+                        quality=_quality(1.25, 2.0, 3.5),
+                        decay=DecayRecord(start_s=0.55, end_s=2.0, final_gain=0.25),
+                    ),
+                    SettledLoopRecord(
+                        start=400,
+                        end=8_400,
+                        start_s=0.05,
+                        end_s=1.05,
+                        quality=_quality(1.1, 2.4, 2.0),
+                        decay=DecayRecord(start_s=1.05, end_s=2.0, final_gain=0.25),
+                    ),
+                ],
                 rejected=[
                     RejectedLoopRecord(start_s=0.05, end_s=0.30, quality=_quality(0.9, 2.0, 14.0), gate="timbre"),
                 ],
@@ -224,7 +235,7 @@ def _loops() -> LoopsDocument:
                 velocity=80,
                 cc=[],
                 search_s=1.5,
-                stored=None,
+                offered=[],
                 rejected=[
                     RejectedLoopRecord(start_s=0.05, end_s=0.55, quality=_quality(6.0, 2.0, 2.0), gate="seam"),
                     RejectedLoopRecord(start_s=0.60, end_s=1.10, quality=_quality(1.0, 2.0, 20.0), gate="timbre"),
@@ -243,7 +254,7 @@ def looped_root(tmp_path: Path) -> Path:
     write_json(paths.loops_json, _loops())
     folder = paths.auditions_dir / "p060_C4_v080"
     folder.mkdir(parents=True)
-    for stem in ("looped", "recording"):
+    for stem in ("looped0", "looped1", "recording"):
         write_wav(folder / f"{stem}.wav", np.zeros(SR, dtype=np.float64), SR)
 
     return root
@@ -330,13 +341,15 @@ def test_a_stored_format_row_names_the_rate_depth_and_compression_it_settled_on(
     assert (rows[0]["useful_rate_hz"], rows[0]["swept"]) == (12_346, 4)
 
 
-def test_the_loop_each_recording_was_settled_around_is_reported_with_what_it_measured(looped_root: Path) -> None:
+def test_every_loop_a_recording_offers_is_reported_with_what_it_measured(looped_root: Path) -> None:
     document = reports.read_loop_document(looped_root, _INSTRUMENT)
 
     rows = reports.loop_rows(document)
 
-    assert [row["key"] for row in rows] == ["p060_C4_v080"]  # the recording stored unlooped contributes no row
-    assert rows[0]["length_s"] == 0.5
+    # the recording offering nothing contributes no row; the one offering two contributes one each
+    assert [row["key"] for row in rows] == ["p060_C4_v080", "p060_C4_v080"]
+    assert [row["offer"] for row in rows] == [0, 1]
+    assert [row["length_s"] for row in rows] == [0.5, 1.0]
     assert (rows[0]["seam"], rows[0]["timbre_db"], rows[0]["rejected"]) == (1.25, 3.5, 1)
 
 
@@ -347,7 +360,7 @@ def test_a_recording_stored_over_the_span_it_plays_is_reported_with_what_was_tri
     assert (rows[0]["search_s"], rows[0]["tried"]) == (1.5, 2)
 
 
-def test_each_candidate_the_ladder_climbed_past_names_the_gate_it_fell_outside(looped_root: Path) -> None:
+def test_each_candidate_the_ladder_turned_down_names_the_gate_it_fell_outside(looped_root: Path) -> None:
     rows = reports.rejected_loop_rows(reports.read_loop_document(looped_root, _INSTRUMENT))
 
     assert [row["gate"] for row in rows] == ["timbre", "seam", "timbre"]
@@ -358,7 +371,7 @@ def test_a_loop_audition_opens_with_the_recording_its_loop_is_judged_against(loo
     assert reports.loop_audition_keys(looped_root, _INSTRUMENT) == ["p060_C4_v080"]
     clips = reports.loop_auditions(looped_root, _INSTRUMENT, "p060_C4_v080")
 
-    assert [clip.label for clip in clips] == ["recording", "looped"]
+    assert [clip.label for clip in clips] == ["recording", "looped0", "looped1"]
     assert all(clip.path.is_file() for clip in clips)
 
 
@@ -389,7 +402,8 @@ def test_an_ungrouped_item_holds_the_one_pitch_it_was_recorded_at(instrument_dir
     rows = reports.plan_item_rows(reports.read_plan(plan_paths(instrument_dir, "ungrouped")))
 
     assert (rows[0]["keys"], rows[0]["span"], rows[0]["note"]) == ("60", 1, "C4")
-    assert (rows[0]["rate_hz"], rows[0]["depth"], rows[0]["comp"], rows[0]["loop"]) == (11_025, 8, "on", "on")
+    assert (rows[0]["rate_hz"], rows[0]["depth"], rows[0]["comp"]) == (11_025, 8, "on")
+    assert rows[0]["loop"] == 1  # the second-cheapest loop the stage offered is the one the budget bought
     assert rows[0]["decay_to"] == 0.2  # the share of the loop's level the note is played down to
 
 

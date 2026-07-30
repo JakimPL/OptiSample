@@ -33,7 +33,6 @@ _CONFIG = load_config()
 _SYNTH = _CONFIG.synth
 _REDUCE = _CONFIG.reduce
 _LOOP = _CONFIG.loop
-_STORED_SPANS = 2  # what the sweep prices per key: the played span, and the loop the stage settled
 
 
 def note(pitch: int, velocity: int, dur: float = 0.5) -> NDArray[np.float64]:
@@ -116,10 +115,11 @@ def test_representative_key_is_the_loudest_used_at_each_pitch(optimize: Callable
 
 def test_each_pitch_hull_is_a_valid_rd_frontier(optimize: Callable[..., InstrumentPlan]) -> None:
     plan = optimize(64.0)
-    configs = _STORED_SPANS  # the played span and the settled loop, at the one settled format
+    swept = {grid.pitch: len(grid.encodings) for grid in plan.reduction.grids}
     for pitch in plan.pitches:
         hull = pitch.hull
-        assert 1 <= len(hull) <= configs
+        # the played span plus one point per loop the pitch offered, less whatever the hull dropped
+        assert 1 <= len(hull) <= swept[pitch.pitch]
         assert all(a.stored_bytes < b.stored_bytes for a, b in zip(hull, hull[1:]))  # ascending bytes
         assert all(a.distortion > b.distortion for a, b in zip(hull, hull[1:]))  # descending distortion
 

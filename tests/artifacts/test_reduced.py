@@ -179,7 +179,8 @@ def test_an_audition_is_named_by_the_encoding_it_holds(reduced: ReducedInstrumen
     stem = f"r{stored['target_rate']}_d{stored['depth_bits']}" + ("_c" if stored["compress"] else "")
 
     auditions = sorted(path.name for path in folder.glob("*.wav") if path.stem != "reference")
-    looped = [f"{stem}_loop.wav"] if grid["swept"] > _TRIMMED_ONLY else []
+    # one audition per loop the pitch offered beside the trimmed span, each named by the offer it holds
+    looped = [f"{stem}_loop{index}.wav" for index in range(grid["swept"] - _TRIMMED_ONLY)]
 
     assert auditions == sorted([f"{stem}.wav", *looped])
 

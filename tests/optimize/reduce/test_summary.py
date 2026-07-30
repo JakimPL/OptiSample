@@ -47,7 +47,7 @@ class _Clip:
     representative: NDArray[np.float64]
     max_duration_s: float
     scored_classes: int
-    loops: bool = False
+    offered_loops: int = 0
 
 
 def _decayed_noise(duration_s: float, seed: int) -> NDArray[np.float64]:
@@ -143,7 +143,7 @@ def test_every_played_pitch_earns_the_grid_the_sweep_will_run(
             stored_format(clip.representative, demand, context),
             context.sweep,
             trim_s=_NOTE_S,
-            loops=clip.loops,
+            loops=clip.offered_loops,
         )
         for clip in clips
     }

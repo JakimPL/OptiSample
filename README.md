@@ -236,8 +236,8 @@ of the recording rather than of the budget, so **a stage of its own settles them
 ahead of the reduction and at the rate the analysis runs at. Each recording is offered the loops its
 geometry allows — `placements` starts through the sustain, each at the lengths `length_multiples` asks for
 and each clearing the `min_loop_s` floor and the window a spectrum is read over — ordered cheapest first,
-meaning earliest and shortest. The first one clearing every quality gate is the loop the sample is stored
-around, and every candidate is long enough for all three gates to have measured it:
+meaning earliest and shortest. Every one clearing all three quality gates is **offered**, and every
+candidate is long enough for all three to have measured it:
 
 ```yaml
 max_seam_step: 4.0              # wrap step, in units of the frame-to-frame motion the waveform makes there
@@ -245,12 +245,14 @@ max_level_drift_db: 12.0        # fall across the region that holding it at one 
 max_spectral_distance_db: 12.0  # log-spectral distance between the loop and the stretch it stands in for
 ```
 
-The gates are the aggressiveness dial: tighten them and the search climbs past the cheap loops toward
-longer ones that hold up, and a recording with nothing clearing them is stored over the span its material
-plays instead. Every candidate climbed past is kept beside the one settled on, naming the gate it fell
-outside, so `loops.json` states why a sample stores what it stores. Settling once, at the analysis rate,
-is also what lets the seam be measured on the resolution a 440 Hz note actually has — 109 frames per cycle
-at 48 kHz against 18 at 8 kHz.
+The gates say which loops a recording supports at all; **a budget says which of them is worth its bytes.**
+Tighten the gates and the cheap loops drop out of the offer, and a recording with nothing clearing them is
+stored over the span its material plays instead. Every candidate turned down is kept beside the ones
+offered, naming the gate it fell outside, so `loops.json` states the whole case. On 60 real Piano
+recordings the ladder offers a median of **4** loops that all clear the gates, spanning **4.66×** in stored
+bytes between the cheapest and the dearest — a rate axis the allocation now gets to price rather than a
+single choice made before it. Settling once, at the analysis rate, is also what lets the seam be measured
+on the resolution a 440 Hz note actually has — 109 frames per cycle at 48 kHz against 18 at 8 kHz.
 
 ### Making the wrap inaudible
 
@@ -278,8 +280,10 @@ partials have drifted apart keeps its level across the blend. Across 54 real Pia
 the wrap falls from a median **|2.65| dB to |0.21| dB**, and reading each note over its own period is worth
 **2.6×** of that against one weighting for every note alike.
 
-The allocation then prices **two** encodings per key, the settled loop and the trimmed span, so a loop is
-bought where the objective prefers it while the loop search itself is paid once per recording.
+The allocation then prices the trimmed span **plus one encoding per loop offered**, so how much of a note
+is stored is chosen against the budget the same way its rate is, while the loop search itself is paid once
+per recording. `EncodingParams.loop_index` names which offer an encoding holds, and the rate-distortion
+hull drops the lengths that buy nothing.
 
 ### Settling loops on their own
 
@@ -295,8 +299,8 @@ looped/
   Piano.notes.json                 # one entry per played note, pointing at the recording serving it
   Piano/0000_p060_C4_v100.wav      # one WAV per recording, exactly as the stage analysed it
   loops/Piano/
-    loops.json                     # the loop each recording keeps, and the candidates climbed past
-    auditions/p060_C4/             # recording.wav beside the loop played out against it
+    loops.json                     # the loops each recording offers, and the candidates turned down
+    auditions/p060_C4/             # recording.wav beside looped0.wav ... one per offer
 ```
 
 The WAVs are the ingest's own output — onset-aligned, at the run's one rate — so the frames a loop names

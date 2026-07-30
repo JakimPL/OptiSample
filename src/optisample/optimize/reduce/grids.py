@@ -25,7 +25,7 @@ _OWN_KEY: Final = 0  # a key sounding its own recording plays it at the pitch it
 
 
 class StoredClip(Protocol):
-    """What narrowing reads about the sample one pitch stores: its recording, how long it is held, its loop.
+    """What narrowing reads about the sample one pitch stores: its recording, how long it is held, its loops.
 
     Stated as a protocol so the pre-pass measures the same pitch tasks the sweep scores, while the
     reduction subpackage stays a leaf the task layer builds on.
@@ -41,12 +41,12 @@ class StoredClip(Protocol):
     def max_duration_s(self) -> float: ...
 
     @property
-    def loops(self) -> bool: ...
+    def offered_loops(self) -> int: ...
 
 
 @dataclass(frozen=True)
 class ClipRequest:
-    """One pitch's stored clip as a worker receives it: the recording, the span held, and whether it loops.
+    """One pitch's stored clip as a worker receives it: the recording, the span held, and the loops it offers.
 
     Narrowing reads a clip through :class:`StoredClip`, so a worker is handed exactly those four
     fields and the note classes scored against the clip stay in the calling process.
@@ -55,7 +55,7 @@ class ClipRequest:
     pitch: int
     representative: Signal
     max_duration_s: float
-    loops: bool
+    offered_loops: int
 
 
 @dataclass(frozen=True)
@@ -79,7 +79,7 @@ class NarrowedGrid:
     ``useful_rate_hz`` is the stored rate carrying everything the recording still contributes at its own
     key (see :func:`~optisample.optimize.reduce.bandwidth.useful_rate_hz`); ``stored`` is the format the
     ladder's lowest rung reaching it names; and ``encodings`` are what the sweep then runs, that one format
-    over the stored spans the clip offers.
+    over each stored span the clip offers.
     """
 
     pitch: int
@@ -103,7 +103,7 @@ def narrow_grid(clip: StoredClip, context: GridContext) -> NarrowedGrid:
         pitch=clip.pitch,
         useful_rate_hz=useful_rate_hz(clip.representative, demand, context.sample_rate, context.bandwidth),
         stored=stored,
-        encodings=stored_encodings(stored, context.sweep, trim_s=demand.trim_s, loops=clip.loops),
+        encodings=stored_encodings(stored, context.sweep, trim_s=demand.trim_s, loops=clip.offered_loops),
     )
 
 
@@ -113,7 +113,7 @@ def _requested(clip: StoredClip) -> ClipRequest:
         pitch=clip.pitch,
         representative=clip.representative,
         max_duration_s=clip.max_duration_s,
-        loops=clip.loops,
+        offered_loops=clip.offered_loops,
     )
 
 

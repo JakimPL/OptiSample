@@ -7,10 +7,10 @@ import numpy as np
 from optisample.config.codec import EncodeConfig
 from optisample.config.optimize import SweepConfig
 from optisample.dsp.surrogate import (
-    NO_LOOP,
+    NO_LOOPS,
     EncodeContext,
     EncodingParams,
-    SettledLoop,
+    SettledLoops,
     Signal,
     StoredSample,
     closed_reference,
@@ -28,17 +28,18 @@ _COMPRESSIBLE_DEPTH: Final = 8  # bits; a deeper grid's noise floor sits below w
 
 @dataclass(frozen=True, eq=False)
 class SourceClip:
-    """A recording to encode, its rate/natural pitch, the longest duration the material needs, and its loop.
+    """A recording to encode, its rate/natural pitch, the longest duration the material needs, and its loops.
 
-    ``settled`` is what the loop stage decided for this recording, which every encoding of it is stored
-    around: the sweep prices keeping the played span against keeping the attack plus that loop.
+    ``settled`` is the frontier of loops the stage found for this recording, one of which each looped
+    encoding is stored around: the sweep prices keeping the played span against keeping the attack plus
+    each of them.
     """
 
     signal: Signal
     sample_rate: int
     root_pitch: int
     duration_s: float | None = None
-    settled: SettledLoop | None = NO_LOOP
+    settled: SettledLoops = NO_LOOPS
 
 
 @dataclass(frozen=True)

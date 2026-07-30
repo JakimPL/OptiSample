@@ -24,7 +24,7 @@ _HELD_S = 3.0
 _BRIEF_SHARE = 0.5  # the share of the shortest accepted loop a recording holds to be stored over its own span
 _LOOPABLE = 60
 _BRIEF = 72
-_AUDITION_FILES = 2  # each folder holds the recording and the loop played out against it
+_RECORDING_FILE = 1  # each folder opens with the recording, then one file per loop offered against it
 
 
 def _tone(freq: float, duration_s: float) -> NDArray[np.float64]:
@@ -135,7 +135,7 @@ def test_the_document_states_the_loop_each_recording_was_settled_around(
     assert [record.pitch for record in document.recordings] == [_LOOPABLE, _BRIEF]
 
 
-def test_a_recording_too_short_to_loop_is_stated_as_storing_none(
+def test_a_recording_too_short_to_loop_is_stated_as_offering_none(
     looped: LoopedInstrument, settings: OptimizeSettings, tmp_path: Path
 ) -> None:
     written = dump_looped(looped, tmp_path, settings)
@@ -143,8 +143,22 @@ def test_a_recording_too_short_to_loop_is_stated_as_storing_none(
     document = read_loops(written.paths.loops_json)
     brief = next(record for record in document.recordings if record.pitch == _BRIEF)
 
-    assert brief.stored is None
+    assert brief.offered == []
     assert written.looped == 1
+
+
+def test_the_document_lists_a_recordings_offers_from_the_cheapest_stored_span_upward(
+    looped: LoopedInstrument, settings: OptimizeSettings, tmp_path: Path
+) -> None:
+    """An encoding names a loop by its place in this list, so the order it is written in is load-bearing."""
+    written = dump_looped(looped, tmp_path, settings)
+
+    document = read_loops(written.paths.loops_json)
+    loopable = next(record for record in document.recordings if record.pitch == _LOOPABLE)
+
+    assert len(loopable.offered) > 1
+    ends = [stored.end for stored in loopable.offered]
+    assert ends == sorted(ends)
 
 
 def test_the_loops_a_run_settled_read_back_as_the_encoder_receives_them(
@@ -159,15 +173,19 @@ def test_the_loops_a_run_settled_read_back_as_the_encoder_receives_them(
 # --- what a listener judges it on ------------------------------------------------------------------
 
 
-def test_each_settled_loop_is_auditioned_against_the_recording_it_came_from(
+def test_every_loop_a_recording_offers_is_auditioned_against_the_recording_it_came_from(
     looped: LoopedInstrument, settings: OptimizeSettings, tmp_path: Path
 ) -> None:
+    """Naming each audition by the offer it holds is what lets a listener hear the length axis a sweep prices."""
     written = dump_looped(looped, tmp_path, settings)
 
+    offered = looped.settlements[SampleKey(_LOOPABLE, 100)].offered
     folder = written.paths.auditions_dir / SampleKey(_LOOPABLE, 100).label
     assert (folder / "recording.wav").is_file()
-    assert (folder / "looped.wav").is_file()
-    assert written.auditions == _AUDITION_FILES
+    assert sorted(path.name for path in folder.glob("looped*.wav")) == sorted(
+        f"looped{index}.wav" for index in range(len(offered))
+    )
+    assert written.auditions == _RECORDING_FILE + len(offered)
 
 
 def test_a_recording_stored_over_the_span_it_plays_is_auditioned_against_nothing(
@@ -186,10 +204,9 @@ def test_an_audition_plays_the_loop_out_past_the_span_it_stores(
     written = dump_looped(looped, tmp_path, settings)
 
     folder = written.paths.auditions_dir / SampleKey(_LOOPABLE, 100).label
-    held, _ = read_wav(folder / "looped.wav")
-    settlement = looped.settlements[SampleKey(_LOOPABLE, 100)]
-    assert settlement.stored is not None
-    assert held.size > settlement.stored.loop.end
+    for index, stored in enumerate(looped.settlements[SampleKey(_LOOPABLE, 100)].offered):
+        held, _ = read_wav(folder / f"looped{index}.wav")
+        assert held.size > stored.loop.end
 
 
 # --- a whole project ------------------------------------------------------------------------------

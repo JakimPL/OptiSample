@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from optisample.config.loop import LoopConfig
-from optisample.dsp.surrogate import NO_LOOP
 from optisample.keys import SampleKey
 from optisample.loop.settle import Settlement
 from optisample.loop.stage import LoopRequest, settle_loops
@@ -18,10 +17,10 @@ Settlements = dict[SampleKey, Settlement]
 
 @dataclass(frozen=True)
 class LoopedInstrument:
-    """The recordings a run works from, with the loop each one is stored around.
+    """The recordings a run works from, with the loops each one offers to be stored around.
 
-    ``settlements`` states the whole decision per recording -- the loop kept and the candidates climbed past
-    -- which is what a report reads; ``settled`` narrows it to the part every encode needs.
+    ``settlements`` states the whole decision per recording -- the loops offered and the candidates turned
+    down -- which is what a report reads; ``settled`` narrows it to the part every encode needs.
     """
 
     loaded: LoadedInstrument
@@ -29,11 +28,8 @@ class LoopedInstrument:
 
     @property
     def settled(self) -> LoopMap:
-        """The loop each recording is stored around, keyed the way the audio is."""
-        return {
-            key: settlement.stored.settled if settlement.stored is not None else NO_LOOP
-            for key, settlement in self.settlements.items()
-        }
+        """The loops each recording offers, keyed the way the audio is."""
+        return {key: settlement.settled for key, settlement in self.settlements.items()}
 
     @property
     def recordings(self) -> StoredRecordings:
@@ -46,7 +42,7 @@ class LoopedInstrument:
 
     @property
     def looped_recordings(self) -> int:
-        """How many survivors ended up with a loop, which is how many samples store less than they play."""
+        """How many survivors offer a loop, which is how many samples may store less than they play."""
         return sum(1 for settlement in self.settlements.values() if settlement.loops)
 
 

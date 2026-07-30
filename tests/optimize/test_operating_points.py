@@ -9,7 +9,7 @@ import pytest
 
 from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
-from optisample.dsp.surrogate import EncodingParams, SettledLoop
+from optisample.dsp.surrogate import UNLOOPED, EncodingParams, SettledLoops
 from optisample.optimize.operating_points import (
     OperatingPoint,
     SourceClip,
@@ -25,7 +25,8 @@ from trackmod.core.samples.depth import BitDepth
 SR = 44_100
 _HELD_S = 3.0  # a pad long enough for the stage to place a loop inside and still leave a sustain tail
 
-SettleLoop = Callable[..., SettledLoop | None]
+SettleLoops = Callable[..., SettledLoops]
+_CHEAPEST = 0  # the offer a test reaches for: the shortest region the recording supports
 
 # synthesize is a test-signal generator here; its synth config is fixture-independent test data.
 _SYNTH = load_config().synth
@@ -60,13 +61,13 @@ def harmonic_tone(freq: float = _PERIODIC_HZ, dur: float = 3.0) -> np.ndarray:
     )
 
 
-def stored_as(rate: int, *, looped: bool = False, trim_s: float | None = None) -> EncodingParams:
+def stored_as(rate: int, *, loop_index: int | None = UNLOOPED, trim_s: float | None = None) -> EncodingParams:
     """One encoding as the reduction settles it: a stored rate at 16 bits, held for ``trim_s``."""
-    return EncodingParams(target_rate=rate, depth_bits=16, trim_s=trim_s, dither=False, looped=looped)
+    return EncodingParams(target_rate=rate, depth_bits=16, trim_s=trim_s, dither=False, loop_index=loop_index)
 
 
-def _looped_clip(settle: SettleLoop) -> SourceClip:
-    """A periodic pad with the loop the stage settles for it, which is what a looped encoding is stored around."""
+def _looped_clip(settle: SettleLoops) -> SourceClip:
+    """A periodic pad with the loops the stage offers for it, one of which a looped encoding is stored around."""
     signal = harmonic_tone(dur=_HELD_S)
     return SourceClip(
         signal=signal,
@@ -78,22 +79,40 @@ def _looped_clip(settle: SettleLoop) -> SourceClip:
 
 
 def test_looping_a_periodic_clip_saves_bytes_at_similar_quality(
-    sweep_context: SweepContext, settle: SettleLoop
+    sweep_context: SweepContext, settle: SettleLoops
 ) -> None:
     clip = _looped_clip(settle)
     plain = evaluate_encoding(clip, stored_as(SR, trim_s=_HELD_S), sweep_context)
-    looped = evaluate_encoding(clip, stored_as(SR, looped=True, trim_s=_HELD_S), sweep_context)
+    looped = evaluate_encoding(clip, stored_as(SR, loop_index=_CHEAPEST, trim_s=_HELD_S), sweep_context)
     assert looped.stored_bytes < plain.stored_bytes // 2  # dropping the 3 s sustain tail is a big saving
     assert looped.distortion < 0.1  # the whole-period loop reconstructs the exactly-periodic tone
 
 
 def test_looping_is_pareto_optimal_on_the_frontier_when_it_helps(
-    sweep_context: SweepContext, settle: SettleLoop
+    sweep_context: SweepContext, settle: SettleLoops
 ) -> None:
     clip = _looped_clip(settle)
-    offered = [stored_as(rate, looped=looped, trim_s=_HELD_S) for rate in (SR, 11_025) for looped in (False, True)]
+    offered = [
+        stored_as(rate, loop_index=index, trim_s=_HELD_S) for rate in (SR, 11_025) for index in (UNLOOPED, _CHEAPEST)
+    ]
     hull = lower_convex_hull([evaluate_encoding(clip, params, sweep_context) for params in offered])
-    assert any(op.params.looped for op in hull)  # a looped config survives onto the hull
+    assert any(op.params.loop_index is not None for op in hull)  # a looped config survives onto the hull
+
+
+def test_each_loop_a_clip_offers_is_an_operating_point_of_its_own(
+    sweep_context: SweepContext, settle: SettleLoops
+) -> None:
+    """Loop length is a rate axis, so every offer has to reach the hull as its own cost/quality point."""
+    clip = _looped_clip(settle)
+    assert len(clip.settled) > 1
+
+    points = [
+        evaluate_encoding(clip, stored_as(SR, loop_index=index, trim_s=_HELD_S), sweep_context)
+        for index in range(len(clip.settled))
+    ]
+
+    assert len({point.stored_bytes for point in points}) == len(points)
+    assert [point.stored_bytes for point in points] == sorted(point.stored_bytes for point in points)
 
 
 def test_the_swept_rates_are_the_ladder_a_recording_reaches_down_to(sweep: Callable[..., SweepConfig]) -> None:

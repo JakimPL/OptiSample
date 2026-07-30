@@ -7,7 +7,7 @@ import numpy as np
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import BandwidthConfig
 from optisample.dsp.spectral import content_edge_hz
-from optisample.dsp.surrogate import EncodingParams, Signal
+from optisample.dsp.surrogate import UNLOOPED, EncodingParams, Signal
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.music import semitone_ratio
 from optisample.optimize.operating_points import compresses, sweep_rates
@@ -167,15 +167,17 @@ def stored_encodings(
     sweep: SweepConfig,
     *,
     trim_s: float | None,
-    loops: bool,
+    loops: int,
 ) -> tuple[EncodingParams, ...]:
-    """Every encoding the sweep runs for a sample kept at ``stored``: the trimmed span, then the loop.
+    """Every encoding the sweep runs for a sample kept at ``stored``: the trimmed span, then each loop.
 
-    The format is settled before the sweep starts and the loop is settled before it too, so what the sweep
-    prices is how far the sample carries on past its attack: keeping the played span against keeping the
-    attack plus the one loop region the loop stage chose. ``loops`` states whether that clip has a loop to
-    offer, and the trimmed span leads either way, so the trimmed encoding sits at the same index for every
-    clip and the per-pitch and per-zone sweeps score in one order.
+    The format is settled before the sweep starts and the loops are settled before it too, so what the
+    sweep prices is how far the sample carries on past its attack: keeping the played span, against keeping
+    the attack plus each of the ``loops`` regions the loop stage found. Those regions run from short to
+    long, so the encodings after the first walk a sample's stored length from its cheapest to its most
+    faithful and the hull picks the trades worth keeping. The trimmed span leads however many loops there
+    are, so it sits at the same index for every clip and the per-pitch and per-zone sweeps score in one
+    order.
     """
     trimmed = EncodingParams(
         target_rate=stored.target_rate,
@@ -183,10 +185,7 @@ def stored_encodings(
         trim_s=trim_s,
         dither=sweep.dither,
         noise_shaping=sweep.noise_shaping,
-        looped=False,
+        loop_index=UNLOOPED,
         compress=stored.compress,
     )
-    if not loops:
-        return (trimmed,)
-
-    return (trimmed, replace(trimmed, looped=True))
+    return (trimmed, *(replace(trimmed, loop_index=index) for index in range(loops)))
