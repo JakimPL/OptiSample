@@ -52,10 +52,10 @@ def test_required_duration_scales_the_longest_note_by_the_transposition_headroom
 
 
 def test_required_duration_never_falls_below_what_loop_detection_needs(
-    reduce: ReduceFactory, loop_config: LoopConfig, loop_floor_s: float
+    reduce: ReduceFactory, loop_config: LoopConfig, loop_reserve_s: float
 ) -> None:
     config = reduce(dedupe={"transposition_headroom_semitones": 0})
-    assert required_duration_s(0.01, config, loop_config.geometry) == pytest.approx(loop_floor_s)
+    assert required_duration_s(0.01, config, loop_config.geometry) == pytest.approx(loop_reserve_s)
 
 
 def test_no_headroom_asks_only_for_the_note_itself(reduce: ReduceFactory, loop_config: LoopConfig) -> None:
@@ -70,23 +70,23 @@ def test_the_trim_bounds_what_a_recording_is_ever_asked_to_hold(reduce: ReduceFa
 
 
 def test_the_loop_floor_holds_the_requirement_up_through_the_trim(
-    reduce: ReduceFactory, loop_config: LoopConfig, loop_floor_s: float
+    reduce: ReduceFactory, loop_config: LoopConfig, loop_reserve_s: float
 ) -> None:
     """Loop detection needs its room whatever the trim says, so the floor outranks a shorter bound."""
-    config = reduce(trim={"max_length_s": loop_floor_s / 2})
-    assert required_duration_s(4.0, config, loop_config.geometry) == pytest.approx(loop_floor_s)
+    config = reduce(trim={"max_length_s": loop_reserve_s / 2})
+    assert required_duration_s(4.0, config, loop_config.geometry) == pytest.approx(loop_reserve_s)
 
 
 # --- which recording survives ---------------------------------------------------------------------
 
 
 def test_keeps_the_shortest_recording_that_covers_the_material(
-    reduce: ReduceFactory, loop_config: LoopConfig, wav: Callable[[str, float], Path], loop_floor_s: float
+    reduce: ReduceFactory, loop_config: LoopConfig, wav: Callable[[str, float], Path], loop_reserve_s: float
 ) -> None:
     lengths = {
         "0000_long.wav": 1.5,
-        "0001_enough.wav": loop_floor_s + 0.1,
-        "0002_short.wav": loop_floor_s - UNDER_FLOOR_S,
+        "0001_enough.wav": loop_reserve_s + 0.1,
+        "0002_short.wav": loop_reserve_s - UNDER_FLOOR_S,
     }
     samples = [SourceSample(file=wav(name, length), pitch=60, velocity=100) for name, length in lengths.items()]
 
@@ -100,11 +100,11 @@ def test_keeps_the_shortest_recording_that_covers_the_material(
 
 
 def test_keeps_the_longest_recording_when_none_covers_the_material(
-    reduce: ReduceFactory, loop_config: LoopConfig, wav: Callable[[str, float], Path], loop_floor_s: float
+    reduce: ReduceFactory, loop_config: LoopConfig, wav: Callable[[str, float], Path], loop_reserve_s: float
 ) -> None:
     samples = [
-        SourceSample(file=wav("0000_shorter.wav", loop_floor_s / 3), pitch=60, velocity=100),
-        SourceSample(file=wav("0001_longer.wav", loop_floor_s / 2), pitch=60, velocity=100),
+        SourceSample(file=wav("0000_shorter.wav", loop_reserve_s / 3), pitch=60, velocity=100),
+        SourceSample(file=wav("0001_longer.wav", loop_reserve_s / 2), pitch=60, velocity=100),
     ]
 
     kept = select_recordings(instrument(samples, one_note()), reduce(), loop_config.geometry, NO_PROGRESS)[0]
@@ -119,12 +119,12 @@ def test_the_padding_around_a_note_is_removed_before_a_recording_is_measured(
     reduce: ReduceFactory,
     loop_config: LoopConfig,
     wav: Callable[[str, float], Path],
-    loop_floor_s: float,
+    loop_reserve_s: float,
     lead_in_s: float,
     trail_out_s: float,
 ) -> None:
     """A recording is ranked on the span from its onset to its release, which is all of it that is stored."""
-    recorded_s = loop_floor_s + PADDING_S - UNDER_FLOOR_S  # padding aside, a span the floor outruns
+    recorded_s = loop_reserve_s + PADDING_S - UNDER_FLOOR_S  # padding aside, a span the floor outruns
     padded = SourceSample(
         file=wav("0000_padded.wav", recorded_s),
         pitch=60,
@@ -161,9 +161,9 @@ def test_padding_longer_than_the_recording_measures_as_empty(
 
 
 def test_a_pitch_the_material_never_plays_only_has_to_satisfy_the_loop_floor(
-    reduce: ReduceFactory, loop_config: LoopConfig, wav: Callable[[str, float], Path], loop_floor_s: float
+    reduce: ReduceFactory, loop_config: LoopConfig, wav: Callable[[str, float], Path], loop_reserve_s: float
 ) -> None:
-    unplayed = SourceSample(file=wav("0000_unplayed.wav", loop_floor_s + 0.1), pitch=72, velocity=100)
+    unplayed = SourceSample(file=wav("0000_unplayed.wav", loop_reserve_s + 0.1), pitch=72, velocity=100)
     played = SourceSample(file=wav("0001_played.wav", 2.0), pitch=60, velocity=100)
 
     selections = select_recordings(
@@ -171,7 +171,7 @@ def test_a_pitch_the_material_never_plays_only_has_to_satisfy_the_loop_floor(
     )
 
     by_pitch = {selection.key.pitch: selection for selection in selections}
-    assert by_pitch[72].required_duration_s == pytest.approx(loop_floor_s)
+    assert by_pitch[72].required_duration_s == pytest.approx(loop_reserve_s)
     assert by_pitch[72].covers_material
 
 
@@ -223,11 +223,11 @@ def test_selections_come_back_in_key_order(
 
 
 def test_a_pitch_only_key_collapses_every_velocity_into_one_survivor(
-    reduce: ReduceFactory, loop_config: LoopConfig, wav: Callable[[str, float], Path], loop_floor_s: float
+    reduce: ReduceFactory, loop_config: LoopConfig, wav: Callable[[str, float], Path], loop_reserve_s: float
 ) -> None:
     samples = [
         SourceSample(file=wav("0000_quiet.wav", 1.5), pitch=60, velocity=40),
-        SourceSample(file=wav("0001_loud.wav", loop_floor_s + 0.1), pitch=60, velocity=110),
+        SourceSample(file=wav("0001_loud.wav", loop_reserve_s + 0.1), pitch=60, velocity=110),
     ]
     config = reduce(dedupe={"key": DedupeKey.PITCH})
 

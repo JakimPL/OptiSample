@@ -33,7 +33,7 @@ from trackmod.module.protocol import TrackerModule
 
 Recordings = Callable[..., StoredRecordings]
 
-_GROUPED_BUDGET_KB = 8.0
+_GROUPED_BUDGET_KB = 5.0
 _LAYERED_BUDGET_KB = 96.0  # room for a sample per key of every band, so a velocity split is affordable
 
 

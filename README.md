@@ -233,11 +233,15 @@ as the note is held — which is what lets a note held for a minute cost a secon
 
 Where a note turns periodic, how long a loop holds its timbre, and whether the wrap is clean are properties
 of the recording rather than of the budget, so **a stage of its own settles them** (`src/opticonfig/loop/`),
-ahead of the reduction and at the rate the analysis runs at. Each recording is offered the loops its
-geometry allows — `placements` starts through the sustain, each at the lengths `length_multiples` asks for
-and each clearing the `min_loop_s` floor and the window a spectrum is read over — ordered cheapest first,
-meaning earliest and shortest. Every one clearing all three quality gates is **offered**, and every
-candidate is long enough for all three to have measured it:
+ahead of the reduction and at the rate the analysis runs at. The sustain a loop is taken from **opens where
+the recording's own sound settles**: each note is read as a series of log-mel frames spanning three periods
+of its own pitch, each frame stated past the level it was played at, and the window opens where that shape
+slows to `settle_db_per_s` and holds there (`loop/features.yaml`). On 60 real Piano recordings that lands
+anywhere from the first frame to **half a second** in, against the fixed 50 ms every note used to be given.
+Inside that window each recording is offered the loops its geometry allows — `placements` starts, each at
+the lengths `length_multiples` asks for and each clearing the `min_loop_s` floor and the window a spectrum
+is read over — ordered cheapest first, meaning earliest and shortest. Every one clearing all three quality
+gates is **offered**, and every candidate is long enough for all three to have measured it:
 
 ```yaml
 max_seam_step: 4.0              # wrap step, in units of the frame-to-frame motion the waveform makes there
@@ -249,9 +253,9 @@ The gates say which loops a recording supports at all; **a budget says which of 
 Tighten the gates and the cheap loops drop out of the offer, and a recording with nothing clearing them is
 stored over the span its material plays instead. Every candidate turned down is kept beside the ones
 offered, naming the gate it fell outside, so `loops.json` states the whole case. On 60 real Piano
-recordings the ladder offers a median of **4** loops that all clear the gates, spanning **4.66×** in stored
+recordings the ladder offers a median of **4** loops that all clear the gates, spanning **3.37×** in stored
 bytes between the cheapest and the dearest — a rate axis the allocation now gets to price rather than a
-single choice made before it. Settling once, at the analysis rate, is also what lets the seam be measured
+single choice made before it — and **57 of the 60** recordings carry one. Settling once, at the analysis rate, is also what lets the seam be measured
 on the resolution a 440 Hz note actually has — 109 frames per cycle at 48 kHz against 18 at 8 kHz.
 
 ### Making the wrap inaudible

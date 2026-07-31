@@ -9,7 +9,14 @@ from optisample.config import OptiConfig, load_config
 from optisample.config.codec import EncodeConfig, QuantizeConfig
 from optisample.config.dynamics import DynamicsConfig
 from optisample.config.layers import LayersConfig
-from optisample.config.loop import EnvelopeConfig, GeometryConfig, LoopConfig, QualityConfig, SeamConfig
+from optisample.config.loop import (
+    EnvelopeConfig,
+    FeatureConfig,
+    GeometryConfig,
+    LoopConfig,
+    QualityConfig,
+    SeamConfig,
+)
 from optisample.config.metrics import MetricsConfig
 from optisample.config.optimize import (
     BudgetConfig,
@@ -95,6 +102,11 @@ def geometry_config(config: OptiConfig) -> GeometryConfig:
 
 
 @pytest.fixture
+def features_config(config: OptiConfig) -> FeatureConfig:
+    return config.loop.features
+
+
+@pytest.fixture
 def seam_config(config: OptiConfig) -> SeamConfig:
     return config.loop.seam
 
@@ -110,15 +122,26 @@ def quality_config(config: OptiConfig) -> QualityConfig:
 
 
 @pytest.fixture
-def loop_floor_s(config: OptiConfig) -> float:
-    """The span loop detection asks of a recording: the attack it skips, the shortest loop, and the tail.
+def loop_reserve_s(config: OptiConfig) -> float:
+    """The span the reduce stage reserves for a loop search: the longest onset it waits through, the loop, the tail.
 
-    A test wanting material a loop fits inside states a length above this, and one wanting material stored
-    over the span it plays states a length under it, so both read off the shipped geometry rather than a
-    number that happened to sit on the right side of it.
+    A test reading what a kept recording is asked to hold states its lengths against this, so it reads off
+    the shipped geometry rather than a number that happened to sit on the right side of it.
     """
     geometry = config.loop.geometry
-    return geometry.attack_skip_s + geometry.min_loop_s + geometry.tail_skip_s
+    return geometry.max_attack_s + geometry.min_loop_s + geometry.tail_skip_s
+
+
+@pytest.fixture
+def loop_room_s(config: OptiConfig) -> float:
+    """The span a recording holding one sound needs for a loop to fit inside it.
+
+    Material that settles at once opens its window where a wrap has material to blend into, so what a loop
+    asks of such a recording is that blend, the shortest loop accepted, and the tail left alone. A test
+    wanting material a loop fits inside states a length above this, and one wanting material stored over
+    the span it plays states a length under it.
+    """
+    return config.loop.seam.min_fade_s + config.loop.geometry.min_loop_s + config.loop.geometry.tail_skip_s
 
 
 @pytest.fixture

@@ -3,10 +3,10 @@ from typing import Final
 
 import numpy as np
 from numpy.typing import NDArray
-from scipy.signal import fftconvolve
 
 from optisample.config.loop import EnvelopeConfig
 from optisample.dsp.levels import db_to_gain, gain_to_db, peak_amplitude
+from optisample.dsp.series import hann_kernel, weighted_mean
 
 Signal = NDArray[np.float64]
 
@@ -69,9 +69,7 @@ def power_kernel(sample_rate: int, frequency: float) -> Signal:
 
     The tap count is odd, so the weighting reads each frame from the material centred on it.
     """
-    span = round(_PERIODS_PER_KERNEL * sample_rate / frequency)
-    weighting = np.hanning(span + span % 2 + 1)
-    return np.asarray(weighting / np.sum(weighting), dtype=np.float64)
+    return hann_kernel(round(_PERIODS_PER_KERNEL * sample_rate / frequency))
 
 
 def reading_frequency(config: EnvelopeConfig, root_hz: float) -> float:
@@ -96,16 +94,6 @@ def level_reading(sample_rate: int, config: EnvelopeConfig, root_hz: float) -> L
     )
 
 
-def _weighted_mean(values: Signal, kernel: Signal) -> Signal:
-    """The mean of ``values`` around each of its frames under ``kernel``, over the weight it covers there.
-
-    Dividing by the weight landing inside the stretch keeps the first and last frames a mean of the material
-    that is there, so the curve holds its level at both ends of a recording.
-    """
-    covered = fftconvolve(np.ones_like(values), kernel, mode="same")
-    return np.asarray(fftconvolve(values, kernel, mode="same") / covered, dtype=np.float64)
-
-
 def local_level_over(signal: Signal, reading: LevelReading, *, start: int, end: int) -> Signal:
     """The level ``signal`` holds over ``[start, end)``, read with the material around it the weighting spans.
 
@@ -121,7 +109,7 @@ def local_level_over(signal: Signal, reading: LevelReading, *, start: int, end: 
     low, high = max(0, start - reading.reach), min(signal.size, end + reading.reach)
     read = np.asarray(signal[low:high], dtype=np.float64)
     floor = max(db_to_gain(-reading.floor_db) * peak_amplitude(signal), _QUIET_LEVEL)
-    level = np.sqrt(np.maximum(_weighted_mean(read**2, reading.kernel), 0.0) + floor**2)
+    level = np.sqrt(np.maximum(weighted_mean(read**2, reading.kernel), 0.0) + floor**2)
     return np.asarray(level[start - low : end - low], dtype=np.float64)
 
 

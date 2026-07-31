@@ -63,12 +63,13 @@ def test_a_longer_offer_stores_more_of_the_recording_than_a_cheaper_one(loop: Lo
     assert max(ends) > 2 * min(ends)
 
 
-def test_a_loop_is_offered_no_earlier_than_the_attack_the_geometry_skips(loop: LoopFactory) -> None:
+def test_a_loop_is_offered_no_earlier_than_the_material_a_wrap_blends_into(loop: LoopFactory) -> None:
+    """A tone holds one sound throughout, so what places its window is the blend its wrap reaches back for."""
     config = loop(quality=_WIDE_OPEN)
     settlement = settle_loop(_tone(), SR, config, root_hz=_FREQ, search_s=_HELD_S)
 
     assert settlement.loops
-    earliest = round(config.geometry.attack_skip_s * SR) - round(SR / _FREQ)
+    earliest = round(config.seam.min_fade_s * SR) - round(SR / _FREQ)
     assert all(stored.loop.start >= earliest for stored in settlement.offered)
 
 
@@ -169,7 +170,7 @@ def test_material_no_loop_has_purchase_on_settles_none_and_names_nothing(loop: L
 
 def test_a_recording_shorter_than_the_shortest_accepted_loop_settles_none(loop: LoopFactory) -> None:
     config = loop(quality=_WIDE_OPEN)
-    brief = config.geometry.attack_skip_s + config.geometry.min_loop_s / 2
+    brief = config.seam.min_fade_s + config.geometry.min_loop_s / 2
 
     settlement = settle_loop(_tone(brief), SR, config, root_hz=_FREQ, search_s=brief)
 

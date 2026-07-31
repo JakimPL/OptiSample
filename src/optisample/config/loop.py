@@ -12,9 +12,12 @@ class GeometryConfig(ConfigModel):
     ``detune_semitones`` is how far either side of the pitch a recording was played at its period is
     searched for, which leaves room for the tuning the instrument was recorded at and for the stretch a
     piano's own strings carry; ``min_correlation`` is the autocorrelation peak a recording clears to count
-    as periodic at all, and together the two say which material a loop has purchase on. ``attack_skip_s`` and
-    ``tail_skip_s`` bound the steady window a loop is placed inside, so a loop begins past the onset
-    transient and ends before the release. ``min_periods`` and ``min_loop_s`` together set the shortest loop
+    as periodic at all, and together the two say which material a loop has purchase on. ``max_attack_s`` and
+    ``tail_skip_s`` bound the steady window a loop is placed inside: the window opens where the recording's
+    own material settles (:func:`~optisample.dsp.similarity.settling_frame`) and ``max_attack_s`` holds that
+    to a stretch every note leaves room past, which is also the room the reduce stage reserves for a loop
+    search (:func:`~optisample.optimize.reduce.dedupe.required_duration_s`); ``tail_skip_s`` closes it
+    before the release. ``min_periods`` and ``min_loop_s`` together set the shortest loop
     that may be stored, which every candidate clears, alongside the analysis window the quality gates read a
     candidate over (:func:`~optisample.dsp.loop.shortest_loop_frames`) -- so however short a floor is asked
     for, the loop offered is one every gate measured.
@@ -31,9 +34,42 @@ class GeometryConfig(ConfigModel):
     min_loop_s: Annotated[float, Field(gt=0.0)]
     placements: Annotated[int, Field(ge=1)]
     length_multiples: Annotated[tuple[Annotated[int, Field(ge=1)], ...], Field(min_length=1)]
-    attack_skip_s: Annotated[float, Field(ge=0.0)]
+    max_attack_s: Annotated[float, Field(ge=0.0)]
     tail_skip_s: Annotated[float, Field(ge=0.0)]
     max_estimation_s: Annotated[float, Field(gt=0.0)]
+
+
+class FeatureConfig(ConfigModel):
+    """How a recording is read as a series of timbre frames, which is where its own onset is found.
+
+    Each frame carries a log-mel spectrum with that frame's own mean level taken out
+    (:func:`~optisample.dsp.similarity.frame_series`), so two moments of a recording compare on the sound
+    they hold and a note ringing its way down reads the same shape however far it has decayed.
+
+    ``window_periods`` states the stretch one frame spans as periods of the pitch the recording was played
+    at, so a deep note is read over a window that resolves its own partials while a high note is read over
+    a proportionally shorter one; ``min_window_s`` floors that stretch, which keeps the highest notes'
+    frames long enough to carry a spectrum, and ``hop_share`` is the step between frames as a share of the
+    window. ``bands`` is how many mel bands one shape is read over and ``dynamic_range_db`` the range each
+    frame states its shape across, under that frame's own loudest band, which is what has a frame late in
+    a decay read as fully as the attack was.
+
+    ``change_span_s`` is the stretch the shape's travel is measured across
+    (:func:`~optisample.dsp.similarity.change_rate`), which is what leaves the movement of the material in
+    the reading and divides the wobble of two overlapping windows out of it; it is also how long the rate
+    has to hold before the material counts as settled, so one reading dipping on its own noise is read as
+    the noise it is. ``settle_db_per_s`` is that rate -- the threshold saying where a note's onset ends and
+    the stretch a loop may be taken from begins. Set it just above the rate a note holds while it sustains,
+    so what it excludes is the transient.
+    """
+
+    window_periods: Annotated[int, Field(ge=1)]
+    min_window_s: Annotated[float, Field(gt=0.0)]
+    hop_share: Annotated[float, Field(gt=0.0, le=1.0)]
+    bands: Annotated[int, Field(ge=1)]
+    dynamic_range_db: Annotated[float, Field(gt=0.0)]
+    change_span_s: Annotated[float, Field(gt=0.0)]
+    settle_db_per_s: Annotated[float, Field(gt=0.0)]
 
 
 class EnvelopeConfig(ConfigModel):
@@ -109,6 +145,7 @@ class LoopConfig(StageConfig):
     """How one recording is looped: where the loop sits, the level it is held at, its wrap, and its gates."""
 
     geometry: GeometryConfig
+    features: FeatureConfig
     envelope: EnvelopeConfig
     seam: SeamConfig
     quality: QualityConfig

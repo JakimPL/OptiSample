@@ -177,8 +177,8 @@ def test_run_instrument_reads_wavs_from_disk(
 def test_load_instrument_audio_decodes_the_recording_dedup_kept(tmp_path: Path) -> None:
     long_path = tmp_path / "0000_p60_v100.wav"
     short_path = tmp_path / "0001_p60_v100.wav"
-    write_wav(long_path, note(60, 100, dur=0.8), SR)
-    write_wav(short_path, note(60, 100, dur=0.6), SR)  # same key, still covers the 0.2 s note
+    write_wav(long_path, note(60, 100, dur=1.2), SR)
+    write_wav(short_path, note(60, 100, dur=1.0), SR)  # same key, still covers the 0.2 s note
     inst = InstrumentSpec(
         id="piano",
         budget_kb=64.0,

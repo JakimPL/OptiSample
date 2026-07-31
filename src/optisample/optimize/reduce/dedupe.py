@@ -72,11 +72,13 @@ def required_duration_s(longest_note_s: float, reduce: ReduceConfig, geometry: G
     :func:`~optisample.music.semitone_ratio`, consuming stored frames at that rate, so the longest note at
     the pitch grows by the ratio of ``transposition_headroom_semitones``. The trim's ``max_length_s``
     bounds that, since a recording is only ever asked for the span the trim keeps. Loop detection
-    separately needs room to work in -- the attack it skips, the shortest loop it accepts, and the tail it
-    leaves alone -- which holds the requirement up wherever the trim would cut under it.
+    separately needs room to work in -- the longest onset it will wait through, the shortest loop it
+    accepts, and the tail it leaves alone -- which holds the requirement up wherever the trim would cut
+    under it. The onset each recording makes is read off the recording itself, so what is reserved here is
+    the room the search is willing to wait, which is the length that leaves every note a loop to find.
     """
     transposed = longest_note_s * semitone_ratio(reduce.dedupe.transposition_headroom_semitones)
-    loop_floor = geometry.attack_skip_s + geometry.min_loop_s + geometry.tail_skip_s
+    loop_floor = geometry.max_attack_s + geometry.min_loop_s + geometry.tail_skip_s
     return max(min(transposed, reduce.trim.max_length_s), loop_floor)
 
 

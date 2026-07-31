@@ -10,7 +10,10 @@ from optisample.config.spectral import StftParams
 from optisample.dsp.envelope import LevelReading, local_level_over
 from optisample.dsp.levels import gain_to_db
 from optisample.dsp.resample import resampled_frame_count
+from optisample.dsp.series import autocorrelation, refined_lag
+from optisample.dsp.similarity import frame_series, settling_frame
 from optisample.dsp.spectral import stft_magnitude
+from optisample.dsp.timebase import seconds_to_frames
 from optisample.music import semitone_ratio
 
 Signal = NDArray[np.float64]
@@ -23,7 +26,6 @@ _QUALITY_HOP: Final = 512
 _AMPLITUDE_DB: Final = 20.0  # decibels per decade of amplitude
 _SPECTRUM_FLOOR: Final = 1e-10
 _STEP_FLOOR: Final = 1e-12
-_PEAK_CURVATURE: Final = 1e-12  # concavity a peak holds for a parabola to read a lag between frames
 _MATCH_SHARE: Final = 2  # share of a period the matched end is searched on either side of a whole count
 _CORRELATION_FLOOR: Final = 1e-24  # product of two norms a silent stretch reaches, which correlates with nothing
 _MAX_LEVEL_GAIN: Final = 4.0  # +12 dB, the most holding a region at one level asks of the material
@@ -67,40 +69,6 @@ class _SteadyRegion:
     period: float
 
 
-def _autocorrelation(signal: Signal) -> Signal:
-    """Unbiased-enough autocorrelation via FFT (lags ``0..n-1``), normalized so lag 0 == 1."""
-    centered = signal - float(np.mean(signal))
-    length = centered.size
-    size = 1 << int(np.ceil(np.log2(2 * length)))
-    spectrum = np.fft.rfft(centered, size)
-    correlation = np.fft.irfft(spectrum * np.conj(spectrum), size)[:length]
-    if correlation[0] <= 0.0:
-        return np.zeros(length, dtype=np.float64)
-    return np.asarray(correlation / correlation[0], dtype=np.float64)
-
-
-def _refined_lag(correlation: Signal, lag: int) -> float:
-    """The lag the autocorrelation peaks at, read between frames by the parabola through its top three.
-
-    A peak read to the nearest frame sits up to half a frame from the material's own cycle, and a loop spans
-    several periods, so that error accumulates into a wrap landing part-way through a cycle. Fitting a
-    parabola to the peak and its two neighbours states the lag to a fraction of a frame, which is what lets
-    a whole number of periods mean what it says at every rate a recording is analysed at.
-
-    A peak on the first or last lag searched, or one the neighbours make no concave top with, is read at its
-    own frame -- there is no parabola through it to place the lag between frames.
-    """
-    if lag <= 0 or lag >= correlation.size - 1:
-        return float(lag)
-
-    before, peak, after = float(correlation[lag - 1]), float(correlation[lag]), float(correlation[lag + 1])
-    curvature = before - 2.0 * peak + after
-    if curvature > -_PEAK_CURVATURE:
-        return float(lag)
-
-    return float(lag) + float(np.clip(0.5 * (before - after) / curvature, -0.5, 0.5))
-
-
 def _searched_lags(sample_rate: int, config: GeometryConfig, root_hz: float) -> tuple[int, int]:
     """The lags a recording played at ``root_hz`` has its period searched over, widest lag last.
 
@@ -122,7 +90,8 @@ def _estimate_period(
     """Fundamental period in frames, from the strongest autocorrelation peak near the pitch the note was played at.
 
     The pitch is known from the key the recording sounds, so the search runs over the lags that pitch makes
-    (:func:`_searched_lags`) and the peak found there is read between frames (:func:`_refined_lag`).
+    (:func:`_searched_lags`) and the peak found there is read between frames
+    (:func:`~optisample.dsp.series.refined_lag`).
 
     Returns ``None`` when the signal spans fewer than ``_MIN_STEADY_FRAMES``, holds less than one period of
     its own pitch, or peaks below ``config.min_correlation`` -- material a loop has no purchase on, either
@@ -131,7 +100,7 @@ def _estimate_period(
     if signal.size < _MIN_STEADY_FRAMES:
         return None
 
-    correlation = _autocorrelation(signal)
+    correlation = autocorrelation(signal)
     low, widest = _searched_lags(sample_rate, config, root_hz)
     high = min(signal.size - 1, widest)
     if high < low:
@@ -141,7 +110,7 @@ def _estimate_period(
     if correlation[lag] < config.min_correlation:
         return None
 
-    return _refined_lag(correlation, lag)
+    return refined_lag(correlation, lag)
 
 
 def _snap_ascending_zero(signal: Signal, index: int, radius: int) -> int:
@@ -156,21 +125,31 @@ def _snap_ascending_zero(signal: Signal, index: int, radius: int) -> int:
     return best
 
 
-def _steady_bounds(
-    signal: Signal,
-    sample_rate: int,
-    config: GeometryConfig,
-) -> tuple[int, int]:
-    """The ``[attack, tail)`` frame window to analyse: past the onset transient, before the release."""
-    attack = int(config.attack_skip_s * sample_rate)
-    tail = signal.size - int(config.tail_skip_s * sample_rate)
-    return attack, tail
+def _steady_tail(signal: Signal, sample_rate: int, config: GeometryConfig) -> int:
+    """The frame the steady window closes at, which leaves the release the recording ends on alone."""
+    return signal.size - seconds_to_frames(config.tail_skip_s, sample_rate)
+
+
+def _settled_frame(signal: Signal, sample_rate: int, config: LoopConfig, root_hz: float) -> int:
+    """The frame the steady window opens at: where this recording's own material settles.
+
+    The onset is read off the recording (:func:`~optisample.dsp.similarity.settling_frame`), so a note
+    whose partials are still dying away at 300 ms opens its window there while one that holds its sound
+    from the moment it begins opens at the start. Two bounds hold that reading to a window a loop can be
+    taken from: ``min_fade_s`` is the material a wrap has to blend into, which is the earliest a region may
+    begin, and ``max_attack_s`` is the longest the search waits, so material whose shape keeps moving still
+    offers the rest of itself.
+    """
+    series = frame_series(signal, sample_rate, config.features, root_hz)
+    earliest = seconds_to_frames(config.seam.min_fade_s, sample_rate)
+    latest = seconds_to_frames(config.geometry.max_attack_s, sample_rate)
+    return min(max(settling_frame(series, config.features), earliest), latest)
 
 
 def _steady_region(
     signal: Signal,
     sample_rate: int,
-    config: GeometryConfig,
+    config: LoopConfig,
     root_hz: float,
 ) -> _SteadyRegion | None:
     """The window a loop may be placed in, together with the period it repeats at.
@@ -183,12 +162,14 @@ def _steady_region(
     Returns ``None`` for material a loop has no purchase on: a steady window shorter than
     ``_MIN_STEADY_FRAMES``, or one carrying no reliable period.
     """
-    attack, tail = _steady_bounds(signal, sample_rate, config)
+    attack = _settled_frame(signal, sample_rate, config, root_hz)
+    tail = _steady_tail(signal, sample_rate, config.geometry)
     if tail - attack < _MIN_STEADY_FRAMES:
         return None
 
-    window = signal[attack : min(tail, attack + int(config.max_estimation_s * sample_rate))]
-    period = _estimate_period(window, sample_rate, config, root_hz)
+    estimated = seconds_to_frames(config.geometry.max_estimation_s, sample_rate)
+    window = signal[attack : min(tail, attack + estimated)]
+    period = _estimate_period(window, sample_rate, config.geometry, root_hz)
     if period is None:
         return None
 
@@ -285,17 +266,17 @@ def _placements(signal: Signal, region: _SteadyRegion, shortest: int, config: Ge
 def loop_candidates(
     signal: Signal,
     sample_rate: int,
-    config: GeometryConfig,
+    config: LoopConfig,
     root_hz: float,
 ) -> tuple[Loop, ...]:
     """Every forward loop worth offering for ``signal``, the ladder a settlement chooses from.
 
     Each candidate begins at an ascending zero crossing, spans about a whole number of periods of the
     material (read off the pitch it was played at by :func:`_estimate_period`) with its end matched to the
-    phase the start approaches on
-    (:func:`_matched_end`), and lies inside the steady region between the attack skip and the tail skip.
-    Placement runs outermost and length innermost, so the ladder covers both axes: the loop the attack leads
-    into at each accepted length, then the same at placements further into the note.
+    phase the start approaches on (:func:`_matched_end`), and lies inside the steady region between the
+    frame the recording's own material settles at (:func:`_settled_frame`) and the tail skip. Placement runs
+    outermost and length innermost, so the ladder covers both axes: the loop the attack leads into at each
+    accepted length, then the same at placements further into the note.
 
     Storing a candidate keeps ``[0, loop.end)`` -- the attack plus one loop region -- and the sustain
     tail past it is where the bytes are saved. Lengths are the multiples of the shortest accepted loop
@@ -310,10 +291,11 @@ def loop_candidates(
     if region is None:
         return ()
 
-    shortest = shortest_loop_frames(region.period, sample_rate, config)
+    geometry = config.geometry
+    shortest = shortest_loop_frames(region.period, sample_rate, geometry)
     found: list[Loop] = []
-    for start in _placements(signal, region, shortest, config):
-        for multiple in config.length_multiples:
+    for start in _placements(signal, region, shortest, geometry):
+        for multiple in geometry.length_multiples:
             fitted = _fitted_length(start, shortest * multiple, region, shortest)
             if fitted is not None:
                 found.append(Loop(start, _matched_end(signal, start, fitted, region, shortest)))
@@ -493,7 +475,7 @@ def loop_quality(
     read off the recording as it stands, which is the fall levelling had to flatten.
     """
     prepared = prepare_loop(signal, loop, sample_rate, config.seam, reading)
-    _, tail = _steady_bounds(signal, sample_rate, config.geometry)
+    tail = _steady_tail(signal, sample_rate, config.geometry)
     return LoopQuality(
         seam_step=_seam_step(prepared, loop),
         level_drift_db=_level_drift_db(signal, loop, reading),

@@ -12,7 +12,6 @@ from optisample.dsp.levels import gain_to_db
 from optisample.dsp.loop import (
     _QUALITY_FFT,
     Loop,
-    _autocorrelation,
     _estimate_period,
     _searched_lags,
     crossfade_loop,
@@ -47,10 +46,19 @@ def _reading(config: EnvelopeConfig, root_hz: float = FREQ) -> LevelReading:
     return level_reading(SR, config, root_hz)
 
 
-def _cheapest(signal: NDArray[np.float64], config: GeometryConfig, root_hz: float = FREQ) -> Loop | None:
+def _cheapest(signal: NDArray[np.float64], config: LoopConfig, root_hz: float = FREQ) -> Loop | None:
     """The front of the ladder a settlement climbs: the earliest, shortest loop the geometry allows."""
     candidates = sorted(loop_candidates(signal, SR, config, root_hz), key=lambda loop: (loop.end, loop.start))
     return candidates[0] if candidates else None
+
+
+def _earliest_start(config: LoopConfig) -> int:
+    """The frame a steady tone opens its window at, which is where its candidates may begin.
+
+    Material holding one sound settles from the moment it starts, so what places the window is the blend
+    a wrap reaches back for: ``min_fade_s`` of material before the region.
+    """
+    return round(config.seam.min_fade_s * SR)
 
 
 def _wrap_mismatch(signal: NDArray[np.float64], loop: Loop) -> float:
@@ -93,37 +101,37 @@ def test_a_period_falling_between_frames_is_read_between_them(geometry_config: G
     assert abs(period - round(period)) > 0.05  # the frame it would have been read at sits elsewhere
 
 
-def test_the_cheapest_candidate_on_a_pure_tone_is_an_integer_number_of_periods(geometry_config: GeometryConfig) -> None:
-    loop = _cheapest(_sine(SR), geometry_config)
+def test_the_cheapest_candidate_on_a_pure_tone_is_an_integer_number_of_periods(loop_config: LoopConfig) -> None:
+    loop = _cheapest(_sine(SR), loop_config)
     assert loop is not None
     assert loop.length % PERIOD == 0
     assert loop.length >= 3 * PERIOD  # at least the minimum periods
-    assert loop.start >= int(0.05 * SR) - PERIOD  # after the skipped attack (within a period of it)
+    assert loop.start >= _earliest_start(loop_config) - PERIOD  # snapping moves a start by a period
     assert loop.end <= SR
 
 
-def test_the_cheapest_candidate_declines_on_noise(geometry_config: GeometryConfig) -> None:
+def test_the_cheapest_candidate_declines_on_noise(loop_config: LoopConfig) -> None:
     rng = np.random.default_rng(0)
-    assert _cheapest(rng.standard_normal(SR), geometry_config) is None
+    assert _cheapest(rng.standard_normal(SR), loop_config) is None
 
 
-def test_a_decaying_tone_loops_where_it_holds_a_period(geometry_config: GeometryConfig) -> None:
+def test_a_decaying_tone_loops_where_it_holds_a_period(loop_config: LoopConfig) -> None:
     # A struck note is pitched throughout its decay, and the level its loop settles on is brought down
     # outside the PCM (optisample.dsp.decay), so it is stored as attack plus loop like any other tone.
     decay = np.exp(-np.arange(2 * SR, dtype=np.float64) / (0.6 * SR))
-    loop = _cheapest(decay * _sine(2 * SR), geometry_config)
+    loop = _cheapest(decay * _sine(2 * SR), loop_config)
 
     assert loop is not None
     assert loop.length % PERIOD == 0
 
 
-def test_the_cheapest_candidate_declines_on_a_too_short_signal(geometry_config: GeometryConfig) -> None:
-    assert _cheapest(_sine(4), geometry_config) is None
+def test_the_cheapest_candidate_declines_on_a_too_short_signal(loop_config: LoopConfig) -> None:
+    assert _cheapest(_sine(4), loop_config) is None
 
 
-def test_looping_a_tone_reproduces_its_continuation(geometry_config: GeometryConfig) -> None:
+def test_looping_a_tone_reproduces_its_continuation(loop_config: LoopConfig) -> None:
     signal = _sine(SR)
-    loop = _cheapest(signal, geometry_config)
+    loop = _cheapest(signal, loop_config)
     assert loop is not None
     extend = 5 * loop.length
     segment = signal[loop.start : loop.end]
@@ -187,10 +195,6 @@ def test_a_blend_of_material_that_repeats_exactly_leaves_it_as_it_was() -> None:
 # --- degenerate inputs ---------------------------------------------------------------------------
 
 
-def test_autocorrelation_of_silence_is_zero() -> None:
-    assert np.array_equal(_autocorrelation(np.zeros(64)), np.zeros(64))
-
-
 def test_estimate_period_rejects_short_and_degenerate_windows(geometry_config: GeometryConfig) -> None:
     assert _estimate_period(np.zeros(4), SR, geometry_config, FREQ) is None  # too few frames
     assert _estimate_period(_sine(20), 100_000, geometry_config, FREQ) is None  # under one period of its own pitch
@@ -198,11 +202,11 @@ def test_estimate_period_rejects_short_and_degenerate_windows(geometry_config: G
 
 
 def test_the_cheapest_candidate_declines_where_the_steady_region_holds_less_than_the_floor(
-    geometry_config: GeometryConfig,
+    loop_config: LoopConfig,
 ) -> None:
-    # 400 Hz at 8 kHz -> period 20; a 700-frame tone leaves ~140 steady frames after the attack, far under
-    # the floor, so the region has no loop long enough to store.
-    assert _cheapest(_sine(700, freq=400.0), geometry_config, 400.0) is None
+    # 400 Hz at 8 kHz -> period 20; a 700-frame tone leaves under 500 steady frames, far under the floor,
+    # so the region has no loop long enough to store.
+    assert _cheapest(_sine(700, freq=400.0), loop_config, 400.0) is None
 
 
 def test_the_floor_is_read_in_whole_periods_covering_every_bound(geometry_config: GeometryConfig) -> None:
@@ -215,7 +219,7 @@ def test_the_floor_is_read_in_whole_periods_covering_every_bound(geometry_config
 
 
 def test_a_floor_asked_shorter_than_one_analysis_window_still_offers_a_readable_region(
-    geometry_config: GeometryConfig,
+    loop_config: LoopConfig, loop: Callable[..., LoopConfig]
 ) -> None:
     """A gate reading a region too short to hold a spectrum would wave it through, so none is offered.
 
@@ -223,81 +227,98 @@ def test_a_floor_asked_shorter_than_one_analysis_window_still_offers_a_readable_
     however high the material is pitched, the candidate the ladder offers is one the timbre gate measured.
     """
     high_freq = 800.0
-    asked = geometry_config.model_copy(update={"min_loop_s": 1e-4, "min_periods": 1})
+    asked = loop(geometry={**loop_config.geometry.model_dump(), "min_loop_s": 1e-4, "min_periods": 1})
+    candidates = loop_candidates(_sine(4 * SR, freq=high_freq), SR, asked, high_freq)
 
-    assert shortest_loop_frames(SR / high_freq, SR, asked) >= _QUALITY_FFT
-    assert all(
-        loop.length >= _QUALITY_FFT for loop in loop_candidates(_sine(4 * SR, freq=high_freq), SR, asked, high_freq)
-    )
+    assert shortest_loop_frames(SR / high_freq, SR, asked.geometry) >= _QUALITY_FFT
+    assert all(candidate.length >= _QUALITY_FFT for candidate in candidates)
 
 
 # --- the candidates a clip chooses among ----------------------------------------------------------
 
 
-def test_every_candidate_clears_the_floor_and_spans_whole_periods(geometry_config: GeometryConfig) -> None:
-    floor = shortest_loop_frames(PERIOD, SR, geometry_config)
-    candidates = loop_candidates(_sine(4 * SR), SR, geometry_config, FREQ)
+def test_every_candidate_clears_the_floor_and_spans_whole_periods(loop_config: LoopConfig) -> None:
+    floor = shortest_loop_frames(PERIOD, SR, loop_config.geometry)
+    candidates = loop_candidates(_sine(4 * SR), SR, loop_config, FREQ)
 
     assert len(candidates) > 1
     assert all(loop.length >= floor and loop.length % PERIOD == 0 for loop in candidates)
-    assert all(loop.length >= round(geometry_config.min_loop_s * SR) for loop in candidates)
+    assert all(loop.length >= round(loop_config.geometry.min_loop_s * SR) for loop in candidates)
 
 
-def test_the_cheapest_candidate_is_the_one_the_ladder_offers_first(geometry_config: GeometryConfig) -> None:
+def test_the_cheapest_candidate_is_the_one_the_ladder_offers_first(loop_config: LoopConfig) -> None:
     signal = _sine(4 * SR)
-    ladder = sorted(loop_candidates(signal, SR, geometry_config, FREQ), key=lambda loop: (loop.end, loop.start))
+    ladder = sorted(loop_candidates(signal, SR, loop_config, FREQ), key=lambda loop: (loop.end, loop.start))
 
-    assert _cheapest(signal, geometry_config) == ladder[0]
+    assert _cheapest(signal, loop_config) == ladder[0]
 
 
-def test_candidates_run_placement_major_so_a_prefix_reaches_both_axes(geometry_config: GeometryConfig) -> None:
-    candidates = loop_candidates(_sine(4 * SR), SR, geometry_config, FREQ)
+def test_candidates_run_placement_major_so_a_prefix_reaches_both_axes(loop_config: LoopConfig) -> None:
+    candidates = loop_candidates(_sine(4 * SR), SR, loop_config, FREQ)
     starts = [loop.start for loop in candidates]
 
-    assert len(set(starts)) > 1  # placements are spread rather than all landing on the attack skip
+    assert len(set(starts)) > 1  # placements are spread rather than all landing where the window opens
     assert candidates[1].start == candidates[0].start  # the same start is offered at each length first
     assert candidates[1].length > candidates[0].length
     assert candidates[2].start > candidates[0].start
 
 
-def test_candidates_stay_inside_the_steady_region_and_stand_apart(geometry_config: GeometryConfig) -> None:
+def test_candidates_stay_inside_the_steady_region_and_stand_apart(loop_config: LoopConfig) -> None:
     signal = _sine(2 * SR)
-    attack, tail = int(geometry_config.attack_skip_s * SR), signal.size - int(geometry_config.tail_skip_s * SR)
-    candidates = loop_candidates(signal, SR, geometry_config, FREQ)
+    attack = _earliest_start(loop_config)
+    tail = signal.size - round(loop_config.geometry.tail_skip_s * SR)
+    candidates = loop_candidates(signal, SR, loop_config, FREQ)
 
     assert len(set(candidates)) == len(candidates)  # placements snapping together are offered once
     assert all(loop.start >= attack - PERIOD for loop in candidates)  # snapping moves a start by a period
     assert all(loop.end <= tail for loop in candidates)
 
 
+def test_a_note_that_settles_late_has_its_candidates_placed_past_the_stretch_it_settles_over(
+    loop_config: LoopConfig,
+) -> None:
+    """The window opens off the material, so a recording whose sound keeps moving offers only what follows.
+
+    Noise gives way to a steady tone here, which is a spectrum travelling as fast as a shape can and then
+    holding still -- so where the candidates begin states where the reading placed the change.
+    """
+    rng = np.random.default_rng(0)
+    moving = 0.8 * rng.standard_normal(SR // 2)
+    signal = np.concatenate([moving, _sine(4 * SR)])
+    candidates = loop_candidates(signal, SR, loop_config, FREQ)
+
+    assert candidates != ()
+    assert all(loop.start > moving.size // 2 for loop in candidates)
+
+
 def test_a_length_the_region_lacks_room_for_shrinks_onto_the_whole_periods_that_fit(
-    geometry_config: GeometryConfig,
+    loop_config: LoopConfig,
 ) -> None:
     # A tone holding the floor and half of it again has room for one candidate at the floor, and for the
     # length above it only once that length is brought back onto the whole periods left before the tail.
-    floor = shortest_loop_frames(PERIOD, SR, geometry_config)
-    skipped = int((geometry_config.attack_skip_s + geometry_config.tail_skip_s) * SR)
+    floor = shortest_loop_frames(PERIOD, SR, loop_config.geometry)
+    skipped = _earliest_start(loop_config) + round(loop_config.geometry.tail_skip_s * SR)
     signal = _sine(skipped + floor + floor // 2)
-    tail = signal.size - int(geometry_config.tail_skip_s * SR)
-    longest = max(loop_candidates(signal, SR, geometry_config, FREQ), key=lambda loop: loop.length)
+    tail = signal.size - round(loop_config.geometry.tail_skip_s * SR)
+    longest = max(loop_candidates(signal, SR, loop_config, FREQ), key=lambda loop: loop.length)
 
     assert longest.length > floor
     assert longest.length % PERIOD == 0
     assert longest.end <= tail
 
 
-def test_material_a_loop_has_no_purchase_on_offers_no_candidates(geometry_config: GeometryConfig) -> None:
+def test_material_a_loop_has_no_purchase_on_offers_no_candidates(loop_config: LoopConfig) -> None:
     rng = np.random.default_rng(0)
 
-    assert loop_candidates(rng.standard_normal(SR), SR, geometry_config, FREQ) == ()
+    assert loop_candidates(rng.standard_normal(SR), SR, loop_config, FREQ) == ()
 
 
 def test_a_candidate_on_a_period_that_falls_between_frames_wraps_onto_the_material_it_left(
-    geometry_config: GeometryConfig,
+    loop_config: LoopConfig,
 ) -> None:
     """A period rounded to a frame drifts over the hundred rounds a loop spans; matching the end closes it."""
     signal = _sine(4 * SR, freq=UNEVEN_FREQ)
-    loop = _cheapest(signal, geometry_config, UNEVEN_FREQ)
+    loop = _cheapest(signal, loop_config, UNEVEN_FREQ)
     assert loop is not None
 
     whole_frames = round(loop.length / UNEVEN_PERIOD) * round(UNEVEN_PERIOD)
@@ -306,14 +327,14 @@ def test_a_candidate_on_a_period_that_falls_between_frames_wraps_onto_the_materi
     assert _wrap_mismatch(signal, loop) < _wrap_mismatch(signal, rounded)
 
 
-def test_a_matched_end_stays_inside_the_length_the_geometry_laid_out(geometry_config: GeometryConfig) -> None:
+def test_a_matched_end_stays_inside_the_length_the_geometry_laid_out(loop_config: LoopConfig) -> None:
     """Matching moves an end by up to half a period, which leaves every candidate clearing the floor."""
-    floor = shortest_loop_frames(UNEVEN_PERIOD, SR, geometry_config)
-    candidates = loop_candidates(_sine(4 * SR, freq=UNEVEN_FREQ), SR, geometry_config, UNEVEN_FREQ)
+    floor = shortest_loop_frames(UNEVEN_PERIOD, SR, loop_config.geometry)
+    candidates = loop_candidates(_sine(4 * SR, freq=UNEVEN_FREQ), SR, loop_config, UNEVEN_FREQ)
 
     assert candidates != ()
     assert all(loop.length >= floor for loop in candidates)
-    assert all(loop.length >= round(geometry_config.min_loop_s * SR) for loop in candidates)
+    assert all(loop.length >= round(loop_config.geometry.min_loop_s * SR) for loop in candidates)
 
 
 # --- the level a stored region holds ----------------------------------------------------------------
@@ -413,7 +434,7 @@ def test_a_prepared_region_is_held_at_one_level_and_blended_at_its_wrap(envelope
 
 def test_a_crossfaded_seam_reads_as_a_step_the_waveform_itself_could_have_made(loop_config: LoopConfig) -> None:
     signal = _sine(4 * SR)
-    loop = _cheapest(signal, loop_config.geometry)
+    loop = _cheapest(signal, loop_config)
     assert loop is not None
 
     quality = loop_quality(signal, loop, SR, loop_config, _reading(loop_config.envelope))
@@ -424,7 +445,7 @@ def test_a_crossfaded_seam_reads_as_a_step_the_waveform_itself_could_have_made(l
 def test_a_loop_holding_a_timbre_the_material_moves_away_from_reports_the_distance(loop_config: LoopConfig) -> None:
     steady = _sine(2 * SR)
     brightened = steady + 0.5 * _sine(2 * SR, freq=5 * FREQ)
-    loop = _cheapest(steady, loop_config.geometry)
+    loop = _cheapest(steady, loop_config)
     assert loop is not None
 
     held = loop_quality(np.concatenate([steady, steady]), loop, SR, loop_config, _reading(loop_config.envelope))

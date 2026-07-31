@@ -33,9 +33,9 @@ def _tone(freq: float, duration_s: float) -> NDArray[np.float64]:
 
 
 @pytest.fixture
-def brief_s(loop_floor_s: float) -> float:
+def brief_s(loop_room_s: float) -> float:
     """A span the shortest accepted loop outruns, so the pitch holding it is stored over what it plays."""
-    return _BRIEF_SHARE * loop_floor_s
+    return _BRIEF_SHARE * loop_room_s
 
 
 @pytest.fixture

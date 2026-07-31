@@ -118,7 +118,7 @@ def _ladder(signal: Signal, sample_rate: int, config: LoopConfig, root_hz: float
     running from cheap to dear, which is the order a rate-distortion frontier is read along. The start
     breaks ties so one recording climbs the same ladder on every run.
     """
-    candidates = loop_candidates(signal, sample_rate, config.geometry, root_hz)
+    candidates = loop_candidates(signal, sample_rate, config, root_hz)
     return tuple(sorted(candidates, key=lambda loop: (loop.end, loop.start)))
 
 
