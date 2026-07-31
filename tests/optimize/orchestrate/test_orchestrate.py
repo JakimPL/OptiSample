@@ -188,7 +188,7 @@ def test_load_instrument_audio_decodes_the_recording_dedup_kept(tmp_path: Path) 
         ],
         material=[NoteEvent(pitch=60, velocity=100, duration_s=0.2, count=1)],
     )
-    audio = load_instrument_audio(inst, _REDUCE, _LOOP.geometry, NO_PROGRESS).audio
+    audio = load_instrument_audio(inst, _REDUCE, _LOOP, NO_PROGRESS).audio
     expected, _ = read_wav(short_path)
     assert list(audio) == [SampleKey(60, 100)]  # both recordings competed for the one key
     np.testing.assert_array_equal(audio[SampleKey(60, 100)], expected)
@@ -205,7 +205,7 @@ def test_load_instrument_audio_trims_lead_in_from_the_front(tmp_path: Path) -> N
         samples=[SourceSample(file=path, pitch=60, velocity=100, lead_in_s=lead_in_s)],
         material=[NoteEvent(pitch=60, velocity=100, duration_s=0.4, count=1)],
     )
-    audio = load_instrument_audio(inst, _REDUCE, _LOOP.geometry, NO_PROGRESS).audio
+    audio = load_instrument_audio(inst, _REDUCE, _LOOP, NO_PROGRESS).audio
     full, _ = read_wav(path)
     trimmed = round(lead_in_s * SR)
     np.testing.assert_array_equal(audio[SampleKey(60, 100)], full[trimmed:])  # frame 0 lands on the note onset
@@ -222,7 +222,7 @@ def test_load_instrument_audio_cuts_the_trail_off_the_end(tmp_path: Path) -> Non
         samples=[SourceSample(file=path, pitch=60, velocity=100, lead_in_s=lead_in_s, trail_out_s=trail_out_s)],
         material=[NoteEvent(pitch=60, velocity=100, duration_s=0.4, count=1)],
     )
-    audio = load_instrument_audio(inst, _REDUCE, _LOOP.geometry, NO_PROGRESS).audio
+    audio = load_instrument_audio(inst, _REDUCE, _LOOP, NO_PROGRESS).audio
     full, _ = read_wav(path)
     sounding = full[round(lead_in_s * SR) : len(full) - round(trail_out_s * SR)]
     np.testing.assert_array_equal(audio[SampleKey(60, 100)], sounding)
@@ -241,7 +241,7 @@ def test_load_instrument_audio_cuts_a_recording_to_the_length_bound(tmp_path: Pa
     bounded = ReduceConfig.model_validate(
         {**_REDUCE.model_dump(), "trim": {**_REDUCE.trim.model_dump(), "max_length_s": 0.25}}
     )
-    audio = load_instrument_audio(inst, bounded, _LOOP.geometry, NO_PROGRESS).audio
+    audio = load_instrument_audio(inst, bounded, _LOOP, NO_PROGRESS).audio
     assert audio[SampleKey(60, 100)].size == round(0.25 * SR)
 
 
@@ -263,7 +263,7 @@ def test_load_instrument_audio_turns_away_a_recording_that_never_sounds(tmp_path
             NoteEvent(pitch=67, velocity=100, duration_s=0.2, count=1),
         ],
     )
-    loaded = load_instrument_audio(inst, _REDUCE, _LOOP.geometry, NO_PROGRESS)
+    loaded = load_instrument_audio(inst, _REDUCE, _LOOP, NO_PROGRESS)
     assert list(loaded.audio) == [SampleKey(67, 100)]
     assert loaded.screen.silenced == (SampleKey(60, 100),)
     assert loaded.screen.unplayable == (60,)
@@ -286,7 +286,7 @@ def test_load_instrument_audio_downmixes_stereo_and_resamples(tmp_path: Path) ->
         ],
         material=[NoteEvent(pitch=60, velocity=100, duration_s=0.4, count=1)],
     )
-    loaded = load_instrument_audio(inst, _REDUCE, _LOOP.geometry, NO_PROGRESS)
+    loaded = load_instrument_audio(inst, _REDUCE, _LOOP, NO_PROGRESS)
     audio, sample_rate = loaded.audio, loaded.sample_rate
     assert sample_rate == SR  # the lowest key's rate wins; the 22 kHz one is resampled up
     assert audio[SampleKey(60, 100)].ndim == 1  # stereo downmixed to mono

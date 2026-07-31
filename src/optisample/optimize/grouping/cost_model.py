@@ -4,6 +4,7 @@ from itertools import accumulate
 from typing import Final
 
 from optisample.dsp.surrogate import EncodingParams
+from optisample.frontier import lower_convex_hull
 from optisample.keys import SampleKey
 from optisample.music import semitone_ratio
 from optisample.optimize.grouping.stores import (
@@ -14,7 +15,6 @@ from optisample.optimize.grouping.stores import (
     StoreRequest,
     score_stores,
 )
-from optisample.optimize.operating_points import lower_convex_hull
 from optisample.optimize.plans.grouped import ZoneOption
 from optisample.optimize.reduce.bandwidth import (
     ClipDemand,
@@ -299,7 +299,7 @@ def zone_starts(options: _ZoneOptions, count: int) -> list[tuple[int, ...]]:
 def zone_hull(options: Sequence[ZoneOption]) -> list[ZoneOption]:
     """A zone's byte-vs-distortion frontier over its ``(representative, encoding)`` options.
 
-    Delegates to the shared :func:`optisample.optimize.operating_points.lower_convex_hull`; kept as a
+    Delegates to the shared :func:`optisample.frontier.lower_convex_hull`; kept as a
     named entry point because this is where a zone's representative selection becomes visible (each
     hull vertex is the best member-plus-encoding at its byte level). Used for reporting.
     """

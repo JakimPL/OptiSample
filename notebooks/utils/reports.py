@@ -130,7 +130,7 @@ def loop_rows(document: LoopsDocument) -> list[Row]:
     counts the wrap's jump in the frame-to-frame motion the waveform makes there, ``drift_db`` the fall
     across the region that holding it at one level flattened, and ``timbre_db`` the distance between the
     loop's spectrum and the material past it, so a row states the case for that one loop. ``rejected``
-    counts the candidates the ladder turned down for this recording.
+    counts the candidates the settlement turned down for this recording.
     """
     return [
         {
@@ -171,7 +171,7 @@ def unlooped_rows(document: LoopsDocument) -> list[Row]:
 
 
 def rejected_loop_rows(document: LoopsDocument) -> list[Row]:
-    """One row per candidate the ladder climbed past, with the gate it fell outside of.
+    """One row per candidate the settlement passed over, with the gate it fell outside of.
 
     Reading these beside :func:`loop_rows` says why a recording offers the loops it does, or none at all,
     which is what retuning the quality gates is read off.

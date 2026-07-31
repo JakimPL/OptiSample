@@ -224,7 +224,7 @@ def test_a_floor_asked_shorter_than_one_analysis_window_still_offers_a_readable_
     """A gate reading a region too short to hold a spectrum would wave it through, so none is offered.
 
     This is what makes the seconds floor a tuning knob rather than a guard: however short it is set, and
-    however high the material is pitched, the candidate the ladder offers is one the timbre gate measured.
+    however high the material is pitched, every candidate offered is one the timbre gate measured.
     """
     high_freq = 800.0
     asked = loop(geometry={**loop_config.geometry.model_dump(), "min_loop_s": 1e-4, "min_periods": 1})
@@ -234,7 +234,7 @@ def test_a_floor_asked_shorter_than_one_analysis_window_still_offers_a_readable_
     assert all(candidate.length >= _QUALITY_FFT for candidate in candidates)
 
 
-# --- the candidates a clip chooses among ----------------------------------------------------------
+# --- the candidates a clip is offered ---------------------------------------------------------------
 
 
 def test_every_candidate_clears_the_floor_and_spans_whole_periods(loop_config: LoopConfig) -> None:
@@ -246,21 +246,21 @@ def test_every_candidate_clears_the_floor_and_spans_whole_periods(loop_config: L
     assert all(loop.length >= round(loop_config.geometry.min_loop_s * SR) for loop in candidates)
 
 
-def test_the_cheapest_candidate_is_the_one_the_ladder_offers_first(loop_config: LoopConfig) -> None:
+def test_the_cheapest_candidate_is_the_one_the_frontier_offers_first(loop_config: LoopConfig) -> None:
     signal = _sine(4 * SR)
-    ladder = sorted(loop_candidates(signal, SR, loop_config, FREQ), key=lambda loop: (loop.end, loop.start))
+    offers = sorted(loop_candidates(signal, SR, loop_config, FREQ), key=lambda loop: (loop.end, loop.start))
 
-    assert _cheapest(signal, loop_config) == ladder[0]
+    assert _cheapest(signal, loop_config) == offers[0]
 
 
-def test_candidates_run_placement_major_so_a_prefix_reaches_both_axes(loop_config: LoopConfig) -> None:
+def test_candidates_run_from_the_cheapest_stored_span_upward(loop_config: LoopConfig) -> None:
+    """Storing a candidate keeps everything up to its end, so the frontier is a rate axis read along it."""
     candidates = loop_candidates(_sine(4 * SR), SR, loop_config, FREQ)
-    starts = [loop.start for loop in candidates]
+    ends = [loop.end for loop in candidates]
 
-    assert len(set(starts)) > 1  # placements are spread rather than all landing where the window opens
-    assert candidates[1].start == candidates[0].start  # the same start is offered at each length first
-    assert candidates[1].length > candidates[0].length
-    assert candidates[2].start > candidates[0].start
+    assert len(candidates) > 1
+    assert ends == sorted(ends)
+    assert len(set(ends)) == len(ends)  # each offer costs its own bytes, which is what a budget chooses on
 
 
 def test_candidates_stay_inside_the_steady_region_and_stand_apart(loop_config: LoopConfig) -> None:
@@ -269,7 +269,7 @@ def test_candidates_stay_inside_the_steady_region_and_stand_apart(loop_config: L
     tail = signal.size - round(loop_config.geometry.tail_skip_s * SR)
     candidates = loop_candidates(signal, SR, loop_config, FREQ)
 
-    assert len(set(candidates)) == len(candidates)  # placements snapping together are offered once
+    assert len(set(candidates)) == len(candidates)  # reaches snapping onto one region are offered once
     assert all(loop.start >= attack - PERIOD for loop in candidates)  # snapping moves a start by a period
     assert all(loop.end <= tail for loop in candidates)
 

@@ -12,6 +12,7 @@ from optisample.config.layers import LayersConfig
 from optisample.config.loop import (
     EnvelopeConfig,
     FeatureConfig,
+    FrontierConfig,
     GeometryConfig,
     LoopConfig,
     QualityConfig,
@@ -107,6 +108,11 @@ def features_config(config: OptiConfig) -> FeatureConfig:
 
 
 @pytest.fixture
+def loop_frontier_config(config: OptiConfig) -> FrontierConfig:
+    return config.loop.frontier
+
+
+@pytest.fixture
 def seam_config(config: OptiConfig) -> SeamConfig:
     return config.loop.seam
 
@@ -123,13 +129,13 @@ def quality_config(config: OptiConfig) -> QualityConfig:
 
 @pytest.fixture
 def loop_reserve_s(config: OptiConfig) -> float:
-    """The span the reduce stage reserves for a loop search: the longest onset it waits through, the loop, the tail.
+    """The span the reduce stage reserves for a loop search: the onset, the loop, the wrap reading, the tail.
 
     A test reading what a kept recording is asked to hold states its lengths against this, so it reads off
-    the shipped geometry rather than a number that happened to sit on the right side of it.
+    the shipped config rather than a number that happened to sit on the right side of it.
     """
     geometry = config.loop.geometry
-    return geometry.max_attack_s + geometry.min_loop_s + geometry.tail_skip_s
+    return geometry.max_attack_s + geometry.min_loop_s + config.loop.features.change_span_s + geometry.tail_skip_s
 
 
 @pytest.fixture

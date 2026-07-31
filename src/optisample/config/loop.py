@@ -13,27 +13,24 @@ class GeometryConfig(ConfigModel):
     searched for, which leaves room for the tuning the instrument was recorded at and for the stretch a
     piano's own strings carry; ``min_correlation`` is the autocorrelation peak a recording clears to count
     as periodic at all, and together the two say which material a loop has purchase on. ``max_attack_s`` and
-    ``tail_skip_s`` bound the steady window a loop is placed inside: the window opens where the recording's
+    ``tail_skip_s`` bound the steady window the rounds of
+    :class:`FrontierConfig` are looked for inside: the window opens where the recording's
     own material settles (:func:`~optisample.dsp.similarity.settling_frame`) and ``max_attack_s`` holds that
-    to a stretch every note leaves room past, which is also the room the reduce stage reserves for a loop
+    to a stretch every note leaves room past, which is part of the room the reduce stage reserves for a loop
     search (:func:`~optisample.optimize.reduce.dedupe.required_duration_s`); ``tail_skip_s`` closes it
     before the release. ``min_periods`` and ``min_loop_s`` together set the shortest loop
     that may be stored, which every candidate clears, alongside the analysis window the quality gates read a
     candidate over (:func:`~optisample.dsp.loop.shortest_loop_frames`) -- so however short a floor is asked
     for, the loop offered is one every gate measured.
 
-    ``placements`` is how many starts are spread through the steady window and ``length_multiples`` the
-    lengths each start is offered as multiples of that floor, so the two say how wide a ladder
-    :func:`~optisample.dsp.loop.loop_candidates` lays out. ``max_estimation_s`` caps the stretch the period
-    is read off, which keeps the estimate on the part of the note that holds one pitch.
+    ``max_estimation_s`` caps the stretch the period is read off, which keeps the estimate on the part of
+    the note that holds one pitch.
     """
 
     detune_semitones: Annotated[float, Field(gt=0.0)]
     min_correlation: float
     min_periods: Annotated[int, Field(ge=1)]
     min_loop_s: Annotated[float, Field(gt=0.0)]
-    placements: Annotated[int, Field(ge=1)]
-    length_multiples: Annotated[tuple[Annotated[int, Field(ge=1)], ...], Field(min_length=1)]
     max_attack_s: Annotated[float, Field(ge=0.0)]
     tail_skip_s: Annotated[float, Field(ge=0.0)]
     max_estimation_s: Annotated[float, Field(gt=0.0)]
@@ -70,6 +67,26 @@ class FeatureConfig(ConfigModel):
     dynamic_range_db: Annotated[float, Field(gt=0.0)]
     change_span_s: Annotated[float, Field(gt=0.0)]
     settle_db_per_s: Annotated[float, Field(gt=0.0)]
+
+
+class FrontierConfig(ConfigModel):
+    """Which rounds a recording is offered, read off how closely its own sound wraps onto itself.
+
+    Every close a round may reach is priced at what the best placement ending there gives up
+    (:func:`~optisample.dsp.loopability.loop_frontier`): the step across its wrap plus the movement it
+    plays in place of. Storing a round keeps everything up to that close, so the readings make a
+    cost-per-byte curve whose lower convex hull is the frontier a budget prices a loop's length along.
+
+    ``max_reach_s`` is how far past the frame the material settles at a round is looked for, which sets the
+    longest round offered and the work one recording's search does. ``max_wrap_distance_db`` is the step a
+    wrap holds under for its round to be offered at all, which is what says a recording is loopable:
+    material whose sound keeps moving offers no round and is stored over the span it plays. ``max_offers``
+    holds how many points of the frontier the sweep is asked to price, spread along the bytes they store.
+    """
+
+    max_reach_s: Annotated[float, Field(gt=0.0)]
+    max_wrap_distance_db: Annotated[float, Field(gt=0.0)]
+    max_offers: Annotated[int, Field(ge=1)]
 
 
 class EnvelopeConfig(ConfigModel):
@@ -119,25 +136,19 @@ class SeamConfig(ConfigModel):
 
 
 class QualityConfig(ConfigModel):
-    """What a loop must measure to be worth storing, which is how far the ladder may be pushed for bytes.
+    """What a loop must measure to be worth storing, which is how far the frontier may be pushed for bytes.
 
     ``max_seam_step`` bounds the wrap in units of the loop region's own typical frame-to-frame motion, so
     1.0 admits a wrap as smooth as the waveform already moves and a larger value admits a step a listener
-    starts to hear once per round. ``max_level_drift_db`` bounds how far the region's own level falls across
-    it, which is the gain holding it at one level asks of the material (:func:`~optisample.dsp.loop.level_loop`):
-    a region falling faster than this is flattened only by fighting it, lifting its noise floor along with
-    its tail. Levelling reaches to a ceiling of its own, so a gate set past that ceiling admits regions the
-    line through their levels flattens in part. ``max_spectral_distance_db`` bounds the log-spectral distance
-    between the loop region and the stretch it plays in place of, so a loop holds a timbre the material
-    still has.
+    starts to hear once per round. ``max_spectral_distance_db`` bounds the log-spectral distance between the
+    loop region and the stretch it plays in place of, so a loop holds a timbre the material still has.
 
-    Together they bound how aggressive a loop may be: candidates are offered cheapest first and the first
-    one clearing all three is stored, so tightening any gate buys a later, longer, more faithful loop and
-    loosening it buys bytes.
+    Together they bound how aggressive a loop may be: every candidate clearing both is offered as an
+    operating point, so tightening either leaves the frontier with the later, longer, more faithful loops
+    alone and loosening it lets the cheap end of the frontier back on.
     """
 
     max_seam_step: Annotated[float, Field(gt=0.0)]
-    max_level_drift_db: Annotated[float, Field(gt=0.0)]
     max_spectral_distance_db: Annotated[float, Field(gt=0.0)]
 
 
@@ -146,6 +157,7 @@ class LoopConfig(StageConfig):
 
     geometry: GeometryConfig
     features: FeatureConfig
+    frontier: FrontierConfig
     envelope: EnvelopeConfig
     seam: SeamConfig
     quality: QualityConfig

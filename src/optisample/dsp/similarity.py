@@ -54,6 +54,22 @@ class FrameSeries:
         """The recording frame the series frame ``index`` opens at."""
         return index * self.hop_length
 
+    def frame_index(self, frame: int) -> int:
+        """The series frame covering the recording frame ``frame``, held inside the series.
+
+        Rounding down keeps the reading inside a bound stated in recording frames, which is what a stretch
+        the series is read over needs of its far end.
+        """
+        return min(max(frame // self.hop_length, 0), self.frames)
+
+    def frame_after(self, frame: int) -> int:
+        """The first series frame beginning at or past the recording frame ``frame``, held inside the series.
+
+        Rounding up holds a reading at or past a bound stated in recording frames, which is what the near
+        end of such a stretch needs: a window opening where the material settled starts no earlier.
+        """
+        return min(-(-frame // self.hop_length), self.frames)
+
 
 def window_frames(sample_rate: int, config: FeatureConfig, root_hz: float) -> int:
     """The stretch one frame of the series is read over, in frames at ``sample_rate``.
@@ -95,6 +111,22 @@ def frame_series(signal: Signal, sample_rate: int, config: FeatureConfig, root_h
     )
 
 
+def span_frames(series: FrameSeries, config: FeatureConfig) -> int:
+    """Frames of ``series`` that ``change_span_s`` covers, which is the stretch one reading is held over."""
+    return max(_MIN_SPAN, round(config.change_span_s / series.hop_s))
+
+
+def shape_travel(shape: Signal, lag: int) -> Signal:
+    """How far each frame's shape stands from the frame ``lag`` later, in decibels averaged over the bands.
+
+    The mean absolute difference band by band is the ``logmel_l1`` distance the composite reads timbre
+    with, so a travel measured here and a fidelity measured there state the same kind of number. Reading it
+    at every frame at once is what turns one lag into a curve along the recording, which both the change
+    rate and the loop frontier are read off.
+    """
+    return np.asarray(np.mean(np.abs(shape[lag:] - shape[:-lag]), axis=1), dtype=np.float64)
+
+
 def change_rate(series: FrameSeries, config: FeatureConfig) -> Signal:
     """How fast the shape moves at each frame of ``series``, in decibels per second.
 
@@ -109,12 +141,11 @@ def change_rate(series: FrameSeries, config: FeatureConfig) -> Signal:
     recording, whatever hop its own pitch set. A series shorter than the span answers an empty curve,
     which is material with no travel to read.
     """
-    lag = max(_MIN_SPAN, round(config.change_span_s / series.hop_s))
+    lag = span_frames(series, config)
     if series.frames <= lag:
         return np.zeros(0, dtype=np.float64)
 
-    travelled = np.mean(np.abs(series.shape[lag:] - series.shape[:-lag]), axis=1)
-    return np.asarray(travelled / (lag * series.hop_s), dtype=np.float64)
+    return np.asarray(shape_travel(series.shape, lag) / (lag * series.hop_s), dtype=np.float64)
 
 
 def _held_under(under: NDArray[np.bool_], span: int) -> int:
@@ -146,5 +177,4 @@ def settling_frame(series: FrameSeries, config: FeatureConfig) -> int:
     wait through.
     """
     rate = change_rate(series, config)
-    span = max(_MIN_SPAN, round(config.change_span_s / series.hop_s))
-    return series.frame_start(_held_under(rate <= config.settle_db_per_s, span))
+    return series.frame_start(_held_under(rate <= config.settle_db_per_s, span_frames(series, config)))

@@ -2,8 +2,9 @@ from collections.abc import Mapping, Sequence
 from typing import Final
 
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode
+from optisample.frontier import lower_convex_hull
 from optisample.optimize.knapsack import KnapsackItem
-from optisample.optimize.operating_points import OperatingPoint, lower_convex_hull
+from optisample.optimize.operating_points import OperatingPoint
 from optisample.optimize.tasks import EvalContext, PitchTask, score_reconstruction
 from optisample.progress import ProgressSink
 

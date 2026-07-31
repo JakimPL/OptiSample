@@ -271,7 +271,7 @@ class SettledLoopRecord(Frozen):
 
 
 class RejectedLoopRecord(Frozen):
-    """A candidate the ladder climbed past, and the gate it fell outside of.
+    """A candidate the settlement passed over, and the gate it fell outside of.
 
     Reading these says why a recording ended up stored around a later loop, or around none: each entry is
     a cheaper loop that was measured and found wanting on ``gate``.
@@ -611,7 +611,7 @@ def _settled_loop_record(stored: StoredLoop, sample_rate: int) -> SettledLoopRec
 
 
 def _rejected_loop_record(rejected: RejectedLoop, sample_rate: int) -> RejectedLoopRecord:
-    """One candidate the ladder climbed past, placed in the note by the second."""
+    """One candidate the settlement passed over, placed in the note by the second."""
     return RejectedLoopRecord(
         start_s=rejected.loop.start / sample_rate,
         end_s=rejected.loop.end / sample_rate,

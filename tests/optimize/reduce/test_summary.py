@@ -72,7 +72,7 @@ def context(encode_config: EncodeConfig, sweep: SweepFactory, reduce: ReduceFact
 def inputs(context: GridContext, config_dedupe: ReduceConfig, loop_config: LoopConfig) -> ReductionInputs:
     return ReductionInputs(
         reduce=config_dedupe,
-        geometry=loop_config.geometry,
+        loop=loop_config,
         context=context,
         workers=IN_PROCESS,
         progress=NO_PROGRESS,

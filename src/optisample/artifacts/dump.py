@@ -288,7 +288,7 @@ def dump_project(
         loaded = load_instrument_audio(
             instrument,
             settings.optimize.reduce,
-            settings.optimize.loop.geometry,
+            settings.optimize.loop,
             settings.progress,
         )
         looped = run_loops(loaded, settings.optimize)

@@ -3,8 +3,6 @@ detune_semitones: 1.0    # how far either side of the played pitch the period is
 min_correlation: 0.3     # autocorrelation-peak floor a recording clears to count as periodic
 min_periods: 3           # a loop shorter than this beats/buzzes audibly
 min_loop_s: 0.1          # floor on loop length in seconds (spans several vibrato cycles)
-placements: 3            # loop starts spread through the steady window
-length_multiples: [1, 2] # loop lengths offered at each start, as multiples of the floor
 max_attack_s: 0.5        # latest the material counts as settled, which is the room a loop search reserves
 tail_skip_s: 0.02        # tail skipped at the end of the steady window
 max_estimation_s: 1.0    # cap on the autocorrelation window

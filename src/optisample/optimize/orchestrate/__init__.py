@@ -122,7 +122,7 @@ def prepare_run(
         audio,
         ReductionInputs(
             reduce=settings.reduce,
-            geometry=settings.loop.geometry,
+            loop=settings.loop,
             context=grid,
             workers=settings.workers,
             progress=settings.progress,

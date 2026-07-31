@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
-from optisample.config.loop import GeometryConfig
+from optisample.config.loop import LoopConfig
 from optisample.config.reduce import ReduceConfig
 from optisample.dsp.surrogate import EncodingParams
 from optisample.keys import SampleKey
@@ -97,13 +97,13 @@ class ReductionSummary:
 class ReductionInputs:
     """The run-wide inputs the summary is measured against (bundled to stay under the argument limit).
 
-    ``reduce`` and ``geometry`` set how long a kept recording has to be; ``context`` is what settles a
+    ``reduce`` and ``loop`` set how long a kept recording has to be; ``context`` is what settles a
     stored grid; ``workers`` is how many processes share the pitches out between them; and ``progress`` is
     where the pre-pass reports how many pitches it has narrowed so far.
     """
 
     reduce: ReduceConfig
-    geometry: GeometryConfig
+    loop: LoopConfig
     context: GridContext
     workers: int
     progress: ProgressSink
@@ -124,7 +124,7 @@ def _kept_recordings(
             required_duration_s=required_duration_s(
                 longest.get(key.pitch, NO_MATERIAL_S),
                 inputs.reduce,
-                inputs.geometry,
+                inputs.loop,
             ),
         )
         for key in sorted(audio)

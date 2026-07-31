@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from sys import maxsize
 from typing import Final
 
-from optisample.config.loop import GeometryConfig
+from optisample.config.loop import LoopConfig
 from optisample.config.reduce import ReduceConfig
 from optisample.io.audio import probe_wav
 from optisample.io.note_extractor import index_of_wav
@@ -65,7 +65,7 @@ def holds_material(duration_s: float, required_s: float) -> bool:
     return duration_s >= required_s
 
 
-def required_duration_s(longest_note_s: float, reduce: ReduceConfig, geometry: GeometryConfig) -> float:
+def required_duration_s(longest_note_s: float, reduce: ReduceConfig, loop: LoopConfig) -> float:
     """Seconds a kept recording must hold at a pitch for the material there to play in full.
 
     Three demands set the length. A sample serving keys above its own root runs faster by
@@ -73,12 +73,14 @@ def required_duration_s(longest_note_s: float, reduce: ReduceConfig, geometry: G
     the pitch grows by the ratio of ``transposition_headroom_semitones``. The trim's ``max_length_s``
     bounds that, since a recording is only ever asked for the span the trim keeps. Loop detection
     separately needs room to work in -- the longest onset it will wait through, the shortest loop it
-    accepts, and the tail it leaves alone -- which holds the requirement up wherever the trim would cut
-    under it. The onset each recording makes is read off the recording itself, so what is reserved here is
-    the room the search is willing to wait, which is the length that leaves every note a loop to find.
+    accepts, the stretch of material a wrap is read against, and the tail it leaves alone -- which holds
+    the requirement up wherever the trim would cut under it. The onset each recording makes is read off the
+    recording itself, so what is reserved here is the room the search is willing to wait, which is the
+    length that leaves every note a loop to find and the material to measure it over.
     """
     transposed = longest_note_s * semitone_ratio(reduce.dedupe.transposition_headroom_semitones)
-    loop_floor = geometry.max_attack_s + geometry.min_loop_s + geometry.tail_skip_s
+    geometry = loop.geometry
+    loop_floor = geometry.max_attack_s + geometry.min_loop_s + loop.features.change_span_s + geometry.tail_skip_s
     return max(min(transposed, reduce.trim.max_length_s), loop_floor)
 
 
@@ -139,7 +141,7 @@ def _keep(candidates: Sequence[Candidate], required_s: float) -> Candidate:
 def select_recordings(
     instrument: InstrumentSpec,
     reduce: ReduceConfig,
-    geometry: GeometryConfig,
+    loop: LoopConfig,
     progress: ProgressSink,
 ) -> tuple[Selection, ...]:
     """Reduce the recorded grid to one survivor per identity, shrinking what the optimizer explores.
@@ -162,7 +164,7 @@ def select_recordings(
 
     selections = []
     for group, candidates in groups.items():
-        required_s = required_duration_s(longest.get(group.pitch, NO_MATERIAL_S), reduce, geometry)
+        required_s = required_duration_s(longest.get(group.pitch, NO_MATERIAL_S), reduce, loop)
         kept = _keep(candidates, required_s)
         selections.append(
             Selection(

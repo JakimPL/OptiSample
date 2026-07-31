@@ -173,7 +173,7 @@ Length enters twice, and both places are worth knowing.
 
 ```
 required = max( min( longest_note_s * 2^(transposition_headroom_semitones/12), max_length_s ),
-                max_attack_s + min_loop_s + tail_skip_s )
+                max_attack_s + min_loop_s + change_span_s + tail_skip_s )
 ```
 
 With the shipped `transposition_headroom_semitones: 12`, the longest note at a key **doubles**, and
@@ -326,29 +326,38 @@ an operating point the allocation buys rather than a decision taken ahead of it.
   answer for every note: set it just above that and what it excludes is the transient. On 60 real Piano
   recordings the onset lands at a median 109 ms and runs from the first frame out to half a second, against
   the fixed 50 ms it replaces.
-- **`loop/geometry.yaml`** lays out what is on offer inside that window. `placements` spreads the starts
-  through the sustain and `length_multiples` offers each start at several lengths, so a note that changes as
-  it rings can be looped where it has settled. Together they set how wide the frontier is: on 60 real Piano
-  recordings the two of them offer a median of 4 loops that all clear the gates, spanning 3.37× in stored
-  bytes, and each one costs the sweep an encoding. `max_attack_s: 0.5` is the longest the search waits for
-  the material to settle, which is also the room the reduce stage reserves for a loop
-  ([`required_duration_s`](../src/optisample/optimize/reduce/dedupe.py), §5). `min_loop_s: 0.1` floors the
+- **`loop/frontier.yaml`** decides what is on offer inside that window, read off how closely the recording
+  wraps onto itself. Every close a round could reach is priced at what the best placement ending there gives
+  up — the step across its wrap, plus how far its own sound stands from the round's worth of recording that
+  would have come next, both read as the same log-mel distance in decibels. The first rises as a round runs
+  longer and the second falls as it reaches further into the note, which is what makes the curve a
+  rate-distortion frontier rather than a ranking; its lower convex hull is the offer. `max_reach_s: 2.0` is how far past the
+  settled frame a round is looked for, which sets both the longest round and the work one search does; it is
+  what holds a 100 s note to the same reading as a 1 s one. `max_wrap_distance_db: 6.0` is the step a wrap
+  holds under for its round to be offered at all, which is the test that says a recording is loopable.
+  `max_offers: 5` caps how many hull points reach the sweep, spread along the bytes they store, since each
+  one costs an encoding. On 60 real Piano recordings this offers 187 loops over 57 recordings, spanning a
+  median 1.59× in stored bytes.
+- **`loop/geometry.yaml`** bounds where that window sits and how short a round may be. `max_attack_s: 0.5` is
+  the longest the search waits for the material to settle, which is also part of the room the reduce stage
+  reserves for a loop ([`required_duration_s`](../src/optisample/optimize/reduce/dedupe.py), §5).
+  `min_loop_s: 0.1` floors the
   length in seconds, `min_periods` keeps a loop from beating at its own rate. The period is searched around the pitch the note was played at, within
   `detune_semitones: 1.0` either side of it, and `min_correlation` is the peak it clears to count as
   periodic at all — on 120 real Piano recordings the reading lands a median 3.5 cents off nominal and 17.5
   cents off at worst, so a semitone leaves room for the tuning a set was recorded at and for a piano's own
   string stretch. A third floor is the code's own: a candidate spans at least the window a spectrum is read
   over, which is what leaves the gates below deciding rather than the seconds floor.
-- **`loop/quality.yaml`** holds the three gates, which are the aggressiveness dial. `max_seam_step: 4.0`
+- **`loop/quality.yaml`** holds the two gates, which are the aggressiveness dial. `max_seam_step: 4.0`
   bounds the step at the wrap, measured in units of the frame-to-frame motion the waveform makes there, so
-  the reading means the same on a loud attack and a quiet decay. `max_level_drift_db: 12.0` bounds how far
-  the region's own level falls across it, which is the gain holding it at one level asks of the material;
-  levelling reaches +12 dB, so a looser setting admits regions it flattens only in part.
+  the reading means the same on a loud attack and a quiet decay.
   `max_spectral_distance_db: 12.0` bounds how far the loop's timbre sits from the stretch it stands in for.
-  Every candidate clearing all three is offered, cheapest first — earliest and shortest — so a gate now sets
+  Every candidate clearing both is offered, cheapest first — earliest and shortest — so a gate sets
   where the frontier starts rather than which single loop is kept: tighten one and the cheap end drops off,
-  loosen one and it extends downward. On real Piano material the gates turn down 1 candidate in 254, so
-  `min_loop_s` and the geometry above are what actually bound how aggressive a stored loop can be.
+  loosen one and it extends downward. On real Piano material the gates now turn down nothing at all, so
+  `min_loop_s` and `loop/frontier.yaml` above are what bound how aggressive a stored loop can be. How far a
+  region's level falls across it is measured and reported beside them; levelling answers for it directly,
+  and on 187 real offers the worst fall was 9.6 dB against the +12 dB levelling reaches.
 - **`loop/envelope.yaml`** states how the level a recording holds is read, which is the curve levelling
   divides a region by and the level the fitted decay falls from. The weighting spans two periods of the
   note's own pitch, so a tone from half of that upward reads as the level it holds and a high note is
@@ -450,11 +459,11 @@ as the format numbers. Each extra sample is charged a reserve, so the run states
 | `optimize.budget.energy_exponent` | `optimize/budget.yaml` | Quiet notes are getting a budget share out of proportion. |
 | `--no-loop` | CLI (leaves the loop stage off) | Looped decays ring on. |
 | `loop.quality.max_seam_step` | `loop/quality.yaml` | A wrap ticks or clicks. |
-| `loop.quality.max_level_drift_db` | `loop/quality.yaml` | A held note pulses at the loop's rate, or its tail sounds lifted and noisy. |
 | `loop.quality.max_spectral_distance_db` | `loop/quality.yaml` | A held note keeps a timbre the recording moves away from. |
 | `loop.geometry.min_loop_s` | `loop/geometry.yaml` | Loops are short enough to buzz at their own rate. |
 | `loop.features.settle_db_per_s`, `loop.geometry.max_attack_s` | `loop/features.yaml`, `loop/geometry.yaml` | The loop sits where the note has not settled yet. |
-| `loop.geometry.placements`, `loop.geometry.length_multiples` | `loop/geometry.yaml` | Every loop offered sounds alike, so length buys nothing. |
+| `loop.frontier.max_offers`, `loop.frontier.max_reach_s` | `loop/frontier.yaml` | Every loop offered sounds alike, so length buys nothing. |
+| `loop.frontier.max_wrap_distance_db` | `loop/frontier.yaml` | Material that should loop settles none, or one loops that should not. |
 | `loop.seam.fade_share`, `loop.seam.min_fade_s` | `loop/seam.yaml` | The wrap is continuous but audible as a texture change. |
 | `loop.envelope.highest_hz` | `loop/envelope.yaml` | A held note pulses at the loop's rate, or a levelled region wavers where the recording was steady. |
 | `loop.geometry.detune_semitones` | `loop/geometry.yaml` | A recording that is in tune loops well and one recorded off-pitch settles no loop at all. |

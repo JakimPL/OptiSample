@@ -9,9 +9,10 @@ from optisample.config.loop import GeometryConfig, LoopConfig, SeamConfig
 from optisample.config.spectral import StftParams
 from optisample.dsp.envelope import LevelReading, local_level_over
 from optisample.dsp.levels import gain_to_db
+from optisample.dsp.loopability import FrontierBounds, LoopReach, loop_frontier
 from optisample.dsp.resample import resampled_frame_count
 from optisample.dsp.series import autocorrelation, refined_lag
-from optisample.dsp.similarity import frame_series, settling_frame
+from optisample.dsp.similarity import FrameSeries, frame_series, settling_frame
 from optisample.dsp.spectral import stft_magnitude
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.music import semitone_ratio
@@ -62,11 +63,16 @@ class LoopQuality:
 
 @dataclass(frozen=True)
 class _SteadyRegion:
-    """The stretch a loop may be placed in, and the period its material repeats at."""
+    """The stretch a loop may be placed in, the period its material repeats at, and how it reads as timbre.
+
+    ``series`` is the recording read as timbre frames, which is both where the window's opening was found
+    and what the rounds inside it are looked for over, so one reading serves the whole placement.
+    """
 
     attack: int
     tail: int
     period: float
+    series: FrameSeries
 
 
 def _searched_lags(sample_rate: int, config: GeometryConfig, root_hz: float) -> tuple[int, int]:
@@ -130,7 +136,7 @@ def _steady_tail(signal: Signal, sample_rate: int, config: GeometryConfig) -> in
     return signal.size - seconds_to_frames(config.tail_skip_s, sample_rate)
 
 
-def _settled_frame(signal: Signal, sample_rate: int, config: LoopConfig, root_hz: float) -> int:
+def _settled_frame(series: FrameSeries, sample_rate: int, config: LoopConfig) -> int:
     """The frame the steady window opens at: where this recording's own material settles.
 
     The onset is read off the recording (:func:`~optisample.dsp.similarity.settling_frame`), so a note
@@ -140,7 +146,6 @@ def _settled_frame(signal: Signal, sample_rate: int, config: LoopConfig, root_hz
     begin, and ``max_attack_s`` is the longest the search waits, so material whose shape keeps moving still
     offers the rest of itself.
     """
-    series = frame_series(signal, sample_rate, config.features, root_hz)
     earliest = seconds_to_frames(config.seam.min_fade_s, sample_rate)
     latest = seconds_to_frames(config.geometry.max_attack_s, sample_rate)
     return min(max(settling_frame(series, config.features), earliest), latest)
@@ -162,7 +167,8 @@ def _steady_region(
     Returns ``None`` for material a loop has no purchase on: a steady window shorter than
     ``_MIN_STEADY_FRAMES``, or one carrying no reliable period.
     """
-    attack = _settled_frame(signal, sample_rate, config, root_hz)
+    series = frame_series(signal, sample_rate, config.features, root_hz)
+    attack = _settled_frame(series, sample_rate, config)
     tail = _steady_tail(signal, sample_rate, config.geometry)
     if tail - attack < _MIN_STEADY_FRAMES:
         return None
@@ -173,7 +179,7 @@ def _steady_region(
     if period is None:
         return None
 
-    return _SteadyRegion(attack=attack, tail=tail, period=period)
+    return _SteadyRegion(attack=attack, tail=tail, period=period, series=series)
 
 
 def shortest_loop_frames(period: float, sample_rate: int, config: GeometryConfig) -> int:
@@ -184,7 +190,7 @@ def shortest_loop_frames(period: float, sample_rate: int, config: GeometryConfig
     whole periods land on a frame boundary, which is where a loop's bounds live.
 
     A third floor holds the region at one analysis window or longer, so :func:`_spectral_distance` reads a
-    spectrum off every candidate the ladder offers and the timbre gate judges each of them on a measurement
+    spectrum off every candidate offered and the timbre gate judges each of them on a measurement
     of its own. That is what lets ``min_loop_s`` be set as short as the material allows: the gates stay the
     constraint at any floor, because a loop the gates could only wave through is never offered.
     """
@@ -246,21 +252,41 @@ def _matched_end(signal: Signal, start: int, wanted: int, region: _SteadyRegion,
     return max(ends, key=lambda end: _normalized_correlation(signal[end - window : end], approaching_start))
 
 
-def _placements(signal: Signal, region: _SteadyRegion, shortest: int, config: GeometryConfig) -> list[int]:
-    """Loop starts spread evenly through the room the steady region has, snapped to ascending zeros.
+def _placed(signal: Signal, reach: LoopReach, region: _SteadyRegion, shortest: int) -> Loop | None:
+    """The loop a frontier reach names, landed on the phase the waveform itself makes.
 
-    The first placement sits at the attack skip and the last as late as the shortest accepted loop still
-    fits, so ``placements`` readings span the whole stretch a loop may be taken from. Snapping each to an
-    ascending zero crossing lands the wrap mid-slope in phase, which is what the seam crossfade then
-    smooths over.
+    A reach is read off frames of the timbre series, each spanning several periods of the note, so both
+    bounds are brought onto the waveform: the start snaps to the nearest ascending zero crossing within a
+    period, which lands the wrap mid-slope in phase for the seam crossfade to smooth over, and the end is
+    matched to the phase the start approaches on (:func:`_matched_end`) once the length is fitted to the
+    room the region has.
+
+    Returns ``None`` where the room past the snapped start holds less than the shortest accepted loop.
     """
-    room = max(0, region.tail - region.attack - shortest)
-    spacing = room / (config.placements - 1) if config.placements > 1 else 0.0
-    starts = [
-        _snap_ascending_zero(signal, region.attack + round(index * spacing), radius=round(region.period))
-        for index in range(config.placements)
-    ]
-    return list(dict.fromkeys(starts))
+    start = _snap_ascending_zero(signal, reach.start, radius=round(region.period))
+    fitted = _fitted_length(start, max(reach.length, shortest), region, shortest)
+    if fitted is None:
+        return None
+
+    return Loop(start, _matched_end(signal, start, fitted, region, shortest))
+
+
+def _frontier_bounds(sample_rate: int, region: _SteadyRegion, config: LoopConfig, shortest: int) -> FrontierBounds:
+    """The stretch rounds are looked for over: from where the material settled, as far as it is worth reading.
+
+    ``max_reach_s`` past the settled frame is both the longest round offered and how much of a recording
+    one search reads, which holds a note that rings for a minute to the same work as one that rings for a
+    second -- the rounds past it store so much of the recording that keeping the played span costs less.
+    What each round stands in for reaches the whole way to the tail regardless, so a long note prices its
+    rounds against everything it goes on to do.
+    """
+    reach = seconds_to_frames(config.frontier.max_reach_s, sample_rate)
+    return FrontierBounds(
+        opens=region.attack,
+        reach=min(region.tail, region.attack + reach),
+        ends=region.tail,
+        shortest=shortest,
+    )
 
 
 def loop_candidates(
@@ -269,36 +295,37 @@ def loop_candidates(
     config: LoopConfig,
     root_hz: float,
 ) -> tuple[Loop, ...]:
-    """Every forward loop worth offering for ``signal``, the ladder a settlement chooses from.
+    """Every forward loop worth offering for ``signal``, the frontier a settlement prices.
 
-    Each candidate begins at an ascending zero crossing, spans about a whole number of periods of the
-    material (read off the pitch it was played at by :func:`_estimate_period`) with its end matched to the
-    phase the start approaches on (:func:`_matched_end`), and lies inside the steady region between the
-    frame the recording's own material settles at (:func:`_settled_frame`) and the tail skip. Placement runs
-    outermost and length innermost, so the ladder covers both axes: the loop the attack leads into at each
-    accepted length, then the same at placements further into the note.
+    Which rounds are on offer is read off the recording's own self-similarity
+    (:func:`~optisample.dsp.loopability.loop_frontier`): each length is placed where the material wraps
+    onto itself most closely, and the lower convex hull of what those placements store against how far the
+    sound moves across their wraps is the frontier. Storing a candidate keeps ``[0, loop.end)`` -- the
+    attack plus one round -- and the sustain tail past it is where the bytes are saved, so the frontier is
+    a rate axis a budget reads directly.
 
-    Storing a candidate keeps ``[0, loop.end)`` -- the attack plus one loop region -- and the sustain
-    tail past it is where the bytes are saved. Lengths are the multiples of the shortest accepted loop
-    (:func:`shortest_loop_frames`) that ``config.length_multiples`` asks for, each shortened to the whole
-    periods the region has room for, so a longer loop carries more of the material's own movement where
-    the note is long enough to hold it.
+    Each reach is then landed on the waveform (:func:`_placed`): a start at an ascending zero crossing, a
+    length of about a whole number of periods of the material (read off the pitch it was played at by
+    :func:`_estimate_period`), and an end matched to the phase the start approaches on. Every candidate
+    lies inside the steady region, between the frame the recording's material settles at
+    (:func:`_settled_frame`) and the tail skip, and clears the shortest loop worth storing
+    (:func:`shortest_loop_frames`).
 
     Returns an empty tuple for material a loop has no purchase on: a steady region too short to analyse,
-    one carrying no reliable period, or one with room for less than the shortest accepted loop.
+    one carrying no reliable period, one with room for less than the shortest accepted loop, or one whose
+    every round wraps onto a sound the recording has moved away from.
     """
     region = _steady_region(signal, sample_rate, config, root_hz)
     if region is None:
         return ()
 
-    geometry = config.geometry
-    shortest = shortest_loop_frames(region.period, sample_rate, geometry)
+    shortest = shortest_loop_frames(region.period, sample_rate, config.geometry)
+    bounds = _frontier_bounds(sample_rate, region, config, shortest)
     found: list[Loop] = []
-    for start in _placements(signal, region, shortest, geometry):
-        for multiple in geometry.length_multiples:
-            fitted = _fitted_length(start, shortest * multiple, region, shortest)
-            if fitted is not None:
-                found.append(Loop(start, _matched_end(signal, start, fitted, region, shortest)))
+    for reach in loop_frontier(region.series, bounds, config.features, config.frontier):
+        placed = _placed(signal, reach, region, shortest)
+        if placed is not None:
+            found.append(placed)
 
     return tuple(dict.fromkeys(found))
 
@@ -386,8 +413,9 @@ def level_loop(signal: Signal, loop: Loop, reading: LevelReading) -> Signal:
     fitted ramp restores (:func:`~optisample.dsp.decay.fit_linear_decay`). The reading follows the material
     frame by frame, so a region that swells and falls again comes out as flat as one that only falls.
 
-    The gain stays under ``_MAX_LEVEL_GAIN``, so a region ringing its way down to silence is lifted only so
-    far; how far flattening reaches is what ``max_level_drift_db`` bounds.
+    The gain stays under ``_MAX_LEVEL_GAIN``, so a region ringing its way down to silence is lifted only as
+    far as flattening it holds its own noise floor down, and what a region falling further keeps is the
+    part of its decline that gain reaches.
     """
     level = local_level_over(signal, reading, start=loop.start, end=loop.end)
     out = np.array(signal, dtype=np.float64)
@@ -444,8 +472,8 @@ def _spectral_shape(signal: Signal) -> Signal:
 def _spectral_distance(region: Signal, material: Signal) -> float:
     """Root-mean-square log-spectral distance in decibels between two stretches of the same recording.
 
-    Both stretches carry a spectrum once they hold an analysis window each. Every candidate the ladder
-    offers clears that on the region side (:func:`shortest_loop_frames`), so what remains is a loop
+    Both stretches carry a spectrum once they hold an analysis window each. Every candidate offered
+    clears that on the region side (:func:`shortest_loop_frames`), so what remains is a loop
     reaching so far into its recording that the material past it holds less than a window -- a stretch the
     loop gives up nothing by standing in for, which reads 0.0.
     """

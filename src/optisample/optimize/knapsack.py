@@ -3,8 +3,9 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
+from optisample.frontier import lower_convex_hull
 from optisample.optimize.dp import require_feasible
-from optisample.optimize.operating_points import OperatingPoint, lower_convex_hull
+from optisample.optimize.operating_points import OperatingPoint
 
 
 @dataclass(frozen=True)

@@ -6,7 +6,7 @@ from typing import Final
 
 import numpy as np
 
-from optisample.config.loop import GeometryConfig
+from optisample.config.loop import LoopConfig
 from optisample.config.reduce import ReduceConfig, TrimConfig
 from optisample.dsp.resample import resample_to
 from optisample.io.audio import read_wav
@@ -100,7 +100,7 @@ def _decode_survivors(
 def load_instrument_audio(
     instrument: InstrumentSpec,
     reduce: ReduceConfig,
-    geometry: GeometryConfig,
+    loop: LoopConfig,
     progress: ProgressSink,
 ) -> LoadedInstrument:
     """Read the surviving recording of each identity into a ``SampleKey -> signal`` map at a common rate.
@@ -111,7 +111,7 @@ def load_instrument_audio(
     bound; one that never rises above the silence floor is left out, and the material at any pitch that
     strips of every recording leaves with it.
     """
-    decoded = _decode_survivors(select_recordings(instrument, reduce, geometry, progress), reduce.trim, progress)
+    decoded = _decode_survivors(select_recordings(instrument, reduce, loop, progress), reduce.trim, progress)
     screened = screen_instrument(instrument, {key.pitch for key in decoded.audio}, decoded.silenced)
     return LoadedInstrument(
         instrument=screened.instrument,
@@ -127,4 +127,4 @@ def load_run_audio(instrument: InstrumentSpec, settings: OptimizeSettings) -> Lo
     Both strategies' disk entry points start here, so an instrument loaded for grouping holds exactly the
     survivors it holds for the ungrouped solver.
     """
-    return load_instrument_audio(instrument, settings.reduce, settings.loop.geometry, settings.progress)
+    return load_instrument_audio(instrument, settings.reduce, settings.loop, settings.progress)

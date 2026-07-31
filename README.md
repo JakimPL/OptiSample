@@ -238,25 +238,32 @@ the recording's own sound settles**: each note is read as a series of log-mel fr
 of its own pitch, each frame stated past the level it was played at, and the window opens where that shape
 slows to `settle_db_per_s` and holds there (`loop/features.yaml`). On 60 real Piano recordings that lands
 anywhere from the first frame to **half a second** in, against the fixed 50 ms every note used to be given.
-Inside that window each recording is offered the loops its geometry allows — `placements` starts, each at
-the lengths `length_multiples` asks for and each clearing the `min_loop_s` floor and the window a spectrum
-is read over — ordered cheapest first, meaning earliest and shortest. Every one clearing all three quality
-gates is **offered**, and every candidate is long enough for all three to have measured it:
+Inside that window, **which loops a recording offers is read off how closely it wraps onto itself**
+(`loop/frontier.yaml`). Storing a loop keeps everything up to its end, so every frame a round could close on
+is one point of a cost-per-byte curve, priced at what the best placement ending there gives up: the step
+across its wrap, plus the movement it plays in place of. Both are the same log-mel distance in decibels, the
+first rising as a round runs longer and the second falling as it reaches further into the note, which is
+what makes the curve a rate-distortion frontier rather than a ranking. Its lower convex hull is the offer,
+and `max_offers` holds how many of its points reach the sweep, spread along the bytes they store.
+
+Every candidate on it is then landed on the waveform — a start at an ascending zero crossing, a length of
+whole periods, an end matched to the phase the start approaches on — and measured against two quality gates,
+each candidate long enough for both to have read it:
 
 ```yaml
 max_seam_step: 4.0              # wrap step, in units of the frame-to-frame motion the waveform makes there
-max_level_drift_db: 12.0        # fall across the region that holding it at one level has to flatten
 max_spectral_distance_db: 12.0  # log-spectral distance between the loop and the stretch it stands in for
 ```
 
-The gates say which loops a recording supports at all; **a budget says which of them is worth its bytes.**
-Tighten the gates and the cheap loops drop out of the offer, and a recording with nothing clearing them is
-stored over the span its material plays instead. Every candidate turned down is kept beside the ones
-offered, naming the gate it fell outside, so `loops.json` states the whole case. On 60 real Piano
-recordings the ladder offers a median of **4** loops that all clear the gates, spanning **3.37×** in stored
-bytes between the cheapest and the dearest — a rate axis the allocation now gets to price rather than a
-single choice made before it — and **57 of the 60** recordings carry one. Settling once, at the analysis rate, is also what lets the seam be measured
-on the resolution a 440 Hz note actually has — 109 frames per cycle at 48 kHz against 18 at 8 kHz.
+The frontier and the gates say which loops a recording supports at all; **a budget says which of them is
+worth its bytes.** Tighten the gates and the cheap loops drop out of the offer, and a recording with nothing
+clearing them is stored over the span its material plays instead. Every candidate turned down is kept beside
+the ones offered, naming the gate it fell outside, so `loops.json` states the whole case. On 60 real Piano
+recordings the frontier offers **187** loops across **57 of the 60** recordings, spanning a median **1.59×**
+in stored bytes between a recording's cheapest and dearest — a rate axis the allocation gets to price rather
+than a single choice made before it — and the gates turn down none of them, so the frontier is what bounds
+how aggressive a stored loop can be. Settling once, at the analysis rate, is also what lets the seam be
+measured on the resolution a 440 Hz note actually has — 109 frames per cycle at 48 kHz against 18 at 8 kHz.
 
 ### Making the wrap inaudible
 

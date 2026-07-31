@@ -7,18 +7,19 @@ import numpy as np
 from numpy.typing import NDArray
 
 from optisample.config.loop import LoopConfig
-from optisample.loop.settle import Gate, _ladder, settle_loop
+from optisample.loop.settle import Gate, Settlement, StoredLoop, _ordered_candidates, settle_loop
 
 SR = 22_050
 _FREQ = 220.0
-_HELD_S = 3.0  # long enough for the geometry to lay out several candidates and still leave a tail
+_HELD_S = 3.0  # long enough for the frontier to lay out several candidates and still leave a tail
+_BRIGHTENS_AT = round(_HELD_S / 2 * SR)  # the frame a brightening recording changes its timbre at
 
 LoopFactory = Callable[..., LoopConfig]
 
 _OPEN: Final = 1e9  # a gate nothing measures past, which leaves the one under test to decide alone
-_SHUT: Final = 1e-9  # a gate nothing clears, which is how a whole ladder is made to report
+_SHUT: Final = 1e-9  # a gate nothing clears, which is how every candidate is made to report
 
-_WIDE_OPEN: Final = {"max_seam_step": _OPEN, "max_level_drift_db": _OPEN, "max_spectral_distance_db": _OPEN}
+_WIDE_OPEN: Final = {"max_seam_step": _OPEN, "max_spectral_distance_db": _OPEN}
 _SEAM_SHUT: Final = {**_WIDE_OPEN, "max_seam_step": _SHUT}
 
 
@@ -34,11 +35,23 @@ def _decaying(duration_s: float = _HELD_S) -> NDArray[np.float64]:
     return np.asarray(np.exp(-np.arange(tone.size, dtype=np.float64) / (0.8 * SR)) * tone)
 
 
-# --- what the ladder offers -----------------------------------------------------------------------
+def _brightening() -> NDArray[np.float64]:
+    """A recording that jumps to a far brighter timbre halfway through and holds it to the end."""
+    return np.concatenate([_tone(_HELD_S / 2), _tone(_HELD_S / 2, freq=5 * _FREQ)])
+
+
+def _split_at_the_brightening(settlement: Settlement) -> tuple[list[StoredLoop], list[StoredLoop]]:
+    """The offers taken from the recording's first timbre, and those taken from the one it moved to."""
+    early = [stored for stored in settlement.offered if stored.loop.start <= _BRIGHTENS_AT]
+    late = [stored for stored in settlement.offered if stored.loop.start > _BRIGHTENS_AT]
+    return early, late
+
+
+# --- what the frontier offers ---------------------------------------------------------------------
 
 
 def test_every_candidate_clearing_the_gates_is_offered(loop: LoopFactory) -> None:
-    """Gates open, so the whole ladder comes back as a frontier and none of it is turned down."""
+    """Gates open, so every candidate the material offers comes back and none of it is turned down."""
     settlement = settle_loop(_tone(), SR, loop(quality=_WIDE_OPEN), root_hz=_FREQ, search_s=_HELD_S)
 
     assert len(settlement.offered) > 1
@@ -73,8 +86,8 @@ def test_a_loop_is_offered_no_earlier_than_the_material_a_wrap_blends_into(loop:
     assert all(stored.loop.start >= earliest for stored in settlement.offered)
 
 
-def test_every_candidate_the_ladder_turns_down_names_the_gate_it_fell_outside(loop: LoopFactory) -> None:
-    """A gate nothing can clear leaves the whole ladder reported, so the reason is readable per candidate."""
+def test_every_candidate_turned_down_names_the_gate_it_fell_outside(loop: LoopFactory) -> None:
+    """A gate nothing can clear leaves every candidate reported, so the reason is readable per candidate."""
     settlement = settle_loop(_tone(), SR, loop(quality=_SEAM_SHUT), root_hz=_FREQ, search_s=_HELD_S)
 
     assert not settlement.loops
@@ -83,21 +96,37 @@ def test_every_candidate_the_ladder_turns_down_names_the_gate_it_fell_outside(lo
     assert {rejected.gate for rejected in settlement.rejected} == {Gate.SEAM}
 
 
-def test_a_loop_holding_a_timbre_the_material_moves_away_from_is_turned_down(loop: LoopFactory) -> None:
+def test_a_loop_holding_a_timbre_the_material_moves_away_from_measures_the_distance(
+    loop: LoopFactory,
+) -> None:
     """A recording that brightens halfway leaves its early loops holding a timbre the rest no longer has."""
-    brightened = np.concatenate([_tone(1.5), _tone(1.5, freq=5 * _FREQ)])
-    config = loop(quality={**_WIDE_OPEN, "max_spectral_distance_db": _SHUT})
+    settlement = settle_loop(_brightening(), SR, loop(quality=_WIDE_OPEN), root_hz=_FREQ, search_s=_HELD_S)
 
-    settlement = settle_loop(brightened, SR, config, root_hz=_FREQ, search_s=_HELD_S)
+    early, late = _split_at_the_brightening(settlement)
+    assert early and late
+    assert max(stored.quality.spectral_distance for stored in late) < min(
+        stored.quality.spectral_distance for stored in early
+    )
 
-    assert settlement.rejected != ()
-    assert {rejected.gate for rejected in settlement.rejected} == {Gate.TIMBRE}
+
+def test_a_gate_on_that_distance_turns_down_the_loops_holding_the_older_timbre(loop: LoopFactory) -> None:
+    """The distance is what the gate reads, so a bound between the two sides admits only the later loops."""
+    measured = settle_loop(_brightening(), SR, loop(quality=_WIDE_OPEN), root_hz=_FREQ, search_s=_HELD_S)
+    early, late = _split_at_the_brightening(measured)
+    between = (
+        max(stored.quality.spectral_distance for stored in late)
+        + min(stored.quality.spectral_distance for stored in early)
+    ) / 2
+
+    config = loop(quality={**_WIDE_OPEN, "max_spectral_distance_db": between})
+    settlement = settle_loop(_brightening(), SR, config, root_hz=_FREQ, search_s=_HELD_S)
+
     assert settlement.loops
-    # every offer that survives sits in the brightened stretch, which is the timbre the rest of the note has
-    assert all(stored.loop.start > round(1.5 * SR) for stored in settlement.offered)
+    assert {rejected.gate for rejected in settlement.rejected} == {Gate.TIMBRE}
+    assert all(stored.loop.start > _BRIGHTENS_AT for stored in settlement.offered)
 
 
-def test_every_rung_the_ladder_lays_out_is_either_offered_or_named(loop: LoopFactory) -> None:
+def test_every_candidate_the_frontier_offers_is_either_offered_or_named(loop: LoopFactory) -> None:
     """Each candidate is measured, so a run accounts for all of them and none is skipped unmeasured."""
     tight = loop(quality={**_WIDE_OPEN, "max_seam_step": 1.0})
     settlement = settle_loop(_decaying(), SR, tight, root_hz=_FREQ, search_s=_HELD_S)
@@ -106,7 +135,7 @@ def test_every_rung_the_ladder_lays_out_is_either_offered_or_named(loop: LoopFac
     assert sorted(measured, key=lambda region: (region.end, region.start)) == sorted(
         set(measured), key=lambda region: (region.end, region.start)
     )
-    assert len(measured) == len(_ladder(_decaying()[: round(_HELD_S * SR)], SR, tight, _FREQ))
+    assert len(measured) == len(_ordered_candidates(_decaying()[: round(_HELD_S * SR)], SR, tight, _FREQ))
 
 
 # --- what the settlement carries ------------------------------------------------------------------
@@ -138,14 +167,12 @@ def test_a_struck_note_carries_the_decline_the_recording_goes_on_making(loop: Lo
         assert stored.decay.start_s == stored.loop.start / SR
 
 
-def test_a_region_falling_faster_than_the_gate_admits_is_climbed_past(loop: LoopFactory) -> None:
-    """Flattening a steep region means fighting it, so the gate turns one away the way the other gates do."""
-    config = loop(quality={**_WIDE_OPEN, "max_level_drift_db": _SHUT})
+def test_a_region_falling_across_itself_is_offered_with_the_fall_it_states(loop: LoopFactory) -> None:
+    """Levelling answers for the decline, so a steep region is offered and reports the fall it flattened."""
+    settlement = settle_loop(_decaying(), SR, loop(quality=_WIDE_OPEN), root_hz=_FREQ, search_s=_HELD_S)
 
-    settlement = settle_loop(_decaying(), SR, config, root_hz=_FREQ, search_s=_HELD_S)
-
-    assert not settlement.loops
-    assert {rejected.gate for rejected in settlement.rejected} == {Gate.LEVEL}
+    assert settlement.loops
+    assert all(stored.quality.level_drift_db > 0.0 for stored in settlement.offered)
 
 
 def test_the_decline_is_read_over_the_whole_recording_rather_than_the_span_searched(loop: LoopFactory) -> None:

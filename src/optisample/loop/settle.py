@@ -14,10 +14,9 @@ from optisample.metrics.base import Signal
 
 @unique
 class Gate(StrEnum):
-    """The measurement a candidate fell outside of, which is the reason the ladder climbed past it."""
+    """The measurement a candidate fell outside of, which is the reason the settlement passed it over."""
 
     SEAM = "seam"
-    LEVEL = "level"
     TIMBRE = "timbre"
 
 
@@ -46,7 +45,7 @@ class StoredLoop:
 
 @dataclass(frozen=True)
 class RejectedLoop:
-    """A candidate the ladder climbed past: where it sat, what it measured, and the gate it fell outside."""
+    """A candidate passed over: where it sat, what it measured, and the gate it fell outside."""
 
     loop: Loop
     quality: LoopQuality
@@ -94,15 +93,13 @@ def _failed_gate(quality: LoopQuality, config: QualityConfig) -> Gate | None:
     """The gate ``quality`` falls outside of, read in the order the artefacts are heard in.
 
     Returns ``None`` for a candidate clearing every gate, which is a loop worth storing. The wrap comes
-    first because a step there is a click once per round wherever the rest sits, the level next because
-    flattening a steep region lifts its noise along with its tail, and the timbre last because a loop
-    holding a sound the material has moved on from is the subtlest of the three.
+    first because a step there is a click once per round wherever the rest sits, and the timbre second
+    because a loop holding a sound the material has moved on from is the subtler of the two. How far the
+    region's level falls is measured and reported beside them, and it is levelling that answers for it
+    (:func:`~optisample.dsp.loop.level_loop`), which reads the same curve the drift is read off.
     """
     if quality.seam_step > config.max_seam_step:
         return Gate.SEAM
-
-    if quality.level_drift_db > config.max_level_drift_db:
-        return Gate.LEVEL
 
     if quality.spectral_distance > config.max_spectral_distance_db:
         return Gate.TIMBRE
@@ -110,13 +107,14 @@ def _failed_gate(quality: LoopQuality, config: QualityConfig) -> Gate | None:
     return None
 
 
-def _ladder(signal: Signal, sample_rate: int, config: LoopConfig, root_hz: float) -> tuple[Loop, ...]:
+def _ordered_candidates(signal: Signal, sample_rate: int, config: LoopConfig, root_hz: float) -> tuple[Loop, ...]:
     """The candidates in the order the settlement measures and offers them: cheapest first.
 
     A candidate costs what storing ``[0, loop.end)`` costs, so ordering by ``loop.end`` puts the most
-    aggressive loop -- the earliest and shortest the geometry allows -- at the front and leaves the offers
-    running from cheap to dear, which is the order a rate-distortion frontier is read along. The start
-    breaks ties so one recording climbs the same ladder on every run.
+    aggressive loop -- the earliest and shortest the material offers -- at the front and leaves the offers
+    running from cheap to dear, which is the order a rate-distortion frontier is read along. Landing a
+    reach on the waveform's own phase moves both bounds by up to a period, so the order is settled here
+    rather than taken from the frontier, and the start breaks ties so a recording reads the same each run.
     """
     candidates = loop_candidates(signal, sample_rate, config, root_hz)
     return tuple(sorted(candidates, key=lambda loop: (loop.end, loop.start)))
@@ -130,18 +128,18 @@ def settle_loop(
     root_hz: float,
     search_s: float,
 ) -> Settlement:
-    """The loops ``signal`` may be stored around, taken from the ladder its own material offers.
+    """The loops ``signal`` may be stored around, taken from the frontier its own material offers.
 
     ``root_hz`` is the pitch the recording was played at, which the material's period is searched around
     (:func:`~optisample.dsp.loop.loop_candidates`) and its level read over two of
     (:func:`~optisample.dsp.envelope.level_reading`), so both readings are taken over the stretch this note
-    repeats in. One reading serves the whole ladder, so every candidate is measured alike and each region
+    repeats in. One reading serves every candidate, so all of them are measured alike and each region
     that ends up stored is levelled by the same curve that admitted it.
 
     Candidates are measured over the first ``search_s`` of the recording -- the longest stretch the
     material asks of it -- because a loop ending past that stores more than keeping the played span would
-    and so wins nothing. Every rung of the ladder is measured and each one clearing every quality gate is
-    offered, cheapest first (:func:`_ladder`), so the gates say which loops a recording supports at all and
+    and so wins nothing. Every candidate is measured and each one clearing every quality gate is offered,
+    cheapest first (:func:`_ordered_candidates`), so the gates say which loops a recording supports and
     a budget says which of them is worth its bytes.
 
     Each offer's decline is fitted over the whole recording rather than the searched stretch, so the ramp a
@@ -152,7 +150,7 @@ def settle_loop(
     reading = level_reading(sample_rate, config.envelope, root_hz)
     offered: list[StoredLoop] = []
     rejected: list[RejectedLoop] = []
-    for loop in _ladder(searched, sample_rate, config, root_hz):
+    for loop in _ordered_candidates(searched, sample_rate, config, root_hz):
         quality = loop_quality(searched, loop, sample_rate, config, reading)
         gate = _failed_gate(quality, config.quality)
         if gate is None:

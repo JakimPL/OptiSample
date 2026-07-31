@@ -58,6 +58,19 @@ def test_every_frame_states_its_shape_around_the_level_it_carries(features_confi
     assert series.hop_s == pytest.approx(series.hop_length / SR)
 
 
+def test_a_recording_frame_is_read_as_the_series_frame_covering_it_or_the_one_past_it(
+    features_config: FeatureConfig,
+) -> None:
+    """A stretch stated in recording frames stays inside itself: its near end rounds up, its far end down."""
+    series = frame_series(_sine(SR), SR, features_config, FREQ)
+    inside = series.frame_start(3) + series.hop_length // 2
+
+    assert series.frame_index(inside) == 3
+    assert series.frame_after(inside) == 4
+    assert series.frame_index(series.frame_start(3)) == series.frame_after(series.frame_start(3)) == 3
+    assert series.frame_after(2 * SR) == series.frames  # a bound past the recording lands on its last frame
+
+
 def test_material_holding_one_sound_moves_slower_than_material_that_travels(
     features_config: FeatureConfig,
 ) -> None:

@@ -10,13 +10,12 @@ import pytest
 from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
 from optisample.dsp.surrogate import UNLOOPED, EncodingParams, SettledLoops
+from optisample.frontier import lower_convex_hull
 from optisample.optimize.operating_points import (
-    OperatingPoint,
     SourceClip,
     SweepContext,
     compresses,
     evaluate_encoding,
-    lower_convex_hull,
     sweep_rates,
 )
 from optisample.synth import NoteSpec, synthesize
@@ -35,11 +34,6 @@ _SYNTH = load_config().synth
 def bright_piano(pitch: int = 84, velocity: int = 115, dur: float = 1.0) -> np.ndarray:
     spec = NoteSpec(pitch=pitch, velocity=velocity, controller=60.0, duration_s=dur, sample_rate=SR)
     return synthesize("piano", spec, np.random.default_rng(1), _SYNTH)
-
-
-def point(stored_bytes: int, distortion: float) -> OperatingPoint:
-    params = EncodingParams(target_rate=1, depth_bits=16)
-    return OperatingPoint(params=params, stored_bytes=stored_bytes, distortion=distortion, frames=stored_bytes)
 
 
 def seeded(context: SweepContext, seed: int = 0) -> SweepContext:
@@ -172,34 +166,6 @@ def test_a_config_asking_for_no_compression_leaves_every_depth_alone(
     sweep: Callable[..., SweepConfig],
 ) -> None:
     assert compresses(sweep(compress=False), 8) is False
-
-
-@dataclass(frozen=True)
-class _HullCase:
-    """A lower-convex-hull scenario: the ``(stored_bytes, distortion)`` points fed in and the bytes kept."""
-
-    name: str
-    points: tuple[tuple[int, float], ...]
-    kept: list[int]
-
-
-_HULL_CASES = (
-    _HullCase("above-chord vertex dropped", ((100, 1.0), (200, 0.5), (300, 0.45), (400, 0.1)), [100, 200, 400]),
-    _HullCase("dominated vertex dropped", ((100, 1.0), (200, 0.5), (300, 0.6)), [100, 200]),
-    _HullCase("collinear midpoint dropped", ((0, 3.0), (10, 2.0), (20, 1.0)), [0, 20]),
-)
-
-
-@pytest.mark.parametrize("case", _HULL_CASES, ids=lambda case: case.name)
-def test_lower_convex_hull_keeps_only_frontier_vertices(case: _HullCase) -> None:
-    hull = lower_convex_hull([point(stored_bytes, distortion) for stored_bytes, distortion in case.points])
-    assert [p.stored_bytes for p in hull] == case.kept
-
-
-def test_lower_convex_hull_edge_cases() -> None:
-    assert lower_convex_hull([]) == []
-    solo = point(50, 0.2)
-    assert lower_convex_hull([solo]) == [solo]
 
 
 def test_a_measured_frontier_is_monotone_and_convex(sweep_context: SweepContext) -> None:

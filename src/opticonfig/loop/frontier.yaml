@@ -1,0 +1,4 @@
+# Which rounds a recording is offered, read off how closely it wraps (optisample.config.loop.FrontierConfig).
+max_reach_s: 2.0          # how far past the settled frame a round is looked for
+max_wrap_distance_db: 6.0 # step across the wrap a round holds under to be offered at all
+max_offers: 5             # points of the frontier the sweep is asked to price
