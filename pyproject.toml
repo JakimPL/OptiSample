@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13,<3.14"
 authors = [{ name = "Jakim" }]
 dependencies = [
+    "msgpack>=1.1.2",
     "numpy>=2.5.1",
     "pydantic>=2.13.4",
     "pyloudnorm>=0.2.0",

@@ -57,6 +57,17 @@ def tracked_ccs(material: Sequence[NoteEvent]) -> list[int]:
     return sorted({controller for event in material for controller in event.cc_averages})
 
 
+def recording_stem(key: SampleKey, index: int) -> str:
+    """The name one recording is written under: the render index it joins on, then the identity it holds.
+
+    The leading index is what a later ingest reads back to pair a note with its file, and the rest says
+    which recording that file holds, so a dataset written twice over the same recordings names them alike.
+    Everything a stage writes about one recording shares this stem, which is what pairs a calibrated
+    ``.sample`` with the WAV standing beside it.
+    """
+    return f"{index:04d}_{key.label}"
+
+
 def write_recording(
     signal: Signal,
     key: SampleKey,
@@ -64,12 +75,8 @@ def write_recording(
     sample_rate: int,
     samples_dir: Path,
 ) -> WrittenSampleRecord:
-    """Write one recording as ``{index:04d}_{key label}.wav`` and state what a reader finds there.
-
-    The leading index is the render index a later ingest reads back and the rest of the name says which
-    recording the file holds, so a dataset written twice over the same recordings names them alike.
-    """
-    name = f"{index:04d}_{key.label}.wav"
+    """Write one recording as ``{stem}.wav`` and state what a reader finds there (see :func:`recording_stem`)."""
+    name = f"{recording_stem(key, index)}.wav"
     write_wav(samples_dir / name, signal, sample_rate)
     return WrittenSampleRecord(
         index=index,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from optisample.artifacts.serialize import Frozen
@@ -127,7 +127,7 @@ def _loop_quality_record(quality: LoopQuality) -> LoopQualityRecord:
     )
 
 
-def _settled_loop_record(stored: StoredLoop, sample_rate: int) -> SettledLoopRecord:
+def settled_loop_record(stored: StoredLoop, sample_rate: int) -> SettledLoopRecord:
     """The loop a recording is stored around, stated in frames and in seconds alike."""
     return SettledLoopRecord(
         start=stored.loop.start,
@@ -171,7 +171,7 @@ def loops_document(
                 velocity=key.velocity,
                 cc=list(key.cc),
                 search_s=searched[key],
-                offered=[_settled_loop_record(stored, sample_rate) for stored in settlements[key].offered],
+                offered=[settled_loop_record(stored, sample_rate) for stored in settlements[key].offered],
                 rejected=[_rejected_loop_record(rejected, sample_rate) for rejected in settlements[key].rejected],
             )
             for key in sorted(settlements)
@@ -189,19 +189,22 @@ def read_loops(path: Path) -> LoopsDocument:
     return LoopsDocument.model_validate_json(path.read_text(encoding="utf-8"))
 
 
-def settled_loops(document: LoopsDocument) -> dict[SampleKey, SettledLoops]:
-    """The loops a document states, in the shape every encode reads them through.
+def settled_offers(offered: Sequence[SettledLoopRecord]) -> SettledLoops:
+    """One recording's offers in the shape every encode reads them through, in the order params index them.
 
-    Frames come back as they were written and in the order they were offered, so a document read beside the
-    dataset it was measured over names the same stretches of the same recordings under the same indices.
+    Frames come back as they were written, so records read beside the dataset they were measured over name
+    the same stretches of the same recording under the same indices. Every artifact carrying settled loops
+    -- the loops document and the calibrated ``.sample`` alike -- puts them back through here.
     """
-    return {
-        _settled_key(record): tuple(
-            SettledLoop(loop=Loop(start=stored.start, end=stored.end), decay=_read_decay(stored.decay))
-            for stored in record.offered
-        )
-        for record in document.recordings
-    }
+    return tuple(
+        SettledLoop(loop=Loop(start=stored.start, end=stored.end), decay=_read_decay(stored.decay))
+        for stored in offered
+    )
+
+
+def settled_loops(document: LoopsDocument) -> dict[SampleKey, SettledLoops]:
+    """The loops a document states, keyed the way the audio they were measured over is."""
+    return {_settled_key(record): settled_offers(record.offered) for record in document.recordings}
 
 
 def _read_decay(record: DecayRecord | None) -> LinearDecay | None:

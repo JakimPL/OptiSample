@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
 from numpy.typing import NDArray
 
+from optisample.artifacts.dataset import recording_stem
 from optisample.artifacts.documents.loops import read_loops, settled_loops
+from optisample.artifacts.documents.sample import read_sample, sample_decomposition, sample_loops
 from optisample.artifacts.looped import dump_looped, loop_project
 from optisample.io.audio import read_wav
 from optisample.io.note_extractor import IngestSettings, load_notes
@@ -104,6 +107,45 @@ def test_every_recording_is_written_as_the_stage_analysed_it(
         data, rate = read_wav(written.paths.samples_dir / f"{index:04d}_{key.label}.wav")
         assert rate == SR
         assert data.size == looped.loaded.audio[key].size
+
+
+def test_every_recording_is_carried_as_a_calibrated_sample_beside_its_own_wav(
+    looped: LoopedInstrument, settings: OptimizeSettings, tmp_path: Path
+) -> None:
+    """The pair a container holds puts the recording back together, which is what carries it into a stored copy."""
+    written = dump_looped(looped, tmp_path, settings)
+
+    for index, key in enumerate(sorted(looped.loaded.audio)):
+        document = read_sample(written.paths.calibrated(recording_stem(key, index)))
+        assert (document.root_pitch, document.sample_rate, document.provenance.index) == (key.pitch, SR, index)
+        assert document.provenance.instrument_id == "pad"
+        assert sample_decomposition(document).recombined() == pytest.approx(looped.loaded.audio[key], abs=1e-6)
+
+
+def test_the_loops_a_recording_offers_travel_in_the_container_holding_its_audio(
+    looped: LoopedInstrument, settings: OptimizeSettings, tmp_path: Path
+) -> None:
+    """A stage reading a container back reaches the loops this run settled over the very audio beside them."""
+    written = dump_looped(looped, tmp_path, settings)
+    key = SampleKey(_LOOPABLE, 100)
+    index = sorted(looped.loaded.audio).index(key)
+
+    assert sample_loops(read_sample(written.paths.calibrated(recording_stem(key, index)))) == looped.settled[key]
+
+
+def test_a_run_storing_no_loops_carries_every_recording_as_a_container_stating_none(
+    instrument: InstrumentSpec, audio: AudioMap, settings: OptimizeSettings, tmp_path: Path
+) -> None:
+    """The split is worth carrying wherever a run stores its samples, so the container states an empty offer."""
+    loaded = LoadedInstrument(instrument=instrument, audio=dict(audio), sample_rate=SR, screen=NO_SCREEN)
+    unlooped = run_loops(loaded, replace(settings, loops=False))
+
+    written = dump_looped(unlooped, tmp_path, settings)
+
+    for index, key in enumerate(sorted(audio)):
+        document = read_sample(written.paths.calibrated(recording_stem(key, index)))
+        assert document.loops == []
+        assert sample_decomposition(document).recombined() == pytest.approx(audio[key], abs=1e-6)
 
 
 def test_the_material_reaches_the_dataset_note_for_note(

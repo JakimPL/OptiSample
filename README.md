@@ -320,6 +320,7 @@ optisample reduce looped/Piano.notes.json --budget-kb 96      # picks up from th
 looped/
   Piano.notes.json                 # one entry per played note, pointing at the recording serving it
   Piano/0000_p060_C4_v100.wav      # one WAV per recording, exactly as the stage analysed it
+  Piano/0000_p060_C4_v100.sample   # the same recording calibrated: level, carrier and its settled loops
   loops/Piano/
     loops.json                     # the loops each recording offers, and the candidates turned down
     auditions/p060_C4/             # recording.wav beside looped0.wav ... one per offer
@@ -329,6 +330,20 @@ The WAVs are the ingest's own output — onset-aligned, at the run's one rate �
 index straight into them, and every stage after this one only shortens them. The auditions are what makes
 the stage judgeable by ear on its own: each one wraps the loop several times and puts the fitted decline
 over it, which turns a seam step or a level pulse into a rhythm a listener hears.
+
+### `.sample`, the calibrated unit
+
+Beside each WAV the stage writes a `.sample` of the same stem: the recording split into the **level** it
+moves through and the **carrier** that level scales (`dsp/envelope.decompose`), the loops settled over it,
+the pitch it was played at, the rate it was analysed at, and the run that wrote it. It is one msgpack
+document — the payloads are little-endian float32, one value per frame, so a curve travels as the bytes it
+already is rather than as a dozen characters a number.
+
+`level * carrier` is the recording, so the pair carries everything the WAV holds. What it adds is that a
+copy stored from the carrier alone spends the whole depth of its grid on the waveform: at 8 bits that is
+worth **+5.4…+26.1 dB** segmental SNR (median ≈ +15 dB ≈ 2.5 bits), because the attack transient stops
+setting the code range and the level travels as a curve instead. Carrying the loops in the same file is
+what lets a later stage store the region this run settled over the very audio it was settled on.
 
 ### A held note that declines
 
