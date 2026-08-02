@@ -468,7 +468,7 @@ as the format numbers. Each extra sample is charged a reserve, so the run states
 | `loop.frontier.max_offers`, `loop.frontier.max_reach_s` | `loop/frontier.yaml` | Every loop offered sounds alike, so length buys nothing. |
 | `loop.frontier.max_wrap_distance_db` | `loop/frontier.yaml` | Material that should loop settles none, or one loops that should not. |
 | `loop.seam.fade_share`, `loop.seam.min_fade_s` | `loop/seam.yaml` | The wrap is continuous but audible as a texture change. |
-| `loop.seam.crossovers_hz`, `loop.seam.crossover_octaves` | `loop/seam.yaml` | A held loop rings or flutters at its own rate. |
+| `loop.seam.crossovers_hz`, `loop.seam.crossover_octaves` | `loop/seam.yaml` | A wrap thins or dulls one part of the spectrum while the rest comes through. |
 | `loop.envelope.highest_hz` | `loop/envelope.yaml` | A held note pulses at the loop's rate, or a levelled region wavers where the recording was steady. |
 | `loop.geometry.detune_semitones` | `loop/geometry.yaml` | A recording that is in tune loops well and one recorded off-pitch settles no loop at all. |
 | `export.envelope.release_s` | `export/envelope.yaml` | A released note is cut off abruptly, or hangs on after the key is let go. |
