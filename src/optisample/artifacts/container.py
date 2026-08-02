@@ -3,8 +3,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from optisample.artifacts.bank import BankDocument, bank_document
-from optisample.artifacts.serialize import VelocityMapDocument, json_text
+from optisample.artifacts.documents.bank import BankDocument, bank_document
+from optisample.artifacts.documents.velocity import VelocityMapDocument
+from optisample.artifacts.serialize import json_text
 from optisample.io.tracker.target import ExportTarget
 from optisample.optimize.layers.slots import SlotLayout
 from trackmod.core.instruments.transfer import extract

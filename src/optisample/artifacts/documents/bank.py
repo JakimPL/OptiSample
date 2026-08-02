@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Final
 
-from optisample.artifacts.serialize import Frozen, VelocityMapDocument
+from optisample.artifacts.documents.velocity import VelocityMapDocument
+from optisample.artifacts.serialize import Frozen
 from optisample.optimize.layers.slots import ONE_SLOT, SlotLayout
 
 MANIFEST_VERSION: Final = 3  # the manifest shape stated out loud, so a consumer reads the one it knows

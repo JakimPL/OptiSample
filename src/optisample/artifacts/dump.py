@@ -11,17 +11,16 @@ from optisample.artifacts.context import (
     DumpSettings,
     PlanArtifacts,
 )
-from optisample.artifacts.paths import PlanPaths, plan_paths
-from optisample.artifacts.serialize import (
+from optisample.artifacts.documents.metrics import (
     NoteMetricRecord,
     RenderedNote,
     RepresentativeEventRecord,
     event_records,
     metrics_document,
     note_record,
-    write_json,
-    write_text,
 )
+from optisample.artifacts.paths import PlanPaths, plan_paths
+from optisample.artifacts.serialize import write_json, write_text
 from optisample.artifacts.units import PlanKind, Unit, make_kind
 from optisample.io.audio import write_wav
 from optisample.io.render import openmpt123_available, render_module

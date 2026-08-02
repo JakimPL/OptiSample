@@ -6,14 +6,14 @@ from time import perf_counter
 from typing import Final
 
 from optisample.artifacts.dataset import note_records, tracked_ccs, write_recording
-from optisample.artifacts.paths import ReducedPaths, reduced_paths
-from optisample.artifacts.serialize import (
+from optisample.artifacts.documents.reduction import (
     ReducedDocument,
     WrittenSampleRecord,
     reduction_document,
     screen_record,
-    write_json,
 )
+from optisample.artifacts.paths import ReducedPaths, reduced_paths
+from optisample.artifacts.serialize import write_json
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode
 from optisample.io.audio import write_wav
 from optisample.io.note_extractor import dump_notes

@@ -9,8 +9,10 @@ from typing import Final
 import numpy as np
 
 from optisample.artifacts.dataset import note_records, tracked_ccs, write_recording
+from optisample.artifacts.documents.loops import LoopsDocument, loops_document
+from optisample.artifacts.documents.reduction import WrittenSampleRecord
 from optisample.artifacts.paths import LoopedPaths, looped_paths
-from optisample.artifacts.serialize import LoopsDocument, WrittenSampleRecord, loops_document, write_json
+from optisample.artifacts.serialize import write_json
 from optisample.config.loop import LoopConfig, SeamConfig
 from optisample.dsp.decay import LinearDecay
 from optisample.dsp.envelope import LevelReading, level_reading

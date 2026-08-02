@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 
-from optisample.artifacts.bank import MANIFEST_VERSION, BankDocument, bank_document
-from optisample.artifacts.serialize import VelocityMapDocument
+from optisample.artifacts.documents.bank import MANIFEST_VERSION, BankDocument, bank_document
+from optisample.artifacts.documents.velocity import VelocityMapDocument
 from optisample.dsp.surrogate.params import EncodingParams
 from optisample.keys import SampleKey
 from optisample.music import MIDI_HIGHEST_PITCH, MIDI_LOWEST_PITCH, MIDI_MAX_VELOCITY

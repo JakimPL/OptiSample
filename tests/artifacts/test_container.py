@@ -6,14 +6,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from optisample.artifacts.bank import MANIFEST_VERSION
 from optisample.artifacts.container import (
     MANIFEST_NAME,
     BankContents,
     bank_contents,
     write_container,
 )
-from optisample.artifacts.serialize import VelocityMapDocument, json_text
+from optisample.artifacts.documents.bank import MANIFEST_VERSION
+from optisample.artifacts.documents.velocity import VelocityMapDocument
+from optisample.artifacts.serialize import json_text
 from optisample.config.tracker import TrackerFormat
 from optisample.io.tracker.target import ExportTarget
 from optisample.music import MIDI_MAX_VELOCITY

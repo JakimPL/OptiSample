@@ -2,7 +2,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from optisample.artifacts.context import DumpContext
-from optisample.artifacts.serialize import PlanDocument, plan_document
+from optisample.artifacts.documents.plan import PlanDocument, plan_document
 from optisample.dsp.surrogate import StoredSample
 from optisample.keys import SampleKey
 from optisample.model import NoteEvent

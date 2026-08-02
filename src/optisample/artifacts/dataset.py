@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from optisample.artifacts.serialize import WrittenSampleRecord
+from optisample.artifacts.documents.reduction import WrittenSampleRecord
 from optisample.io.audio import write_wav
 from optisample.io.note_extractor import NoteRecord
 from optisample.keys import SampleKey, nearest_key

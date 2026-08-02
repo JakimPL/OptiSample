@@ -5,36 +5,42 @@ import pytest
 
 from notebooks.utils import reports
 from notebooks.utils.reports import ComparedNote
-from optisample.artifacts.paths import looped_paths, plan_paths, reduced_paths
-from optisample.artifacts.serialize import (
-    BudgetRecord,
+from optisample.artifacts.documents.loops import (
     DecayRecord,
-    EventMetricRecord,
-    InstrumentRecord,
-    KeptRecordingRecord,
-    KeyboardRecord,
     LoopQualityRecord,
     LoopRecord,
     LoopsDocument,
+    RecordingLoopsRecord,
+    RejectedLoopRecord,
+    SettledLoopRecord,
+)
+from optisample.artifacts.documents.metrics import (
+    EventMetricRecord,
     MetricsDocument,
-    ModuleSizeRecord,
-    NarrowedGridRecord,
     NoteMetricRecord,
+    RepresentativeEventRecord,
+)
+from optisample.artifacts.documents.plan import (
+    BudgetRecord,
+    InstrumentRecord,
+    KeyboardRecord,
+    ModuleSizeRecord,
     PitchItemRecord,
     PlanDocument,
-    RecordingLoopsRecord,
+    ZoneItemRecord,
+)
+from optisample.artifacts.documents.reduction import (
+    KeptRecordingRecord,
+    NarrowedGridRecord,
     ReducedDocument,
     ReductionDocument,
-    RejectedLoopRecord,
-    RepresentativeEventRecord,
     ScreenRecord,
-    SettledLoopRecord,
     StoredFormatRecord,
-    VelocityMapDocument,
     WrittenSampleRecord,
-    ZoneItemRecord,
-    write_json,
 )
+from optisample.artifacts.documents.velocity import VelocityMapDocument
+from optisample.artifacts.paths import looped_paths, plan_paths, reduced_paths
+from optisample.artifacts.serialize import write_json
 from optisample.io.audio import write_wav
 
 SR = 8_000

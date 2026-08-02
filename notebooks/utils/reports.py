@@ -5,19 +5,20 @@ from pathlib import Path
 from typing import Final
 
 from notebooks.utils.views import Row
-from optisample.artifacts.paths import PlanPaths, looped_paths, plan_paths, reduced_paths
-from optisample.artifacts.serialize import (
+from optisample.artifacts.documents.loops import LoopsDocument, read_loops
+from optisample.artifacts.documents.metrics import MetricsDocument
+from optisample.artifacts.documents.plan import (
     EncodingRecord,
-    LoopsDocument,
-    MetricsDocument,
     PitchItemRecord,
     PlanDocument,
+    ZoneItemRecord,
+)
+from optisample.artifacts.documents.reduction import (
     ReducedDocument,
     ReductionDocument,
     StoredFormatRecord,
-    ZoneItemRecord,
-    read_loops,
 )
+from optisample.artifacts.paths import PlanPaths, looped_paths, plan_paths, reduced_paths
 from optisample.metrics import bytes_to_kib
 from optisample.music import labelled_pitch, note_name
 from optisample.optimize.plans import FIRST_LAYER

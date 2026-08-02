@@ -292,10 +292,13 @@ it left while the partials above it arrive where their own spacing puts them —
 brings every one of them through at the level it had, where a single reading holds the band carrying the
 energy and notches the rest. Over the 171 loops the 62-note Piano slice offers, read on the blend's own band
 bank, the bands the wrap pulls under both sides of the material fall from **170 to 23 of 768 past 1 dB** and
-from **75 to 4 past 3 dB**, with the deepest notch at **-8.6 dB to -4.5 dB**. That is the wrap alone: held as a
-loop, those same regions swing a median **10 dB per band** across one round from their own partials decaying
-at their own rates and beating against each other, so what a held note rings with at the loop's rate is
-mostly the region, and the wrap is the smaller part of it. Across 54 real Piano loops the level step at
+from **75 to 4 past 3 dB**, with the deepest notch at **-8.6 dB to -4.5 dB**. That is the wrap alone, and it
+is the part of a held loop the pipeline reaches: those same regions swing a median **8.8 dB per band** across
+one round from their own partials decaying at their own rates and beating against each other, which is
+motion the recording makes whether it is looped or not — read over the same span playing on past its end it
+swings **9.7 dB**. So what a held note rings with at the loop's rate is the material, the wrap is the smaller
+part of it, and holding a piano steadier than a piano is what the loop stage leaves alone. Across 54 real
+Piano loops the level step at
 the wrap falls from a median **|2.65| dB to |0.21| dB**, and reading each note over its own period is worth
 **2.6×** of that against one weighting for every note alike.
 

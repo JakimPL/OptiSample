@@ -9,7 +9,7 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.artifacts import DumpSettings, dump_instrument, dump_project
-from optisample.artifacts.bank import MANIFEST_VERSION
+from optisample.artifacts.documents.bank import MANIFEST_VERSION
 from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import ReduceConfig

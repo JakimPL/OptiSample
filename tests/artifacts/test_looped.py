@@ -7,8 +7,8 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
+from optisample.artifacts.documents.loops import read_loops, settled_loops
 from optisample.artifacts.looped import dump_looped, loop_project
-from optisample.artifacts.serialize import read_loops, settled_loops
 from optisample.io.audio import read_wav
 from optisample.io.note_extractor import IngestSettings, load_notes
 from optisample.keys import SampleKey

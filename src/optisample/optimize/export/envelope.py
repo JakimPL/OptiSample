@@ -83,7 +83,7 @@ def volume_envelope(
 
     Ticks are what a format counts envelope time in, so the curve holds only for the tempo it was written
     for -- which is why that tempo travels with a bank
-    (:class:`~optisample.artifacts.bank.BankDocument`).
+    (:class:`~optisample.artifacts.documents.bank.BankDocument`).
     """
     breakpoints = (
         Breakpoint(seconds=_ONSET_S, value=MAX_VOLUME),
