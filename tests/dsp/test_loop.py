@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Final
 
 import numpy as np
 import pytest
@@ -23,6 +24,8 @@ from optisample.dsp.loop import (
     seam_frames,
     shortest_loop_frames,
 )
+from optisample.dsp.spectral import band_energy
+from tests.conftest import recorded
 
 SR = 8_000
 FREQ = 200.0
@@ -36,9 +39,37 @@ def _sine(n: int, freq: float = FREQ, amp: float = 0.8) -> NDArray[np.float64]:
     return amp * np.sin(2.0 * np.pi * freq * t)
 
 
+CROSSOVERS: Final = (250.0, 1_000.0)  # a bank a tone at FREQ and its partials fall on either side of
+CROSSOVER_OCTAVES: Final = 0.5
+LOW_PARTIAL: Final = 200.0  # 50 whole cycles across the 2000-frame loop below, so it comes round in phase
+HIGH_PARTIAL: Final = 1_485.0  # 371.25 cycles across it, so it comes round a quarter turn from where it left
+LOW_BAND: Final = (0.0, 250.0)
+HIGH_BAND: Final = (1_000.0, SR / 2.0)
+
+
 def _seam(fade_share: float) -> SeamConfig:
     """A seam asking for a stated share of the loop, so a test reads one blend rather than the shipped one."""
-    return SeamConfig(fade_share=fade_share, min_fade_s=0.0)
+    return SeamConfig(
+        fade_share=fade_share,
+        min_fade_s=0.0,
+        crossovers_hz=CROSSOVERS,
+        crossover_octaves=CROSSOVER_OCTAVES,
+    )
+
+
+def _broadband_seam(fade_share: float) -> SeamConfig:
+    """A seam weighing the whole spectrum as one band, which is one law serving every partial at once."""
+    return SeamConfig(
+        fade_share=fade_share,
+        min_fade_s=0.0,
+        crossovers_hz=(),
+        crossover_octaves=CROSSOVER_OCTAVES,
+    )
+
+
+def _band_level_db(signal: NDArray[np.float64], band: tuple[float, float]) -> float:
+    """The level ``signal`` holds inside ``band``, in decibels."""
+    return gain_to_db(float(np.sqrt(band_energy(signal, SR, band[0], band[1]))))
 
 
 def _reading(config: EnvelopeConfig, root_hz: float = FREQ) -> LevelReading:
@@ -180,6 +211,29 @@ def test_a_blend_of_material_that_has_drifted_apart_holds_the_level_it_had() -> 
 
     assert _level_of(blended) == pytest.approx(_level_of(noise), rel=0.1)
     assert _level_of(blended) > 1.2 * _level_of(summing_to_one[fade // 4 : 3 * fade // 4])  # the dip it avoids
+
+
+def test_each_band_is_weighed_by_how_alike_that_band_came_round() -> None:
+    """A string's partials return from a round at their own phases, so one law for all of them notches most.
+
+    The loop spans a whole number of cycles of the loud low partial and a quarter turn more than a whole
+    number of the quiet high one, which is the spacing a struck string carries. One law reads the likeness
+    of the partial holding the energy and blends the other as though it too had come round in phase, which
+    takes 3 dB out of it once per round.
+    """
+    signal = _sine(4 * SR, freq=LOW_PARTIAL, amp=1.0) + _sine(4 * SR, freq=HIGH_PARTIAL, amp=0.15)
+    loop = Loop(start=4_000, end=6_000)
+    fade = seam_frames(loop, SR, _seam(0.25))
+    middle = slice(loop.end - 3 * fade // 4, loop.end - fade // 4)
+    before = signal[middle]
+
+    banded = crossfade_loop(signal, loop, SR, _seam(0.25))[middle]
+    broadband = crossfade_loop(signal, loop, SR, _broadband_seam(0.25))[middle]
+
+    assert _band_level_db(banded, HIGH_BAND) == pytest.approx(_band_level_db(before, HIGH_BAND), abs=0.5)
+    assert _band_level_db(broadband, HIGH_BAND) < _band_level_db(before, HIGH_BAND) - 2.0
+    for blended in (banded, broadband):  # the band holding the energy is served by either reading
+        assert _band_level_db(blended, LOW_BAND) == pytest.approx(_band_level_db(before, LOW_BAND), abs=0.5)
 
 
 def test_a_blend_of_material_that_repeats_exactly_leaves_it_as_it_was() -> None:
@@ -443,7 +497,7 @@ def test_a_crossfaded_seam_reads_as_a_step_the_waveform_itself_could_have_made(l
 
 
 def test_a_loop_holding_a_timbre_the_material_moves_away_from_reports_the_distance(loop_config: LoopConfig) -> None:
-    steady = _sine(2 * SR)
+    steady = recorded(_sine(2 * SR))
     brightened = steady + 0.5 * _sine(2 * SR, freq=5 * FREQ)
     loop = _cheapest(steady, loop_config)
     assert loop is not None
@@ -550,7 +604,12 @@ def test_a_longer_loop_is_blended_over_a_longer_stretch_of_itself() -> None:
     ],
 )
 def test_the_blend_is_floored_in_seconds_and_bounded_by_the_room_around_it(loop: Loop, expected: int) -> None:
-    seam = SeamConfig(fade_share=0.05, min_fade_s=0.05)
+    seam = SeamConfig(
+        fade_share=0.05,
+        min_fade_s=0.05,
+        crossovers_hz=CROSSOVERS,
+        crossover_octaves=CROSSOVER_OCTAVES,
+    )
 
     assert seam_frames(loop, SR, seam) == expected
 

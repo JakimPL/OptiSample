@@ -5,12 +5,14 @@ from numpy.typing import NDArray
 from optisample.config.spectral import MelParams, SpectralConfig, StftParams
 from optisample.dsp.spectral import (
     band_energy,
+    band_masks,
     bandlimit,
     content_edge_hz,
     mel_filterbank,
     spectral_centroid,
     spectral_flux,
     spectral_rolloff,
+    split_bands,
     stft_magnitude,
 )
 
@@ -83,6 +85,69 @@ def test_bandlimit_removes_out_of_band_tone() -> None:
     signal = tone(1000)
     removed = bandlimit(signal, SR, 1500, 3000)  # 1000 Hz excluded
     assert float(np.sum(removed**2)) < 1e-3 * float(np.sum(signal**2))
+
+
+# --- band splitting ------------------------------------------------------------------------------
+
+_CROSSOVERS = (250.0, 1_000.0)
+_CROSSOVER_OCTAVES = 0.5
+
+
+def test_the_masks_of_a_split_sum_to_one_at_every_bin() -> None:
+    """Summing to one is what lets a caller weigh the bands apart and still hold the whole material."""
+    masks = band_masks(SR, 2_048, _CROSSOVERS, _CROSSOVER_OCTAVES)
+
+    assert masks.shape == (len(_CROSSOVERS) + 1, 2_048 // 2 + 1)
+    assert np.all(masks >= 0.0)
+    assert np.allclose(masks.sum(axis=0), 1.0)
+
+
+def test_a_split_signal_adds_back_up_to_itself() -> None:
+    signal = tone(300) + tone(1_800, amp=0.4)
+
+    bands = split_bands(signal, SR, _CROSSOVERS, _CROSSOVER_OCTAVES)
+
+    assert np.allclose(bands.sum(axis=0), signal, atol=1e-12)
+
+
+def test_a_tone_lands_in_the_band_its_frequency_names() -> None:
+    bands = split_bands(tone(1_800), SR, _CROSSOVERS, _CROSSOVER_OCTAVES)
+    energies = np.sum(bands**2, axis=1)
+
+    assert int(np.argmax(energies)) == 2  # the band above the 1 kHz crossover
+    assert float(energies[0] + energies[1]) < 1e-3 * float(energies[2])
+
+
+def test_a_tone_sitting_on_a_crossover_is_shared_by_the_bands_it_divides() -> None:
+    """Splitting the amplitude hands the two sides their share, so together they carry the tone whole."""
+    bands = split_bands(tone(1_000), SR, _CROSSOVERS, _CROSSOVER_OCTAVES)
+    energies = np.sum(bands**2, axis=1)
+
+    assert float(energies[1]) == pytest.approx(float(energies[2]), rel=0.05)
+
+
+def test_a_stretch_too_short_to_read_a_crossover_apart_weighs_its_bands_together() -> None:
+    """A climb narrower than a few bins separates nothing, so the reading that stretch supports is one band."""
+    coarse = band_masks(SR, 32, _CROSSOVERS, _CROSSOVER_OCTAVES)  # 250 Hz per bin
+    fine = band_masks(SR, 4_096, _CROSSOVERS, _CROSSOVER_OCTAVES)
+
+    assert coarse.shape[0] == 1
+    assert fine.shape[0] == len(_CROSSOVERS) + 1
+
+
+def test_a_crossover_reaching_past_nyquist_leaves_the_band_below_it_open() -> None:
+    masks = band_masks(SR, 4_096, (1_000.0, 3_800.0), _CROSSOVER_OCTAVES)
+
+    assert masks.shape[0] == 2  # 3.8 kHz climbs past the 4 kHz Nyquist, so it names no band of its own
+
+
+def test_listing_no_crossover_weighs_the_whole_spectrum_as_one_band() -> None:
+    signal = tone(300) + tone(1_800, amp=0.4)
+
+    bands = split_bands(signal, SR, (), _CROSSOVER_OCTAVES)
+
+    assert bands.shape[0] == 1
+    assert np.allclose(bands[0], signal, atol=1e-12)
 
 
 def test_flux_variance_higher_for_evolving_signal(spectral_config: SpectralConfig) -> None:

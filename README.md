@@ -286,8 +286,13 @@ under a weighting spanning two periods of the note's own pitch, held inside the 
 bounds, so it follows a region of any length and states the level the material actually holds where the loop
 begins. The seam is then blended over a share of the loop
 (`fade_share: 0.125`, floored in seconds and bounded by the material ahead of the start) with each side
-weighted by how alike the two measure: material that repeats exactly is left untouched, material whose
-partials have drifted apart keeps its level across the blend. Across 54 real Piano loops the level step at
+weighted band by band, by how alike that band measures across the wrap. A struck string rings on partials
+spaced a little wider than whole multiples of its pitch, so one round returns the fundamental to the phase
+it left while the partials above it arrive where their own spacing puts them — reading the blend per band
+brings every one of them through at the level it had, where a single reading holds the band carrying the
+energy and notches the rest. Over the 171 loops the 62-note Piano slice offers, read on the blend's own band
+bank, the bands the wrap pulls under both sides of the material fall from **170 to 23 of 768 past 1 dB** and
+from **75 to 4 past 3 dB**, with the deepest notch at **-8.6 dB to -4.5 dB**. Across 54 real Piano loops the level step at
 the wrap falls from a median **|2.65| dB to |0.21| dB**, and reading each note over its own period is worth
 **2.6×** of that against one weighting for every note alike.
 

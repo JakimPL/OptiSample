@@ -370,9 +370,12 @@ an operating point the allocation buys rather than a decision taken ahead of it.
   reading states under the recording's own peak, which is what leaves a silent stretch silent.
 - **`loop/seam.yaml`** sizes the blend the wrap is made over: `fade_share: 0.125` of the loop's own length,
   floored at `min_fade_s: 0.01` and bounded by the material ahead of the loop start. A share rather than a
-  fixed stretch is what blends every round the same way; the weighting law is read off how alike the two
-  sides measure, so a tone that repeats exactly is left untouched and material whose partials have drifted
-  apart still holds its level across the blend.
+  fixed stretch is what blends every round the same way. `crossovers_hz` and `crossover_octaves` name the
+  bands the weighting law is read on, one reading per band: a tone that repeats exactly is left untouched,
+  a band whose partials arrived elsewhere holds its level, and a band that came round inverted is lifted to
+  make up what its two sides take out of each other. Bands the blend is too short to read apart are weighed
+  together, so a short fade falls back to the reading it supports — widening `crossover_octaves` buys back
+  resolution at the low end, since a climb narrower than a few bins spreads over most of the blend.
 
 **The region is held at one level.** A struck note's loop region falls across itself, so a player wrapping
 it steps the level back up once per round. The stage divides the region by the level its own material holds
@@ -465,6 +468,7 @@ as the format numbers. Each extra sample is charged a reserve, so the run states
 | `loop.frontier.max_offers`, `loop.frontier.max_reach_s` | `loop/frontier.yaml` | Every loop offered sounds alike, so length buys nothing. |
 | `loop.frontier.max_wrap_distance_db` | `loop/frontier.yaml` | Material that should loop settles none, or one loops that should not. |
 | `loop.seam.fade_share`, `loop.seam.min_fade_s` | `loop/seam.yaml` | The wrap is continuous but audible as a texture change. |
+| `loop.seam.crossovers_hz`, `loop.seam.crossover_octaves` | `loop/seam.yaml` | A held loop rings or flutters at its own rate. |
 | `loop.envelope.highest_hz` | `loop/envelope.yaml` | A held note pulses at the loop's rate, or a levelled region wavers where the recording was steady. |
 | `loop.geometry.detune_semitones` | `loop/geometry.yaml` | A recording that is in tune loops well and one recorded off-pitch settles no loop at all. |
 | `export.envelope.release_s` | `export/envelope.yaml` | A released note is cut off abruptly, or hangs on after the key is let go. |

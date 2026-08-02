@@ -128,11 +128,20 @@ class SeamConfig(ConfigModel):
 
     The law the two sides are weighted by follows from how alike they measure
     (:func:`~optisample.dsp.loop.crossfade_loop`), which is what holds the level of a blend of material that
-    stayed in phase and of material whose partials have drifted apart alike.
+    stayed in phase and of material whose partials have drifted apart alike. ``crossovers_hz`` is where that
+    reading is taken band by band and ``crossover_octaves`` how far each band climbs into the next. A
+    struck string rings on partials spaced a little wider than whole multiples of its pitch, so one round of
+    a loop returns the fundamental to the phase it left while the partials above it arrive where their own
+    spacing puts them: reading the blend per band weights each of them by how alike that band measures, so
+    every band comes through the wrap at the level it had. Bands the blend is too short to read apart are
+    weighed together (:func:`~optisample.dsp.spectral.band_masks`), which is the reading that stretch
+    supports; listing no crossover at all weighs the whole spectrum as one band.
     """
 
     fade_share: Annotated[float, Field(ge=0.0, le=1.0)]
     min_fade_s: Annotated[float, Field(ge=0.0)]
+    crossovers_hz: tuple[Annotated[float, Field(gt=0.0)], ...]
+    crossover_octaves: Annotated[float, Field(gt=0.0)]
 
 
 class QualityConfig(ConfigModel):

@@ -7,7 +7,9 @@ import numpy as np
 from numpy.typing import NDArray
 
 from optisample.config.loop import LoopConfig
+from optisample.dsp.loop import seam_frames
 from optisample.loop.settle import Gate, Settlement, StoredLoop, _ordered_candidates, settle_loop
+from tests.conftest import recorded
 
 SR = 22_050
 _FREQ = 220.0
@@ -24,9 +26,9 @@ _SEAM_SHUT: Final = {**_WIDE_OPEN, "max_seam_step": _SHUT}
 
 
 def _tone(duration_s: float = _HELD_S, freq: float = _FREQ) -> NDArray[np.float64]:
-    """A steady harmonic tone, which the geometry finds a period in and can loop anywhere inside."""
+    """A steady harmonic tone over a recording's noise floor, which the geometry can loop anywhere inside."""
     times = np.arange(int(duration_s * SR), dtype=np.float64) / SR
-    return np.asarray(0.7 * np.sin(2.0 * np.pi * freq * times) + 0.2 * np.sin(4.0 * np.pi * freq * times))
+    return recorded(0.7 * np.sin(2.0 * np.pi * freq * times) + 0.2 * np.sin(4.0 * np.pi * freq * times))
 
 
 def _decaying(duration_s: float = _HELD_S) -> NDArray[np.float64]:
@@ -40,10 +42,23 @@ def _brightening() -> NDArray[np.float64]:
     return np.concatenate([_tone(_HELD_S / 2), _tone(_HELD_S / 2, freq=5 * _FREQ)])
 
 
-def _split_at_the_brightening(settlement: Settlement) -> tuple[list[StoredLoop], list[StoredLoop]]:
-    """The offers taken from the recording's first timbre, and those taken from the one it moved to."""
-    early = [stored for stored in settlement.offered if stored.loop.start <= _BRIGHTENS_AT]
-    late = [stored for stored in settlement.offered if stored.loop.start > _BRIGHTENS_AT]
+def _holds_the_older_timbre(stored: StoredLoop, config: LoopConfig) -> bool:
+    """Whether what this loop stores reaches back across the brightening.
+
+    A wrap blends the frames preceding the loop start into its end, so the material a stored loop carries
+    opens one blend before its start -- and a loop beginning just after the brightening still holds the
+    timbre the recording moved away from.
+    """
+    return stored.loop.start - seam_frames(stored.loop, SR, config.seam) <= _BRIGHTENS_AT
+
+
+def _split_at_the_brightening(
+    settlement: Settlement,
+    config: LoopConfig,
+) -> tuple[list[StoredLoop], list[StoredLoop]]:
+    """The offers holding the recording's first timbre, and those holding the one it moved to."""
+    early = [stored for stored in settlement.offered if _holds_the_older_timbre(stored, config)]
+    late = [stored for stored in settlement.offered if not _holds_the_older_timbre(stored, config)]
     return early, late
 
 
@@ -100,9 +115,10 @@ def test_a_loop_holding_a_timbre_the_material_moves_away_from_measures_the_dista
     loop: LoopFactory,
 ) -> None:
     """A recording that brightens halfway leaves its early loops holding a timbre the rest no longer has."""
-    settlement = settle_loop(_brightening(), SR, loop(quality=_WIDE_OPEN), root_hz=_FREQ, search_s=_HELD_S)
+    config = loop(quality=_WIDE_OPEN)
+    settlement = settle_loop(_brightening(), SR, config, root_hz=_FREQ, search_s=_HELD_S)
 
-    early, late = _split_at_the_brightening(settlement)
+    early, late = _split_at_the_brightening(settlement, config)
     assert early and late
     assert max(stored.quality.spectral_distance for stored in late) < min(
         stored.quality.spectral_distance for stored in early
@@ -111,8 +127,9 @@ def test_a_loop_holding_a_timbre_the_material_moves_away_from_measures_the_dista
 
 def test_a_gate_on_that_distance_turns_down_the_loops_holding_the_older_timbre(loop: LoopFactory) -> None:
     """The distance is what the gate reads, so a bound between the two sides admits only the later loops."""
-    measured = settle_loop(_brightening(), SR, loop(quality=_WIDE_OPEN), root_hz=_FREQ, search_s=_HELD_S)
-    early, late = _split_at_the_brightening(measured)
+    wide = loop(quality=_WIDE_OPEN)
+    measured = settle_loop(_brightening(), SR, wide, root_hz=_FREQ, search_s=_HELD_S)
+    early, late = _split_at_the_brightening(measured, wide)
     between = (
         max(stored.quality.spectral_distance for stored in late)
         + min(stored.quality.spectral_distance for stored in early)
@@ -123,7 +140,7 @@ def test_a_gate_on_that_distance_turns_down_the_loops_holding_the_older_timbre(l
 
     assert settlement.loops
     assert {rejected.gate for rejected in settlement.rejected} == {Gate.TIMBRE}
-    assert all(stored.loop.start > _BRIGHTENS_AT for stored in settlement.offered)
+    assert not any(_holds_the_older_timbre(stored, config) for stored in settlement.offered)
 
 
 def test_every_candidate_the_frontier_offers_is_either_offered_or_named(loop: LoopFactory) -> None:

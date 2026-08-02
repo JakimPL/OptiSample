@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Final
 
 import numpy as np
@@ -11,6 +12,7 @@ Signal = NDArray[np.float64]
 _LOG_FLOOR: Final = 1e-10
 _MEL_SCALE: Final = 2595.0  # HTK mel scale factor
 _MEL_BREAK_HZ: Final = 700.0  # HTK mel break frequency (Hz)
+_MIN_CROSSOVER_BINS: Final = 3  # bins a crossover spans its climb over for the split to separate anything
 
 
 def frame(signal: Signal, frame_length: int, hop_length: int) -> Signal:
@@ -202,3 +204,79 @@ def bandlimit(
     freqs = np.fft.rfftfreq(length, 1.0 / sample_rate)
     spectrum = spectrum * ((freqs >= f_low) & (freqs < f_high))
     return np.fft.irfft(spectrum, n=length).astype(np.float64)
+
+
+def _resolved_crossovers(
+    crossovers_hz: Sequence[float],
+    resolution_hz: float,
+    nyquist_hz: float,
+    transition_octaves: float,
+) -> list[float]:
+    """The crossovers a spectrum read at ``resolution_hz`` per bin separates, lowest first.
+
+    A crossover climbs from one band to the next across ``transition_octaves``, so the span it occupies
+    grows with the frequency it sits at while the resolution of the spectrum stays fixed. Three conditions
+    keep the ones that separate material: the climb spans at least ``_MIN_CROSSOVER_BINS`` bins, so the two
+    bands it divides each hold a reading of their own; it starts an octave span above the crossover below
+    it, so each climb finishes before the next begins and every band stays positive; and it finishes under
+    Nyquist, so the band above it holds spectrum. A crossover the spectrum reads too coarsely to place
+    leaves its two bands joined as one, which is the reading that stretch supports.
+    """
+    span = 2.0 ** (transition_octaves / 2.0)
+    width = span - 1.0 / span
+    kept: list[float] = []
+    for crossover in sorted(set(crossovers_hz)):
+        spans_enough_bins = crossover * width >= _MIN_CROSSOVER_BINS * resolution_hz
+        clears_the_one_below = not kept or crossover >= kept[-1] * 2.0**transition_octaves
+        finishes_under_nyquist = crossover * span < nyquist_hz
+        if spans_enough_bins and clears_the_one_below and finishes_under_nyquist:
+            kept.append(crossover)
+
+    return kept
+
+
+def _rising_step(freqs: Signal, crossover_hz: float, transition_octaves: float) -> Signal:
+    """A raised-cosine climb from 0 to 1 spanning ``transition_octaves`` centred on ``crossover_hz``."""
+    progress = np.log2(np.maximum(freqs, _LOG_FLOOR) / crossover_hz) / transition_octaves + 0.5
+    return np.asarray(np.sin(0.5 * np.pi * np.clip(progress, 0.0, 1.0)) ** 2, dtype=np.float64)
+
+
+def band_masks(
+    sample_rate: int,
+    length: int,
+    crossovers_hz: Sequence[float],
+    transition_octaves: float,
+) -> Signal:
+    """Masks over the rfft grid of a ``length``-frame signal that sum to one at every bin.
+
+    The masks are the gaps between a ladder of raised-cosine climbs, one per crossover the spectrum
+    resolves (:func:`_resolved_crossovers`), so they sum to one exactly and a signal split by them adds
+    back up to itself. Splitting the amplitude this way hands material sitting on a crossover to the two
+    bands in the proportion each mask names, so the two carry it back whole however they are then weighted.
+
+    Returns one mask per band, lowest band first: ``(kept crossovers + 1, length // 2 + 1)``.
+    """
+    freqs = np.asarray(np.fft.rfftfreq(length, 1.0 / sample_rate), dtype=np.float64)
+    kept = _resolved_crossovers(crossovers_hz, sample_rate / length, sample_rate / 2.0, transition_octaves)
+    ladder = (
+        [np.ones(freqs.size, dtype=np.float64)]
+        + [_rising_step(freqs, crossover, transition_octaves) for crossover in kept]
+        + [np.zeros(freqs.size, dtype=np.float64)]
+    )
+    return np.stack([above - below for above, below in zip(ladder, ladder[1:])])
+
+
+def split_bands(
+    signal: Signal,
+    sample_rate: int,
+    crossovers_hz: Sequence[float],
+    transition_octaves: float,
+) -> Signal:
+    """``signal`` separated into the frequency bands ``crossovers_hz`` names, ``(n_bands, signal.size)``.
+
+    The bands sum back to ``signal`` frame by frame (:func:`band_masks`), so a caller weighting them apart
+    is holding the whole of the material and nothing else.
+    """
+    spectrum = np.fft.rfft(np.asarray(signal, dtype=np.float64))
+    masks = band_masks(sample_rate, signal.size, crossovers_hz, transition_octaves)
+    return np.fft.irfft(masks * spectrum, n=signal.size).astype(np.float64)

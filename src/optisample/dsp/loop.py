@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from math import ceil, floor, log2
+from math import ceil, floor
 from typing import Final
 
 import numpy as np
@@ -13,7 +13,7 @@ from optisample.dsp.loopability import FrontierBounds, LoopReach, loop_frontier
 from optisample.dsp.resample import resampled_frame_count
 from optisample.dsp.series import autocorrelation, refined_lag
 from optisample.dsp.similarity import FrameSeries, frame_series, settling_frame
-from optisample.dsp.spectral import stft_magnitude
+from optisample.dsp.spectral import split_bands, stft_magnitude
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.music import semitone_ratio
 
@@ -30,6 +30,7 @@ _STEP_FLOOR: Final = 1e-12
 _MATCH_SHARE: Final = 2  # share of a period the matched end is searched on either side of a whole count
 _CORRELATION_FLOOR: Final = 1e-24  # product of two norms a silent stretch reaches, which correlates with nothing
 _MAX_LEVEL_GAIN: Final = 4.0  # +12 dB, the most holding a region at one level asks of the material
+_MAX_SEAM_GAIN: Final = 2.0  # +6 dB, the most holding a blend at one level asks of material that cancels
 
 
 @dataclass(frozen=True)
@@ -362,18 +363,64 @@ def seam_frames(loop: Loop, sample_rate: int, config: SeamConfig) -> int:
     return min(wanted, loop.start, loop.length)
 
 
-def _fade_exponent(correlation: float) -> float:
-    """The weighting law that holds the level of a blend of two stretches ``correlation`` alike.
+def _seam_weights(correlation: float, progress: Signal) -> tuple[Signal, Signal]:
+    """The weights carrying a stretch onto one ``correlation`` alike at the level the two of them held.
 
-    Weighting each side of a blend by ``x ** exponent`` leaves it carrying
-    ``end**2 + start**2 + 2 * correlation * end * start`` of the level the material had, and solving that
-    for one at the middle of the blend gives ``(1 + log2(1 + correlation)) / 2``, which holds across the
-    rest of the blend to a fraction of a decibel. Material that stayed in phase reads 1.0 and is weighted
-    so the two sides sum to one; material whose partials have drifted apart reads 0.0 and is weighted so
-    their squares do; anything between lands between. Reading the law off the material is what lets one
-    blend serve a tone that repeats exactly and a piano that has moved on by the time a loop comes round.
+    Turning the blend through a quarter circle -- a cosine holding the stretch it is leaving, a sine
+    reaching for the one it returns to -- leaves it carrying ``1 + correlation * sin(2 * angle)`` of the
+    level the material had, so dividing both sides by the root of that holds the level exactly the whole
+    way across. The divisor rests at 1 where the angle reaches either end, so the blend opens on the
+    material it held and closes on the material it reaches for.
+
+    Material that came round in phase reads 1.0 and is weighted so the two sides sum to one; material whose
+    partials arrived elsewhere reads 0.0 and is weighted so their squares do; material that came round
+    inverted reads below 0.0, where the two sides take each other out and the weighting lifts them to make
+    up the difference. That lift reaches ``_MAX_SEAM_GAIN``, which is what a band cancelling outright is
+    left holding, and it is the reading a struck string's upper partials land on often enough to hear.
+
+    Returns the weighting on the stretch being held and on the one being reached for.
     """
-    return 0.5 * (1.0 + log2(1.0 + max(correlation, 0.0)))
+    angle = 0.5 * np.pi * progress
+    carried = 1.0 + correlation * np.sin(2.0 * angle)
+    gain = 1.0 / np.sqrt(np.maximum(carried, 1.0 / _MAX_SEAM_GAIN**2))
+    return np.cos(angle) * gain, np.sin(angle) * gain
+
+
+def _banded_seam(signal: Signal, loop: Loop, fade: int, sample_rate: int, config: SeamConfig) -> tuple[Signal, Signal]:
+    """The two stretches a wrap joins, each separated into the bands the blend weighs: ``(n_bands, fade)``.
+
+    Each split is read over the material surrounding its stretch as well -- as much again on each side as
+    the stretch itself, where the recording holds it -- so what reaches the edges of each band is the
+    neighbouring material the recording actually made there. Both are read over the same span, which is what
+    the tighter of the two has room for, so one bank serves them and the bands line up to be weighed against
+    each other. The bands sum back to their stretch frame by frame
+    (:func:`~optisample.dsp.spectral.split_bands`), so weighting them apart still carries the whole of it.
+
+    Returns the stretch approaching ``loop.end`` and the stretch preceding ``loop.start``.
+    """
+    lead = min(fade, loop.start - fade)
+    trail = min(fade, signal.size - loop.end)
+
+    def banded(stop: int) -> Signal:
+        context = signal[stop - fade - lead : stop + trail]
+        bands = split_bands(context, sample_rate, config.crossovers_hz, config.crossover_octaves)
+        return np.asarray(bands[:, lead : lead + fade], dtype=np.float64)
+
+    return banded(loop.end), banded(loop.start)
+
+
+def _band_ramps(holding: Signal, reaching: Signal) -> tuple[Signal, Signal]:
+    """The ramps that carry each band of ``holding`` onto its own band of ``reaching`` at the level it had.
+
+    Every band is weighted by the likeness it measures on its own (:func:`_seam_weights`), so a band that
+    came round in phase is summed, one whose partials arrived elsewhere has its squares summed, and one that
+    came round inverted is lifted to make up what its two sides take out of each other.
+
+    Returns the weighting on each side, ``(n_bands, fade)`` apiece.
+    """
+    progress = np.linspace(0.0, 1.0, holding.shape[1], endpoint=True)
+    weighted = [_seam_weights(_normalized_correlation(one, other), progress) for one, other in zip(holding, reaching)]
+    return np.stack([held for held, _ in weighted]), np.stack([reached for _, reached in weighted])
 
 
 def crossfade_loop(signal: Signal, loop: Loop, sample_rate: int, config: SeamConfig) -> Signal:
@@ -381,8 +428,12 @@ def crossfade_loop(signal: Signal, loop: Loop, sample_rate: int, config: SeamCon
 
     The frames before ``loop.end`` are ramped from themselves toward the frames that precede ``loop.start``,
     so ``signal[end - 1]`` lands on ``signal[start - 1]`` -- making the wrap into ``signal[start]``
-    continuous. How alike the two stretches measure is what sets the weighting law (:func:`_fade_exponent`),
-    so the blend holds the level the material had all the way across.
+    continuous. Both stretches are read band by band (:func:`_banded_seam`) and each band carries the
+    weighting law its own likeness names (:func:`_band_ramps`), so every part of the spectrum comes through
+    the blend at the level it had. That is what a string's own tuning asks for: one round of a loop returns
+    the fundamental to the phase it left while the partials above it, spaced a little wider than whole
+    multiples of it, arrive where their own spacing puts them, so the likeness that holds one of them holds
+    the rest at a notch.
 
     A loop the room before its start holds no frames for is returned as it stands, which is a wrap the
     material makes on its own.
@@ -391,14 +442,11 @@ def crossfade_loop(signal: Signal, loop: Loop, sample_rate: int, config: SeamCon
     if fade <= 0:
         return np.asarray(signal, dtype=np.float64)
 
-    approaching_end = signal[loop.end - fade : loop.end]
-    preceding_start = signal[loop.start - fade : loop.start]
-    exponent = _fade_exponent(_normalized_correlation(approaching_end, preceding_start))
-    progress = np.linspace(0.0, 1.0, fade, endpoint=True)
-    toward_start = progress**exponent
-    holding_end = (1.0 - progress) ** exponent
+    approaching_end, preceding_start = _banded_seam(signal, loop, fade, sample_rate, config)
+    holding_end, toward_start = _band_ramps(approaching_end, preceding_start)
     out = np.array(signal, dtype=np.float64)
-    out[loop.end - fade : loop.end] = holding_end * approaching_end + toward_start * preceding_start
+    blended = holding_end * approaching_end + toward_start * preceding_start
+    out[loop.end - fade : loop.end] = np.sum(blended, axis=0)
     return out
 
 

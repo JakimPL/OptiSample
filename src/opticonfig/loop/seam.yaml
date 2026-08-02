@@ -1,3 +1,12 @@
 # How the wrap is blended (optisample.config.loop.SeamConfig).
 fade_share: 0.125 # share of the loop length blended into its wrap, bounded by the room before the start
 min_fade_s: 0.01 # floor on the blend in seconds, so a short loop still wraps over audible motion
+crossover_octaves: 0.5 # span each band climbs into the one above it
+crossovers_hz: # where the blend reads how alike its two sides are, band by band
+  - 125.0
+  - 250.0
+  - 500.0
+  - 1000.0
+  - 2000.0
+  - 4000.0
+  - 8000.0

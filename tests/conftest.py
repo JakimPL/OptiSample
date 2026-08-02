@@ -55,6 +55,20 @@ _NOTE_SR = 44_100
 _MIDI_VELOCITIES = 128
 _ANCHORS = (VelocityAnchor(100, -10.0, MAX_VOLUME),)
 _INGEST_BUDGET_KB = 64.0
+_NOISE_FLOOR = 1e-4  # -80 dB of a full-scale tone: a floor a recording holds and arithmetic stays under
+
+
+def recorded(signal: NDArray[np.float64], seed: int = 0) -> NDArray[np.float64]:
+    """``signal`` over the noise floor a recording of it would carry, which is content in every bin.
+
+    A tone written straight from :func:`numpy.sin` leaves most of its spectrum holding rounding alone, some
+    160 dB down, and a distance read over spectra normalized to unit sum weighs those bins as heavily as the
+    ones carrying the note -- so two stretches of the same tone can measure tens of decibels apart on
+    arithmetic. Material that stands on a floor is what such a reading is stated against, so a test
+    measuring timbre puts one there and reads the note.
+    """
+    floor = np.random.default_rng(seed).standard_normal(signal.size) * _NOISE_FLOOR
+    return np.asarray(signal + floor, dtype=np.float64)
 
 
 @pytest.fixture(scope="session")
