@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import json
 from collections.abc import Callable
 from pathlib import Path
@@ -9,12 +8,23 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from optisample.artifacts.ranking import ListeningSet, dump_ranking, ranking_project
+from optisample.artifacts.ranking import (
+    ListeningSet,
+    dump_ranking,
+    pair_clips,
+    ranking_project,
+    read_label_sheet,
+    read_ranking_set,
+    write_label_sheet,
+)
 from optisample.calibrate.ranking import (
     PairQuota,
     RankingGrid,
     RankingSettings,
     Side,
+    Verdict,
+    read_labels,
+    settled,
 )
 from optisample.config.optimize import SweepConfig
 from optisample.io.audio import read_wav
@@ -39,7 +49,8 @@ PITCHES = (60, 62)
 _SEED = 137
 _LADDER = (11_025, 16_000, 22_050)
 _PAIR_FILES = 3  # the recording and the two sides, which is the whole of what a listener meets
-_TIE = "tie"
+_NOTE_S = 0.5
+_REPEATED = 1
 
 
 @pytest.fixture
@@ -53,7 +64,7 @@ def listening_instrument() -> InstrumentSpec:
         id="piano",
         budget_kb=48.0,
         samples=[SourceSample(file=f"{pitch}.wav", pitch=pitch, velocity=100) for pitch in PITCHES],
-        material=[NoteEvent(pitch=pitch, velocity=100, duration_s=0.5, count=1) for pitch in PITCHES],
+        material=[NoteEvent(pitch=pitch, velocity=100, duration_s=_NOTE_S, count=1) for pitch in PITCHES],
     )
 
 
@@ -69,8 +80,10 @@ def listening_settings(
 def ranking_settings() -> RankingSettings:
     return RankingSettings(
         grid=RankingGrid(depths=(16, 8), rate_steps=1),
-        quota=PairQuota(loop=1, rate=1, depth=1, trade=1),
+        quota=PairQuota(loop=1, rate=1, depth=1, compress=0, trade=1),
         byte_tolerance=0.15,
+        min_duration_s=_NOTE_S / 2,
+        repeats=_REPEATED,
         seed=_SEED,
     )
 
@@ -141,24 +154,55 @@ def test_the_audio_is_written_at_the_rate_the_run_measures_at(written: Listening
 
 
 def test_the_answer_sheet_holds_one_open_row_per_pair(written: ListeningSet) -> None:
-    rows = list(csv.DictReader(written.paths.labels_csv.read_text(encoding="utf-8").splitlines()))
+    sheet = read_labels(written.paths.labels_csv.read_text(encoding="utf-8"))
 
-    assert [row["directory"] for row in rows] == [record["directory"] for record in _manifest(written)["pairs"]]
-    assert {row["closer"] for row in rows} == {""}
+    stated = [record["directory"] for record in _manifest(written)["pairs"]]
+    assert [label.directory for label in sheet.labels] == stated
+    assert sheet.outstanding == len(stated)
 
 
 def test_the_set_explains_itself_beside_the_audio(written: ListeningSet) -> None:
     readme = written.paths.readme.read_text(encoding="utf-8")
 
-    assert _TIE in readme and "reference.wav" in readme
+    assert Verdict.TIE in readme and "reference.wav" in readme
 
 
 def test_the_set_states_how_much_listening_it_asks_for(written: ListeningSet) -> None:
     assert written.pairs == len(_manifest(written)["pairs"])
 
 
+def test_a_repeated_question_is_written_as_a_pair_of_its_own(written: ListeningSet) -> None:
+    asked = [record["question_id"] for record in _manifest(written)["pairs"]]
+
+    assert written.repeats == _REPEATED
+    assert len(asked) - len(set(asked)) == _REPEATED
+
+
 def test_the_set_states_what_its_pairs_were_chosen_from(written: ListeningSet) -> None:
     assert written.priced == _manifest(written)["priced_encodings"] > written.pairs
+
+
+def test_the_written_manifest_reads_back_as_the_set_it_decodes(written: ListeningSet) -> None:
+    document = read_ranking_set(written.paths)
+
+    assert [record.directory for record in document.pairs] == [
+        record["directory"] for record in _manifest(written)["pairs"]
+    ]
+
+
+def test_a_question_hands_over_the_recording_and_the_two_sides(written: ListeningSet) -> None:
+    clips = pair_clips(written.paths, read_ranking_set(written.paths).pairs[0].directory)
+
+    assert [path.is_file() for path in (clips.reference, clips.first, clips.second)] == [True] * 3
+
+
+def test_an_answered_sheet_is_put_back_beside_the_set_it_answers(written: ListeningSet) -> None:
+    sheet = read_label_sheet(written.paths)
+    answered = settled(sheet, sheet.labels[0].directory, verdict=Verdict.A_CLEARLY, fault=None, note="")
+
+    write_label_sheet(answered, written.paths)
+
+    assert read_label_sheet(written.paths) == answered
 
 
 def test_a_project_writes_one_set_per_instrument(

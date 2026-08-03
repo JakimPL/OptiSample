@@ -49,6 +49,11 @@ def write_text(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def read_json(path: Path, document: type[DocumentT]) -> DocumentT:
+    """The document ``path`` holds, validated against ``document`` as it is read."""
+    return document.model_validate_json(path.read_text(encoding="utf-8"))
+
+
 def _native(value: object) -> int | float:
     """A numpy scalar as the Python number msgpack stores, which is what the packer asks this hook for.
 

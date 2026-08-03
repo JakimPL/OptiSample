@@ -45,7 +45,7 @@ def test_the_set_asks_about_the_depth_the_sweep_holds_fixed(
 ) -> None:
     built = assemble_ranking(
         priced_run,
-        replace(ranking_settings, quota=PairQuota(loop=0, rate=0, depth=4, trade=0)),
+        replace(ranking_settings, quota=PairQuota(loop=0, rate=0, depth=4, compress=0, trade=0)),
         SilentProgress(),
     )
 
@@ -60,3 +60,26 @@ def test_a_set_carries_what_rebuilds_its_own_audio(
     built = assemble_ranking(priced_run, ranking_settings, SilentProgress())
 
     assert built.context is priced_run.context
+
+
+def test_a_pitch_playing_less_than_the_floor_is_left_unpriced(
+    priced_run: RunInputs,
+    ranking_settings: RankingSettings,
+) -> None:
+    held = max(task.representative_event.duration_s for task in priced_run.tasks)
+
+    built = assemble_ranking(priced_run, replace(ranking_settings, min_duration_s=held * 2), SilentProgress())
+
+    assert (built.clips, built.pairs) == ((), ())
+
+
+def test_a_set_counts_the_questions_apart_from_the_pairs_putting_them(
+    priced_run: RunInputs,
+    ranking_settings: RankingSettings,
+) -> None:
+    asked = replace(ranking_settings, quota=PairQuota(loop=4, rate=4, depth=4, compress=0, trade=4), repeats=2)
+
+    built = assemble_ranking(priced_run, asked, SilentProgress())
+
+    assert built.repeats == 2
+    assert len(built.pairs) == built.questions + built.repeats

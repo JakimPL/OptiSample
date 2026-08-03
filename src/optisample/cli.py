@@ -492,32 +492,51 @@ def _optimize_settings(
     )
 
 
-def _scaled_quota(quota: RankingQuotaConfig, pairs: int | None) -> PairQuota:
-    """The configured quota, scaled to about ``pairs`` questions while the shares between them hold.
-
-    Asking for a total is how a listener states the time they have, which is the scarce input here; the
-    balance between the four questions stays the configured one, so a shorter set covers the same ground.
-    """
-    asked = PairQuota(loop=quota.loop, rate=quota.rate, depth=quota.depth, trade=quota.trade)
-    if pairs is None or asked.total == 0:
-        return asked
-
-    scale = pairs / asked.total
+def _configured_quota(quota: RankingQuotaConfig) -> PairQuota:
+    """The quota as the config states it, before any request for a shorter set is applied."""
     return PairQuota(
-        loop=round(quota.loop * scale),
-        rate=round(quota.rate * scale),
-        depth=round(quota.depth * scale),
-        trade=round(quota.trade * scale),
+        loop=quota.loop,
+        rate=quota.rate,
+        depth=quota.depth,
+        compress=quota.compress,
+        trade=quota.trade,
+    )
+
+
+def _listening_scale(configured: PairQuota, pairs: int | None) -> float:
+    """How far the configured listening is stretched to reach about ``pairs`` questions.
+
+    Asking for a total is how a listener states the time they have, which is the scarce input here; one
+    scale over the whole set holds the balance between the four questions and the share of them put twice.
+    """
+    if pairs is None or configured.total == 0:
+        return 1.0
+
+    return pairs / configured.total
+
+
+def _scaled_quota(configured: PairQuota, scale: float) -> PairQuota:
+    """``configured`` stretched by ``scale``, which covers the same ground in proportionally less time."""
+    return PairQuota(
+        loop=round(configured.loop * scale),
+        rate=round(configured.rate * scale),
+        depth=round(configured.depth * scale),
+        compress=round(configured.compress * scale),
+        trade=round(configured.trade * scale),
     )
 
 
 def _ranking_settings(config: OptiConfig, args: argparse.Namespace) -> RankingSettings:
     """Build the listening set's settings from ``config``, applying the ``--pairs`` override."""
     ranking = config.analysis.ranking
+    configured = _configured_quota(ranking.quota)
+    scale = _listening_scale(configured, args.pairs)
     return RankingSettings(
         grid=RankingGrid(depths=ranking.depths, rate_steps=ranking.rate_steps),
-        quota=_scaled_quota(ranking.quota, args.pairs),
+        quota=_scaled_quota(configured, scale),
         byte_tolerance=ranking.byte_tolerance,
+        min_duration_s=ranking.min_duration_s,
+        repeats=round(ranking.repeats * scale),
         seed=ranking.seed,
     )
 
@@ -620,7 +639,8 @@ def _print_reduced(result: ReducedInstrument) -> None:
 def _print_listening(result: ListeningSet) -> None:
     """State where one instrument's listening set landed and how much listening it asks for."""
     print(f"{result.instrument_id}: {result.paths.pairs_dir}  [{result.elapsed_s:.1f}s]")
-    print(f"  {result.pairs} pairs chosen from {result.priced} priced encodings")
+    print(f"  {result.questions} questions chosen from {result.priced} priced encodings")
+    print(f"  {result.repeats} of them asked twice -> {result.pairs} pairs to hear")
     print(f"  answer sheet -> {result.paths.labels_csv}")
 
 

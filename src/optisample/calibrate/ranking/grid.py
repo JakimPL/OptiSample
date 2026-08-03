@@ -18,6 +18,12 @@ class RankingGrid:
     those alone is judged on one axis. ``depths`` are the depths a clip is also stored at, which is what
     puts a quantization step in the set; ``rate_steps`` is how many rungs of the sweep's own ladder below
     the settled rate it is also read at, which puts a bandwidth step there beside it.
+
+    Each widened rung is stored both as the pipeline would store it -- the depth carrying the compression
+    it earns (:func:`~optisample.optimize.operating_points.compresses`) -- and with that compression
+    turned the other way. Offering both is what keeps a depth question about depth: the pipeline ties the
+    two together, so a pair drawn from the pipeline's points alone would move the grid and the dynamics at
+    once and a label on it would speak for neither.
     """
 
     depths: tuple[int, ...]
@@ -42,9 +48,8 @@ def widened_encodings(
     The sweep's encodings lead in the order it offers them, so every operating point the allocation
     chooses among is in the set and a label about them speaks to the plan as it stands. Beside them the
     stored span the sweep leads with -- the played length, which every clip offers whatever its loops --
-    is read at each rung of ``grid``, each carrying the compression its depth earns
-    (:func:`~optisample.optimize.operating_points.compresses`) so a member is stored the way the pipeline
-    would store it.
+    is read at each rung of ``grid``, at both settings of the compressor the pipeline ties to a depth, so
+    a listener meets the point the pipeline would store and the one holding the dynamics where they were.
 
     Halving the rate and halving the depth each halve the bytes, so widening both puts pairs of nearly
     equal size in the set: the trade a byte budget actually makes, offered to a listener as one question.
@@ -53,8 +58,9 @@ def widened_encodings(
     span = swept[0]
     for rate in _rate_ladder(span.target_rate, sweep, sample_rate, grid.rate_steps):
         for depth in grid.depths:
-            member = replace(span, target_rate=rate, depth_bits=depth, compress=compresses(sweep, depth))
-            if member not in widened:
-                widened.append(member)
+            for compress in dict.fromkeys((compresses(sweep, depth), span.compress)):
+                member = replace(span, target_rate=rate, depth_bits=depth, compress=compress)
+                if member not in widened:
+                    widened.append(member)
 
     return tuple(widened)

@@ -3,9 +3,12 @@
 depths: [16, 8]      # depths a clip is priced at; 8 carries the compression a shallow grid earns
 rate_steps: 1        # rungs of the sweep's own ladder below the settled rate a clip is also read at
 quota:               # pairs per question; each is two clips to hear against the recording
-  loop: 60
-  rate: 50
-  depth: 60
-  trade: 50
+  loop: 10
+  rate: 14
+  depth: 16
+  compress: 8
+  trade: 16
 byte_tolerance: 0.15 # how near in size two encodings come for their pair to be asked as a trade
+min_duration_s: 1.0  # how long a note class plays to be worth asking about
+repeats: 8           # chosen questions put a second time, which reads the listener's own consistency
 seed: 137

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Final
 
 from optisample.dsp.surrogate import EncodingParams
 from optisample.keys import SampleKey
 from optisample.metrics.base import Signal
+from optisample.metrics.preprocess import integrated_loudness
 from optisample.optimize.tasks import (
     EvalContext,
     Event,
@@ -15,19 +17,24 @@ from optisample.optimize.tasks import (
     render_event,
 )
 
+_SILENT_LUFS: Final = -120.0  # the level a rendition holding digital silence is stated at
+
 
 @dataclass(frozen=True)
 class Rendition:
-    """One encoding of one note class: what it stores, and what the composite made of how it sounds.
+    """One encoding of one note class: what it stores, how loudly it plays, and what the composite made of it.
 
     The audio itself is left to be rebuilt on demand (:func:`rendered`), which is what lets a whole
     instrument's grid be priced in one pass and only the handful of encodings a listener is asked about
-    reach memory as waveforms.
+    reach memory as waveforms. ``loudness_lufs`` is kept from that pass because level is the confound a
+    blinded preference is most exposed to and the composite quotients it out, so nothing downstream of the
+    metric would otherwise know what a listener was hearing.
     """
 
     params: EncodingParams
     stored_bytes: int
     distortion: float
+    loudness_lufs: float
 
 
 @dataclass(frozen=True)
@@ -75,6 +82,11 @@ def reference(clip: ClipRenditions, context: EvalContext) -> Signal:
     return clip.event.scored_span(context.sample_rate)
 
 
+def _loudness(audio: Signal, sample_rate: int) -> float:
+    """How loudly one rendition plays, held at :data:`_SILENT_LUFS` where it holds silence."""
+    return max(integrated_loudness(audio, sample_rate), _SILENT_LUFS)
+
+
 def _rendition(task: PitchTask, event: Event, params: EncodingParams, context: EvalContext) -> Rendition:
     """``task``'s class rebuilt under one encoding, priced in the bytes a written module spends on it."""
     stored = audition_sample(task, params, context)
@@ -83,6 +95,7 @@ def _rendition(task: PitchTask, event: Event, params: EncodingParams, context: E
         params=params,
         stored_bytes=context.storage.sample_bytes(frames=stored.frames, depth=stored.depth),
         distortion=rebuilt.report.fidelity,
+        loudness_lufs=_loudness(rebuilt.audio, context.sample_rate),
     )
 
 

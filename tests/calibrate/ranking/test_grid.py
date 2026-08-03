@@ -43,17 +43,17 @@ def test_a_depth_the_grid_names_joins_the_set_at_the_settled_rate(
     widened = widened_encodings(swept, RankingGrid(depths=(8,), rate_steps=0), ladder_sweep, sample_rate=SR)
 
     added = [params for params in widened if params not in swept]
-    assert [(params.target_rate, params.depth_bits) for params in added] == [(_SETTLED_RATE, 8)]
+    assert {(params.target_rate, params.depth_bits) for params in added} == {(_SETTLED_RATE, 8)}
 
 
-def test_a_widened_member_carries_the_compression_its_depth_earns(
+def test_a_widened_depth_is_offered_at_both_settings_of_the_compressor(
     swept: tuple[EncodingParams, ...],
     ladder_sweep: SweepConfig,
 ) -> None:
     widened = widened_encodings(swept, RankingGrid(depths=(16, 8), rate_steps=0), ladder_sweep, sample_rate=SR)
 
-    compressed = {params.depth_bits: params.compress for params in widened if params not in swept}
-    assert compressed == {8: True}
+    added = {(params.depth_bits, params.compress) for params in widened if params not in swept}
+    assert added == {(8, True), (8, False)}
 
 
 def test_the_rungs_read_are_the_ones_the_ladder_holds_below_the_settled_rate(

@@ -65,7 +65,9 @@ def ranking_settings() -> RankingSettings:
     """A small listening set: both depths, one rung down, and a couple of pairs of each question."""
     return RankingSettings(
         grid=RankingGrid(depths=(16, 8), rate_steps=1),
-        quota=PairQuota(loop=1, rate=1, depth=1, trade=1),
+        quota=PairQuota(loop=1, rate=1, depth=1, compress=0, trade=1),
         byte_tolerance=0.15,
+        min_duration_s=_NOTE_S / 2,
+        repeats=0,
         seed=_SEED,
     )

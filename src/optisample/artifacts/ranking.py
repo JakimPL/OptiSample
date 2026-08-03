@@ -1,22 +1,29 @@
 from __future__ import annotations
 
-import csv
-from collections.abc import Sequence
 from dataclasses import dataclass
-from io import StringIO
 from pathlib import Path
 from time import perf_counter
 from typing import Final
 
-from optisample.artifacts.documents.ranking import pair_directory, ranking_document
+from optisample.artifacts.documents.ranking import (
+    RankingSetDocument,
+    pair_directory,
+    ranking_document,
+)
 from optisample.artifacts.paths import RankingPaths, ranking_paths
-from optisample.artifacts.serialize import write_json, write_text
+from optisample.artifacts.serialize import read_json, write_json, write_text
 from optisample.calibrate.ranking import (
+    Fault,
+    LabelSheet,
     ListeningPair,
     RankingSet,
     RankingSettings,
     Side,
+    Verdict,
     assemble_ranking,
+    blank_sheet,
+    labels_text,
+    read_labels,
     reference,
     rendered,
 )
@@ -31,9 +38,6 @@ from optisample.progress import ProgressSink
 
 _REFERENCE_STEM: Final = "reference"
 _WRITE_LABEL: Final = "Writing listening pairs"
-_LABEL_COLUMNS: Final = ("directory", "closer", "note")
-_VERDICTS: Final = ("a", "b", "tie")
-_UNANSWERED: Final = ""  # what a pair's verdict holds while it waits for the listener
 
 _README: Final = f"""# Listening set
 
@@ -41,9 +45,36 @@ One directory per question. Each holds `{_REFERENCE_STEM}.wav` -- the recording 
 `{Side.A}.wav` and `{Side.B}.wav`, two encodings of it.
 
 For each directory, answer one question: **which of {Side.A} and {Side.B} sounds closer to
-`{_REFERENCE_STEM}.wav`?** Write `{_VERDICTS[0]}`, `{_VERDICTS[1]}` or `{_VERDICTS[2]}` in the `closer`
-column of `labels.csv`, beside that directory's name. Answer `{_VERDICTS[2]}` freely: a pair you cannot
-separate is a real reading, and it is one the metric is measured against like any other.
+`{_REFERENCE_STEM}.wav`?** Write the verdict in `labels.csv`, beside that directory's name.
+
+| verdict | means |
+|---|---|
+| `{Verdict.A_CLEARLY}` | {Side.A} is clearly closer |
+| `{Verdict.A_SLIGHTLY}` | {Side.A} is slightly closer |
+| `{Verdict.TIE}` | neither is closer |
+| `{Verdict.B_SLIGHTLY}` | {Side.B} is slightly closer |
+| `{Verdict.B_CLEARLY}` | {Side.B} is clearly closer |
+
+Answer `{Verdict.TIE}` freely -- a pair you cannot separate is a real reading, and the metric is measured
+against it like any other. Where a `{Verdict.TIE}` is one you could hear no difference at all in, a one-word
+note saying so is worth having: a pair that sounds identical should read a small margin, which is a
+different check from getting the order right.
+
+The `fault` column is open on every row and names what the side you *rejected* does wrong:
+`{Fault.HISS}` steady noise or grain, `{Fault.DULL}` lost top, `{Fault.FLUTTER}` a fast periodic wobble,
+`{Fault.BEATING}` a slow interference, `{Fault.CLICK}` a discontinuity, `{Fault.STOP}` the note ending or
+decaying wrongly, `{Fault.OTHER}` anything else. A verdict alone ranks the metric; the fault is what says
+which change the ranking calls for, so it is worth a word where one comes to mind.
+
+## Working through it
+
+Fixed volume and one pair of headphones throughout. Level is deliberately left as each encoding produces
+it, so a side that plays louder is telling you something real -- the gap is measured into `pairs.json` and
+the reading is checked against it afterwards.
+
+Take the set in blocks with breaks between them. A few questions are put more than once, blinded afresh
+and far apart: answer each one as you hear it rather than reaching for what you said before, since how far
+those agree is what says whether the whole sheet can be trusted.
 
 Which encoding took which side is settled by a seeded draw and is written in `pairs.json`, along with the
 ranking the composite gives every pair. Reading it before you have finished tells you what the metric
@@ -52,14 +83,29 @@ already claims, which is the thing the labels are collected to check.
 
 
 @dataclass(frozen=True)
+class PairClips:
+    """The three recordings one question puts in front of a listener."""
+
+    reference: Path
+    first: Path
+    second: Path
+
+
+@dataclass(frozen=True)
 class ListeningSet:
     """One instrument's listening set as written: where it landed, and how much of it there is."""
 
     instrument_id: str
     paths: RankingPaths
-    pairs: int
+    questions: int
+    repeats: int
     priced: int
     elapsed_s: float
+
+    @property
+    def pairs(self) -> int:
+        """Every pair written, which is the listening the set costs."""
+        return self.questions + self.repeats
 
 
 def _write_pair(pair: ListeningPair, directory: Path, context: EvalContext) -> None:
@@ -71,19 +117,29 @@ def _write_pair(pair: ListeningPair, directory: Path, context: EvalContext) -> N
     write_wav(directory / f"{Side.B}.wav", rendered(pair.clip, pair.second, context), sample_rate)
 
 
-def labels_text(pairs: Sequence[ListeningPair]) -> str:
-    """The answer sheet a listener fills in: one row per question, its verdict left open.
+def pair_clips(paths: RankingPaths, directory: str) -> PairClips:
+    """Where one question's three recordings sit, so a listener is handed them without naming the files."""
+    held = paths.pairs_dir / directory
+    return PairClips(
+        reference=held / f"{_REFERENCE_STEM}.wav",
+        first=held / f"{Side.A}.wav",
+        second=held / f"{Side.B}.wav",
+    )
 
-    Rows run in the order the pairs are met, so working down the directory listing and working down the
-    sheet reach the same question at the same time.
-    """
-    buffer = StringIO()
-    writer = csv.writer(buffer, lineterminator="\n")
-    writer.writerow(_LABEL_COLUMNS)
-    for index, pair in enumerate(pairs):
-        writer.writerow((pair_directory(pair, index), _UNANSWERED, _UNANSWERED))
 
-    return buffer.getvalue()
+def read_ranking_set(paths: RankingPaths) -> RankingSetDocument:
+    """The manifest decoding one written listening set: every pair, both sides, and the composite's call."""
+    return read_json(paths.manifest_json, RankingSetDocument)
+
+
+def read_label_sheet(paths: RankingPaths) -> LabelSheet:
+    """The answer sheet as it stands beside one written set, whether part-filled or finished."""
+    return read_labels(paths.labels_csv.read_text(encoding="utf-8"))
+
+
+def write_label_sheet(sheet: LabelSheet, paths: RankingPaths) -> None:
+    """Put ``sheet`` back beside the set it answers, which is what lets a session be picked up again."""
+    write_text(paths.labels_csv, labels_text(sheet))
 
 
 def write_ranking_set(
@@ -114,7 +170,10 @@ def write_ranking_set(
             priced_encodings=ranking.priced,
         ),
     )
-    write_text(paths.labels_csv, labels_text(ranking.pairs))
+    write_text(
+        paths.labels_csv,
+        labels_text(blank_sheet(pair_directory(pair, index) for index, pair in enumerate(ranking.pairs))),
+    )
     write_text(paths.readme, _README)
 
 
@@ -144,7 +203,8 @@ def dump_ranking(
     return ListeningSet(
         instrument_id=instrument.id,
         paths=paths,
-        pairs=len(built.pairs),
+        questions=built.questions,
+        repeats=built.repeats,
         priced=built.priced,
         elapsed_s=perf_counter() - started_at,
     )

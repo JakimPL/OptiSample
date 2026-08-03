@@ -20,6 +20,7 @@ class RenditionRecord(Frozen):
     loop_index: int | None
     stored_bytes: int
     distortion: float
+    loudness_lufs: float
 
 
 class ListeningPairRecord(Frozen):
@@ -29,10 +30,14 @@ class ListeningPairRecord(Frozen):
     carries nothing of what any of them is about. ``composite_side`` is the side the metric calls closer
     to the recording, which is the claim a label either confirms or overturns, and ``margin`` how far
     apart it puts the two -- a pair the metric all but ties is where a label is worth most.
+    ``question_id`` is shared by the pairs putting one comparison twice, which is how a listener's
+    agreement with themselves is read, and ``loudness_delta_lu`` states how much louder side A plays, so
+    a preference can be checked against the level it was heard at.
     """
 
     directory: str
     axis: PairAxis
+    question_id: int
     pitch: int
     key: str
     velocity: int
@@ -41,6 +46,7 @@ class ListeningPairRecord(Frozen):
     second: RenditionRecord
     composite_side: Side
     margin: float
+    loudness_delta_lu: float
 
 
 class RankingSetDocument(Frozen):
@@ -68,6 +74,7 @@ def _rendition_record(rendition: Rendition, side: Side) -> RenditionRecord:
         loop_index=rendition.params.loop_index,
         stored_bytes=rendition.stored_bytes,
         distortion=rendition.distortion,
+        loudness_lufs=rendition.loudness_lufs,
     )
 
 
@@ -85,6 +92,7 @@ def pair_record(pair: ListeningPair, index: int) -> ListeningPairRecord:
     return ListeningPairRecord(
         directory=pair_directory(pair, index),
         axis=pair.axis,
+        question_id=pair.question_id,
         pitch=pair.clip.pitch,
         key=pair.clip.key.label,
         velocity=pair.clip.velocity,
@@ -93,6 +101,7 @@ def pair_record(pair: ListeningPair, index: int) -> ListeningPairRecord:
         second=_rendition_record(pair.second, Side.B),
         composite_side=pair.composite_side,
         margin=pair.margin,
+        loudness_delta_lu=pair.loudness_delta_lu,
     )
 
 

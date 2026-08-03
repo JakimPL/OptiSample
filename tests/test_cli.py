@@ -24,6 +24,7 @@ from optisample.io.note_extractor import NoteRecord, dump_notes
 
 SR = 44_100
 PITCHES = (60, 62, 64)
+_HELD_S = 1.5  # past the length a listening set asks about, so the set has material to draw on
 
 
 @pytest.fixture
@@ -39,6 +40,24 @@ def tiny_notes(tmp_path: Path, piano_note: Callable[..., NDArray[np.float64]]) -
     for index, pitch in enumerate(PITCHES):
         write_wav(samples_dir / f"{index:04d}_p{pitch}_v100.wav", piano_note(pitch, 100, 0.6, seed=pitch), SR)
         records.append(NoteRecord(index=index, pitch=pitch, velocity=100, duration_s=0.5))
+    notes_json = tmp_path / "piano.notes.json"
+    dump_notes(records, notes_json)
+    return notes_json
+
+
+@pytest.fixture
+def held_notes(tmp_path: Path, piano_note: Callable[..., NDArray[np.float64]]) -> Path:
+    """The same project over notes held long enough for a listening set to be asked about them.
+
+    A listening set leaves the short material unpriced, since a degradation shows itself over a decay, so
+    a project exercising it plays past that floor.
+    """
+    samples_dir = tmp_path / "piano"
+    samples_dir.mkdir()
+    records = []
+    for index, pitch in enumerate(PITCHES):
+        write_wav(samples_dir / f"{index:04d}_p{pitch}_v100.wav", piano_note(pitch, 100, _HELD_S, seed=pitch), SR)
+        records.append(NoteRecord(index=index, pitch=pitch, velocity=100, duration_s=_HELD_S))
     notes_json = tmp_path / "piano.notes.json"
     dump_notes(records, notes_json)
     return notes_json
@@ -281,10 +300,10 @@ def test_reduce_command_writes_a_dataset_and_its_reduction(
 
 
 def test_listen_command_writes_a_blinded_set_and_its_answer_sheet(
-    tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, held_notes: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     out = tmp_path / "listening"
-    main(["listen", str(tiny_notes), "--budget-kb", "48", "--out", str(out), "--pairs", "4"])
+    main(["listen", str(held_notes), "--budget-kb", "48", "--out", str(out), "--pairs", "4"])
     manifest = json.loads((out / "piano" / "pairs.json").read_text(encoding="utf-8"))
     assert manifest["pairs"]
     for record in manifest["pairs"]:
@@ -295,17 +314,25 @@ def test_listen_command_writes_a_blinded_set_and_its_answer_sheet(
         ]
 
     assert (out / "piano" / "labels.csv").is_file()
-    assert "pairs chosen from" in capsys.readouterr().out
+    assert "questions chosen from" in capsys.readouterr().out
 
 
-def test_listen_scales_the_configured_quota_to_the_listening_asked_for(tmp_path: Path, tiny_notes: Path) -> None:
+def test_listen_scales_the_configured_quota_to_the_listening_asked_for(tmp_path: Path, held_notes: Path) -> None:
     asked = []
     for pairs in (4, 12):
         out = tmp_path / str(pairs)
-        main(["listen", str(tiny_notes), "--budget-kb", "48", "--out", str(out), "--pairs", str(pairs)])
+        main(["listen", str(held_notes), "--budget-kb", "48", "--out", str(out), "--pairs", str(pairs)])
         asked.append(len(json.loads((out / "piano" / "pairs.json").read_text(encoding="utf-8"))["pairs"]))
 
     assert asked[0] < asked[1]
+
+
+def test_listen_leaves_the_notes_too_short_to_judge_unasked(tmp_path: Path, tiny_notes: Path) -> None:
+    out = tmp_path / "listening"
+
+    main(["listen", str(tiny_notes), "--budget-kb", "48", "--out", str(out), "--pairs", "4"])
+
+    assert json.loads((out / "piano" / "pairs.json").read_text(encoding="utf-8"))["pairs"] == []
 
 
 def test_reduce_reports_and_leaves_out_the_recordings_that_never_sound(

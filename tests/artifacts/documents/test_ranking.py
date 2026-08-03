@@ -24,13 +24,23 @@ from optisample.optimize.tasks import Event, PitchTask
 _SAMPLE_RATE = 44_100
 _SEED = 137
 _PRICED = 11
+_LOUDNESS = -23.0
 
 
-def _rendition(*, rate: int, depth: int, loop: int | None, stored_bytes: int, distortion: float) -> Rendition:
+def _rendition(
+    *,
+    rate: int,
+    depth: int,
+    loop: int | None,
+    stored_bytes: int,
+    distortion: float,
+    loudness_lufs: float = _LOUDNESS,
+) -> Rendition:
     return Rendition(
         params=EncodingParams(target_rate=rate, depth_bits=depth, trim_s=1.0, loop_index=loop, compress=depth <= 8),
         stored_bytes=stored_bytes,
         distortion=distortion,
+        loudness_lufs=loudness_lufs,
     )
 
 
@@ -47,12 +57,16 @@ def pairs(clip: ClipRenditions) -> tuple[ListeningPair, ...]:
         ListeningPair(
             clip=clip,
             axis=PairAxis.DEPTH,
+            question_id=0,
             first=_rendition(rate=16_000, depth=16, loop=UNLOOPED, stored_bytes=8_000, distortion=1.0),
-            second=_rendition(rate=16_000, depth=8, loop=UNLOOPED, stored_bytes=4_000, distortion=1.5),
+            second=_rendition(
+                rate=16_000, depth=8, loop=UNLOOPED, stored_bytes=4_000, distortion=1.5, loudness_lufs=-23.4
+            ),
         ),
         ListeningPair(
             clip=clip,
             axis=PairAxis.LOOP,
+            question_id=1,
             first=_rendition(rate=16_000, depth=16, loop=0, stored_bytes=3_000, distortion=2.0),
             second=_rendition(rate=16_000, depth=16, loop=UNLOOPED, stored_bytes=8_000, distortion=1.2),
         ),
@@ -106,6 +120,18 @@ def test_the_manifest_states_how_far_apart_the_composite_puts_a_pair(pairs: Sequ
     document = _document(pairs)
 
     assert document.pairs[0].margin == pytest.approx(0.5)
+
+
+def test_the_manifest_states_how_much_louder_one_side_plays(pairs: Sequence[ListeningPair]) -> None:
+    document = _document(pairs)
+
+    assert document.pairs[0].loudness_delta_lu == pytest.approx(0.4)
+
+
+def test_the_manifest_names_the_comparison_each_pair_puts(pairs: Sequence[ListeningPair]) -> None:
+    document = _document(pairs)
+
+    assert [record.question_id for record in document.pairs] == [0, 1]
 
 
 def test_an_unlooped_member_names_no_region(pairs: Sequence[ListeningPair]) -> None:

@@ -18,7 +18,16 @@ from optisample.artifacts.paths import (
     reduced_paths,
 )
 from optisample.artifacts.pipeline import PipelineRun, PipelineSettings, run_pipeline
-from optisample.artifacts.ranking import ListeningSet, dump_ranking, ranking_project
+from optisample.artifacts.ranking import (
+    ListeningSet,
+    PairClips,
+    dump_ranking,
+    pair_clips,
+    ranking_project,
+    read_label_sheet,
+    read_ranking_set,
+    write_label_sheet,
+)
 from optisample.artifacts.reduced import (
     ReducedInstrument,
     dump_reduced,
@@ -34,6 +43,7 @@ __all__ = [
     "PipelinePaths",
     "PipelineRun",
     "PipelineSettings",
+    "PairClips",
     "PlanArtifacts",
     "PlanPaths",
     "RankingPaths",
@@ -46,11 +56,15 @@ __all__ = [
     "dump_reduced",
     "loop_project",
     "looped_paths",
+    "pair_clips",
     "pipeline_paths",
     "plan_paths",
     "ranking_paths",
     "ranking_project",
+    "read_label_sheet",
+    "read_ranking_set",
     "reduce_project",
     "reduced_paths",
     "run_pipeline",
+    "write_label_sheet",
 ]
