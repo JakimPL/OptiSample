@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Final
 
 import numpy as np
@@ -9,6 +10,26 @@ from scipy.signal import fftconvolve
 Series = NDArray[np.float64]
 
 _PEAK_CURVATURE: Final = 1e-12  # concavity a peak holds for a parabola to read a lag between points
+
+
+@dataclass(frozen=True)
+class Readings:
+    """A stretch read in windows: one value per window, beside the moment that window centres on.
+
+    Reading a stretch this way leaves a curve short enough to fit whole and smooth enough to follow, and
+    carrying each value's own moment beside it puts every fit on the played timeline -- so readings taken
+    at one window length and a curve fitted through them state their results on the same clock.
+
+    Moments ascend, which is what lets a fit place its corners in the order they are played.
+    """
+
+    values: Series
+    seconds: Series
+
+    @property
+    def count(self) -> int:
+        """How many windows the stretch was read in, which is what a fit's own cost is counted in."""
+        return int(self.values.size)
 
 
 def hann_kernel(span: int) -> Series:
