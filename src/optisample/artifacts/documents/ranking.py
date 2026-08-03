@@ -3,7 +3,15 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from optisample.artifacts.serialize import Frozen
-from optisample.calibrate.ranking import ListeningPair, PairAxis, Rendition, Side
+from optisample.calibrate.ranking import (
+    Agreement,
+    ListeningPair,
+    MetricAgreement,
+    PairAxis,
+    RankingReport,
+    Rendition,
+    Side,
+)
 
 
 class RenditionRecord(Frozen):
@@ -120,4 +128,126 @@ def ranking_document(
         seed=seed,
         priced_encodings=priced_encodings,
         pairs=[pair_record(pair, index) for index, pair in enumerate(pairs)],
+    )
+
+
+class AgreementRecord(Frozen):
+    """How far one metric stood from the listener over some set of questions.
+
+    ``tau`` is Kendall's tau-b over the signed verdicts and the signed margins, so it reads direction and
+    size at once, and is absent where fewer than two questions were answered or every reading is level.
+    ``confirmed`` is ``matched / decided``, the share of the listener's calls the metric makes the same
+    way, which is read against a chance level of 0.5.
+    """
+
+    tau: float | None
+    decided: int
+    matched: int
+    confirmed: float | None
+
+
+class MetricAgreementRecord(Frozen):
+    """One metric ranked against a whole answer sheet, and against each question it holds.
+
+    ``decided_margin`` and ``tied_margin`` are the median distance the metric puts between two sides
+    where the listener placed one ahead and where they heard the two as level, and ``separation`` is the
+    first over the second. A metric worth its ranking reads well above 1.0 there.
+    """
+
+    name: str
+    overall: AgreementRecord
+    by_axis: dict[PairAxis, AgreementRecord]
+    decided_margin: float | None
+    tied_margin: float | None
+    separation: float | None
+
+
+class SelfAgreementRecord(Frozen):
+    """The ceiling every metric is read against: how far the listener stood from themselves.
+
+    ``repeated`` counts the questions the set put more than once and the listener answered more than
+    once. ``confirmed`` is how often the two occurrences named the same encoding, which is the most any
+    metric could match.
+    """
+
+    repeated: int
+    tau: float | None
+    decided: int
+    matched: int
+    confirmed: float | None
+
+
+class LevelConfoundRecord(Frozen):
+    """How far the labels track the level the two sides played at rather than the recording.
+
+    ``followed`` is the share of the calls whose sides stood an audible gap apart that named the louder
+    one: near 0.5 the preferences are about the recording, near 1.0 they are about the volume.
+    """
+
+    tau: float | None
+    gapped: int
+    louder: int
+    followed: float | None
+
+
+class RankingReportDocument(Frozen):
+    """What one instrument's answer sheet makes of every metric available to read it.
+
+    ``metrics`` holds the composite as the objective reads it, the composite as the listener heard it,
+    each of its components alone, and the level diagnostics -- so the table states both how the metric in
+    use fares and which term available today fares better. ``ceiling`` and ``level`` are what any row of
+    it is read against: the agreement the listener reaches with themselves, and how far the answers
+    follow the volume.
+    """
+
+    instrument_id: str
+    answered: int
+    outstanding: int
+    metrics: list[MetricAgreementRecord]
+    ceiling: SelfAgreementRecord
+    level: LevelConfoundRecord
+
+
+def _agreement_record(agreement: Agreement) -> AgreementRecord:
+    """One metric's standing over one set of questions as the report states it."""
+    return AgreementRecord(
+        tau=agreement.tau,
+        decided=agreement.decided,
+        matched=agreement.matched,
+        confirmed=agreement.confirmed,
+    )
+
+
+def _metric_record(metric: MetricAgreement) -> MetricAgreementRecord:
+    """One metric's whole standing as the report states it, question by question."""
+    return MetricAgreementRecord(
+        name=metric.name,
+        overall=_agreement_record(metric.overall),
+        by_axis={axis: _agreement_record(agreement) for axis, agreement in metric.by_axis.items()},
+        decided_margin=metric.decided_margin,
+        tied_margin=metric.tied_margin,
+        separation=metric.separation,
+    )
+
+
+def report_document(report: RankingReport) -> RankingReportDocument:
+    """The report written beside the answer sheet it was read from."""
+    return RankingReportDocument(
+        instrument_id=report.instrument_id,
+        answered=report.answered,
+        outstanding=report.outstanding,
+        metrics=[_metric_record(metric) for metric in report.metrics],
+        ceiling=SelfAgreementRecord(
+            repeated=report.ceiling.repeated,
+            tau=report.ceiling.tau,
+            decided=report.ceiling.decided,
+            matched=report.ceiling.matched,
+            confirmed=report.ceiling.confirmed,
+        ),
+        level=LevelConfoundRecord(
+            tau=report.level.tau,
+            gapped=report.level.gapped,
+            louder=report.level.louder,
+            followed=report.level.followed,
+        ),
     )

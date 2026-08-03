@@ -10,7 +10,6 @@ from numpy.typing import NDArray
 
 from optisample.artifacts.ranking import (
     ListeningSet,
-    dump_ranking,
     pair_clips,
     ranking_project,
     read_label_sheet,
@@ -18,99 +17,22 @@ from optisample.artifacts.ranking import (
     write_label_sheet,
 )
 from optisample.calibrate.ranking import (
-    PairQuota,
-    RankingGrid,
     RankingSettings,
     Side,
     Verdict,
     read_labels,
     settled,
 )
-from optisample.config.optimize import SweepConfig
 from optisample.io.audio import read_wav
-from optisample.keys import SampleKey
-from optisample.model import (
-    InstrumentSpec,
-    Manifest,
-    NoteEvent,
-    ProjectSpec,
-    SourceSample,
-)
+from optisample.model import InstrumentSpec, Manifest, ProjectSpec
 from optisample.optimize.orchestrate.audio import LoadedInstrument
-from optisample.optimize.orchestrate.looping import LoopedInstrument, run_loops
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.reduce.trim import NO_SCREEN
 from optisample.optimize.tasks import AudioMap, StoredRecordings
 
 Recordings = Callable[..., StoredRecordings]
 
-SR = 44_100
-PITCHES = (60, 62)
-_SEED = 137
-_LADDER = (11_025, 16_000, 22_050)
 _PAIR_FILES = 3  # the recording and the two sides, which is the whole of what a listener meets
-_NOTE_S = 0.5
-_REPEATED = 1
-
-
-@pytest.fixture
-def listening_audio(piano_note: Callable[..., NDArray[np.float64]]) -> AudioMap:
-    return {SampleKey(pitch, 100): piano_note(pitch, 100, 0.6, seed=pitch * 137) for pitch in PITCHES}
-
-
-@pytest.fixture
-def listening_instrument() -> InstrumentSpec:
-    return InstrumentSpec(
-        id="piano",
-        budget_kb=48.0,
-        samples=[SourceSample(file=f"{pitch}.wav", pitch=pitch, velocity=100) for pitch in PITCHES],
-        material=[NoteEvent(pitch=pitch, velocity=100, duration_s=_NOTE_S, count=1) for pitch in PITCHES],
-    )
-
-
-@pytest.fixture
-def listening_settings(
-    sweep: Callable[..., SweepConfig],
-    optimize_settings: Callable[..., OptimizeSettings],
-) -> OptimizeSettings:
-    return optimize_settings(sweep=sweep(rates=_LADDER, depth=16), seed=_SEED)
-
-
-@pytest.fixture
-def ranking_settings() -> RankingSettings:
-    return RankingSettings(
-        grid=RankingGrid(depths=(16, 8), rate_steps=1),
-        quota=PairQuota(loop=1, rate=1, depth=1, compress=0, trade=1),
-        byte_tolerance=0.15,
-        min_duration_s=_NOTE_S / 2,
-        repeats=_REPEATED,
-        seed=_SEED,
-    )
-
-
-@pytest.fixture
-def looped(
-    listening_instrument: InstrumentSpec,
-    listening_audio: AudioMap,
-    listening_settings: OptimizeSettings,
-) -> LoopedInstrument:
-    loaded = LoadedInstrument(
-        instrument=listening_instrument,
-        audio=dict(listening_audio),
-        sample_rate=SR,
-        screen=NO_SCREEN,
-    )
-    return run_loops(loaded, listening_settings)
-
-
-@pytest.fixture
-def written(
-    looped: LoopedInstrument,
-    listening_settings: OptimizeSettings,
-    ranking_settings: RankingSettings,
-    tmp_path: Path,
-) -> ListeningSet:
-    return dump_ranking(looped, tmp_path, listening_settings, ranking_settings)
 
 
 def _manifest(written: ListeningSet) -> dict:
@@ -174,8 +96,8 @@ def test_the_set_states_how_much_listening_it_asks_for(written: ListeningSet) ->
 def test_a_repeated_question_is_written_as_a_pair_of_its_own(written: ListeningSet) -> None:
     asked = [record["question_id"] for record in _manifest(written)["pairs"]]
 
-    assert written.repeats == _REPEATED
-    assert len(asked) - len(set(asked)) == _REPEATED
+    assert written.repeats > 0
+    assert len(asked) - len(set(asked)) == written.repeats
 
 
 def test_the_set_states_what_its_pairs_were_chosen_from(written: ListeningSet) -> None:
@@ -211,14 +133,15 @@ def test_a_project_writes_one_set_per_instrument(
     recordings: Recordings,
     listening_settings: OptimizeSettings,
     ranking_settings: RankingSettings,
+    sample_rate: int,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    stored = recordings(listening_audio, SR)
+    stored = recordings(listening_audio, sample_rate)
     monkeypatch.setattr(
-        "optisample.artifacts.ranking.load_run_audio",
+        "optisample.artifacts.ranking.sets.load_run_audio",
         lambda instrument, settings: LoadedInstrument(
-            instrument=instrument, audio=dict(stored.audio), sample_rate=SR, screen=NO_SCREEN
+            instrument=instrument, audio=dict(stored.audio), sample_rate=sample_rate, screen=NO_SCREEN
         ),
     )
     manifest = Manifest(project=ProjectSpec(name="piano"), instruments=[listening_instrument])

@@ -12,6 +12,7 @@ _REDUCTION_JSON: Final = "reduction.json"
 _RANKING_JSON: Final = "pairs.json"
 _LABELS_CSV: Final = "labels.csv"
 _LISTENING_README: Final = "README.md"
+_RANKING_REPORT_JSON: Final = "report.json"
 _LOOPS_DIR: Final = "loops"
 _LOOPS_JSON: Final = "loops.json"
 _MODULE_STEM: Final = "module"
@@ -118,24 +119,35 @@ class RankingPaths:
 
     ``pairs_dir`` holds one directory per question and is the whole of what a listener browses.
     ``manifest_json`` states which encoding took which side, so the set is decoded where a listener is
-    finished rather than while they are working, and ``labels_csv`` is where their answers go.
+    finished rather than while they are working, ``labels_csv`` is where their answers go, and
+    ``report_json`` is what those answers rank the metric as.
     """
 
     pairs_dir: Path
     manifest_json: Path
     labels_csv: Path
     readme: Path
+    report_json: Path
 
 
-def ranking_paths(out_dir: Path, instrument_id: str) -> RankingPaths:
-    """The tree one instrument's listening set is written as under ``out_dir``."""
-    instrument_dir = out_dir / instrument_id
+def listening_set_paths(instrument_dir: Path) -> RankingPaths:
+    """The files one written listening set holds inside its own directory.
+
+    Reading a set back needs the directory alone, since a listener is handed that and nothing above it,
+    so the tree it was written into is settled here rather than asked for again.
+    """
     return RankingPaths(
         pairs_dir=instrument_dir,
         manifest_json=instrument_dir / _RANKING_JSON,
         labels_csv=instrument_dir / _LABELS_CSV,
         readme=instrument_dir / _LISTENING_README,
+        report_json=instrument_dir / _RANKING_REPORT_JSON,
     )
+
+
+def ranking_paths(out_dir: Path, instrument_id: str) -> RankingPaths:
+    """The tree one instrument's listening set is written as under ``out_dir``."""
+    return listening_set_paths(out_dir / instrument_id)
 
 
 @dataclass(frozen=True)

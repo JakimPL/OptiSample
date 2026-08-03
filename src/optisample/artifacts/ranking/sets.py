@@ -79,6 +79,12 @@ those agree is what says whether the whole sheet can be trusted.
 Which encoding took which side is settled by a seeded draw and is written in `pairs.json`, along with the
 ranking the composite gives every pair. Reading it before you have finished tells you what the metric
 already claims, which is the thing the labels are collected to check.
+
+## Reading it back
+
+`optisample rank <this directory>` ranks the composite, each term inside it and the level diagnostics
+against whatever the sheet holds, and writes the table to `report.json`. Run it part way through and it
+reports on the questions answered so far, so the set is worth something from the first block onwards.
 """
 
 

@@ -15,11 +15,19 @@ from optisample.artifacts import (
     ReducedInstrument,
     dump_project,
     loop_project,
+    rank_listening_set,
     ranking_project,
     reduce_project,
     run_pipeline,
 )
-from optisample.calibrate.ranking import PairQuota, RankingGrid, RankingSettings
+from optisample.calibrate.ranking import (
+    MetricAgreement,
+    PairAxis,
+    PairQuota,
+    RankingGrid,
+    RankingReport,
+    RankingSettings,
+)
 from optisample.config import OptiConfig, load_config
 from optisample.config.layers import LayersConfig
 from optisample.config.optimize import BudgetConfig, SweepConfig
@@ -31,6 +39,7 @@ from optisample.io.dataset import SourceDataset, SubsetDataset, instrument_name
 from optisample.io.note_extractor import IngestSettings
 from optisample.io.source import load_source, write_source_subset
 from optisample.io.tracker.target import ExportTarget, export_target
+from optisample.metrics.composite import build_composite
 from optisample.model import ProjectSpec
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.reduce.trim import RecordingScreen
@@ -62,19 +71,25 @@ def _config_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _runtime_parser() -> argparse.ArgumentParser:
-    """The flags a command with stages reads: how far they fan out, and whether they draw their bars."""
+def _progress_parser() -> argparse.ArgumentParser:
+    """The flag every command reporting its stages reads: whether it draws their bars."""
     parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="Keep stderr clear of stage progress bars (they are drawn when it is a terminal)",
+    )
+    return parser
+
+
+def _runtime_parser() -> argparse.ArgumentParser:
+    """The flags a command whose stages fan out reads: how far they do, and whether they draw their bars."""
+    parser = argparse.ArgumentParser(add_help=False, parents=[_progress_parser()])
     parser.add_argument(
         "--workers",
         type=int,
         default=None,
         help="Processes sharing the stages that fan out; 0 uses every core, 1 keeps the run in-process",
-    )
-    parser.add_argument(
-        "--no-progress",
-        action="store_true",
-        help="Keep stderr clear of stage progress bars (they are drawn when it is a terminal)",
     )
     return parser
 
@@ -319,6 +334,15 @@ def _describe_listen(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _describe_rank(parser: argparse.ArgumentParser) -> None:
+    """Add what ranking the metric against a filled-in answer sheet asks for."""
+    parser.add_argument(
+        "listening_set",
+        type=Path,
+        help="Directory of one written listening set: its pairs, the manifest decoding them and the answers",
+    )
+
+
 def _describe_loop(parser: argparse.ArgumentParser) -> None:
     """Add what settling loops alone asks for beyond the shared ingest flags."""
     parser.add_argument(
@@ -375,6 +399,13 @@ def build_parser() -> argparse.ArgumentParser:
             "listen",
             parents=[*staged, ingest],
             help="Write the blinded listening set the fidelity metric is ranked against",
+        )
+    )
+    _describe_rank(
+        sub.add_parser(
+            "rank",
+            parents=[configured, _progress_parser()],
+            help="Rank the fidelity metric and its components against a filled-in answer sheet",
         )
     )
     _describe_subset(
@@ -644,6 +675,47 @@ def _print_listening(result: ListeningSet) -> None:
     print(f"  answer sheet -> {result.paths.labels_csv}")
 
 
+def _reading(value: float | None) -> str:
+    """One figure as the ranking table prints it, dashed where there was nothing to read."""
+    return f"{value:.3f}" if value is not None else "--"
+
+
+def _calls(matched: int, decided: int) -> str:
+    """How many of the calls a listener made were made the same way by whoever is being read against them."""
+    return f"{matched}/{decided}"
+
+
+def _axis_calls(metric: MetricAgreement, axis: PairAxis) -> str:
+    """How many of the listener's calls on one question a metric makes the same way."""
+    read = metric.by_axis.get(axis)
+    return "--" if read is None else _calls(read.matched, read.decided)
+
+
+def _ranking_row(metric: MetricAgreement) -> str:
+    """One metric's whole standing as a line of the ranking table."""
+    axes = "".join(f"{_axis_calls(metric, axis):>9}" for axis in PairAxis)
+    confirmed = _calls(metric.overall.matched, metric.overall.decided)
+    return f"  {metric.name:<16}{_reading(metric.overall.tau):>7}{confirmed:>11}{_reading(metric.separation):>7}{axes}"
+
+
+def _print_ranking(report: RankingReport) -> None:
+    """State how every metric fared against one answer sheet, with the ceiling and the confound above it."""
+    ceiling, level = report.ceiling, report.level
+    print(f"{report.instrument_id}: {report.answered} answered, {report.outstanding} open")
+    print(
+        f"  ceiling: the listener repeats {_calls(ceiling.matched, ceiling.decided)} of their own calls"
+        f" over {ceiling.repeated} questions asked twice  (tau {_reading(ceiling.tau)})"
+    )
+    print(
+        f"  level:   {_calls(level.louder, level.gapped)} of the calls with an audible gap named the louder"
+        f" side  (tau {_reading(level.tau)})"
+    )
+    heading = "".join(f"{axis:>9}" for axis in PairAxis)
+    print(f"  {'metric':<16}{'tau':>7}{'confirmed':>11}{'sep':>7}{heading}")
+    for metric in report.metrics:
+        print(_ranking_row(metric))
+
+
 def _print_plans(result: DumpResult) -> None:
     """State how each strategy fared for one instrument, and where all of them landed."""
     print(f"{result.instrument_id}: {result.directory}")
@@ -687,6 +759,10 @@ def _run_listen(config: OptiConfig, args: argparse.Namespace) -> None:
         _ranking_settings(config, args),
     ):
         _print_listening(result)
+
+
+def _run_rank(config: OptiConfig, args: argparse.Namespace) -> None:
+    _print_ranking(rank_listening_set(args.listening_set, build_composite(config.analysis.metrics), _progress(args)))
 
 
 def _run_subset(args: argparse.Namespace) -> None:
@@ -766,6 +842,8 @@ def main(argv: list[str] | None = None) -> None:
             _run_synth(config, args)
         case "subset":
             _run_subset(args)
+        case "rank":
+            _run_rank(config, args)
         case "loop":
             _dispatch(lambda: _run_loop(config, args), args)
         case "reduce":

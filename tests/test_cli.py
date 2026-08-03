@@ -7,6 +7,7 @@ import pytest
 from numpy.typing import NDArray
 from pydantic import ValidationError
 
+from optisample.calibrate.ranking import Fault, Verdict
 from optisample.cli import (
     _demo_settings,
     _dump_settings,
@@ -333,6 +334,39 @@ def test_listen_leaves_the_notes_too_short_to_judge_unasked(tmp_path: Path, tiny
     main(["listen", str(tiny_notes), "--budget-kb", "48", "--out", str(out), "--pairs", "4"])
 
     assert json.loads((out / "piano" / "pairs.json").read_text(encoding="utf-8"))["pairs"] == []
+
+
+def test_rank_command_reads_a_filled_in_sheet_and_writes_what_it_makes_of_the_metric(
+    tmp_path: Path, held_notes: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out = tmp_path / "listening"
+    main(["listen", str(held_notes), "--budget-kb", "48", "--out", str(out), "--pairs", "4"])
+    written = out / "piano"
+    labels = written / "labels.csv"
+    labels.write_text(
+        labels.read_text(encoding="utf-8").replace(",,,", f",{Verdict.A_CLEARLY},{Fault.HISS},"),
+        encoding="utf-8",
+    )
+    capsys.readouterr()
+
+    main(["rank", str(written)])
+
+    report = json.loads((written / "report.json").read_text(encoding="utf-8"))
+    assert [metric["name"] for metric in report["metrics"]][:2] == ["objective", "composite"]
+    assert report["outstanding"] == 0
+    assert "confirmed" in capsys.readouterr().out
+
+
+def test_rank_reports_on_what_a_part_filled_sheet_holds(tmp_path: Path, held_notes: Path) -> None:
+    out = tmp_path / "listening"
+    main(["listen", str(held_notes), "--budget-kb", "48", "--out", str(out), "--pairs", "4"])
+    written = out / "piano"
+
+    main(["rank", str(written)])
+
+    report = json.loads((written / "report.json").read_text(encoding="utf-8"))
+    assert (report["answered"], report["metrics"]) == (0, [])
+    assert report["outstanding"] > 0
 
 
 def test_reduce_reports_and_leaves_out_the_recordings_that_never_sound(
