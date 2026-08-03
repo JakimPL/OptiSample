@@ -1,12 +1,25 @@
+from __future__ import annotations
+
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from typing import Final
 
 import numpy as np
+from numpy.random import Generator
 
 from optisample.config.codec import EncodeConfig
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import BandwidthConfig, ReduceConfig, Representatives, ZoneConfig
-from optisample.dsp.surrogate import NO_LOOPS, SettledLoops, StoredSample, closed_reference, render
+from optisample.dsp.surrogate import (
+    NO_LOOPS,
+    EncodeContext,
+    EncodingParams,
+    SettledLoops,
+    StoredSample,
+    closed_reference,
+    encode,
+    render,
+)
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.keys import SampleKey, keys_by_pitch, nearest_key
 from optisample.metrics.base import Signal
@@ -19,6 +32,8 @@ from trackmod.module.storage import Storage
 
 AudioMap = Mapping[SampleKey, Signal]
 LoopMap = Mapping[SampleKey, SettledLoops]
+
+_OWN_DITHER_SEED: Final = None  # the stream an encode draws from while it reproduces clip by clip
 
 
 @dataclass(frozen=True)
@@ -143,6 +158,34 @@ def render_event(stored: StoredSample, event: Event, *, pitch: int, sample_rate:
     fidelity score and the WAV written beside it describe the same audio.
     """
     return render(stored, sample_rate, pitch=pitch, volume=event.volume, duration_s=event.duration_s)
+
+
+def _stored(task: PitchTask, params: EncodingParams, context: EvalContext, rng: Generator | None) -> StoredSample:
+    """``task``'s representative encoded under ``params``, stamped with the pitch it was recorded at."""
+    return encode(
+        task.representative,
+        context.sample_rate,
+        params,
+        EncodeContext(root_pitch=task.pitch, config=context.encode, settled=task.settled, rng=rng),
+    )
+
+
+def swept_sample(task: PitchTask, params: EncodingParams, context: EvalContext) -> StoredSample:
+    """``task``'s representative encoded under ``params``, dithered from the run's own stream.
+
+    Every encode the sweep makes advances one sequence, so a plan reproduces from the run's seed given
+    the same encodes in the same order -- which is what :func:`_sweep_plan` lists them for.
+    """
+    return _stored(task, params, context, context.rng)
+
+
+def audition_sample(task: PitchTask, params: EncodingParams, context: EvalContext) -> StoredSample:
+    """``task``'s representative encoded under ``params``, dithered from the surrogate's own fixed seed.
+
+    One clip therefore renders the same audio however many others were reached before it, which is what
+    a file written to disk needs: an audition and a listening set both reproduce clip by clip.
+    """
+    return _stored(task, params, context, _OWN_DITHER_SEED)
 
 
 @dataclass(frozen=True)
@@ -291,20 +334,35 @@ class EventScore:
         return self.event.objective_weight * self.report.fidelity
 
 
-def score_event(stored: StoredSample, event: Event, *, pitch: int, context: EvalContext) -> QualityReport:
-    """Reconstruct one note class from ``stored`` sounded at ``pitch`` and score it against its source.
+@dataclass(frozen=True)
+class Reconstruction:
+    """One note class rebuilt from a stored sample: the audio it produced, and what the composite made of it."""
+
+    audio: Signal
+    report: QualityReport
+
+
+def reconstruct(stored: StoredSample, event: Event, *, pitch: int, context: EvalContext) -> Reconstruction:
+    """Rebuild one note class from ``stored`` sounded at ``pitch`` and score it against its source.
 
     The atom every reconstruction score is built from: one render and one composite evaluation, settled
     by the stored sample, the key it sounds at and the class alone. A caller scoring some of a pitch's
-    classes therefore reads exactly the numbers the whole-pitch scorer reads for those classes.
+    classes therefore reads exactly the numbers the whole-pitch scorer reads for those classes, and one
+    writing the audio to disk writes the very reconstruction that score was taken on.
     """
     candidate = render_event(stored, event, pitch=pitch, sample_rate=context.sample_rate)
-    return evaluate(
+    report = evaluate(
         event.scored_reference(stored, context.sample_rate, pitch=pitch),
         candidate,
         context.sample_rate,
         context.composite,
     )
+    return Reconstruction(audio=candidate, report=report)
+
+
+def score_event(stored: StoredSample, event: Event, *, pitch: int, context: EvalContext) -> QualityReport:
+    """What the composite makes of reconstructing one note class from ``stored`` sounded at ``pitch``."""
+    return reconstruct(stored, event, pitch=pitch, context=context).report
 
 
 def score_events(

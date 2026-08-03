@@ -1,11 +1,11 @@
 from collections.abc import Mapping, Sequence
 from typing import Final
 
-from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode
+from optisample.dsp.surrogate import EncodingParams
 from optisample.frontier import lower_convex_hull
 from optisample.optimize.knapsack import KnapsackItem
 from optisample.optimize.operating_points import OperatingPoint
-from optisample.optimize.tasks import EvalContext, PitchTask, score_reconstruction
+from optisample.optimize.tasks import EvalContext, PitchTask, score_reconstruction, swept_sample
 from optisample.progress import ProgressSink
 
 PitchEncodings = Mapping[int, tuple[EncodingParams, ...]]  # the encodings to sweep, by the pitch storing them
@@ -18,13 +18,7 @@ def _evaluate_config(
     params: EncodingParams,
 ) -> OperatingPoint:
     """Encode the pitch's own representative, then score reconstruction against every event at it."""
-    encode_context = EncodeContext(
-        root_pitch=task.pitch,
-        config=context.encode,
-        settled=task.settled,
-        rng=context.rng,
-    )
-    stored = encode(task.representative, context.sample_rate, params, encode_context)
+    stored = swept_sample(task, params, context)
     distortion = score_reconstruction(stored, task, context)
     return OperatingPoint(
         params=params,

@@ -280,6 +280,34 @@ def test_reduce_command_writes_a_dataset_and_its_reduction(
     assert "samples" in printed and "auditions" in printed
 
 
+def test_listen_command_writes_a_blinded_set_and_its_answer_sheet(
+    tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out = tmp_path / "listening"
+    main(["listen", str(tiny_notes), "--budget-kb", "48", "--out", str(out), "--pairs", "4"])
+    manifest = json.loads((out / "piano" / "pairs.json").read_text(encoding="utf-8"))
+    assert manifest["pairs"]
+    for record in manifest["pairs"]:
+        assert sorted(path.name for path in (out / "piano" / record["directory"]).glob("*.wav")) == [
+            "a.wav",
+            "b.wav",
+            "reference.wav",
+        ]
+
+    assert (out / "piano" / "labels.csv").is_file()
+    assert "pairs chosen from" in capsys.readouterr().out
+
+
+def test_listen_scales_the_configured_quota_to_the_listening_asked_for(tmp_path: Path, tiny_notes: Path) -> None:
+    asked = []
+    for pairs in (4, 12):
+        out = tmp_path / str(pairs)
+        main(["listen", str(tiny_notes), "--budget-kb", "48", "--out", str(out), "--pairs", str(pairs)])
+        asked.append(len(json.loads((out / "piano" / "pairs.json").read_text(encoding="utf-8"))["pairs"]))
+
+    assert asked[0] < asked[1]
+
+
 def test_reduce_reports_and_leaves_out_the_recordings_that_never_sound(
     tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

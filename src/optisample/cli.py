@@ -9,17 +9,21 @@ from typing import Final, get_args
 from optisample.artifacts import (
     DumpResult,
     DumpSettings,
+    ListeningSet,
     LoopedInstrumentArtifacts,
     PipelineSettings,
     ReducedInstrument,
     dump_project,
     loop_project,
+    ranking_project,
     reduce_project,
     run_pipeline,
 )
+from optisample.calibrate.ranking import PairQuota, RankingGrid, RankingSettings
 from optisample.config import OptiConfig, load_config
 from optisample.config.layers import LayersConfig
 from optisample.config.optimize import BudgetConfig, SweepConfig
+from optisample.config.ranking import RankingQuotaConfig
 from optisample.config.reduce import DedupeKey, ReduceConfig
 from optisample.config.render import Interpolation
 from optisample.config.tracker import TrackerConfig, TrackerFormat
@@ -43,6 +47,7 @@ _ARTIFACTS_OUT: Final = Path("artifacts")
 _LOOPED_OUT: Final = Path("looped")
 _REDUCED_OUT: Final = Path("reduced")
 _SUBSET_OUT: Final = Path("subset")
+_LISTENING_OUT: Final = Path("listening")
 
 
 def _config_parser() -> argparse.ArgumentParser:
@@ -298,6 +303,22 @@ def _describe_reduce(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _describe_listen(parser: argparse.ArgumentParser) -> None:
+    """Add what building a listening set asks for beyond the shared ingest flags."""
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=_LISTENING_OUT,
+        help="Directory to write the blinded pairs, the manifest decoding them and the answer sheet into",
+    )
+    parser.add_argument(
+        "--pairs",
+        type=int,
+        default=None,
+        help="Scale the configured quota to about this many pairs in total",
+    )
+
+
 def _describe_loop(parser: argparse.ArgumentParser) -> None:
     """Add what settling loops alone asks for beyond the shared ingest flags."""
     parser.add_argument(
@@ -347,6 +368,13 @@ def build_parser() -> argparse.ArgumentParser:
             "reduce",
             parents=[*staged, ingest],
             help="Run the pre-optimization stage alone and write the reduced dataset it decided on",
+        )
+    )
+    _describe_listen(
+        sub.add_parser(
+            "listen",
+            parents=[*staged, ingest],
+            help="Write the blinded listening set the fidelity metric is ranked against",
         )
     )
     _describe_subset(
@@ -464,6 +492,36 @@ def _optimize_settings(
     )
 
 
+def _scaled_quota(quota: RankingQuotaConfig, pairs: int | None) -> PairQuota:
+    """The configured quota, scaled to about ``pairs`` questions while the shares between them hold.
+
+    Asking for a total is how a listener states the time they have, which is the scarce input here; the
+    balance between the four questions stays the configured one, so a shorter set covers the same ground.
+    """
+    asked = PairQuota(loop=quota.loop, rate=quota.rate, depth=quota.depth, trade=quota.trade)
+    if pairs is None or asked.total == 0:
+        return asked
+
+    scale = pairs / asked.total
+    return PairQuota(
+        loop=round(quota.loop * scale),
+        rate=round(quota.rate * scale),
+        depth=round(quota.depth * scale),
+        trade=round(quota.trade * scale),
+    )
+
+
+def _ranking_settings(config: OptiConfig, args: argparse.Namespace) -> RankingSettings:
+    """Build the listening set's settings from ``config``, applying the ``--pairs`` override."""
+    ranking = config.analysis.ranking
+    return RankingSettings(
+        grid=RankingGrid(depths=ranking.depths, rate_steps=ranking.rate_steps),
+        quota=_scaled_quota(ranking.quota, args.pairs),
+        byte_tolerance=ranking.byte_tolerance,
+        seed=ranking.seed,
+    )
+
+
 def _dump_settings(
     config: OptiConfig,
     args: argparse.Namespace,
@@ -559,6 +617,13 @@ def _print_reduced(result: ReducedInstrument) -> None:
     print(f"  reduction -> {result.paths.reduction_json}")
 
 
+def _print_listening(result: ListeningSet) -> None:
+    """State where one instrument's listening set landed and how much listening it asks for."""
+    print(f"{result.instrument_id}: {result.paths.pairs_dir}  [{result.elapsed_s:.1f}s]")
+    print(f"  {result.pairs} pairs chosen from {result.priced} priced encodings")
+    print(f"  answer sheet -> {result.paths.labels_csv}")
+
+
 def _print_plans(result: DumpResult) -> None:
     """State how each strategy fared for one instrument, and where all of them landed."""
     print(f"{result.instrument_id}: {result.directory}")
@@ -591,6 +656,17 @@ def _run_reduce(config: OptiConfig, args: argparse.Namespace) -> None:
         manifest, args.out, _optimize_settings(config, args, config.optimize.layers, config.optimize.budget)
     ):
         _print_reduced(result)
+
+
+def _run_listen(config: OptiConfig, args: argparse.Namespace) -> None:
+    manifest = load_source(_source(args), _ingest_settings(args))
+    for result in ranking_project(
+        manifest,
+        args.out,
+        _optimize_settings(config, args, config.optimize.layers, config.optimize.budget),
+        _ranking_settings(config, args),
+    ):
+        _print_listening(result)
 
 
 def _run_subset(args: argparse.Namespace) -> None:
@@ -674,6 +750,8 @@ def main(argv: list[str] | None = None) -> None:
             _dispatch(lambda: _run_loop(config, args), args)
         case "reduce":
             _dispatch(lambda: _run_reduce(config, args), args)
+        case "listen":
+            _dispatch(lambda: _run_listen(config, args), args)
         case "optimize":
             _dispatch(lambda: _run_optimize(config, args), args)
         case "pipeline":

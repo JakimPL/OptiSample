@@ -45,7 +45,13 @@ from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.reduce.bandwidth import StoredFormat
 from optisample.optimize.reduce.grids import NarrowedGrid
 from optisample.optimize.reduce.summary import KeptRecording, ReductionSummary
-from optisample.optimize.tasks import AudioMap, LoopMap, StoredRecordings, TaskInputs
+from optisample.optimize.tasks import (
+    AudioMap,
+    Event,
+    LoopMap,
+    StoredRecordings,
+    TaskInputs,
+)
 from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
 from optisample.synth import NoteSpec, synthesize
 from trackmod.module.storage import Storage
@@ -56,6 +62,8 @@ _MIDI_VELOCITIES = 128
 _ANCHORS = (VelocityAnchor(100, -10.0, MAX_VOLUME),)
 _INGEST_BUDGET_KB = 64.0
 _NOISE_FLOOR = 1e-4  # -80 dB of a full-scale tone: a floor a recording holds and arithmetic stays under
+_SCORED_S = 0.5
+_SCORED_FRAMES = int(_SCORED_S * _NOTE_SR)
 
 
 def recorded(signal: NDArray[np.float64], seed: int = 0) -> NDArray[np.float64]:
@@ -342,6 +350,18 @@ def task_inputs(config: OptiConfig) -> Callable[..., TaskInputs]:
         )
 
     return _build
+
+
+@pytest.fixture
+def scored_event() -> Event:
+    """One scored note class built by hand: the recording it stands for, its dynamic, and its length.
+
+    For the tests that read a class rather than build one -- what a listening pair names, what a document
+    states -- so they state the class they are about instead of running a reduction to reach one.
+    """
+    key = SampleKey(60, 100)
+    reference = np.linspace(1.0, 0.0, _SCORED_FRAMES, dtype=np.float64)
+    return Event(key, 100, MAX_VOLUME, _SCORED_S, 1.0, reference, 1.0)
 
 
 @pytest.fixture

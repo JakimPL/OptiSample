@@ -9,6 +9,9 @@ from optisample.io.note_extractor import NOTES_SUFFIX
 _AUDITIONS_DIR: Final = "auditions"
 _REDUCTION_DIR: Final = "reduction"
 _REDUCTION_JSON: Final = "reduction.json"
+_RANKING_JSON: Final = "pairs.json"
+_LABELS_CSV: Final = "labels.csv"
+_LISTENING_README: Final = "README.md"
 _LOOPS_DIR: Final = "loops"
 _LOOPS_JSON: Final = "loops.json"
 _MODULE_STEM: Final = "module"
@@ -106,6 +109,32 @@ def reduced_paths(out_dir: Path, instrument_id: str) -> ReducedPaths:
         samples_dir=out_dir / instrument_id,
         reduction_json=reduction_dir / _REDUCTION_JSON,
         auditions_dir=reduction_dir / _AUDITIONS_DIR,
+    )
+
+
+@dataclass(frozen=True)
+class RankingPaths:
+    """Where one instrument's listening set lands: the audio a listener meets, and what decodes it.
+
+    ``pairs_dir`` holds one directory per question and is the whole of what a listener browses.
+    ``manifest_json`` states which encoding took which side, so the set is decoded where a listener is
+    finished rather than while they are working, and ``labels_csv`` is where their answers go.
+    """
+
+    pairs_dir: Path
+    manifest_json: Path
+    labels_csv: Path
+    readme: Path
+
+
+def ranking_paths(out_dir: Path, instrument_id: str) -> RankingPaths:
+    """The tree one instrument's listening set is written as under ``out_dir``."""
+    instrument_dir = out_dir / instrument_id
+    return RankingPaths(
+        pairs_dir=instrument_dir,
+        manifest_json=instrument_dir / _RANKING_JSON,
+        labels_csv=instrument_dir / _LABELS_CSV,
+        readme=instrument_dir / _LISTENING_README,
     )
 
 

@@ -14,7 +14,7 @@ from optisample.artifacts.documents.reduction import (
 )
 from optisample.artifacts.paths import ReducedPaths, reduced_paths
 from optisample.artifacts.serialize import write_json
-from optisample.dsp.surrogate import EncodeContext, EncodingParams, encode
+from optisample.dsp.surrogate import EncodingParams
 from optisample.io.audio import write_wav
 from optisample.io.note_extractor import dump_notes
 from optisample.keys import SampleKey
@@ -32,6 +32,7 @@ from optisample.optimize.tasks import (
     EvalContext,
     Event,
     PitchTask,
+    audition_sample,
     render_event,
 )
 from optisample.progress import ProgressSink
@@ -115,16 +116,11 @@ def _audition(task: PitchTask, event: Event, params: EncodingParams, context: Ev
     """The audio one swept encoding produces for a pitch's representative note.
 
     Stored and played back the way the sweep scores it, so what lands on disk is the reconstruction the
-    objective measures. The dither runs off the surrogate's own fixed seed, so a pitch renders the same
-    audition however many others were rendered before it.
+    objective measures.
     """
-    stored = encode(
-        task.representative,
-        context.sample_rate,
-        params,
-        EncodeContext(root_pitch=task.pitch, config=context.encode, settled=task.settled),
+    return render_event(
+        audition_sample(task, params, context), event, pitch=task.pitch, sample_rate=context.sample_rate
     )
-    return render_event(stored, event, pitch=task.pitch, sample_rate=context.sample_rate)
 
 
 def _write_auditions(

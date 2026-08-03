@@ -1,0 +1,11 @@
+# The listening set the metric is ranked against (optisample.config.ranking.RankingConfig).
+# The sweep settles one rate and one depth per clip, so these widen the grid along the axes it holds fixed.
+depths: [16, 8]      # depths a clip is priced at; 8 carries the compression a shallow grid earns
+rate_steps: 1        # rungs of the sweep's own ladder below the settled rate a clip is also read at
+quota:               # pairs per question; each is two clips to hear against the recording
+  loop: 60
+  rate: 50
+  depth: 60
+  trade: 50
+byte_tolerance: 0.15 # how near in size two encodings come for their pair to be asked as a trade
+seed: 137
