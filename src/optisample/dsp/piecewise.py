@@ -7,9 +7,10 @@ import numpy as np
 
 from optisample.dsp.series import Readings, Series
 
+MOST_READINGS: Final = 2048  # readings one table of stretches is filled for, which bounds the search's memory
+
 _LINE_NODES: Final = 2  # nodes a curve holds to state one straight run, which is the shortest fit there is
 _FLAT_SPREAD: Final = 1e-12  # the spread in seconds a stretch holds for its own slope to be read off it
-_MOST_READINGS: Final = 2048  # readings one table of stretches is filled for, which bounds the search's memory
 
 
 @dataclass(frozen=True)
@@ -179,14 +180,14 @@ def fit_piecewise(readings: Readings, *, nodes: int) -> PiecewiseCurve:
     readings than the nodes asked for is stated by its own readings, which runs the curve through every one.
 
     Placement measures every stretch of the trajectory against the line through it, so it fills a table
-    quadratic in the reading count. A trajectory is therefore read in at most :data:`_MOST_READINGS`
+    quadratic in the reading count. A trajectory is therefore read in at most :data:`MOST_READINGS`
     windows, which holds that table inside a few tens of megabytes and leaves a curve of a few dozen
     corners every resolution it can express -- a long note is read in proportionally longer windows, which
     is the caller's to choose because only the caller knows how long the note runs.
 
     Raises:
         ValueError: when fewer than two nodes are asked for, when the readings hold nothing to fit, or when
-            they run past :data:`_MOST_READINGS`.
+            they run past :data:`MOST_READINGS`.
     """
     if nodes < _LINE_NODES:
         raise ValueError(f"a curve turns through at least {_LINE_NODES} nodes, against the {nodes} asked for")
@@ -194,8 +195,8 @@ def fit_piecewise(readings: Readings, *, nodes: int) -> PiecewiseCurve:
     if readings.count == 0:
         raise ValueError("a curve is fitted to at least one reading")
 
-    if readings.count > _MOST_READINGS:
-        raise ValueError(f"a trajectory is read in at most {_MOST_READINGS} windows, against {readings.count}")
+    if readings.count > MOST_READINGS:
+        raise ValueError(f"a trajectory is read in at most {MOST_READINGS} windows, against {readings.count}")
 
     if readings.count <= nodes:
         return _curve(readings.seconds, readings.values)
