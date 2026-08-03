@@ -13,8 +13,8 @@ from optisample.dsp.surrogate import StoredSample
 from optisample.music import note_name
 from optisample.optimize.export.build import instrument_name
 from optisample.optimize.export.coverage import KeyCoverage
-from optisample.optimize.export.envelope import decay_dispersion, shared_decay
-from optisample.optimize.layers.slots import InstrumentSlot, SlotLayout
+from optisample.optimize.export.voices import WrittenInstruments
+from optisample.optimize.layers.slots import InstrumentSlot
 from optisample.optimize.plans import (
     GroupedInstrumentPlan,
     InstrumentPlan,
@@ -25,7 +25,6 @@ from optisample.optimize.plans import (
 from trackmod.module.size import SizeReport
 
 _OPTIONAL_HEAD: Final = ("method", "pitches", "reserve", "zones")
-NO_DRIFT: Final = 0.0  # what one envelope costs an instrument whose samples state no decline to share
 
 
 class BudgetRecord(Frozen):
@@ -127,9 +126,10 @@ class InstrumentRecord(Frozen):
     whole plan covers, stores and scores.
 
     ``envelope_drift_db`` is the widest decibel gap the one volume envelope this instrument carries leaves
-    a sample of its own by the end of that sample's ramp. A format gives the envelope to the instrument
-    rather than the sample, so keys declining at different rates share one curve, and this states what
-    that costs the worst of them -- the reading that says whether the instrument is worth splitting.
+    a key of its own, over the whole stretch that key is held for. A format gives the envelope to the
+    instrument rather than the sample, so keys declining at different rates share one curve, and this
+    states what that costs the worst of them -- the reading that says whether the instrument is worth
+    splitting (:attr:`~optisample.dsp.trajectory.SharedTrajectory.dispersion_db`).
     """
 
     index: int
@@ -247,18 +247,11 @@ def _pitch_item(unit: SampleUnit, stored: StoredSample) -> PitchItemRecord:
     )
 
 
-def _envelope_drift_db(slot: InstrumentSlot, encoded: Sequence[StoredSample]) -> float:
-    """What the one envelope this slot carries costs the sample of its own it suits worst."""
-    decays = [encoded[index].decay for index in slot.samples]
-    shared = shared_decay(decays)
-    return NO_DRIFT if shared is None else decay_dispersion(decays, shared)
-
-
 def _instrument_record(
     index: int,
     slot: InstrumentSlot,
     name: str,
-    encoded: Sequence[StoredSample],
+    drift_db: float,
 ) -> InstrumentRecord:
     pitches = slot.pitches
     return InstrumentRecord(
@@ -275,18 +268,15 @@ def _instrument_record(
         stored_bytes=slot.stored_bytes,
         weight=slot.weight,
         objective_share=slot.objective_share,
-        envelope_drift_db=_envelope_drift_db(slot, encoded),
+        envelope_drift_db=drift_db,
     )
 
 
-def _instrument_records(
-    plan: StrategyPlan,
-    layout: SlotLayout,
-    encoded: Sequence[StoredSample],
-) -> list[InstrumentRecord]:
+def _instrument_records(plan: StrategyPlan, written: WrittenInstruments) -> list[InstrumentRecord]:
     """One record per written instrument, named exactly as the module's own instrument list names it."""
+    layout = written.layout
     return [
-        _instrument_record(index, slot, instrument_name(plan.instrument_id, layout, index), encoded)
+        _instrument_record(index, slot, instrument_name(plan.instrument_id, layout, index), written.drifts[index])
         for index, slot in enumerate(layout.slots)
     ]
 
@@ -316,7 +306,7 @@ def plan_document(
     encoded: Sequence[StoredSample],
     size: SizeReport,
     coverage: KeyCoverage,
-    layout: SlotLayout,
+    written: WrittenInstruments,
 ) -> PlanDocument:
     """One plan document for either strategy; ``encoded`` holds the re-encoded samples, in plan order.
 
@@ -324,7 +314,8 @@ def plan_document(
     block for every item; only the leading fields (a pitch vs. a zone, and whether a ``method`` is
     recorded) differ, selected by narrowing on the plan's strategy. ``size`` is what the module the plan
     exports to actually occupies, ``coverage`` what its keymaps answer of the format's keyboard, and
-    ``layout`` the instruments it was written as.
+    and ``written`` the instruments it was written as, beside what each of their volume envelopes leaves
+    the key of its own it suits worst.
     """
     units = plan.sample_units()
     budget = _budget_record(plan)
@@ -332,7 +323,7 @@ def plan_document(
     keyboard = _keyboard_record(coverage)
     reduction = reduction_document(plan.reduction)
     velocity_map = velocity_map_document(plan.velocity_map)
-    instruments = _instrument_records(plan, layout, encoded)
+    instruments = _instrument_records(plan, written)
     if plan.strategy == "grouped":
         return PlanDocument(
             strategy="grouped",

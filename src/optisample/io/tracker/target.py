@@ -115,6 +115,16 @@ class ExportTarget:
         return self.limits.bound(Capability.SAMPLES_PER_INSTRUMENT).maximum
 
     @property
+    def envelope_point_bound(self) -> Bound:
+        """How many breakpoints an envelope of this format holds, which is what a fitted shape is given.
+
+        Impulse Tracker numbers twenty-five, FastTracker 2 twelve, and the shape an instrument is played
+        down by takes every one of them the release does not
+        (:func:`~optisample.optimize.export.envelope.shape_nodes`).
+        """
+        return self.limits.bound(Capability.ENVELOPE_POINTS)
+
+    @property
     def envelope_tick_bound(self) -> Bound:
         """The ticks an envelope breakpoint may sit on, which bounds how long a written curve runs."""
         return self.limits.bound(Capability.ENVELOPE_TICK)

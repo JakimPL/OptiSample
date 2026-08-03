@@ -31,13 +31,15 @@ class PlannedSamples:
     """What a plan is written as: the stored waveforms, the keys routed onto them, and how each was encoded.
 
     ``samples`` and ``keymaps`` are what the song carries; ``stored`` is the encoder's own answer for each
-    sample, in the same order, which is where the decline a note is played down by is read from. Keeping
-    the three together lets one instrument's envelope be fitted from the very samples it starts.
+    sample and ``gains`` the 0-64 multiplier written beside it, both in the same order. Keeping the four
+    together lets one instrument's envelope be fitted from the very samples it starts, at the levels the
+    module actually plays them at.
     """
 
     samples: tuple[Sample, ...]
     keymaps: tuple[Keymap, ...]
     stored: tuple[StoredSample, ...]
+    gains: tuple[int, ...]
 
 
 def encode_plan_units(
@@ -196,4 +198,5 @@ def plan_samples(
         samples=samples,
         keymaps=_slot_keymaps(layout, context.target),
         stored=tuple(stored for _, stored in encoded),
+        gains=gains,
     )

@@ -6,7 +6,8 @@ from optisample.artifacts.documents.plan import plan_document
 from optisample.dsp.decay import LinearDecay
 from optisample.dsp.surrogate import StoredSample
 from optisample.optimize.export.coverage import KeyCoverage
-from optisample.optimize.layers.slots import SlotLayout, pack_slots
+from optisample.optimize.export.voices import NO_DRIFT, WrittenInstruments
+from optisample.optimize.layers.slots import pack_slots
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan, StrategyPlan
 from trackmod.module.size import SizeReport
 
@@ -16,9 +17,14 @@ _WHOLE_TABLE = 255  # samples one instrument reaches in a format numbering them 
 _ONE_SAMPLE_EACH = 1  # the narrowest format imaginable, which writes every stored zone on its own
 
 
-def _layout(plan: StrategyPlan, per_instrument: int = _WHOLE_TABLE) -> SlotLayout:
+def _written(
+    plan: StrategyPlan,
+    per_instrument: int = _WHOLE_TABLE,
+    drift_db: float = NO_DRIFT,
+) -> WrittenInstruments:
     """The instruments the plan is written as, which the document holds one record each of."""
-    return pack_slots(plan.sample_units(), plan.layers, per_instrument)
+    layout = pack_slots(plan.sample_units(), plan.layers, per_instrument)
+    return WrittenInstruments(layout=layout, drifts=(drift_db,) * layout.count)
 
 
 def _encoded(plan: StrategyPlan, *, decay: LinearDecay | None = None) -> list[StoredSample]:
@@ -36,7 +42,7 @@ def _encoded(plan: StrategyPlan, *, decay: LinearDecay | None = None) -> list[St
 
 
 def test_plan_document_ungrouped_writes_pitches_and_method(ungrouped_plan: InstrumentPlan) -> None:
-    doc = plan_document(ungrouped_plan, _encoded(ungrouped_plan), _SIZE, _COVERAGE, _layout(ungrouped_plan))
+    doc = plan_document(ungrouped_plan, _encoded(ungrouped_plan), _SIZE, _COVERAGE, _written(ungrouped_plan))
     assert doc.strategy == "ungrouped"
     assert doc.method is not None and doc.pitches is not None and doc.zones is None
     assert doc.budget.used_bytes == ungrouped_plan.used_bytes
@@ -47,7 +53,7 @@ def test_plan_document_ungrouped_writes_pitches_and_method(ungrouped_plan: Instr
 
 
 def test_plan_document_grouped_writes_zones_and_drops_method(grouped_plan: GroupedInstrumentPlan) -> None:
-    doc = plan_document(grouped_plan, _encoded(grouped_plan), _SIZE, _COVERAGE, _layout(grouped_plan))
+    doc = plan_document(grouped_plan, _encoded(grouped_plan), _SIZE, _COVERAGE, _written(grouped_plan))
     assert doc.strategy == "grouped"
     assert doc.zones is not None and doc.method is None and doc.pitches is None
     dumped = doc.model_dump()
@@ -59,14 +65,14 @@ def test_a_grouped_document_records_the_sample_cap_it_was_held_to(
     ungrouped_plan: InstrumentPlan, grouped_plan: GroupedInstrumentPlan
 ) -> None:
     """The cap and its charge belong to the strategy that meets them, so only that document states them."""
-    grouped = plan_document(grouped_plan, _encoded(grouped_plan), _SIZE, _COVERAGE, _layout(grouped_plan))
+    grouped = plan_document(grouped_plan, _encoded(grouped_plan), _SIZE, _COVERAGE, _written(grouped_plan))
     assert grouped.reserve is not None
     assert grouped.reserve.cap == grouped_plan.reserve.cap
     assert grouped.reserve.bytes_per_sample == grouped_plan.reserve.bytes_per_sample
     assert grouped.reserve.objective_uncapped == grouped_plan.reserve.objective_uncapped
     assert len(grouped.zones or []) <= grouped.reserve.cap
 
-    ungrouped = plan_document(ungrouped_plan, _encoded(ungrouped_plan), _SIZE, _COVERAGE, _layout(ungrouped_plan))
+    ungrouped = plan_document(ungrouped_plan, _encoded(ungrouped_plan), _SIZE, _COVERAGE, _written(ungrouped_plan))
     assert "reserve" not in ungrouped.model_dump()
 
 
@@ -75,7 +81,7 @@ def test_both_documents_state_the_weighting_their_objective_was_measured_under(
 ) -> None:
     """A bare objective says nothing on its own, so each document records what scaled the notes into it."""
     for plan in (ungrouped_plan, grouped_plan):
-        doc = plan_document(plan, _encoded(plan), _SIZE, _COVERAGE, _layout(plan))
+        doc = plan_document(plan, _encoded(plan), _SIZE, _COVERAGE, _written(plan))
         assert doc.energy_exponent == plan.energy_exponent
         assert "energy_exponent" in doc.model_dump()
 
@@ -84,8 +90,8 @@ def test_an_item_states_the_ramp_its_looped_sample_is_played_down_by(grouped_pla
     """A looped sample holds one level, so the plan records what brings it down beside the loop itself."""
     ramp = LinearDecay(start_s=0.6, end_s=3.0, final_gain=0.15)
 
-    doc = plan_document(grouped_plan, _encoded(grouped_plan, decay=ramp), _SIZE, _COVERAGE, _layout(grouped_plan))
-    plain = plan_document(grouped_plan, _encoded(grouped_plan), _SIZE, _COVERAGE, _layout(grouped_plan))
+    doc = plan_document(grouped_plan, _encoded(grouped_plan, decay=ramp), _SIZE, _COVERAGE, _written(grouped_plan))
+    plain = plan_document(grouped_plan, _encoded(grouped_plan), _SIZE, _COVERAGE, _written(grouped_plan))
 
     zone = (doc.zones or [])[0]
     assert zone.decay is not None
@@ -96,16 +102,31 @@ def test_an_item_states_the_ramp_its_looped_sample_is_played_down_by(grouped_pla
 def test_the_document_holds_one_record_per_written_instrument(grouped_plan: GroupedInstrumentPlan) -> None:
     """A consumer reads the written instruments off this list, so each is named and placed as written."""
     units = grouped_plan.sample_units()
-    doc = plan_document(grouped_plan, _encoded(grouped_plan), _SIZE, _COVERAGE, _layout(grouped_plan, _ONE_SAMPLE_EACH))
+    doc = plan_document(
+        grouped_plan, _encoded(grouped_plan), _SIZE, _COVERAGE, _written(grouped_plan, _ONE_SAMPLE_EACH)
+    )
     assert [record.index for record in doc.instruments] == list(range(len(units)))
     assert [record.samples for record in doc.instruments] == [1] * len(units)
     assert all(record.name.startswith(grouped_plan.instrument_id) for record in doc.instruments)
     assert sum(record.stored_bytes for record in doc.instruments) == doc.budget.used_bytes
 
 
+def test_an_instrument_record_states_what_its_one_envelope_leaves_the_key_it_suits_worst(
+    grouped_plan: GroupedInstrumentPlan,
+) -> None:
+    """The reading a reader decides a split on, so the document states the one the module was written with."""
+    worst_db = 4.5
+
+    doc = plan_document(
+        grouped_plan, _encoded(grouped_plan), _SIZE, _COVERAGE, _written(grouped_plan, drift_db=worst_db)
+    )
+
+    assert [record.envelope_drift_db for record in doc.instruments] == [worst_db] * len(doc.instruments)
+
+
 def test_an_instrument_record_states_the_keys_it_was_stored_for(grouped_plan: GroupedInstrumentPlan) -> None:
     units = grouped_plan.sample_units()
-    doc = plan_document(grouped_plan, _encoded(grouped_plan), _SIZE, _COVERAGE, _layout(grouped_plan))
+    doc = plan_document(grouped_plan, _encoded(grouped_plan), _SIZE, _COVERAGE, _written(grouped_plan))
     (record,) = [entry for entry in doc.instruments if entry.keys > 0]
     assert record.lowest_pitch == min(key for unit in units for key in unit.keys)
     assert record.highest_pitch == max(key for unit in units for key in unit.keys)
@@ -115,8 +136,8 @@ def test_plan_document_carries_the_reduction_both_strategies_share(
     ungrouped_plan: InstrumentPlan, grouped_plan: GroupedInstrumentPlan
 ) -> None:
     """The pre-optimization stage runs once per instrument, so both documents record the same outcome."""
-    ungrouped = plan_document(ungrouped_plan, _encoded(ungrouped_plan), _SIZE, _COVERAGE, _layout(ungrouped_plan))
-    grouped = plan_document(grouped_plan, _encoded(grouped_plan), _SIZE, _COVERAGE, _layout(grouped_plan))
+    ungrouped = plan_document(ungrouped_plan, _encoded(ungrouped_plan), _SIZE, _COVERAGE, _written(ungrouped_plan))
+    grouped = plan_document(grouped_plan, _encoded(grouped_plan), _SIZE, _COVERAGE, _written(grouped_plan))
     assert ungrouped.reduction == grouped.reduction
     assert ungrouped.reduction.kept_recordings == len(ungrouped.reduction.recordings)
     assert "reduction" in ungrouped.model_dump()
@@ -126,7 +147,7 @@ def test_the_reduction_document_records_every_kept_recording_and_narrowed_grid(
     ungrouped_plan: InstrumentPlan,
 ) -> None:
     reduction = plan_document(
-        ungrouped_plan, _encoded(ungrouped_plan), _SIZE, _COVERAGE, _layout(ungrouped_plan)
+        ungrouped_plan, _encoded(ungrouped_plan), _SIZE, _COVERAGE, _written(ungrouped_plan)
     ).reduction
     assert reduction.listed_recordings >= reduction.kept_recordings
     assert reduction.played_notes >= reduction.scored_classes

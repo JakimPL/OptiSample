@@ -1,13 +1,14 @@
 from collections.abc import Sequence
 from typing import Final
 
-from optisample.dsp.surrogate import StoredSample
+from optisample.dsp.trajectory import SharedTrajectory
 from optisample.model import NoteEvent
 from optisample.optimize.export.context import ExportContext
-from optisample.optimize.export.envelope import NO_ENVELOPE, shared_decay, volume_envelope
+from optisample.optimize.export.envelope import NO_ENVELOPE, shape_nodes, volume_envelope
 from optisample.optimize.export.material import CHANNELS, Voicing, material_patterns
 from optisample.optimize.export.samples import plan_samples
-from optisample.optimize.layers.slots import ONE_SLOT, InstrumentSlot, SlotLayout, plan_slots
+from optisample.optimize.export.voices import NO_SHAPE, PlayedVoices, instrument_shapes
+from optisample.optimize.layers.slots import ONE_SLOT, SlotLayout, plan_slots
 from optisample.optimize.plans import SINGLE_LAYER, StrategyPlan
 from optisample.optimize.tasks import StoredRecordings
 from trackmod.core.envelopes.envelope import Envelope
@@ -19,6 +20,7 @@ from trackmod.module.protocol import TrackerModule
 
 _NAME_CHARS: Final = 22  # the narrowest instrument-name field a target format keeps, FastTracker 2's
 _SHORTEST_ID: Final = 1  # instrument-id characters a name keeps however long the axes it states are
+_UNITY_DB: Final = 0.0  # the level a shape is written against while the plan states no louder moment
 
 
 def _axes(layout: SlotLayout, index: int) -> str:
@@ -53,44 +55,46 @@ def instrument_name(instrument_id: str, layout: SlotLayout, index: int) -> str:
     return f"{instrument_id[: max(_SHORTEST_ID, _NAME_CHARS - len(axes) - 1)]} {axes}"
 
 
-def slot_envelope(
-    slot: InstrumentSlot,
-    stored: Sequence[StoredSample],
-    context: ExportContext,
-) -> Envelope | None:
+def slot_envelope(shape: SharedTrajectory | None, context: ExportContext, *, peak_db: float) -> Envelope | None:
     """The volume curve one written instrument plays every voice it starts down by.
 
     A looped sample holds one level for as long as a note is held, so the decline the recording made past
     that point lives in the envelope rather than the waveform. The envelope belongs to the instrument and
-    the slot holds several samples, so one shape answers for all of them
-    (:func:`~optisample.optimize.export.envelope.shared_decay`).
+    the slot answers several keys, so ``shape`` is the one trajectory fitted to all of them
+    (:func:`~optisample.optimize.export.voices.instrument_shape`) and this writes it onto the format's own
+    grid (:func:`~optisample.optimize.export.envelope.volume_envelope`), against the level ``peak_db``
+    every instrument of the plan shares.
     """
-    shared = shared_decay([stored[index].decay for index in slot.samples])
-    if shared is None:
+    if shape is NO_SHAPE:
         return NO_ENVELOPE
 
-    return volume_envelope(
-        shared,
-        tempo=context.playback.tempo,
-        release_s=context.envelope.release_s,
-        tick_bound=context.target.envelope_tick_bound,
-        value_bound=context.target.envelope_value_bound,
-    )
+    return volume_envelope(shape.curve, context.envelope_grid, peak_db=peak_db)
+
+
+def loudest_db(shapes: Sequence[SharedTrajectory | None]) -> float:
+    """The loudest moment any of a plan's instruments reaches, which every one of them is written against.
+
+    A volume envelope only attenuates, so one level has to stand for the unity step; taking it across the
+    whole plan is what keeps two velocity layers exactly as far apart as their gains and recordings put
+    them. A plan whose instruments carry no shape names unity itself, there being nothing to stand under.
+    """
+    return max((shape.curve.peak for shape in shapes if shape is not NO_SHAPE), default=_UNITY_DB)
 
 
 def _slot_instruments(
     plan: StrategyPlan,
     layout: SlotLayout,
     keymaps: Sequence[Keymap],
-    stored: Sequence[StoredSample],
+    shapes: Sequence[SharedTrajectory | None],
     context: ExportContext,
 ) -> tuple[Instrument, ...]:
     """One instrument per written slot, so a note's dynamic and pitch name the one it plays."""
+    peak_db = loudest_db(shapes)
     return tuple(
         Instrument(
             name=instrument_name(plan.instrument_id, layout, index),
             keymap=keymap,
-            volume_envelope=slot_envelope(layout.slots[index], stored, context),
+            volume_envelope=slot_envelope(shapes[index], context, peak_db=peak_db),
         )
         for index, keymap in enumerate(keymaps)
     )
@@ -106,11 +110,25 @@ def build_song(
 
     The plan supplies the stored samples and the keys they serve; the format decides how many instruments
     those samples are written as (:func:`~optisample.optimize.layers.slots.pack_slots`); the material
-    supplies the patterns that audition them. Everything else -- the song name, the single channel, the
-    clock -- is the same for both strategies, so it lives here once.
+    supplies the patterns that audition them and, beside the recordings, the trajectory each instrument's
+    own envelope is fitted to (:func:`~optisample.optimize.export.voices.instrument_shapes`). Everything
+    else -- the song name, the single channel, the clock -- is the same for both strategies, so it lives
+    here once.
     """
     layout = plan_slots(plan, context.target)
     planned = plan_samples(plan, layout, recordings, context)
+    sources = PlayedVoices(
+        recordings=recordings,
+        material=material,
+        velocity_map=plan.velocity_map,
+        gains=planned.gains,
+    )
+    shapes = instrument_shapes(
+        layout,
+        planned.stored,
+        sources,
+        nodes=shape_nodes(context.target.envelope_point_bound),
+    )
     voicing = Voicing(layout=layout, velocity_map=plan.velocity_map)
     patterns, order = material_patterns(material, voicing, context.playback, context.target)
     return Song(
@@ -118,7 +136,7 @@ def build_song(
         channels=CHANNELS,
         patterns=patterns,
         order=order,
-        instruments=_slot_instruments(plan, layout, planned.keymaps, planned.stored, context),
+        instruments=_slot_instruments(plan, layout, planned.keymaps, shapes, context),
         samples=planned.samples,
         playback=Playback(speed=context.playback.speed, tempo=context.playback.tempo),
     )

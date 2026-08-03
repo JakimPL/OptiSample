@@ -9,7 +9,9 @@ from optisample.model import NoteEvent
 from optisample.optimize.export import build_module
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.coverage import key_coverage, played_keys
-from optisample.optimize.export.samples import encode_plan_units
+from optisample.optimize.export.envelope import shape_nodes
+from optisample.optimize.export.samples import encode_plan_units, sample_gains
+from optisample.optimize.export.voices import PlayedVoices, WrittenInstruments, written_instruments
 from optisample.optimize.layers.bands import VelocityLayers
 from optisample.optimize.layers.slots import SlotLayout, plan_slots
 from optisample.optimize.plans import (
@@ -109,6 +111,33 @@ def _export_context(dump_context: DumpContext) -> ExportContext:
     )
 
 
+def _written_instruments(
+    plan: InstrumentPlan | GroupedInstrumentPlan,
+    layout: SlotLayout,
+    encoded: Sequence[StoredSample],
+    dump_context: DumpContext,
+    export_context: ExportContext,
+) -> WrittenInstruments:
+    """The instruments the module numbers, beside what the one envelope each carries leaves its keys.
+
+    The shapes are fitted the way the module fits them
+    (:func:`~optisample.optimize.export.voices.written_instruments`), so the reading reported here belongs
+    to the very curve the written file carries.
+    """
+    sources = PlayedVoices(
+        recordings=dump_context.recordings,
+        material=dump_context.material,
+        velocity_map=plan.velocity_map,
+        gains=sample_gains(list(zip(plan.sample_units(), encoded)), plan.velocity_map, export_context.target),
+    )
+    return written_instruments(
+        layout,
+        encoded,
+        sources,
+        nodes=shape_nodes(export_context.target.envelope_point_bound),
+    )
+
+
 def make_kind(plan: InstrumentPlan | GroupedInstrumentPlan, dump_context: DumpContext) -> PlanKind:
     """Package a plan (ungrouped or grouped) as the strategy-agnostic pieces the dumper serializes.
 
@@ -141,7 +170,13 @@ def make_kind(plan: InstrumentPlan | GroupedInstrumentPlan, dump_context: DumpCo
         layout,
         units,
         report_text,
-        plan_document(plan, encoded, size, coverage, layout),
+        plan_document(
+            plan,
+            encoded,
+            size,
+            coverage,
+            _written_instruments(plan, layout, encoded, dump_context, export_context),
+        ),
         module,
         make_module,
     )

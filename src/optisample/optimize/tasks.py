@@ -8,7 +8,7 @@ from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import BandwidthConfig, ReduceConfig, Representatives, ZoneConfig
 from optisample.dsp.surrogate import NO_LOOPS, SettledLoops, StoredSample, closed_reference, render
 from optisample.dsp.timebase import seconds_to_frames
-from optisample.keys import SampleKey, nearest_key
+from optisample.keys import SampleKey, keys_by_pitch, nearest_key
 from optisample.metrics.base import Signal
 from optisample.metrics.composite import CompositeFidelity, QualityReport, evaluate
 from optisample.model import InstrumentSpec, NoteEvent
@@ -198,15 +198,6 @@ def _group_events_by_pitch(material: Sequence[NoteEvent]) -> dict[int, list[Note
     return by_pitch
 
 
-def _keys_by_pitch(audio: AudioMap) -> dict[int, list[SampleKey]]:
-    """The identities that survived dedup at each pitch (``audio``'s keys, grouped by pitch)."""
-    keys_at: dict[int, list[SampleKey]] = {}
-    for key in audio:
-        keys_at.setdefault(key.pitch, []).append(key)
-
-    return keys_at
-
-
 def _candidate_keys(
     available: Sequence[SampleKey],
     representative_key: SampleKey,
@@ -274,7 +265,7 @@ def build_tasks(instrument: InstrumentSpec, inputs: TaskInputs) -> list[PitchTas
         ValueError: when the material plays a pitch the recorded grid has no sample for.
     """
     by_pitch = _group_events_by_pitch(instrument.material or [])
-    keys_at = _keys_by_pitch(inputs.audio)
+    keys_at = keys_by_pitch(inputs.audio)
 
     tasks: list[PitchTask] = []
     for pitch, events in sorted(by_pitch.items()):

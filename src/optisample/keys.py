@@ -1,4 +1,4 @@
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from math import floor
 from typing import Protocol
@@ -99,3 +99,16 @@ def nearest_key(available: Sequence[SampleKey], velocity: int) -> SampleKey:
     one velocity still resolves to the same reference on every run.
     """
     return min(available, key=lambda key: (abs(key.velocity - velocity), -key.velocity, key.cc))
+
+
+def keys_by_pitch(available: Iterable[SampleKey]) -> dict[int, list[SampleKey]]:
+    """The recorded keys that survived dedup, gathered by the pitch each was played at.
+
+    A stage answering a played note asks what the grid holds at that note's own key, so the recordings are
+    read this way once and the nearest velocity picked out of the run (:func:`nearest_key`).
+    """
+    at_pitch: dict[int, list[SampleKey]] = {}
+    for key in available:
+        at_pitch.setdefault(key.pitch, []).append(key)
+
+    return at_pitch

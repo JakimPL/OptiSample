@@ -44,6 +44,11 @@ class PiecewiseCurve:
         """The value each corner holds, in the order the curve turns through them."""
         return np.asarray([node.value for node in self.nodes], dtype=np.float64)
 
+    @property
+    def peak(self) -> float:
+        """The highest value the curve reaches, which is the corner it turns loudest at."""
+        return max(node.value for node in self.nodes)
+
     def at(self, seconds: Series) -> Series:
         """The value the curve reads at each moment in ``seconds``, held at its end values on either side.
 
