@@ -236,6 +236,7 @@ def dump_looped(
         note_records(material, loaded.audio, written.indices),
         paths.notes_json,
         tracked_ccs=tracked_ccs(material),
+        tempo_bpm=loaded.instrument.tempo_bpm,
     )
     auditions = _write_auditions(looped, paths.auditions_dir, settings.loop, settings.progress)
     paths.loops_json.parent.mkdir(parents=True, exist_ok=True)

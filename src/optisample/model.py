@@ -15,6 +15,7 @@ Interpolation = Literal["none", "linear", "cubic", "sinc"]
 _NO_LEAD_IN: Final = 0.0
 _NO_TRAIL_OUT: Final = 0.0
 _NO_ROLL: Final = 0.0
+_NO_TEMPO: Final = None  # what a dataset naming no clock of its own leaves an instrument with
 
 
 class OptiSampleModel(BaseModel):
@@ -64,7 +65,9 @@ class InstrumentSpec(OptiSampleModel):
     """One instrument: its recorded samples, the material that uses it, and a budget.
 
     ``pre_roll_s`` and ``post_roll_s`` record how the samples were trimmed (the padding kept before the
-    onset and after the release), carried for provenance.
+    onset and after the release), carried for provenance. ``tempo_bpm`` is the clock the material was
+    played at, which a standalone instrument's volume envelope is counted in ticks of, carried by the
+    datasets that state one.
     """
 
     id: str
@@ -73,6 +76,7 @@ class InstrumentSpec(OptiSampleModel):
     material: Annotated[list[NoteEvent], Field(min_length=1)]
     pre_roll_s: float = _NO_ROLL
     post_roll_s: float = _NO_ROLL
+    tempo_bpm: PositiveFloat | None = _NO_TEMPO
 
 
 class ProjectSpec(OptiSampleModel):

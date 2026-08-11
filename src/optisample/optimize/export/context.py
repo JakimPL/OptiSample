@@ -4,7 +4,7 @@ from optisample.config.codec import EncodeConfig
 from optisample.config.export import EnvelopeConfig
 from optisample.config.render import PlaybackConfig
 from optisample.io.tracker.target import ExportTarget
-from optisample.optimize.export.envelope import EnvelopeGrid
+from optisample.optimize.export.envelope import EnvelopeGrid, envelope_grid
 from optisample.seed import DEFAULT_SEED
 
 
@@ -26,9 +26,4 @@ class ExportContext:
     @property
     def envelope_grid(self) -> EnvelopeGrid:
         """What a written curve is held to: the module's own clock, the format's two grids, and the release."""
-        return EnvelopeGrid(
-            tempo=self.playback.tempo,
-            release_s=self.envelope.release_s,
-            tick_bound=self.target.envelope_tick_bound,
-            value_bound=self.target.envelope_value_bound,
-        )
+        return envelope_grid(self.target, tempo=self.playback.tempo, release_s=self.envelope.release_s)

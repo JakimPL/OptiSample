@@ -5,6 +5,7 @@ from collections.abc import Callable, Sequence
 import numpy as np
 import pytest
 
+from optisample.dsp.levels import level_readings
 from optisample.dsp.piecewise import MOST_READINGS
 from optisample.dsp.series import Readings, Series
 from optisample.dsp.trajectory import (
@@ -12,6 +13,8 @@ from optisample.dsp.trajectory import (
     fit_shared_trajectory,
     reading_window_s,
 )
+
+SR = 44_100
 
 _WINDOW_S = 0.01
 _SPAN_S = 2.0
@@ -66,13 +69,21 @@ def _planted_offsets(offsets: Sequence[float]) -> list[float]:
 
 
 def test_a_short_note_is_read_finer_than_the_grid_its_envelope_is_written_on() -> None:
-    assert reading_window_s(1.0) == pytest.approx(0.005)
+    assert reading_window_s(SR, SR) == pytest.approx(0.005)
 
 
 def test_a_note_running_past_what_a_fit_tables_is_read_in_proportionally_longer_windows() -> None:
-    span_s = 100.0
+    frames = 100 * SR
 
-    assert span_s / reading_window_s(span_s) == pytest.approx(MOST_READINGS)
+    assert frames / SR / reading_window_s(frames, SR) == pytest.approx(MOST_READINGS, rel=1e-3)
+
+
+@pytest.mark.parametrize("frames", [MOST_READINGS * 240 + 1, 500_000, 10 * 48_000, 106 * 48_000])
+def test_a_stretch_of_any_length_is_read_in_the_windows_a_fit_can_table(frames: int) -> None:
+    """The window spans whole frames, so what a reading answers with stays inside what a fit prices."""
+    readings = level_readings(np.zeros(frames, dtype=np.float64), SR, window_s=reading_window_s(frames, SR))
+
+    assert readings.count <= MOST_READINGS
 
 
 # --- what one shape and two ladders of offsets reach ----------------------------------------------------

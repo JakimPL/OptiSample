@@ -204,7 +204,9 @@ def slot_members(
     if not voices:
         return ()
 
-    window_s = reading_window_s(max(voice.span_s for voice in voices))
+    sample_rate = sources.recordings.sample_rate
+    longest = seconds_to_frames(max(voice.span_s for voice in voices), sample_rate)
+    window_s = reading_window_s(longest, sample_rate)
     levels = {
         voice.sample: level_readings(stored[voice.sample].pcm, stored[voice.sample].sample_rate, window_s=window_s)
         for voice in voices

@@ -26,6 +26,7 @@ from trackmod.core.samples.sample import Sample
 from trackmod.core.songs.order import OrderList
 from trackmod.core.songs.playback import Playback
 from trackmod.core.songs.song import Song
+from trackmod.limits.capability import Capability
 from trackmod.limits.compliance import Compliance
 from trackmod.spec.pitch import RATE_NOTE
 
@@ -165,6 +166,35 @@ def test_each_format_reaches_its_own_stretch_of_the_keyboard(
     assert target.key(target.max_pitch).midi == target.max_pitch
     with pytest.raises(ValueError, match="key range"):
         target.key(target.max_pitch + 1)
+
+
+@pytest.mark.parametrize("tracker_format", _FORMATS)
+def test_a_recorded_tempo_reaches_the_clock_a_format_counts_its_ticks_in(
+    tracker_format: TrackerFormat,
+    retarget: Callable[[TrackerFormat], ExportTarget],
+) -> None:
+    """A format states its clock as a whole number, so the nearest one to the material's own is written."""
+    target = retarget(tracker_format)
+    bound = target.limits.bound(Capability.TEMPO)
+
+    assert target.tempo(115.4) == 115
+    assert target.tempo(float(bound.minimum)) == bound.minimum
+    assert target.tempo(float(bound.maximum)) == bound.maximum
+
+
+@pytest.mark.parametrize("tracker_format", _FORMATS)
+def test_a_tempo_a_format_has_no_room_for_is_refused(
+    tracker_format: TrackerFormat,
+    retarget: Callable[[TrackerFormat], ExportTarget],
+) -> None:
+    target = retarget(tracker_format)
+    bound = target.limits.bound(Capability.TEMPO)
+
+    with pytest.raises(ValueError, match="is outside the"):
+        target.tempo(bound.maximum + 1.0)
+
+    with pytest.raises(ValueError, match="is outside the"):
+        target.tempo(bound.minimum - 1.0)
 
 
 def test_a_split_transposition_is_refused_by_the_format_that_cannot_hold_it(

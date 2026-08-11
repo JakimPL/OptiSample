@@ -31,6 +31,20 @@ _ON_THE_ROW: Final = 0
 
 
 @dataclass(frozen=True)
+class SampleLevels:
+    """The two levels a format keeps beside one stored sample: what a bare note plays at, and the gain over it.
+
+    ``volume`` is the level a cell stating no volume column sounds; ``gain`` multiplies whatever level
+    does play. Which of them a format lets a caller state is the format's own answer
+    (:attr:`ExportTarget.sample_level_bound`), so a stored level is written through this pair rather than
+    into a field named by the caller.
+    """
+
+    volume: int
+    gain: int
+
+
+@dataclass(frozen=True)
 class ExportTarget:
     """The tracker format a plan is written as, together with everything that format decides.
 
@@ -94,6 +108,28 @@ class ExportTarget:
         return self.limits.bound(Capability.SAMPLE_GAIN).minimum < MAX_VOLUME
 
     @property
+    def sample_level_bound(self) -> Bound:
+        """The steps the level one stored sample carries is written on, which is the strongest this format has.
+
+        Impulse Tracker applies a sample's own gain whatever a pattern states, so a level written there
+        holds however the sample is played. FastTracker 2 keeps its per-sample level in the volume a note
+        without a volume column plays at, which is the level that format states for a sample of its own.
+        """
+        capability = Capability.SAMPLE_GAIN if self.stores_sample_gain else Capability.SAMPLE_VOLUME
+        return self.limits.bound(capability)
+
+    def sample_levels(self, step: int) -> SampleLevels:
+        """``step`` written as the two levels this format keeps beside a sample (:attr:`sample_level_bound`).
+
+        Whichever of the two carries the level, the other stands at full, so the pair states the step once
+        and a reader of either format finds it where that format keeps it.
+        """
+        if self.stores_sample_gain:
+            return SampleLevels(volume=MAX_VOLUME, gain=step)
+
+        return SampleLevels(volume=step, gain=MAX_VOLUME)
+
+    @property
     def max_instruments(self) -> int:
         """How many instruments this format numbers, which is how many velocity layers a plan may store."""
         return self.limits.bound(Capability.INSTRUMENTS).maximum
@@ -153,6 +189,24 @@ class ExportTarget:
     def max_pitch(self) -> int:
         """The highest MIDI note this format's keyboard reaches."""
         return Note(self.limits.bound(Capability.NOTE).maximum).midi
+
+    def tempo(self, tempo_bpm: float) -> int:
+        """The clock this format counts envelope ticks in, for material played at ``tempo_bpm``.
+
+        Both formats measure envelope time in ticks and a tick lasts ``2.5 / tempo`` seconds, so a curve
+        written for one clock plays at the rate that clock runs and a recorded tempo reaches a written
+        instrument by naming the tempo the module holding it plays at. A format states its tempo as a
+        whole number, so the nearest one to what the material was played at is the clock it is written on.
+
+        Raises:
+            ValueError: when the nearest whole tempo falls outside the range this format states.
+        """
+        stated = round(tempo_bpm)
+        bound = self.limits.bound(Capability.TEMPO)
+        if not bound.contains(stated):
+            raise ValueError(f"tempo {stated} is outside the {self.format.upper()} range {bound}")
+
+        return stated
 
     def key(self, pitch: int) -> Note:
         """The key this format's keyboard plays ``pitch`` on.

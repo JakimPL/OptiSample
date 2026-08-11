@@ -199,7 +199,12 @@ def dump_reduced(
     inputs = prepare_run(instrument, looped.recordings, settings)
     survivors = _write_survivors(audio, inputs.reduction.recordings, sample_rate, paths.samples_dir)
     notes = note_records(instrument.material, audio, survivors.indices)
-    dump_notes(notes, paths.notes_json, tracked_ccs=tracked_ccs(instrument.material))
+    dump_notes(
+        notes,
+        paths.notes_json,
+        tracked_ccs=tracked_ccs(instrument.material),
+        tempo_bpm=instrument.tempo_bpm,
+    )
     auditions = _write_all_auditions(inputs, paths.auditions_dir, settings.progress)
     paths.reduction_json.parent.mkdir(parents=True, exist_ok=True)
     write_json(paths.reduction_json, _reduced_document(loaded, survivors, inputs, settings))

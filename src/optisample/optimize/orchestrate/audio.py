@@ -4,12 +4,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
 
-import numpy as np
-
 from optisample.config.loop import LoopConfig
 from optisample.config.reduce import ReduceConfig, TrimConfig
 from optisample.dsp.resample import resample_to
-from optisample.io.audio import read_wav
+from optisample.io.audio import mono, read_wav
 from optisample.keys import SampleKey
 from optisample.metrics.base import Signal
 from optisample.model import InstrumentSpec
@@ -60,12 +58,7 @@ def _read_onset_aligned(selection: Selection) -> tuple[Signal, int]:
     data, rate = read_wav(selection.sample.file)
     onset_frame = round(selection.sample.lead_in_s * rate)
     release_frame = len(data) - round(selection.sample.trail_out_s * rate)
-    data = data[onset_frame:release_frame]
-
-    if data.ndim > 1:
-        data = np.mean(data, axis=1)
-
-    return np.asarray(data, dtype=np.float64), rate
+    return mono(data[onset_frame:release_frame]), rate
 
 
 def _decode_survivors(

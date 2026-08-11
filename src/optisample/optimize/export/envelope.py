@@ -8,6 +8,7 @@ import numpy as np
 from optisample.dsp.levels import db_to_gain, gain_to_db
 from optisample.dsp.piecewise import PiecewiseCurve
 from optisample.dsp.series import Series
+from optisample.io.tracker.target import ExportTarget
 from trackmod.core.envelopes.curve import Breakpoint, placed_ticks, timed_envelope
 from trackmod.core.envelopes.envelope import Envelope
 from trackmod.core.envelopes.span import EnvelopeSpan
@@ -22,8 +23,9 @@ _RELEASE_POINTS: Final = 1  # points of a format's own budget the breakpoint car
 _MOST_MOMENTS: Final = 2048  # moments a written curve is priced at, which bounds what one repair sweep reads
 _MOST_SWEEPS: Final = 8  # sweeps the nodes are given to settle onto their steps, which a couple of them spend
 _STEPS: Final = tuple(range(MIN_VOLUME, MAX_VOLUME + 1))  # every level one envelope node states
-_QUIETEST_STEP: Final = 1  # the softest step a node holds short of silencing the voice outright
-_FLOOR_DB: Final = gain_to_db(_QUIETEST_STEP / MAX_VOLUME)  # how far under unity a written curve reaches
+QUIETEST_STEP: Final = 1  # the softest step a node holds short of silencing the voice outright
+
+_FLOOR_DB: Final = gain_to_db(QUIETEST_STEP / MAX_VOLUME)  # how far under unity a written curve reaches
 
 
 @dataclass(frozen=True)
@@ -39,6 +41,20 @@ class EnvelopeGrid:
     release_s: float
     tick_bound: Bound
     value_bound: Bound
+
+
+def envelope_grid(target: ExportTarget, *, tempo: int, release_s: float) -> EnvelopeGrid:
+    """What a curve written for ``target`` is held to: its two grids, the clock, and how a note is let go.
+
+    The format decides the grids and the caller the clock, so one instrument written beside a module and
+    one written on its own from the same curve land on the same ticks and the same steps.
+    """
+    return EnvelopeGrid(
+        tempo=tempo,
+        release_s=release_s,
+        tick_bound=target.envelope_tick_bound,
+        value_bound=target.envelope_value_bound,
+    )
 
 
 def shape_nodes(point_bound: Bound) -> int:

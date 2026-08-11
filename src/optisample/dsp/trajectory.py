@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from math import ceil
 from typing import Final
 
 import numpy as np
@@ -20,15 +21,18 @@ _NO_GAP_DB: Final = 0.0  # what a shape leaves behind on a set holding nothing t
 _ONE_AXIS: Final = 1  # offset axes a set states its members apart on, at the fewest
 
 
-def reading_window_s(span_s: float) -> float:
-    """The window a trajectory running ``span_s`` seconds is read in, for a fit to place corners across it.
+def reading_window_s(frames: int, sample_rate: int) -> float:
+    """The window a trajectory of ``frames`` is read in, for a fit to place corners across it.
 
     A fit prices every stretch of a trajectory against the line through it, so how many readings it can be
     given is bounded (:data:`~optisample.dsp.piecewise.MOST_READINGS`) and a long note is read in
     proportionally longer windows. A short one is read in :data:`_FINEST_WINDOW_S` windows, finer than the
     tick grid an envelope is written on, so the reading holds every corner the format has room to place.
+
+    The window spans whole frames, which is what :func:`~optisample.dsp.levels.level_readings` reads in,
+    so the count it answers with stays inside the bound however long the stretch runs.
     """
-    return max(_FINEST_WINDOW_S, span_s / MOST_READINGS)
+    return max(_FINEST_WINDOW_S, ceil(frames / MOST_READINGS) / sample_rate)
 
 
 @dataclass(frozen=True)

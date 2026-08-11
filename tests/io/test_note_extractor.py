@@ -10,7 +10,14 @@ import pytest
 from pydantic import ValidationError
 
 from optisample.io.audio import write_wav
-from optisample.io.note_extractor import IngestSettings, NoteRecord, dump_notes, index_of_wav, load_notes
+from optisample.io.note_extractor import (
+    IngestSettings,
+    NoteRecord,
+    dump_notes,
+    index_of_wav,
+    load_notes,
+    read_manifest,
+)
 
 SR = 8_000
 RECORDED_S = 1.0
@@ -175,3 +182,51 @@ def test_load_notes_raises_on_missing_wav(tmp_path: Path, ingest_settings: Inges
     )
     with pytest.raises(ValueError):
         load_notes(notes_json, samples, ingest_settings("inst"))
+
+
+def test_the_clock_a_render_ran_to_reaches_the_instrument_read_off_it(
+    tmp_path: Path, ingest_settings: IngestFactory
+) -> None:
+    """A volume envelope is counted in ticks of the clock the material plays at, so the ingest carries it."""
+    document = {
+        "render": {"path": "song.mid", "tempo_bpm": 115.0, "time_signature": "4/4"},
+        "settings": {"rolls": {"pre_roll_seconds": 0.0, "post_roll_seconds": 0.0}},
+        "notes": list(_NOTES),
+    }
+    notes_json, samples = _stated(tmp_path, document), _samples_dir(tmp_path, [0, 1])
+
+    instrument = load_notes(notes_json, samples, ingest_settings("inst")).instruments[0]
+
+    assert instrument.tempo_bpm == pytest.approx(115.0)
+
+
+def test_a_dataset_naming_no_clock_leaves_its_instrument_without_one(
+    tmp_path: Path, ingest_settings: IngestFactory
+) -> None:
+    notes_json, samples = _dataset(tmp_path, pre_roll_seconds=0.0, post_roll_seconds=0.0)
+
+    instrument = load_notes(notes_json, samples, ingest_settings("inst")).instruments[0]
+
+    assert instrument.tempo_bpm is None
+
+
+def test_a_written_dataset_states_the_clock_it_was_given(tmp_path: Path, ingest_settings: IngestFactory) -> None:
+    """Every stage writes what it was handed, so the clock survives however many datasets it passes through."""
+    samples = _samples_dir(tmp_path, [0])
+    notes_json = tmp_path / "inst.notes.json"
+    dump_notes(
+        [NoteRecord(index=0, pitch=60, velocity=100, duration_s=0.5)],
+        notes_json,
+        tempo_bpm=115.0,
+    )
+
+    assert read_manifest(notes_json).tempo_bpm == pytest.approx(115.0)
+    assert load_notes(notes_json, samples, ingest_settings("inst")).instruments[0].tempo_bpm == pytest.approx(115.0)
+
+
+def test_a_dataset_written_without_a_clock_states_none(tmp_path: Path) -> None:
+    notes_json = tmp_path / "inst.notes.json"
+    dump_notes([NoteRecord(index=0, pitch=60, velocity=100, duration_s=0.5)], notes_json)
+
+    assert read_manifest(notes_json).tempo_bpm is None
+    assert "render" not in json.loads(notes_json.read_text(encoding="utf-8"))

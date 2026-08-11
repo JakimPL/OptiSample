@@ -17,6 +17,10 @@ from optisample.model import (
 
 NOTES_SUFFIX: Final = ".notes.json"  # the manifest extension every NoteExtractor dataset is named by
 NO_PADDING_S: Final = 0.0  # a recording cut to its note exactly, which is what this project's own writers produce
+NO_TEMPO: Final = None  # what a dataset recorded away from a clock of its own states
+
+_RENDER_FIELD: Final = "render"
+_TEMPO_FIELD: Final = "tempo_bpm"
 
 
 class RenderWindow(BaseModel):
@@ -67,17 +71,43 @@ class ManifestSettings(BaseModel):
     rolls: RollSettings
 
 
+class ManifestRender(BaseModel):
+    """What the render a manifest was extracted from was played at, of which the pipeline reads the clock.
+
+    ``tempo_bpm`` is the tempo the material sounds at, which a volume envelope written for one of its
+    recordings is counted in ticks of, since both tracker formats measure envelope time against the
+    clock the module runs.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    tempo_bpm: float = Field(gt=0.0)
+
+
 class NotesManifest(BaseModel):
     """The fields a NoteExtractor ``.notes.json`` carries that the pipeline reads.
 
     ``settings`` is what the extraction was carried out under, and a manifest states it, so reading a
-    dataset takes only where it lives.
+    dataset takes only where it lives. ``render`` states the clock the material was played at on the
+    datasets extracted from a render that ran to one.
     """
 
     model_config = ConfigDict(extra="ignore")
 
     settings: ManifestSettings
     notes: list[ManifestNote]
+    render: ManifestRender | None = NO_TEMPO
+
+    @property
+    def tempo_bpm(self) -> float | None:
+        """The clock this dataset was played at, where it states one."""
+        return None if self.render is None else self.render.tempo_bpm
+
+
+def read_manifest(notes_json: Path | str) -> NotesManifest:
+    """The fields of one ``.notes.json`` the pipeline reads, validated against the shape it expects."""
+    raw: Any = json.loads(Path(notes_json).read_text(encoding="utf-8"))
+    return NotesManifest.model_validate(raw)
 
 
 def index_of_wav(path: Path | str) -> int:
@@ -159,8 +189,7 @@ def load_notes(
     """
     notes_json = Path(notes_json)
     samples_dir = Path(samples_dir).resolve()
-    raw: Any = json.loads(notes_json.read_text(encoding="utf-8"))
-    parsed = NotesManifest.model_validate(raw)
+    parsed = read_manifest(notes_json)
     rolls = parsed.settings.rolls
 
     wavs = {index_of_wav(wav): wav for wav in sorted(samples_dir.glob("*.wav"))}
@@ -188,6 +217,7 @@ def load_notes(
         material=material,
         pre_roll_s=rolls.pre_roll_seconds,
         post_roll_s=rolls.post_roll_seconds,
+        tempo_bpm=parsed.tempo_bpm,
     )
     return Manifest(project=settings.project, instruments=[instrument])
 
@@ -203,18 +233,33 @@ class NoteRecord:
     cc_averages: Mapping[int, float] = field(default_factory=dict)
 
 
+def _render_block(tempo_bpm: float | None) -> dict[str, Any]:
+    """The clock a written dataset states, carried on the datasets whose source stated one.
+
+    A stage writes what it was given, so a dataset extracted from a render at a known tempo keeps saying
+    so however many stages it passes through, and the instruments written from its recordings are counted
+    in ticks of that clock.
+    """
+    if tempo_bpm is None:
+        return {}
+
+    return {_RENDER_FIELD: {_TEMPO_FIELD: tempo_bpm}}
+
+
 def dump_notes(
     notes: Sequence[NoteRecord],
     path: Path | str,
     *,
     tracked_ccs: Sequence[int] = (),
+    tempo_bpm: float | None = NO_TEMPO,
 ) -> None:
     """Write the consumed ``.notes.json`` subset for ``notes`` (render window ``[0, duration_s]``).
 
     The rolls are declared as none, because a written recording starts at its onset and is stored for as
     long as the pitch it serves asks for, so a later ingest keeps every frame of it.
     """
-    data = {
+    data: dict[str, Any] = {
+        **_render_block(tempo_bpm),
         "config": {"tracked_ccs": list(tracked_ccs)},
         "settings": {"rolls": {"pre_roll_seconds": NO_PADDING_S, "post_roll_seconds": NO_PADDING_S}},
         "notes": [

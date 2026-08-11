@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from optisample.io.audio import probe_wav, read_wav, write_wav
+from optisample.io.audio import mono, probe_wav, read_wav, write_wav
 
 
 def test_wav_round_trip(tmp_path: Path) -> None:
@@ -48,3 +48,16 @@ def test_probe_agrees_with_reading_the_pcm(tmp_path: Path) -> None:
     info = probe_wav(path)
 
     assert (info.frames, info.sample_rate) == (data.size, rate)
+
+
+def test_a_multi_channel_recording_is_read_as_the_mean_of_its_channels() -> None:
+    """A tracker sounds one waveform per voice, so a stereo capture reaches the pipeline on one channel."""
+    stereo = np.array([[1.0, 0.0], [0.5, -0.5], [-1.0, 1.0]], dtype=np.float64)
+
+    assert mono(stereo) == pytest.approx([0.5, 0.0, 0.0])
+
+
+def test_a_recording_already_on_one_channel_is_answered_as_it_stands() -> None:
+    single = np.array([0.25, -0.5, 0.75], dtype=np.float64)
+
+    assert mono(single) == pytest.approx(single)
