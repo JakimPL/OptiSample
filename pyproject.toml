@@ -95,4 +95,5 @@ disable = [
     "line-too-long",
     "too-few-public-methods",
     "too-many-instance-attributes",
+    "too-many-public-methods",
 ]

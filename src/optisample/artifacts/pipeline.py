@@ -6,13 +6,15 @@ from pathlib import Path
 from time import perf_counter
 
 from optisample.artifacts.context import DumpResult, DumpSettings
+from optisample.artifacts.dataset import SlicedDataset, write_slice
 from optisample.artifacts.dump import dump_project
+from optisample.artifacts.instruments.dump import InstrumentSettings
 from optisample.artifacts.looped import LoopedInstrumentArtifacts, loop_project
 from optisample.artifacts.paths import pipeline_paths
 from optisample.artifacts.reduced import ReducedInstrument, reduce_project
-from optisample.io.dataset import SourceDataset, SubsetDataset
+from optisample.io.dataset import SourceDataset
 from optisample.io.note_extractor import IngestSettings
-from optisample.io.source import load_source, write_source_subset
+from optisample.io.source import load_source
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 
 
@@ -26,11 +28,15 @@ class PipelineSettings:
 
     ``fraction`` is the share of the source a slice keeps. Naming none reduces the source as it stands,
     which is what a dataset small enough to run whole -- or already sliced -- asks for.
+
+    ``instruments`` is what every stage carries its own recordings as, so each dataset the chain writes is
+    playable in a tracker on the terms the run's own export states.
     """
 
     ingest: IngestSettings
     reduce: OptimizeSettings
     dump: DumpSettings
+    instruments: InstrumentSettings
     fraction: float | None
 
 
@@ -41,27 +47,28 @@ class PipelineRun:
     ``subset`` is the slice the run took of its source, carried by the runs that asked for one.
     """
 
-    subset: SubsetDataset | None
+    subset: SlicedDataset | None
     looped: LoopedInstrumentArtifacts
     reduced: ReducedInstrument
     optimized: DumpResult
     elapsed_s: float
 
 
-def _sliced(source: SourceDataset, out_dir: Path, settings: PipelineSettings) -> SubsetDataset | None:
+def _sliced(source: SourceDataset, out_dir: Path, settings: PipelineSettings) -> SlicedDataset | None:
     """The slice a run takes of its source ahead of everything else, on the runs that asked for one."""
     if settings.fraction is None:
         return None
 
-    return write_source_subset(
+    return write_slice(
         source,
         out_dir,
         instrument_id=settings.ingest.instrument_id,
         fraction=settings.fraction,
+        instruments=settings.instruments,
     )
 
 
-def _next_source(source: SourceDataset, subset: SubsetDataset | None) -> SourceDataset:
+def _next_source(source: SourceDataset, subset: SlicedDataset | None) -> SourceDataset:
     """What the reduction reads: the slice a run took, or the source itself where it took none.
 
     A slice is written as a dataset of the same shape, so either one is read the very same way.
@@ -69,7 +76,7 @@ def _next_source(source: SourceDataset, subset: SubsetDataset | None) -> SourceD
     if subset is None:
         return source
 
-    return subset.source
+    return subset.dataset.source
 
 
 def _one_instrument[ResultT](results: Sequence[ResultT]) -> ResultT:
@@ -94,14 +101,14 @@ def _looped(source: SourceDataset, out_dir: Path, settings: PipelineSettings) ->
     encodes from.
     """
     manifest = load_source(source, settings.ingest)
-    return _one_instrument(loop_project(manifest, out_dir, settings.reduce))
+    return _one_instrument(loop_project(manifest, out_dir, settings.reduce, settings.instruments))
 
 
 def _reduced(looped: LoopedInstrumentArtifacts, out_dir: Path, settings: PipelineSettings) -> ReducedInstrument:
     """What the pre-optimization stage reduces a looped dataset to, as the dataset the allocation reads back."""
     source = SourceDataset(path=looped.paths.notes_json, samples_dir=looped.paths.samples_dir)
     manifest = load_source(source, settings.ingest)
-    return _one_instrument(reduce_project(manifest, out_dir, settings.reduce))
+    return _one_instrument(reduce_project(manifest, out_dir, settings.reduce, settings.instruments))
 
 
 def _optimized(reduced: ReducedInstrument, out_dir: Path, settings: PipelineSettings) -> DumpResult:
@@ -119,6 +126,10 @@ def run_pipeline(source: SourceDataset, out_dir: Path, settings: PipelineSetting
     ``2_reduced``, and the artifacts allocated from it under ``3_optimized``. A run naming no fraction
     settles loops on its source directly and begins at ``1_looped``, which is how an already-sliced dataset
     is carried through the same command.
+
+    Every stage carries its own recordings as standalone instruments beside them, so each step of the
+    route is playable in a tracker and what one stage did to the audio is audible against the stage before
+    it.
     """
     started_at = perf_counter()
     paths = pipeline_paths(out_dir)

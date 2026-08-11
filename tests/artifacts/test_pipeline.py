@@ -72,7 +72,13 @@ def allocation(tiny_settings: OptimizeSettings, config: OptiConfig) -> DumpSetti
 @pytest.fixture
 def whole(ingest: IngestSettings, tiny_settings: OptimizeSettings, allocation: DumpSettings) -> PipelineSettings:
     """A chain reducing the source it was handed, which is what an already-sliced dataset asks for."""
-    return PipelineSettings(ingest=ingest, reduce=tiny_settings, dump=allocation, fraction=None)
+    return PipelineSettings(
+        ingest=ingest,
+        reduce=tiny_settings,
+        dump=allocation,
+        instruments=allocation.instruments,
+        fraction=None,
+    )
 
 
 @pytest.fixture
@@ -95,7 +101,7 @@ def test_a_chained_run_writes_each_stage_under_the_directory_that_names_it(
     out = tmp_path / "chained"
     run = run_pipeline(source, out, sliced)
     paths = pipeline_paths(out)
-    assert run.subset is not None and run.subset.source.path.parent == paths.subset_dir
+    assert run.subset is not None and run.subset.dataset.source.path.parent == paths.subset_dir
     assert run.reduced.paths.notes_json.parent == paths.reduced_dir
     assert run.optimized.directory.parent == paths.optimized_dir
     assert (run.optimized.directory / _STRATEGY / "plan.json").is_file()
@@ -119,7 +125,7 @@ def test_the_slice_a_run_takes_is_what_it_goes_on_to_reduce(
     """Each stage reads the one before it, so a fraction narrows every stage downstream of it."""
     run = run_pipeline(source, tmp_path / "chained", sliced)
     assert run.subset is not None
-    assert run.subset.kept_notes == _SLICED_NOTES
+    assert run.subset.dataset.kept_notes == _SLICED_NOTES
     assert run.reduced.notes == _SLICED_NOTES
 
 

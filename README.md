@@ -177,6 +177,33 @@ It takes every ingest, looping, reduction and allocation flag those commands tak
 `--max-samples` reach the allocating stage, while the reduction between them runs at the configured
 split and cap — which is what keeps its dataset the one any allocation off it reads back.
 
+### Playing a stage's recordings in a tracker
+
+Every stage writes its recordings as instruments as well as WAVs, so you can load any of them straight
+into a tracker and play it:
+
+```
+artifacts/1_looped/Piano/
+  0000_p029_F1_v018.wav
+  ITI/0000_p029_F1_v018.iti     # for Impulse Tracker
+  XI/0000_p029_F1_v018.xi       # for FastTracker 2
+```
+
+Each instrument holds the whole recording as one sample, and the volume envelope beside it plays the
+shape the recording's own level makes — so pressing a key sounds the recording, at the loudness it was
+captured at, and the sample itself carries the timbre with the level taken out of it. The keyboard reaches
+five octaves either way of the key the recording was played at.
+
+The envelope is counted in the tempo the material was recorded at, which the dataset states; a set with no
+tempo of its own is written at the configured export tempo. Playing it at another tempo stretches the
+envelope with it.
+
+To fill in a tree that was written before, point `optisample instruments` at it — no stage is re-run:
+
+```bash
+optisample instruments artifacts/1_looped/Piano.notes.json
+```
+
 ## The objective: what a note's distortion is worth
 
 Every stage above competes for the same number, so it is worth stating exactly what that number counts.

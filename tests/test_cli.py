@@ -1,4 +1,5 @@
 import json
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import pytest
 from numpy.typing import NDArray
 from pydantic import ValidationError
 
+from optisample.artifacts.paths import instrument_files_dir
 from optisample.calibrate.ranking import Fault, Verdict
 from optisample.cli import (
     _demo_settings,
@@ -498,6 +500,59 @@ def test_pipeline_command_writes_a_directory_per_stage_it_ran(
     assert "2 of 3 notes" in printed  # the slice it took
     assert "auditions" in printed  # what the reduction wrote
     assert "ungrouped: objective" in printed and "total:" in printed
+
+
+@pytest.mark.parametrize("stage", ["0_subset/piano", "1_looped/piano", "2_reduced/piano"])
+def test_every_stage_of_a_chained_run_carries_its_recordings_as_instruments(
+    stage: str, tmp_path: Path, tiny_notes: Path
+) -> None:
+    """A stage's own audio is playable in a tracker, so what one stage did to it is audible against the next."""
+    out = tmp_path / "artifacts"
+    main(
+        # fmt: off
+        [
+            "pipeline", str(tiny_notes), "--budget-kb", "48", "--fraction", "0.67", "--out", str(out),
+            "--rate", "11025", "--depth", "8", "--no-render", "--strategy", "ungrouped",
+        ]
+        # fmt: on
+    )
+    samples_dir = out / stage
+
+    for extension in (".iti", ".xi"):
+        written = list(instrument_files_dir(samples_dir, extension).glob(f"*{extension}"))
+        assert [path.stem for path in sorted(written)] == [path.stem for path in sorted(samples_dir.glob("*.wav"))]
+
+
+def test_a_plans_own_samples_are_carried_as_instruments_beside_them(tmp_path: Path, tiny_notes: Path) -> None:
+    """One instrument per stored sample is how a single voice out of a plan is auditioned on its own."""
+    out = tmp_path / "artifacts"
+    main(
+        # fmt: off
+        [
+            "optimize", str(tiny_notes), "--budget-kb", "48", "--out", str(out),
+            "--no-render", "--strategy", "ungrouped",
+        ]
+        # fmt: on
+    )
+    samples_dir = out / "piano" / "ungrouped" / "samples"
+
+    for extension in (".iti", ".xi"):
+        written = list(instrument_files_dir(samples_dir, extension).glob(f"*{extension}"))
+        assert [path.stem for path in sorted(written)] == [path.stem for path in sorted(samples_dir.glob("*.wav"))]
+
+
+def test_the_instruments_command_fills_in_a_dataset_that_was_already_written(
+    tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A tree written before is filled in from what it holds, which asks for no rerun of the stage that wrote it."""
+    out = tmp_path / "subset"
+    main(["subset", str(tiny_notes), "--fraction", "1.0", "--out", str(out)])
+    shutil.rmtree(instrument_files_dir(out / "piano", ".iti"))
+
+    main(["instruments", str(out / "piano.notes.json")])
+
+    assert len(list(instrument_files_dir(out / "piano", ".iti").glob("*.iti"))) == len(PITCHES)
+    assert "instruments -> ITI, XI" in capsys.readouterr().out
 
 
 def test_the_pipeline_command_reaches_what_running_the_stages_one_at_a_time_reaches(

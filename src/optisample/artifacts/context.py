@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Final
 
+from optisample.artifacts.instruments.dump import InstrumentSettings, WrittenInstruments
 from optisample.config.export import EnvelopeConfig
 from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.model import InstrumentSpec, NoteEvent
@@ -33,6 +35,21 @@ class DumpSettings:
     def progress(self) -> ProgressSink:
         """Where the dump reports its stages: the sink the optimization run already reports through."""
         return self.optimize.progress
+
+    @property
+    def instruments(self) -> InstrumentSettings:
+        """What the plan's own stored samples are written as standalone instruments with.
+
+        The clock is the one the written module starts on, since the samples beside it are the very
+        waveforms that module plays and an envelope written for them is counted in ticks of it.
+        """
+        return InstrumentSettings(
+            encode=self.optimize.encode,
+            target=self.optimize.target,
+            release_s=self.envelope.release_s,
+            configured_tempo_bpm=self.playback.tempo,
+            progress=self.progress,
+        )
 
 
 @dataclass(frozen=True)
@@ -78,11 +95,16 @@ class DumpContext:
         }
 
 
+NO_INSTRUMENTS: Final = None  # what a strategy the budget affords no allocation of leaves its samples dir
+
+
 @dataclass(frozen=True)
 class PlanArtifacts:
     """What one strategy produced under its subdirectory (or why it could not).
 
     Its directory is ``DumpResult.directory / name``; only the per-strategy outcome is kept here.
+    ``instruments`` states where its stored samples landed as standalone instruments, which a strategy
+    holding a plan writes one of per sample.
     """
 
     name: str
@@ -90,6 +112,7 @@ class PlanArtifacts:
     rendered: bool  # whether an openmpt123 ground-truth render was written
     objective: float | None
     used_bytes: int | None
+    instruments: WrittenInstruments | None
     elapsed_s: float  # wall-clock for this strategy end to end (optimize + artifact dump)
 
     @property

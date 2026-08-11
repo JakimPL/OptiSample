@@ -9,16 +9,21 @@ from typing import Final, get_args
 from optisample.artifacts import (
     DumpResult,
     DumpSettings,
+    InstrumentSettings,
     ListeningSet,
     LoopedInstrumentArtifacts,
     PipelineSettings,
     ReducedInstrument,
+    SlicedDataset,
+    WrittenInstruments,
     dump_project,
     loop_project,
     rank_listening_set,
     ranking_project,
     reduce_project,
     run_pipeline,
+    write_dataset_instruments,
+    write_slice,
 )
 from optisample.calibrate.ranking import (
     MetricAgreement,
@@ -35,9 +40,9 @@ from optisample.config.ranking import RankingQuotaConfig
 from optisample.config.reduce import DedupeKey, ReduceConfig
 from optisample.config.render import Interpolation
 from optisample.config.tracker import TrackerConfig, TrackerFormat
-from optisample.io.dataset import SourceDataset, SubsetDataset, instrument_name
+from optisample.io.dataset import SourceDataset, instrument_name
 from optisample.io.note_extractor import IngestSettings
-from optisample.io.source import load_source, write_source_subset
+from optisample.io.source import load_source
 from optisample.io.tracker.target import ExportTarget, export_target
 from optisample.metrics.composite import build_composite
 from optisample.model import ProjectSpec
@@ -343,6 +348,21 @@ def _describe_rank(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _describe_instruments(parser: argparse.ArgumentParser) -> None:
+    """Add what carrying a written dataset's recordings as instruments asks for."""
+    parser.add_argument(
+        "source",
+        type=Path,
+        help="The .notes.json manifest or directory of recordings to write instruments from",
+    )
+    parser.add_argument(
+        "--samples-dir",
+        type=Path,
+        default=None,
+        help="Per-note WAV directory for a manifest source (default: the manifest's sibling <name>/)",
+    )
+
+
 def _describe_loop(parser: argparse.ArgumentParser) -> None:
     """Add what settling loops alone asks for beyond the shared ingest flags."""
     parser.add_argument(
@@ -411,8 +431,15 @@ def build_parser() -> argparse.ArgumentParser:
     _describe_subset(
         sub.add_parser(
             "subset",
-            parents=[configured],
+            parents=[configured, _progress_parser()],
             help="Write the share of a dataset that spans its pitch and velocity ranges",
+        )
+    )
+    _describe_instruments(
+        sub.add_parser(
+            "instruments",
+            parents=[configured, _progress_parser()],
+            help="Carry every recording of a written dataset as a standalone .iti and .xi instrument",
         )
     )
     return parser
@@ -523,6 +550,22 @@ def _optimize_settings(
     )
 
 
+def _instrument_settings(config: OptiConfig, args: argparse.Namespace) -> InstrumentSettings:
+    """What a stage carries its recordings as standalone instruments with, off the loaded config.
+
+    Every format is written whichever one the run exports its module as, so the target here supplies what
+    each format's files are held to and the configured clock stands for the datasets that state none of
+    their own.
+    """
+    return InstrumentSettings(
+        encode=config.encode,
+        target=export_target(config.export.tracker),
+        release_s=config.export.envelope.release_s,
+        configured_tempo_bpm=config.export.playback.tempo,
+        progress=_progress(args),
+    )
+
+
 def _configured_quota(quota: RankingQuotaConfig) -> PairQuota:
     """The quota as the config states it, before any request for a shorter set is applied."""
     return PairQuota(
@@ -625,6 +668,7 @@ def _pipeline_settings(config: OptiConfig, args: argparse.Namespace) -> Pipeline
         ingest=_ingest_settings(args),
         reduce=_optimize_settings(config, args, config.optimize.layers, config.optimize.budget),
         dump=_dump_settings(config, args),
+        instruments=_instrument_settings(config, args),
         fraction=args.fraction,
     )
 
@@ -640,20 +684,34 @@ def _print_screen(screen: RecordingScreen) -> None:
     )
 
 
-def _print_subset(dataset: SubsetDataset) -> None:
+def _print_instruments(written: WrittenInstruments) -> None:
+    """State how many standalone instruments a stage wrote, and what a format had no room to state."""
+    directories = ", ".join(directory.name for directory in written.directories)
+    print(f"  {written.files} instruments -> {directories}")
+    if written.unreachable:
+        print(f"  {len(written.unreachable)} recordings play at a key one format leaves out")
+
+    if written.understated:
+        print(f"  {len(written.understated)} sound under the level of the audio they were written from")
+
+
+def _print_subset(sliced: SlicedDataset) -> None:
     """State where a slice landed and how much of its source it holds."""
+    dataset = sliced.dataset
     print(f"{dataset.source.path}")
     print(f"  {dataset.kept_notes} of {dataset.source_notes} notes, {dataset.recordings} recordings")
     print(
         f"  pitches {dataset.pitches[0]}-{dataset.pitches[1]}, velocities {dataset.velocities[0]}-{dataset.velocities[1]}"
     )
     print(f"  samples -> {dataset.source.recordings_dir}")
+    _print_instruments(sliced.instruments)
 
 
 def _print_looped(result: LoopedInstrumentArtifacts) -> None:
     """State where one instrument's looped dataset landed and how many of its recordings offer a loop."""
     print(f"{result.instrument_id}: {result.paths.notes_json}  [{result.elapsed_s:.1f}s]")
     print(f"  {result.looped} of {result.recordings} recordings offer a loop -> {result.paths.samples_dir}")
+    _print_instruments(result.instruments)
     print(f"  {result.auditions} auditions -> {result.paths.auditions_dir}")
     print(f"  loops -> {result.paths.loops_json}")
 
@@ -663,6 +721,7 @@ def _print_reduced(result: ReducedInstrument) -> None:
     print(f"{result.instrument_id}: {result.paths.notes_json}  [{result.elapsed_s:.1f}s]")
     print(f"  {result.survivors} samples, {result.notes} notes -> {result.paths.samples_dir}")
     _print_screen(result.screen)
+    _print_instruments(result.instruments)
     print(f"  {result.auditions} auditions -> {result.paths.auditions_dir}")
     print(f"  reduction -> {result.paths.reduction_json}")
 
@@ -727,6 +786,8 @@ def _print_plans(result: DumpResult) -> None:
 
         rendered = "rendered" if plan.rendered else "no render"
         print(f"  {plan.name:>9}: objective {plan.objective:.4f}, {plan.used_bytes} B used, {rendered}  {timing}")
+        if plan.instruments is not None:
+            _print_instruments(plan.instruments)
 
 
 def _plan_total(results: Sequence[DumpResult]) -> float:
@@ -737,7 +798,10 @@ def _plan_total(results: Sequence[DumpResult]) -> float:
 def _run_loop(config: OptiConfig, args: argparse.Namespace) -> None:
     manifest = load_source(_source(args), _ingest_settings(args))
     for result in loop_project(
-        manifest, args.out, _optimize_settings(config, args, config.optimize.layers, config.optimize.budget)
+        manifest,
+        args.out,
+        _optimize_settings(config, args, config.optimize.layers, config.optimize.budget),
+        _instrument_settings(config, args),
     ):
         _print_looped(result)
 
@@ -745,7 +809,10 @@ def _run_loop(config: OptiConfig, args: argparse.Namespace) -> None:
 def _run_reduce(config: OptiConfig, args: argparse.Namespace) -> None:
     manifest = load_source(_source(args), _ingest_settings(args))
     for result in reduce_project(
-        manifest, args.out, _optimize_settings(config, args, config.optimize.layers, config.optimize.budget)
+        manifest,
+        args.out,
+        _optimize_settings(config, args, config.optimize.layers, config.optimize.budget),
+        _instrument_settings(config, args),
     ):
         _print_reduced(result)
 
@@ -765,15 +832,22 @@ def _run_rank(config: OptiConfig, args: argparse.Namespace) -> None:
     _print_ranking(rank_listening_set(args.listening_set, build_composite(config.analysis.metrics), _progress(args)))
 
 
-def _run_subset(args: argparse.Namespace) -> None:
+def _run_subset(config: OptiConfig, args: argparse.Namespace) -> None:
     _print_subset(
-        write_source_subset(
+        write_slice(
             _source(args),
             args.out,
             instrument_id=args.instrument_id or instrument_name(args.source),
             fraction=args.fraction,
+            instruments=_instrument_settings(config, args),
         )
     )
+
+
+def _run_instruments(config: OptiConfig, args: argparse.Namespace) -> None:
+    source = _source(args)
+    print(f"{source.path}")
+    _print_instruments(write_dataset_instruments(source, settings=_instrument_settings(config, args)))
 
 
 def _run_optimize(config: OptiConfig, args: argparse.Namespace) -> None:
@@ -841,7 +915,9 @@ def main(argv: list[str] | None = None) -> None:
         case "synth":
             _run_synth(config, args)
         case "subset":
-            _run_subset(args)
+            _run_subset(config, args)
+        case "instruments":
+            _run_instruments(config, args)
         case "rank":
             _run_rank(config, args)
         case "loop":

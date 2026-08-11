@@ -6,6 +6,7 @@ from typing import Final
 
 from optisample.artifacts.container import bank_contents, write_container
 from optisample.artifacts.context import (
+    NO_INSTRUMENTS,
     DumpContext,
     DumpResult,
     DumpSettings,
@@ -19,10 +20,12 @@ from optisample.artifacts.documents.metrics import (
     metrics_document,
     note_record,
 )
+from optisample.artifacts.instruments.dump import Recording, WrittenInstruments, write_instruments
 from optisample.artifacts.paths import PlanPaths, plan_paths
 from optisample.artifacts.serialize import write_json, write_text
 from optisample.artifacts.units import PlanKind, Unit, make_kind
 from optisample.io.audio import write_wav
+from optisample.io.note_extractor import NO_TEMPO
 from optisample.io.render import openmpt123_available, render_module
 from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.base import Signal
@@ -117,6 +120,39 @@ def _write_sample_wavs(kind: PlanKind, paths: PlanPaths) -> None:
         write_wav(paths.sample_wav(unit.label), unit.stored.pcm, unit.stored.sample_rate)
 
 
+def _plan_recordings(kind: PlanKind) -> tuple[Recording, ...]:
+    """Every stored sample as the recording an instrument of its own is written from.
+
+    A unit is rooted at the pitch its recording was played at, which is the key the instrument written
+    from it sounds, and carries the label the plan files all of its artifacts under.
+    """
+    return tuple(
+        Recording(
+            name=unit.label,
+            root_pitch=unit.representative,
+            sample_rate=unit.stored.sample_rate,
+            signal=unit.stored.pcm,
+        )
+        for unit in kind.units
+    )
+
+
+def _write_sample_instruments(kind: PlanKind, paths: PlanPaths, settings: DumpSettings) -> WrittenInstruments:
+    """Write every stored sample as the standalone instrument of each format, beside its own WAV.
+
+    The bank holds the plan's instruments as the allocation grouped them -- one per velocity band, each
+    reaching the keys its zones cover. These stand for the waveforms themselves: one instrument per stored
+    sample, played down by the curve that sample's own level was fitted to, so a single voice out of a
+    plan is auditioned in a tracker on its own.
+    """
+    return write_instruments(
+        _plan_recordings(kind),
+        paths.samples_dir,
+        settings=settings.instruments,
+        recorded_tempo_bpm=NO_TEMPO,
+    )
+
+
 def _write_bank(kind: PlanKind, paths: PlanPaths, target: ExportTarget) -> None:
     """Write the bank the whole plan is played through, as one archive and spread over the tree beside it.
 
@@ -193,6 +229,7 @@ def _dump_plan(
 
     _write_plan_docs(kind, paths)
     _write_sample_wavs(kind, paths)
+    instruments = _write_sample_instruments(kind, paths, dump_context.settings)
     _write_bank(kind, paths, dump_context.settings.optimize.target)
     rendered = _render_module(kind, paths, dump_context)
     _write_metrics(kind, paths, dump_context)
@@ -202,6 +239,7 @@ def _dump_plan(
         rendered=rendered,
         objective=kind.plan_document.objective,
         used_bytes=kind.plan_document.budget.used_bytes,
+        instruments=instruments,
         elapsed_s=perf_counter() - started_at,
     )
 
@@ -226,6 +264,7 @@ def _optimize_and_dump(
             rendered=False,
             objective=None,
             used_bytes=None,
+            instruments=NO_INSTRUMENTS,
             elapsed_s=perf_counter() - started_at,
         )
 

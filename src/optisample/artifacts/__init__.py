@@ -1,5 +1,12 @@
 from optisample.artifacts.context import DumpResult, DumpSettings, PlanArtifacts
+from optisample.artifacts.dataset import SlicedDataset, write_slice
 from optisample.artifacts.dump import dump_instrument, dump_project
+from optisample.artifacts.instruments import (
+    InstrumentSettings,
+    WrittenInstruments,
+    write_dataset_instruments,
+    write_instruments,
+)
 from optisample.artifacts.looped import (
     LoopedInstrumentArtifacts,
     dump_looped,
@@ -39,6 +46,7 @@ from optisample.artifacts.reduced import (
 __all__ = [
     "DumpResult",
     "DumpSettings",
+    "InstrumentSettings",
     "ListeningSet",
     "LoopedInstrumentArtifacts",
     "LoopedPaths",
@@ -51,6 +59,8 @@ __all__ = [
     "RankingPaths",
     "ReducedInstrument",
     "ReducedPaths",
+    "SlicedDataset",
+    "WrittenInstruments",
     "dump_instrument",
     "dump_looped",
     "dump_project",
@@ -70,5 +80,8 @@ __all__ = [
     "reduce_project",
     "reduced_paths",
     "run_pipeline",
+    "write_dataset_instruments",
+    "write_instruments",
     "write_label_sheet",
+    "write_slice",
 ]

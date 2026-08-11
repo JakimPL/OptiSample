@@ -16,7 +16,7 @@ from optisample.artifacts.instruments.normalize import (
 )
 from optisample.config.codec import EncodeConfig
 from optisample.config.tracker import TrackerFormat
-from optisample.dsp.levels import level_readings, peak_amplitude
+from optisample.dsp.levels import gain_to_db, level_readings, peak_amplitude
 from optisample.dsp.quantize import headroom_peak
 from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.base import Signal
@@ -29,6 +29,7 @@ from trackmod.spec.levels import MAX_VOLUME
 NAME = "0000_p060_C4_v100"
 _READING_WINDOW_S = 0.05
 _PLAYED_BACK_TOLERANCE_DB = -60.0  # how far under the recording its own reconstruction error stays
+_LATTICE_TOLERANCE_DB = -0.2  # how far under its headroom a waveform lands where the lattice runs coarsest
 
 Grids = Callable[[ExportTarget], EnvelopeGrid]
 
@@ -70,6 +71,19 @@ def _played_back(unit: InstrumentUnit, recording: NormalizedRecording, grid: Env
         sample_rate=recording.sample_rate,
     )
     return np.asarray(unit.samples[0].pcm * gain, dtype=np.float64)
+
+
+def _stated_level(unit: InstrumentUnit, target: ExportTarget) -> float:
+    """The level the written file applies to every note it starts, as a fraction of what it states at full.
+
+    A tracker multiplies the sample's own gain, the volume a bare note plays at and the instrument's
+    global volume, so what a key delivers is all three over the waveform under them.
+    """
+    sample = unit.samples[0]
+    instrument_maximum = target.sample_level_bounds[1].maximum
+    return (
+        (sample.volume / MAX_VOLUME) * (sample.gain / MAX_VOLUME) * (unit.instrument.global_volume / instrument_maximum)
+    )
 
 
 def _quietest_gap_db(played: Signal, recording: NormalizedRecording) -> float:
@@ -149,6 +163,26 @@ def test_the_waveform_holds_the_whole_recording_inside_the_headroom_it_is_stored
     assert peak_amplitude(sample.pcm) <= headroom_peak(encode_config.headroom_db)
 
 
+@pytest.mark.parametrize("peak", [0.9, 0.3, 0.05, 0.015])
+def test_a_format_stating_its_level_across_two_grids_stores_every_recording_at_its_headroom(
+    peak: float,
+    recorded: Recorder,
+    sample_rate: int,
+    encode_config: EncodeConfig,
+    retarget: Callable[[TrackerFormat], ExportTarget],
+    grid_for: Grids,
+) -> None:
+    """A lattice fine enough to meet the level asked leaves the waveform nothing to give up reaching it."""
+    target = retarget(TrackerFormat.IT)
+    recording = normalized_recording(
+        recorded(peak=peak), sample_rate, name=NAME, root_pitch=ROOT_PITCH, encode=encode_config
+    )
+    sample = _unit(recording, target, grid_for, encode_config).samples[0]
+
+    stored = peak_amplitude(sample.pcm) / headroom_peak(encode_config.headroom_db)
+    assert gain_to_db(stored) > _LATTICE_TOLERANCE_DB
+
+
 @pytest.mark.parametrize("tracker_format", list(TrackerFormat))
 def test_the_pair_delivers_the_recording_at_the_level_it_was_captured_at(
     tracker_format: TrackerFormat,
@@ -160,9 +194,7 @@ def test_the_pair_delivers_the_recording_at_the_level_it_was_captured_at(
     """The absolute level is stated in the file, so two instruments stand as far apart as their recordings."""
     target = retarget(tracker_format)
     unit = _unit(normalized, target, grid_for, encode_config)
-    sample = unit.samples[0]
-    stated = (sample.volume / MAX_VOLUME) * (sample.gain / MAX_VOLUME)
-    delivered = _played_back(unit, normalized, grid_for(target)) * stated
+    delivered = _played_back(unit, normalized, grid_for(target)) * _stated_level(unit, target)
 
     assert peak_amplitude(delivered) == pytest.approx(peak_amplitude(normalized.signal), rel=1e-6)
 
@@ -180,7 +212,7 @@ def test_the_level_is_stated_on_the_step_the_format_keeps_and_the_other_stands_a
     stating, full = (sample.gain, sample.volume) if target.stores_sample_gain else (sample.volume, sample.gain)
 
     assert full == MAX_VOLUME
-    assert target.sample_level_bound.contains(stating)
+    assert target.sample_level_bounds[0].contains(stating)
 
 
 def test_the_waveform_is_level_flat_where_the_envelope_reaches(
@@ -342,14 +374,16 @@ def test_a_key_a_recording_reaches_sounds_the_interval_it_stands_at(
     assert assignment.note.value - root_assignment.note.value == 12
 
 
-def test_a_step_takes_as_much_of_the_level_as_its_grid_states_and_the_waveform_the_rest(
-    target: ExportTarget,
+@pytest.mark.parametrize("tracker_format", list(TrackerFormat))
+def test_the_fields_take_as_much_of_the_level_as_they_state_and_the_waveform_the_rest(
+    tracker_format: TrackerFormat,
+    retarget: Callable[[TrackerFormat], ExportTarget],
 ) -> None:
-    """The step rounds up, so what is left for the waveform is a scaling down it always has room for."""
-    steps = target.sample_level_bound
+    """The fields take the lowest level at or above what is asked, so the waveform is only ever scaled down."""
+    steps = retarget(tracker_format).sample_level_bounds
     for room in (1.0, 1.6, 4.0, 49.6, 300.0):
         level = stored_level(room, steps=steps)
-        assert steps.contains(level.step)
+        assert all(bound.contains(step) for step, bound in zip(level.steps, steps))
         assert 0.0 < level.share <= 1.0
         assert level.restored
 
@@ -358,9 +392,9 @@ def test_a_waveform_already_filling_its_headroom_is_delivered_under_the_level_it
     target: ExportTarget,
 ) -> None:
     """A recording the levelling leaves no room to scale up is stored as hot as it allows and reports the gap."""
-    level = stored_level(0.25, steps=target.sample_level_bound)
+    level = stored_level(0.25, steps=target.sample_level_bounds)
 
-    assert level.step == target.sample_level_bound.maximum
+    assert level.steps == tuple(bound.maximum for bound in target.sample_level_bounds)
     assert level.share == pytest.approx(1.0)
     assert not level.restored
     assert level.gap_db < 0.0
@@ -369,8 +403,9 @@ def test_a_waveform_already_filling_its_headroom_is_delivered_under_the_level_it
 def test_a_format_pinning_its_gain_states_the_level_in_the_volume_a_bare_note_plays_at(
     retarget: Callable[[TrackerFormat], ExportTarget],
 ) -> None:
-    it_levels = retarget(TrackerFormat.IT).sample_levels(20)
-    xm_levels = retarget(TrackerFormat.XM).sample_levels(20)
+    it_target, xm_target = retarget(TrackerFormat.IT), retarget(TrackerFormat.XM)
+    it_levels = it_target.sample_levels((20, it_target.sample_level_bounds[1].maximum))
+    xm_levels = xm_target.sample_levels((20, xm_target.sample_level_bounds[1].maximum))
 
     assert (it_levels.volume, it_levels.gain) == (MAX_VOLUME, 20)
     assert (xm_levels.volume, xm_levels.gain) == (20, MAX_VOLUME)

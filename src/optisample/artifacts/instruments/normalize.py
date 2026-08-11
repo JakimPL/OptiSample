@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from math import ceil
+from math import ceil, prod
 from typing import Final
 
 import numpy as np
@@ -39,6 +40,7 @@ _WHOLE_RECORDING: Final = None  # the loop a sample holding its material end to 
 _WHOLE_WAVEFORM: Final = 1.0  # the share a waveform keeps where the step beside it states the whole level
 _EXACTLY_RESTORED: Final = 0.0  # the gap a pair sounding its recording at the level it was captured at leaves
 _FIRST_SAMPLE: Final = 0  # the position the one waveform a written recording holds takes in its own unit
+_SOUNDING_STEP: Final = 1  # the lowest step a level field states that still sounds the note it multiplies
 
 
 @dataclass(frozen=True)
@@ -117,16 +119,16 @@ def played_gain(envelope: Envelope, *, tempo: int, frames: int, sample_rate: int
 
 @dataclass(frozen=True)
 class StoredLevel:
-    """How one recording's own level is stated: the step a format applies, and what the waveform keeps.
+    """How one recording's own level is stated: the steps a format applies, and what the waveform keeps.
 
-    A voice sounds at ``waveform x envelope x step``, so delivering a recording at the amplitude it was
-    captured at asks those three for exactly the level the envelope gave up. ``step`` takes as much of it
-    as the format's own per-sample multiplier states and ``share`` is what the waveform stored at the
-    headroom peak keeps, which is the rest. ``gap_db`` is how far the pair lands from the level the
-    recording was captured at, which is nothing for every recording the headroom leaves room for.
+    A voice sounds at ``waveform x envelope x steps``, so delivering a recording at the amplitude it was
+    captured at asks those for exactly the level the envelope gave up. ``steps`` takes as much of it as
+    the format's own always-applied fields state and ``share`` is what the waveform stored at the headroom
+    peak keeps, which is the rest. ``gap_db`` is how far the pair lands from the level the recording was
+    captured at, which is nothing for every recording the headroom leaves room for.
     """
 
-    step: int
+    steps: tuple[int, ...]
     share: float
     gap_db: float
 
@@ -136,22 +138,56 @@ class StoredLevel:
         return self.gap_db == _EXACTLY_RESTORED
 
 
-def stored_level(room: float, *, steps: Bound) -> StoredLevel:
-    """The level a recording asks for, split between the step ``steps`` numbers and its own waveform.
+def _stated_level(wanted: float, steps: Sequence[Bound]) -> tuple[int, ...]:
+    """The step of each field whose levels together state the lowest one at or above ``wanted``.
+
+    Each field states its step as a share of the whole it reaches, so what the fields state together is
+    the product of those shares -- a lattice far finer than either grid, which is what lets the waveform
+    under it stay at the peak it is stored to. Walking every step of the trailing field and closing each
+    with the lowest leading step that reaches ``wanted`` reads every product there is, since the leading
+    step is settled once the trailing one is.
+
+    A level past what the fields reach answers with every field at full, which is as close as the format
+    comes to it.
+    """
+    leading, trailing = steps
+    reached = tuple(bound.maximum for bound in steps)
+    lowest = _WHOLE_WAVEFORM
+    for step in range(max(_SOUNDING_STEP, trailing.minimum), trailing.maximum + 1):
+        share = step / trailing.maximum
+        opening = leading.clamp(ceil(wanted * leading.maximum / share))
+        level = share * opening / leading.maximum
+        if wanted <= level < lowest:
+            reached, lowest = (opening, step), level
+
+    return reached
+
+
+def stored_level(room: float, *, steps: Sequence[Bound]) -> StoredLevel:
+    """The level a recording asks for, split between the fields ``steps`` numbers and its own waveform.
 
     ``room`` is how far the levelled waveform may be scaled up before it meets the headroom it is stored
-    under, which is the whole of what playback has to give back. The step is rounded up onto the format's
-    grid, so what is left for the waveform is always a scaling down and the waveform stays inside its
-    headroom however coarse that grid is near the floor.
+    under, which is the whole of what playback has to give back. The fields take the lowest level they
+    state at or above that, so what is left for the waveform is always a scaling down and the waveform
+    stays inside its headroom however coarse a single grid runs near the floor.
 
-    A levelled waveform already filling the headroom at the top step is stored as hot as that allows and
-    sounds under the level its recording was captured at, which ``gap_db`` states -- a recording peaking
-    within a decibel or two of full scale, whose flattened form asks for more than a tracker can put out.
+    How much of the headroom the waveform keeps follows from how finely the fields divide the level asked
+    of them. A format multiplying two grids meets any level a recording down to about -35 dBFS asks for
+    to within 0.12 dB and one at -49 dBFS to within 0.30 dB, so its waveform is stored at the peak; a
+    format stating one grid meets the same levels to within a few decibels, which is what its waveform
+    gives up.
+
+    A levelled waveform already filling the headroom at the top of every field is stored as hot as that
+    allows and sounds under the level its recording was captured at, which ``gap_db`` states -- a
+    recording peaking within a decibel or two of full scale, whose flattened form asks for more than a
+    tracker can put out.
     """
-    step = steps.clamp(ceil(MAX_VOLUME / room))
-    asked = MAX_VOLUME / (step * room)
+    wanted = _WHOLE_WAVEFORM / room
+    reached = _stated_level(wanted, steps)
+    level = prod(step / bound.maximum for step, bound in zip(reached, steps))
+    asked = wanted / level
     share = min(asked, _WHOLE_WAVEFORM)
-    return StoredLevel(step=step, share=share, gap_db=gain_to_db(share / asked))
+    return StoredLevel(steps=reached, share=share, gap_db=gain_to_db(share / asked))
 
 
 @dataclass(frozen=True)
@@ -198,9 +234,10 @@ def recording_instrument(
     curve silences outright plays as silence whatever the waveform holds there, so the division is taken
     against the quietest step that still sounds and the waveform stays finite throughout.
 
-    What the recording was captured at is stated beside all that (:func:`stored_level`), so a note played
-    on the written instrument sounds at the amplitude the recording holds and two instruments written from
-    one dataset stand exactly as far apart as their recordings do.
+    What the recording was captured at is stated beside all that (:func:`stored_level`), across every
+    level the format applies to a note whatever a pattern says, so a note played on the written instrument
+    sounds at the amplitude the recording holds and two instruments written from one dataset stand exactly
+    as far apart as their recordings do.
     """
     curve = level_curve(recording, target)
     envelope = volume_envelope(curve, grid, peak_db=curve.peak)
@@ -212,14 +249,15 @@ def recording_instrument(
     )
     sounding = np.maximum(gain, QUIETEST_STEP / MAX_VOLUME)
     hot, room = normalize_peak(recording.signal / sounding, headroom_peak(headroom_db))
-    level = stored_level(room, steps=target.sample_level_bound)
-    levels = target.sample_levels(level.step)
+    level = stored_level(room, steps=target.sample_level_bounds)
+    levels = target.sample_levels(level.steps)
     return RecordingInstrument(
         unit=InstrumentUnit(
             instrument=Instrument(
                 name=recording.name,
                 keymap=_keymap(recording.root_pitch, target),
                 volume_envelope=envelope,
+                global_volume=levels.instrument,
             ),
             samples=(
                 Sample(

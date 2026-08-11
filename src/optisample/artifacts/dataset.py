@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 from optisample.artifacts.documents.reduction import WrittenSampleRecord
+from optisample.artifacts.instruments.dump import InstrumentSettings, WrittenInstruments, write_dataset_instruments
 from optisample.io.audio import write_wav
+from optisample.io.dataset import SourceDataset, SubsetDataset
 from optisample.io.note_extractor import NoteRecord
+from optisample.io.source import write_source_subset
 from optisample.keys import SampleKey, nearest_key
 from optisample.metrics.base import Signal
 from optisample.model import NoteEvent
@@ -84,4 +88,32 @@ def write_recording(
         file=name,
         frames=int(signal.size),
         duration_s=int(signal.size) / sample_rate,
+    )
+
+
+@dataclass(frozen=True)
+class SlicedDataset:
+    """The slice one run took of its source, beside the instruments written from what it kept."""
+
+    dataset: SubsetDataset
+    instruments: WrittenInstruments
+
+
+def write_slice(
+    source: SourceDataset,
+    out_dir: Path,
+    *,
+    instrument_id: str,
+    fraction: float,
+    instruments: InstrumentSettings,
+) -> SlicedDataset:
+    """Write the share of ``source`` a slice keeps, and carry each recording it kept as an instrument.
+
+    A slice is written in the shape its source came in, so it reads back the way the whole dataset would,
+    and the instruments beside it make the very first stage of a run playable in a tracker.
+    """
+    dataset = write_source_subset(source, out_dir, instrument_id=instrument_id, fraction=fraction)
+    return SlicedDataset(
+        dataset=dataset,
+        instruments=write_dataset_instruments(dataset.source, settings=instruments),
     )

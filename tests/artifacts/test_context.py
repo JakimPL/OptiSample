@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from optisample.artifacts.context import DumpContext, DumpResult, PlanArtifacts
+from optisample.artifacts.context import NO_INSTRUMENTS, DumpContext, DumpResult, PlanArtifacts
 from optisample.optimize.layers.bands import UNSPLIT, VelocityBand, VelocityLayers
 
 
@@ -41,6 +41,7 @@ def test_plan_artifacts_and_result_carry_the_outcome() -> None:
         rendered=False,
         objective=1.25,
         used_bytes=4096,
+        instruments=NO_INSTRUMENTS,
         elapsed_s=0.5,
     )
     result = DumpResult(instrument_id="piano", directory=Path("/tmp/out"), plans=(artifact,))

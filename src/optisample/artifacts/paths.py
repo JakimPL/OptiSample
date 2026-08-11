@@ -51,6 +51,17 @@ def pipeline_paths(out_dir: Path) -> PipelinePaths:
     )
 
 
+def instrument_files_dir(samples_dir: Path, extension: str) -> Path:
+    """Where the instruments of one format land beside the recordings they were written from.
+
+    A recording of a written dataset stands in that dataset's samples directory, and the instruments
+    carrying it stand under a directory of their own named for the extension they are written with --
+    ``ITI/`` and ``XI/`` -- so one recording's WAV and every instrument of it read as one set of files and
+    a player looking for the format it loads finds all of them together.
+    """
+    return samples_dir / extension.removeprefix(".").upper()
+
+
 @dataclass(frozen=True)
 class LoopedPaths:
     """Where one instrument's looped dataset and its loop decisions land under the output root.

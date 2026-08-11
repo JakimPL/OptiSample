@@ -12,10 +12,12 @@ from optisample.artifacts.documents.reduction import (
     reduction_document,
     screen_record,
 )
+from optisample.artifacts.instruments.dump import InstrumentSettings, WrittenInstruments, write_dataset_instruments
 from optisample.artifacts.paths import ReducedPaths, reduced_paths
 from optisample.artifacts.serialize import write_json
 from optisample.dsp.surrogate import EncodingParams
 from optisample.io.audio import write_wav
+from optisample.io.dataset import SourceDataset
 from optisample.io.note_extractor import dump_notes
 from optisample.keys import SampleKey
 from optisample.metrics.base import Signal
@@ -47,7 +49,8 @@ class ReducedInstrument:
     """One instrument's reduced dataset: where each part landed and how much of it there is.
 
     ``screen`` states what admitting the recordings cost, so a reader sees the recordings the dataset
-    leaves out beside the ones it wrote.
+    leaves out beside the ones it wrote, and ``instruments`` where each survivor landed as the standalone
+    instrument a player loads it through.
     """
 
     instrument_id: str
@@ -55,6 +58,7 @@ class ReducedInstrument:
     survivors: int
     notes: int
     auditions: int
+    instruments: WrittenInstruments
     screen: RecordingScreen
     elapsed_s: float
 
@@ -175,14 +179,17 @@ def dump_reduced(
     looped: LoopedInstrument,
     out_dir: Path | str,
     settings: OptimizeSettings,
+    instruments: InstrumentSettings,
 ) -> ReducedInstrument:
     """Run the pre-optimization stage for one instrument and write what it decided as a dataset.
 
     The output root is itself a NoteExtractor dataset -- one WAV per surviving recording and one note
     per note the material plays -- so an allocation run picks up from here and reaches the sweep having
-    paid only the ingest. Beside it, ``reduction.json`` states what each axis came down to and
-    ``auditions/`` holds every swept encoding rendered to audio, so the stage is inspectable and audible
-    on its own.
+    paid only the ingest. Every survivor is written a second time as the standalone instruments of each
+    format (:func:`~optisample.artifacts.instruments.dump.write_dataset_instruments`), so what the stage
+    kept is playable in a tracker as it stands. Beside them, ``reduction.json`` states what each axis came
+    down to and ``auditions/`` holds every swept encoding rendered to audio, so the stage is inspectable
+    and audible on its own.
 
     A dataset reproduces its survivors exactly under the key it was reduced with: each note carries the
     identity of the recording serving it, so re-running dedup over those recordings keeps the same one
@@ -205,6 +212,10 @@ def dump_reduced(
         tracked_ccs=tracked_ccs(instrument.material),
         tempo_bpm=instrument.tempo_bpm,
     )
+    played = write_dataset_instruments(
+        SourceDataset(path=paths.notes_json, samples_dir=paths.samples_dir),
+        settings=instruments,
+    )
     auditions = _write_all_auditions(inputs, paths.auditions_dir, settings.progress)
     paths.reduction_json.parent.mkdir(parents=True, exist_ok=True)
     write_json(paths.reduction_json, _reduced_document(loaded, survivors, inputs, settings))
@@ -214,12 +225,18 @@ def dump_reduced(
         survivors=len(survivors.records),
         notes=len(notes),
         auditions=auditions,
+        instruments=played,
         screen=loaded.screen,
         elapsed_s=perf_counter() - started_at,
     )
 
 
-def reduce_project(manifest: Manifest, out_dir: Path | str, settings: OptimizeSettings) -> list[ReducedInstrument]:
+def reduce_project(
+    manifest: Manifest,
+    out_dir: Path | str,
+    settings: OptimizeSettings,
+    instruments: InstrumentSettings,
+) -> list[ReducedInstrument]:
     """Reduce every instrument of a loaded manifest and write each one's dataset under ``out_dir``.
 
     Instruments share the root, each contributing its own ``<id>.notes.json`` and ``<id>/`` pair, so one
@@ -230,6 +247,6 @@ def reduce_project(manifest: Manifest, out_dir: Path | str, settings: OptimizeSe
     for instrument in manifest.instruments:
         loaded = load_run_audio(instrument, settings)
         looped = run_loops(loaded, settings)
-        results.append(dump_reduced(looped, out_dir, settings))
+        results.append(dump_reduced(looped, out_dir, settings, instruments))
 
     return results

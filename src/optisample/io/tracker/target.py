@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
 
@@ -19,12 +20,14 @@ from trackmod.trackers.it.instrument_file import ITInstrumentFile
 from trackmod.trackers.it.limits import it_limits
 from trackmod.trackers.it.module import ITModule
 from trackmod.trackers.it.settings import ITSettings
+from trackmod.trackers.it.spec.identity import INSTRUMENT_EXTENSION as IT_INSTRUMENT_EXTENSION
 from trackmod.trackers.it.spec.storage import IT_STORAGE
 from trackmod.trackers.xm.effects.catalog import XM_EFFECTS
 from trackmod.trackers.xm.instrument_file import XMInstrumentFile
 from trackmod.trackers.xm.limits import xm_limits
 from trackmod.trackers.xm.module import XMModule
 from trackmod.trackers.xm.settings import XMSettings
+from trackmod.trackers.xm.spec.identity import INSTRUMENT_EXTENSION as XM_INSTRUMENT_EXTENSION
 from trackmod.trackers.xm.spec.storage import XM_STORAGE
 
 _ON_THE_ROW: Final = 0
@@ -32,16 +35,18 @@ _ON_THE_ROW: Final = 0
 
 @dataclass(frozen=True)
 class SampleLevels:
-    """The two levels a format keeps beside one stored sample: what a bare note plays at, and the gain over it.
+    """The levels a format keeps beside one stored sample, and the one its instrument carries over them.
 
-    ``volume`` is the level a cell stating no volume column sounds; ``gain`` multiplies whatever level
-    does play. Which of them a format lets a caller state is the format's own answer
-    (:attr:`ExportTarget.sample_level_bound`), so a stored level is written through this pair rather than
-    into a field named by the caller.
+    ``volume`` is the level a cell stating no volume column sounds, ``gain`` multiplies whatever level
+    does play, and ``instrument`` is the instrument's own global volume, applied to every note it starts.
+    Which of them a format lets a caller state is the format's own answer
+    (:attr:`ExportTarget.sample_level_bounds`), so a stored level is written through this triple rather
+    than into a field named by the caller.
     """
 
     volume: int
     gain: int
+    instrument: int
 
 
 @dataclass(frozen=True)
@@ -108,26 +113,43 @@ class ExportTarget:
         return self.limits.bound(Capability.SAMPLE_GAIN).minimum < MAX_VOLUME
 
     @property
-    def sample_level_bound(self) -> Bound:
-        """The steps the level one stored sample carries is written on, which is the strongest this format has.
+    def sample_level_bounds(self) -> tuple[Bound, ...]:
+        """The grids the level one stored sample carries is written across, strongest first.
 
-        Impulse Tracker applies a sample's own gain whatever a pattern states, so a level written there
-        holds however the sample is played. FastTracker 2 keeps its per-sample level in the volume a note
-        without a volume column plays at, which is the level that format states for a sample of its own.
+        Impulse Tracker applies a sample's own gain and its instrument's global volume to every note it
+        starts, so a level written across the pair lands on the product of two grids -- a lattice fine
+        enough that the waveform under it keeps the whole of its depth. FastTracker 2 states its
+        per-sample level in the volume a note without a volume column plays at and holds its instruments
+        at one volume, so the pair states that single grid.
         """
-        capability = Capability.SAMPLE_GAIN if self.stores_sample_gain else Capability.SAMPLE_VOLUME
-        return self.limits.bound(capability)
+        stated = Capability.SAMPLE_GAIN if self.stores_sample_gain else Capability.SAMPLE_VOLUME
+        return (self.limits.bound(stated), self.limits.bound(Capability.INSTRUMENT_VOLUME))
 
-    def sample_levels(self, step: int) -> SampleLevels:
-        """``step`` written as the two levels this format keeps beside a sample (:attr:`sample_level_bound`).
+    def sample_levels(self, steps: Sequence[int]) -> SampleLevels:
+        """``steps`` written as the levels this format keeps for a sample (:attr:`sample_level_bounds`).
 
-        Whichever of the two carries the level, the other stands at full, so the pair states the step once
-        and a reader of either format finds it where that format keeps it.
+        Whichever field carries the per-sample level, the other stands at full, so the triple states each
+        step once and a reader of either format finds it where that format keeps it.
         """
+        stated, instrument = steps
         if self.stores_sample_gain:
-            return SampleLevels(volume=MAX_VOLUME, gain=step)
+            return SampleLevels(volume=MAX_VOLUME, gain=stated, instrument=instrument)
 
-        return SampleLevels(volume=step, gain=MAX_VOLUME)
+        return SampleLevels(volume=stated, gain=MAX_VOLUME, instrument=instrument)
+
+    @property
+    def instrument_extension(self) -> str:
+        """The extension a standalone instrument of this format is written with, including the leading dot.
+
+        Naming it off the format alone is what lets a caller settle where a written instrument lands
+        before there is a unit to write, which is how a directory per format is prepared once for a whole
+        set of recordings.
+        """
+        match self.format:
+            case TrackerFormat.IT:
+                return IT_INSTRUMENT_EXTENSION
+            case TrackerFormat.XM:
+                return XM_INSTRUMENT_EXTENSION
 
     @property
     def max_instruments(self) -> int:
@@ -208,17 +230,23 @@ class ExportTarget:
 
         return stated
 
-    def key(self, pitch: int) -> Note:
-        """The key this format's keyboard plays ``pitch`` on.
+    def names(self, pitch: int) -> bool:
+        """Whether this format's keyboard reaches ``pitch``, which is what an instrument may be rooted at.
 
         Trackers count their keyboards from C-0, one octave below MIDI's own numbering, and each format
-        numbers a different stretch of that keyboard -- Impulse Tracker all ten octaves, FastTracker 2
-        the lowest eight -- so which pitches a module can name is the target's to answer.
+        numbers a different stretch of that keyboard -- Impulse Tracker all ten octaves, FastTracker 2 the
+        lowest eight -- so a recording played at the very top of a piano is one Impulse Tracker names and
+        FastTracker 2 leaves to the formats that reach it.
+        """
+        return self.min_pitch <= pitch <= self.max_pitch
+
+    def key(self, pitch: int) -> Note:
+        """The key this format's keyboard plays ``pitch`` on (:meth:`names`).
 
         Raises:
             ValueError: when the MIDI note falls outside the keys this format numbers.
         """
-        if not self.min_pitch <= pitch <= self.max_pitch:
+        if not self.names(pitch):
             raise ValueError(
                 f"MIDI note {pitch} is outside the {self.format.upper()} key range "
                 f"{self.min_pitch}..{self.max_pitch}"

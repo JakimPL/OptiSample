@@ -5,6 +5,7 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.artifacts.context import DumpContext, DumpSettings
+from optisample.artifacts.instruments import InstrumentSettings
 from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import ReduceConfig
@@ -53,6 +54,18 @@ def tiny_settings() -> OptimizeSettings:
         energy_exponent=_CONFIG.optimize.budget.energy_exponent,
         max_samples=_CONFIG.optimize.budget.max_samples,
         target=export_target(_CONFIG.export.tracker),
+    )
+
+
+@pytest.fixture
+def instrument_settings(tiny_settings: OptimizeSettings) -> InstrumentSettings:
+    """What every stage of these fixtures carries its recordings as standalone instruments with."""
+    return InstrumentSettings(
+        encode=tiny_settings.encode,
+        target=tiny_settings.target,
+        release_s=_CONFIG.export.envelope.release_s,
+        configured_tempo_bpm=_CONFIG.export.playback.tempo,
+        progress=tiny_settings.progress,
     )
 
 

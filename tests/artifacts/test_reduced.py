@@ -85,7 +85,10 @@ def reduced(
     tmp_path: Path,
 ) -> ReducedInstrument:
     return dump_reduced(
-        _looped(graded_instrument, graded_audio, no_render_settings.optimize), tmp_path, no_render_settings.optimize
+        _looped(graded_instrument, graded_audio, no_render_settings.optimize),
+        tmp_path,
+        no_render_settings.optimize,
+        no_render_settings.instruments,
     )
 
 
@@ -212,7 +215,10 @@ def test_a_survivor_longer_than_asked_is_trimmed_to_the_requirement(
     recordings: Recordings,
 ) -> None:
     reduced = dump_reduced(
-        _looped(graded_instrument, graded_audio, no_render_settings.optimize), tmp_path, no_render_settings.optimize
+        _looped(graded_instrument, graded_audio, no_render_settings.optimize),
+        tmp_path,
+        no_render_settings.optimize,
+        no_render_settings.instruments,
     )
     inputs = prepare_run(graded_instrument, recordings(graded_audio, SR), no_render_settings.optimize)
     required = {recording.key.label: recording.required_duration_s for recording in inputs.reduction.recordings}
@@ -245,7 +251,10 @@ def test_a_reduced_dataset_reloads_into_the_same_survivors(
 ) -> None:
     """The point of the dataset: an allocation run reads it back and reduces to exactly what was written."""
     reduced = dump_reduced(
-        _looped(graded_instrument, graded_audio, no_render_settings.optimize), tmp_path, no_render_settings.optimize
+        _looped(graded_instrument, graded_audio, no_render_settings.optimize),
+        tmp_path,
+        no_render_settings.optimize,
+        no_render_settings.instruments,
     )
     reloaded = load_notes(
         reduced.paths.notes_json,
@@ -283,7 +292,7 @@ def test_a_project_reduces_every_instrument_under_one_root(
         lambda instrument, settings: _loaded(instrument, graded_audio),
     )
     manifest = Manifest(project=ProjectSpec(name="demo"), instruments=[graded_instrument])
-    results = reduce_project(manifest, tmp_path, no_render_settings.optimize)
+    results = reduce_project(manifest, tmp_path, no_render_settings.optimize, no_render_settings.instruments)
     assert [result.instrument_id for result in results] == ["piano"]
     assert (tmp_path / "piano.notes.json").is_file()
     assert (tmp_path / "piano").is_dir()
@@ -311,6 +320,8 @@ def test_the_dedupe_key_the_dataset_was_reduced_under_reaches_the_document(
         target=no_render_settings.optimize.target,
     )
     loudest = {SampleKey(pitch, 100): graded_audio[SampleKey(pitch, 100)] for pitch in PITCHES}
-    reduced = dump_reduced(_looped(graded_instrument, loudest, settings), tmp_path, settings)
+    reduced = dump_reduced(
+        _looped(graded_instrument, loudest, settings), tmp_path, settings, no_render_settings.instruments
+    )
     assert reduced.survivors == len(PITCHES)
     assert _document(reduced)["dedupe_key"] == DedupeKey.PITCH.value

@@ -12,6 +12,7 @@ from optisample.artifacts.dataset import note_records, recording_stem, tracked_c
 from optisample.artifacts.documents.loops import LoopsDocument, loops_document
 from optisample.artifacts.documents.reduction import WrittenSampleRecord
 from optisample.artifacts.documents.sample import ProvenanceRecord, SampleDocument, sample_document
+from optisample.artifacts.instruments.dump import InstrumentSettings, WrittenInstruments, write_dataset_instruments
 from optisample.artifacts.paths import LoopedPaths, looped_paths
 from optisample.artifacts.serialize import write_json, write_msgpack
 from optisample.config.loop import LoopConfig, SeamConfig
@@ -19,6 +20,7 @@ from optisample.dsp.decay import LinearDecay
 from optisample.dsp.envelope import LevelReading, decompose, level_reading
 from optisample.dsp.loop import prepare_loop
 from optisample.io.audio import write_wav
+from optisample.io.dataset import SourceDataset
 from optisample.io.note_extractor import dump_notes
 from optisample.keys import SampleKey
 from optisample.loop.settle import Settlement, StoredLoop
@@ -44,8 +46,9 @@ class LoopedInstrumentArtifacts:
 
     ``looped`` counts the recordings that offer at least one loop, against ``recordings`` in total, so a
     reader sees how much of the material the stage found a loop for. Each of those ``recordings`` lands as a
-    WAV and as the ``.sample`` carrying its calibrated form. ``auditions`` counts the files written, which
-    is one per recording plus one per loop it offers.
+    WAV, as the ``.sample`` carrying its calibrated form, and as the standalone ``instruments`` a player
+    loads it through. ``auditions`` counts the files written, which is one per recording plus one per loop
+    it offers.
     """
 
     instrument_id: str
@@ -53,6 +56,7 @@ class LoopedInstrumentArtifacts:
     recordings: int
     looped: int
     auditions: int
+    instruments: WrittenInstruments
     elapsed_s: float
 
 
@@ -215,16 +219,19 @@ def dump_looped(
     looped: LoopedInstrument,
     out_dir: Path | str,
     settings: OptimizeSettings,
+    instruments: InstrumentSettings,
 ) -> LoopedInstrumentArtifacts:
     """Write one instrument's settled loops and the dataset they were measured over under ``out_dir``.
 
     The output root is itself a NoteExtractor dataset -- one WAV per recording as the stage analysed it, and
     the material routed onto those recordings -- so the reduction picks up from here over audio the loop
     frames already index into. Each recording is written a second time as a ``.sample`` of the same stem,
-    the calibrated unit carrying its level/carrier split and the loops settled over it. Beside them,
-    ``loops.json`` states the loops each recording offers and the candidates turned down, and ``auditions/``
-    holds each of those loops played out against the recording it was taken from, which is what makes the
-    stage judgeable by ear on its own.
+    the calibrated unit carrying its level/carrier split and the loops settled over it, and a third time as
+    the standalone instruments of every format (:func:`~optisample.artifacts.instruments.dump
+    .write_dataset_instruments`), so the stage's own audio is playable in a tracker as it stands. Beside
+    them, ``loops.json`` states the loops each recording offers and the candidates turned down, and
+    ``auditions/`` holds each of those loops played out against the recording it was taken from, which is
+    what makes the stage judgeable by ear on its own.
     """
     started_at = perf_counter()
     loaded = looped.loaded
@@ -238,6 +245,10 @@ def dump_looped(
         tracked_ccs=tracked_ccs(material),
         tempo_bpm=loaded.instrument.tempo_bpm,
     )
+    played = write_dataset_instruments(
+        SourceDataset(path=paths.notes_json, samples_dir=paths.samples_dir),
+        settings=instruments,
+    )
     auditions = _write_auditions(looped, paths.auditions_dir, settings.loop, settings.progress)
     paths.loops_json.parent.mkdir(parents=True, exist_ok=True)
     write_json(paths.loops_json, looped_document(looped))
@@ -247,6 +258,7 @@ def dump_looped(
         recordings=len(written.records),
         looped=looped.looped_recordings,
         auditions=auditions,
+        instruments=played,
         elapsed_s=perf_counter() - started_at,
     )
 
@@ -255,6 +267,7 @@ def loop_project(
     manifest: Manifest,
     out_dir: Path | str,
     settings: OptimizeSettings,
+    instruments: InstrumentSettings,
 ) -> list[LoopedInstrumentArtifacts]:
     """Settle every instrument's loops and write each one's looped dataset under ``out_dir``.
 
@@ -263,6 +276,6 @@ def loop_project(
     """
     out_dir = Path(out_dir)
     return [
-        dump_looped(run_loops(load_run_audio(instrument, settings), settings), out_dir, settings)
+        dump_looped(run_loops(load_run_audio(instrument, settings), settings), out_dir, settings, instruments)
         for instrument in manifest.instruments
     ]
