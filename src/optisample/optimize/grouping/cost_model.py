@@ -4,7 +4,7 @@ from itertools import accumulate
 from typing import Final
 
 from optisample.dsp.surrogate import EncodingParams
-from optisample.frontier import lower_convex_hull
+from optisample.frontier import lower_convex_hull, pareto_frontier
 from optisample.keys import SampleKey
 from optisample.music import semitone_ratio
 from optisample.optimize.grouping.stores import (
@@ -238,15 +238,22 @@ def _zone_options(
     encodings: dict[_ZoneKey, tuple[EncodingParams, ...]],
     scores: dict[StoredKey, StoredScore],
 ) -> tuple[ZoneOption, ...]:
-    """Every ``(representative, encoding)`` for one candidate zone, with its cost and total distortion.
+    """What one candidate zone offers the allocation: its byte-vs-distortion frontier, cheapest first.
 
     Enumerates the outer product of representative (each covered key's own recording, the k-medoids
-    candidates) and the encodings the bandwidth pre-pass settled for the zone's demand.
+    candidates) and the encodings the bandwidth pre-pass settled for the zone's demand, then keeps the
+    ones an allocation may choose (:func:`~optisample.frontier.pareto_frontier`). A wide zone offers one
+    pair per covered key per encoding and the allocation walks every option it is handed, so leaving each
+    byte level to the representative that reads closest at it is what the partition DP is given.
     """
     return tuple(
-        _zone_option(zone, axis, rep_task, params, scores[(rep_task.representative_key, params)])
-        for rep_task in axis[zone.span[0] : zone.span[1]]
-        for params in encodings[(zone.span, rep_task.representative_key)]
+        pareto_frontier(
+            [
+                _zone_option(zone, axis, rep_task, params, scores[(rep_task.representative_key, params)])
+                for rep_task in axis[zone.span[0] : zone.span[1]]
+                for params in encodings[(zone.span, rep_task.representative_key)]
+            ]
+        )
     )
 
 

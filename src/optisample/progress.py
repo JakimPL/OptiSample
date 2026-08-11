@@ -1,9 +1,14 @@
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 from typing import Final, Protocol, TextIO
 
 from tqdm import tqdm
 
+type ProgressStep = Callable[[], None]
+
 BAR_FORMAT: Final = "{desc:.<34} {percentage:3.0f}% {n_fmt:>6}/{total_fmt:<6} [{elapsed}<{remaining}]"
+
+_COUNTED_OUT: Final = None  # what a bar already standing at its bound answers a further step with
 
 
 class ProgressSink(Protocol):
@@ -47,6 +52,26 @@ class TqdmProgress:
 
 
 NO_PROGRESS: Final = SilentProgress()  # the sink a caller that reports nothing shares; it holds no state
+
+
+@contextmanager
+def counting(progress: ProgressSink, *, label: str, total: int) -> Iterator[ProgressStep]:
+    """A bar for a stage counting its own work off, ``total`` being the most units it may spend.
+
+    A stage walking a sequence it holds reports by tracking that sequence. A stage that decides as it runs
+    how much work it does -- a search probing until the charge it is looking for holds -- calls the step
+    this yields once per unit instead, so its bar advances at the rate the units are taken. The bound is
+    what turns those steps into a share of the stage: it is stated up front, from the most each piece of
+    the stage may spend, and the bar reaches it as the stage ends.
+    """
+    steps = iter(progress.track(range(total), label=label, total=total))
+
+    def taken() -> None:
+        next(steps, _COUNTED_OUT)
+
+    yield taken
+    for _ in steps:
+        pass
 
 
 def bars_are_watchable(stream: TextIO) -> bool:

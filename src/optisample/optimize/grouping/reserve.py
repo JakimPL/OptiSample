@@ -8,9 +8,13 @@ from optisample.optimize.dp import AllocationInfeasibleError, BudgetInfeasibleEr
 from optisample.optimize.grouping.cost_model import ZoneSegment, _ZoneOptions
 from optisample.optimize.grouping.solve import solve_grouping
 from optisample.optimize.plans.grouped import NO_RESERVE, GroupingResult, SampleReserve
+from optisample.progress import ProgressStep
 
 _REFINEMENTS: Final = 8  # halvings spent narrowing the charge once one that meets the cap is known
 _ONE_ZONE: Final = 1  # zones a partition holds beyond the cap for the charge to price it out
+_FREE_AND_CEILING: Final = 2  # walks a capped solve spends before it starts narrowing
+
+PROBES_PER_SOLVE: Final = _REFINEMENTS + _FREE_AND_CEILING  # most walks one capped solve spends
 
 
 class SampleCapInfeasibleError(AllocationInfeasibleError):
@@ -41,13 +45,16 @@ class _Search:
 
     Each probe is a full partition-and-allocation pass over these same option tables, which is what the
     search spends: the charge is looked for by walking, since what a charge yields is known only once the
-    walk has run.
+    walk has run. ``probe`` counts each of them off, so a caller holding several searches states one bar
+    across the walks they spend between them (:data:`PROBES_PER_SOLVE`) -- the stage runs long enough on a
+    real keyboard that a run says where in it it stands.
     """
 
     segments: Sequence[ZoneSegment]
     options: Sequence[_ZoneOptions]
     budget_bytes: int
     cap: int
+    probe: ProgressStep
 
     @property
     def ceiling(self) -> int:
@@ -69,6 +76,7 @@ class _Search:
         Raises:
             BudgetInfeasibleError: when the cheapest partition's charged bytes overrun the budget.
         """
+        self.probe()
         return solve_grouping(self.segments, self.options, self.budget_bytes, reserve=reserve)
 
     def narrow(self, kept: GroupingResult) -> tuple[int, GroupingResult]:
@@ -100,6 +108,8 @@ def solve_within_cap(
     options: Sequence[_ZoneOptions],
     budget_bytes: int,
     cap: int,
+    *,
+    probe: ProgressStep,
 ) -> CappedGrouping:
     """Solve the partition and allocation, held to at most ``cap`` stored samples across every layer.
 
@@ -118,8 +128,8 @@ def solve_within_cap(
         BudgetInfeasibleError: when the budget carries no partition even before a charge is added.
         SampleCapInfeasibleError: when the charge meeting the cap leaves the budget carrying no partition.
     """
-    free = solve_grouping(segments, options, budget_bytes, reserve=NO_RESERVE)
-    search = _Search(segments=segments, options=options, budget_bytes=budget_bytes, cap=cap)
+    search = _Search(segments=segments, options=options, budget_bytes=budget_bytes, cap=cap, probe=probe)
+    free = search.walk(NO_RESERVE)
     if search.within(free):
         return CappedGrouping(
             free,

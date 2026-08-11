@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Final
 
 from optisample.io.tracker.target import ExportTarget
 from optisample.model import InstrumentSpec
 from optisample.optimize.dp import AllocationInfeasibleError
 from optisample.optimize.grouping.cost_model import ZoneSegment, _ZoneOptions, build_zone_options
-from optisample.optimize.grouping.reserve import solve_within_cap
+from optisample.optimize.grouping.reserve import PROBES_PER_SOLVE, solve_within_cap
 from optisample.optimize.layers.bands import VelocityBand, VelocityLayers, partitions, velocity_cells
 from optisample.optimize.layers.slots import reserved_slots
 from optisample.optimize.layers.tasks import band_tasks
@@ -15,6 +16,9 @@ from optisample.optimize.orchestrate import RunInputs
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import BudgetBreakdown, SampleReserve, Zone, split_budget
 from optisample.optimize.tasks import PitchTask
+from optisample.progress import ProgressStep, counting
+
+_ALLOCATE_LABEL: Final = "Allocating layers"
 
 
 @dataclass(frozen=True)
@@ -70,15 +74,25 @@ class _Universe:
 
     A band's keys are the same wherever it appears, and every split asks exactly the same question of it,
     so the whole search is scored from one pass over these segments and each split reads back the layers
-    it holds. ``placement`` gives, per split, the segment each of its bands came out as.
+    it holds. ``placement`` gives, per split, the segment each of its bands came out as, and ``scored``
+    the zone options that segment offers, which is what a split is allocated from.
     """
 
     segments: tuple[ZoneSegment, ...]
     placement: tuple[tuple[int, ...], ...]
+    scored: tuple[_ZoneOptions, ...]
+
+    def bands(self, place: Sequence[int]) -> list[ZoneSegment]:
+        """The keys each of one split's layers plays, in the order the split states them."""
+        return [self.segments[segment] for segment in place]
+
+    def options(self, place: Sequence[int]) -> list[_ZoneOptions]:
+        """The scored zones each of one split's layers may be partitioned into."""
+        return [self.scored[segment] for segment in place]
 
 
 def _universe(layering: _Layering, splits: Sequence[VelocityLayers]) -> _Universe:
-    """Collect the distinct bands the splits ask for as segments, and where each split's bands sit."""
+    """Collect the distinct bands the splits ask for, score each one, and place every split's bands."""
     segments: list[ZoneSegment] = []
     known: dict[VelocityBand, int] = {}
     placement: list[tuple[int, ...]] = []
@@ -93,7 +107,16 @@ def _universe(layering: _Layering, splits: Sequence[VelocityLayers]) -> _Univers
 
         placement.append(tuple(places))
 
-    return _Universe(tuple(segments), tuple(placement))
+    return _Universe(
+        segments=tuple(segments),
+        placement=tuple(placement),
+        scored=build_zone_options(
+            tuple(segments),
+            layering.inputs.context,
+            workers=layering.settings.workers,
+            progress=layering.settings.progress,
+        ),
+    )
 
 
 def preference(allocation: LayeredAllocation, min_gain: float) -> float:
@@ -109,9 +132,9 @@ def preference(allocation: LayeredAllocation, min_gain: float) -> float:
 def _allocate(
     layering: _Layering,
     universe: _Universe,
-    scored: Sequence[_ZoneOptions],
     place: Sequence[int],
     split: VelocityLayers,
+    probe: ProgressStep,
 ) -> LayeredAllocation:
     """Partition and allocate one candidate split over the layers it stores, sharing one budget.
 
@@ -122,12 +145,14 @@ def _allocate(
         BudgetInfeasibleError: when the cheapest sample per key still overruns what the split can spend.
         SampleCapInfeasibleError: when the charge meeting the cap leaves the budget carrying no partition.
     """
-    budget = layering.budget(layering.instruments([len(universe.segments[segment]) for segment in place]))
+    bands = universe.bands(place)
+    budget = layering.budget(layering.instruments([len(band) for band in bands]))
     capped = solve_within_cap(
-        [universe.segments[segment] for segment in place],
-        [scored[segment] for segment in place],
+        bands,
+        universe.options(place),
         budget.sample_bytes,
         layering.settings.sample_cap,
+        probe=probe,
     )
     return LayeredAllocation(
         layers=split,
@@ -162,6 +187,35 @@ def _preferred(
     )
 
 
+def _best_split(
+    layering: _Layering,
+    universe: _Universe,
+    splits: Sequence[VelocityLayers],
+    probe: ProgressStep,
+) -> LayeredAllocation:
+    """The split worth storing, out of every one the layer cap allows.
+
+    The single-layer split leads, because it is the plan every richer one has to beat by ``min_gain``
+    (:func:`preference`) and the one whose feasibility is the run's own. Richer splits the budget or the
+    format cannot carry are passed over, so the search answers with the best split any of them reached.
+
+    Raises:
+        BudgetInfeasibleError: when even a single layer of the cheapest samples overruns the budget.
+        SampleCapInfeasibleError: when a single layer within the sample cap overruns the budget.
+    """
+    best = _allocate(layering, universe, universe.placement[0], splits[0], probe)
+    for split, place in zip(splits[1:], universe.placement[1:]):
+        try:
+            candidate = _allocate(layering, universe, place, split, probe)
+        except AllocationInfeasibleError:
+            continue
+
+        if _preferred(candidate, best, layering.settings):
+            best = candidate
+
+    return best
+
+
 def _require_instrument_room(instrument: InstrumentSpec, settings: OptimizeSettings) -> None:
     """Check the layer cap against the instruments the target format numbers.
 
@@ -187,11 +241,11 @@ def allocate_layers(
     """Choose how many velocity layers to store, and allocate the byte budget across them.
 
     Cuts the velocity axis into cells, scores every band any split of them into at most ``max_layers``
-    would store, and solves the exact partition and allocation over each split in turn. The
-    single-layer split is solved first, because it is the plan every richer one has to beat by
-    ``min_gain`` (:func:`preference`) and the one whose feasibility is the run's own -- it keeps at most
-    one sample per key, so any budget and any format that hold an instrument at all hold it. Richer
-    splits the budget or the format cannot carry are passed over.
+    would store, and solves the exact partition and allocation over each split in turn
+    (:func:`_best_split`). Each of those solves walks the whole keyboard several times over, so the
+    search reports against the walks every split it holds may spend
+    (:data:`~optisample.optimize.grouping.reserve.PROBES_PER_SOLVE`), which is the longest stretch of a
+    run that a budget alone decides the length of.
 
     Raises:
         BudgetInfeasibleError: when even a single layer of the cheapest samples overruns the budget.
@@ -203,21 +257,5 @@ def allocate_layers(
     cells = velocity_cells(instrument.material, settings.layers.nodes)
     splits = tuple(partitions(cells, settings.layers.max_layers))
     universe = _universe(layering, splits)
-    scored = build_zone_options(
-        universe.segments,
-        inputs.context,
-        workers=settings.workers,
-        progress=settings.progress,
-    )
-
-    best = _allocate(layering, universe, scored, universe.placement[0], splits[0])
-    for split, place in zip(splits[1:], universe.placement[1:]):
-        try:
-            candidate = _allocate(layering, universe, scored, place, split)
-        except AllocationInfeasibleError:
-            continue
-
-        if _preferred(candidate, best, settings):
-            best = candidate
-
-    return best
+    with counting(settings.progress, label=_ALLOCATE_LABEL, total=len(splits) * PROBES_PER_SOLVE) as probe:
+        return _best_split(layering, universe, splits, probe)

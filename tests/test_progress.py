@@ -9,11 +9,13 @@ from optisample.progress import (
     SilentProgress,
     TqdmProgress,
     bars_are_watchable,
+    counting,
     progress_sink,
 )
 
 _ITEMS = ("a", "b", "c")
 _LABEL = "Stage"
+_BOUND = 4  # units a counted stage may spend, which is what its bar is sized by
 
 
 class _FakeStream(io.StringIO):
@@ -68,6 +70,38 @@ def test_a_stage_reports_against_the_total_it_states_rather_than_the_items_it_wa
     """A caller counting encodes may iterate something else, so the stated total is what the bar fills."""
     list(TqdmProgress(stream).track(_ITEMS, label=_LABEL, total=10))
     assert "/10" in stream.getvalue()
+
+
+# --- counting a stage off -------------------------------------------------------------------------
+
+
+def test_a_counted_stage_draws_against_the_bound_it_states(stream: _FakeStream) -> None:
+    """A search sizes its bar by the most it may spend, so the bound is what the bar reads against."""
+    with counting(TqdmProgress(stream), label=_LABEL, total=_BOUND) as step:
+        step()
+
+    assert _LABEL in stream.getvalue()
+    assert f"/{_BOUND}" in stream.getvalue()
+
+
+def test_a_counted_stage_reaches_its_bound_however_much_of_it_was_spent(stream: _FakeStream) -> None:
+    """A stage ending under its bound ends its line, so the bar after it starts on a fresh one."""
+    with counting(TqdmProgress(stream), label=_LABEL, total=_BOUND) as step:
+        step()
+
+    assert f"{_BOUND}/{_BOUND}" in stream.getvalue()
+
+
+def test_a_counted_stage_spending_past_its_bound_keeps_drawing(stream: _FakeStream) -> None:
+    """The bound sizes the bar rather than gating the work, so a stage running over still finishes."""
+    with counting(TqdmProgress(stream), label=_LABEL, total=_BOUND) as step:
+        for _ in range(_BOUND * 2):
+            step()
+
+
+def test_a_counted_stage_stays_silent_where_the_run_does() -> None:
+    with counting(NO_PROGRESS, label=_LABEL, total=_BOUND) as step:
+        step()
 
 
 # --- choosing a sink ------------------------------------------------------------------------------

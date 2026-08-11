@@ -138,6 +138,15 @@ def options48(
 
 
 @pytest.fixture(scope="module")
+def run48(
+    audio: dict[SampleKey, NDArray[np.float64]],
+    recordings: Recordings,
+) -> tuple[list[PitchTask], EvalContext]:
+    inputs = prepare_run(_instrument(48.0), recordings(audio, SR), _settings(GRID))
+    return list(inputs.tasks), inputs.context
+
+
+@pytest.fixture(scope="module")
 def plan48(audio: dict[SampleKey, NDArray[np.float64]], recordings: Recordings) -> GroupedInstrumentPlan:
     return optimize_instrument_grouped(_instrument(48.0), recordings(audio, SR), _settings(GRID))
 
@@ -200,14 +209,36 @@ def test_zone_starts_reports_where_the_zones_ending_at_each_key_begin() -> None:
     assert zone_starts(options, 3) == [(), (0,), (0, 1), (2,)]
 
 
-def test_build_zone_options_covers_every_range_and_every_member_as_representative(
+def test_build_zone_options_covers_every_range(
     options48: tuple[list[PitchTask], dict[tuple[int, int], tuple[ZoneOption, ...]]],
 ) -> None:
     tasks, options = options48
     count = len(tasks)
     assert set(options) == {(i, j) for i in range(count) for j in range(i + 1, count + 1)}
-    for (i, j), zone_options in options.items():
-        assert {option.representative for option in zone_options} == {task.pitch for task in tasks[i:j]}
+
+
+def test_every_member_of_a_zone_is_priced_as_its_representative(
+    run48: tuple[list[PitchTask], EvalContext],
+) -> None:
+    """The outer product the scoring runs over is complete: each covered key answers for its own zone."""
+    tasks, context = run48
+    zones = _zones(tasks, context)
+    encodings = zone_encodings(tasks, zones, context, NO_PROGRESS)
+    assert set(encodings) == {
+        (zone.span, tasks[position].representative_key)
+        for zone in zones
+        for position in range(zone.span[0], zone.span[1])
+    }
+
+
+def test_a_zone_offers_the_allocation_its_frontier_alone(
+    options48: tuple[list[PitchTask], dict[tuple[int, int], tuple[ZoneOption, ...]]],
+) -> None:
+    """The walk prices every option it is handed, so each byte level is left to the member reading best at it."""
+    _, options = options48
+    for zone_options in options.values():
+        assert all(low.stored_bytes < high.stored_bytes for low, high in zip(zone_options, zone_options[1:]))
+        assert all(low.distortion > high.distortion for low, high in zip(zone_options, zone_options[1:]))
 
 
 def test_zone_hull_is_a_monotone_frontier(

@@ -26,11 +26,18 @@ def _slope(low: RDPoint, high: RDPoint) -> float:
     return (high.distortion - low.distortion) / (high.stored_bytes - low.stored_bytes)
 
 
-def _pareto_frontier(points: Sequence[_RDPointT]) -> list[_RDPointT]:
-    """Pass 1 -- Pareto filter: sorted by bytes ascending, keep points strictly better than all cheaper ones.
+def pareto_frontier(points: Sequence[_RDPointT]) -> list[_RDPointT]:
+    """Pareto filter: sorted by bytes ascending, keep points strictly better than all cheaper ones.
 
     A point is dominated (and dropped) if some cheaper point already reaches its distortion or lower;
     the ``stored_bytes`` guard also collapses ties in bytes to the lowest-distortion representative.
+
+    This is the whole of what a byte-budget allocation may choose from. Any solution holding a dominated
+    point stays feasible when the point that dominates it is put in its place, at the same distortion or
+    less, so the frontier reaches every objective the full set reaches. Filtering ahead of the walk is
+    what keeps a table of ``(representative, encoding)`` pairs from being priced one pair at a time
+    (:func:`~optisample.optimize.grouping.cost_model.build_zone_options`), and it leaves the hull below
+    untouched, since a hull vertex is Pareto-optimal to begin with.
     """
     ordered = sorted(points, key=lambda point: (point.stored_bytes, point.distortion))
     frontier: list[_RDPointT] = []
@@ -65,7 +72,7 @@ def lower_convex_hull(points: Sequence[_RDPointT]) -> list[_RDPointT]:
 
     Generic over the point type, so one rule serves every axis a run prices along: the loop lengths one
     recording offers, the encodings one sample is swept over, and the ``(representative, encoding)``
-    options of a zone. Built in two passes: :func:`_pareto_frontier` drops dominated points, then
+    options of a zone. Built in two passes: :func:`pareto_frontier` drops dominated points, then
     :func:`_hull_pop` drops the concave ones.
     """
-    return _hull_pop(_pareto_frontier(points))
+    return _hull_pop(pareto_frontier(points))
