@@ -25,11 +25,17 @@ class Verdict(StrEnum):
     which is what makes agreement measure something a listener would recognise; and they let the size of
     a perceived gap be compared with the size of the margin the composite reads, which is what separates
     two metrics that order every pair alike and disagree on how far apart the sides stand.
+
+    Two of them stand level and say different things. :attr:`TIE` places both sides the same distance
+    from the recording, each with its own fault; :attr:`IDENTICAL` says there was nothing between them
+    to hear. The second holds a metric to a floor the first leaves open, since a pair a listener met as
+    one recording is one the metric is due to read as one.
     """
 
     A_CLEARLY = "aa"
     A_SLIGHTLY = "a"
     TIE = "tie"
+    IDENTICAL = "same"
     B_SLIGHTLY = "b"
     B_CLEARLY = "bb"
 
@@ -41,7 +47,7 @@ class Verdict(StrEnum):
                 return Side.A
             case Verdict.B_CLEARLY | Verdict.B_SLIGHTLY:
                 return Side.B
-            case Verdict.TIE:
+            case Verdict.TIE | Verdict.IDENTICAL:
                 return None
 
     @property
@@ -52,7 +58,7 @@ class Verdict(StrEnum):
                 return _CLEARLY
             case Verdict.A_SLIGHTLY | Verdict.B_SLIGHTLY:
                 return _SLIGHTLY
-            case Verdict.TIE:
+            case Verdict.TIE | Verdict.IDENTICAL:
                 return _EQUALLY
 
 

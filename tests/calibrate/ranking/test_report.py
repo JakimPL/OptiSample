@@ -31,6 +31,7 @@ def _judgement(
     *,
     axis: PairAxis = PairAxis.DEPTH,
     question_id: int = 0,
+    identical: bool = False,
     swapped: bool = False,
     loudness_delta_lu: float = _NO_GAP,
 ) -> Judgement:
@@ -40,6 +41,7 @@ def _judgement(
         axis=axis,
         question_id=question_id,
         heard=heard,
+        identical=identical,
         swapped=swapped,
         loudness_delta_lu=loudness_delta_lu,
     )
@@ -63,6 +65,7 @@ _SCALE = (
     _Scale(Verdict.A_CLEARLY, 2, Side.A),
     _Scale(Verdict.A_SLIGHTLY, 1, Side.A),
     _Scale(Verdict.TIE, 0, None),
+    _Scale(Verdict.IDENTICAL, 0, None),
     _Scale(Verdict.B_SLIGHTLY, -1, Side.B),
     _Scale(Verdict.B_CLEARLY, -2, Side.B),
 )
@@ -136,6 +139,32 @@ def test_a_sheet_holding_calls_alone_leaves_the_separation_unstated() -> None:
 
     assert read.tied_margin is None
     assert read.separation is None
+
+
+def test_the_margins_read_a_pair_heard_as_one_recording_apart_from_the_rest() -> None:
+    judgements = [_judgement("a", 2), _judgement("b", 0), _judgement("c", 0, identical=True)]
+
+    read = metric_agreement(_readings(("a", 1.0), ("b", 0.4), ("c", 0.1)), judgements)
+
+    assert read.tied_margin == pytest.approx(0.25)
+    assert read.identical_margin == pytest.approx(0.1)
+    assert read.headroom == pytest.approx(10.0)
+
+
+def test_a_sheet_where_every_pair_was_told_apart_leaves_the_headroom_unstated() -> None:
+    read = metric_agreement(_readings(("a", 0.8), ("b", 0.2)), [_judgement("a", 2), _judgement("b", 0)])
+
+    assert read.identical_margin is None
+    assert read.headroom is None
+
+
+def test_a_metric_reading_nothing_between_an_identical_pair_states_no_headroom() -> None:
+    judgements = [_judgement("a", 2), _judgement("b", 0, identical=True)]
+
+    read = metric_agreement(_readings(("a", 0.8), ("b", 0.0)), judgements)
+
+    assert read.identical_margin == pytest.approx(0.0)
+    assert read.headroom is None
 
 
 def test_a_metric_reading_every_pair_level_states_no_separation() -> None:

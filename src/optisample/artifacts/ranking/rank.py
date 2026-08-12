@@ -57,6 +57,7 @@ def _judgement(record: ListeningPairRecord, verdict: Verdict) -> Judgement:
         axis=record.axis,
         question_id=record.question_id,
         heard=heard_strength(verdict),
+        identical=verdict is Verdict.IDENTICAL,
         swapped=_encoding_order(record.first) > _encoding_order(record.second),
         loudness_delta_lu=record.loudness_delta_lu,
     )

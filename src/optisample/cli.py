@@ -61,7 +61,7 @@ _ARTIFACTS_OUT: Final = Path("artifacts")
 _LOOPED_OUT: Final = Path("looped")
 _REDUCED_OUT: Final = Path("reduced")
 _SUBSET_OUT: Final = Path("subset")
-_LISTENING_OUT: Final = Path("listening")
+_LISTENING_OUT: Final = _ARTIFACTS_OUT / "listening"
 
 
 def _config_parser() -> argparse.ArgumentParser:
@@ -755,7 +755,8 @@ def _ranking_row(metric: MetricAgreement) -> str:
     """One metric's whole standing as a line of the ranking table."""
     axes = "".join(f"{_axis_calls(metric, axis):>9}" for axis in PairAxis)
     confirmed = _calls(metric.overall.matched, metric.overall.decided)
-    return f"  {metric.name:<16}{_reading(metric.overall.tau):>7}{confirmed:>11}{_reading(metric.separation):>7}{axes}"
+    margins = f"{_reading(metric.separation):>7}{_reading(metric.headroom):>7}"
+    return f"  {metric.name:<16}{_reading(metric.overall.tau):>7}{confirmed:>11}{margins}{axes}"
 
 
 def _print_ranking(report: RankingReport) -> None:
@@ -771,7 +772,7 @@ def _print_ranking(report: RankingReport) -> None:
         f" side  (tau {_reading(level.tau)})"
     )
     heading = "".join(f"{axis:>9}" for axis in PairAxis)
-    print(f"  {'metric':<16}{'tau':>7}{'confirmed':>11}{'sep':>7}{heading}")
+    print(f"  {'metric':<16}{'tau':>7}{'confirmed':>11}{'sep':>7}{'head':>7}{heading}")
     for metric in report.metrics:
         print(_ranking_row(metric))
 

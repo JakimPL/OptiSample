@@ -149,9 +149,10 @@ class AgreementRecord(Frozen):
 class MetricAgreementRecord(Frozen):
     """One metric ranked against a whole answer sheet, and against each question it holds.
 
-    ``decided_margin`` and ``tied_margin`` are the median distance the metric puts between two sides
-    where the listener placed one ahead and where they heard the two as level, and ``separation`` is the
-    first over the second. A metric worth its ranking reads well above 1.0 there.
+    The three margins are the median distance the metric puts between two sides where the listener placed
+    one ahead, where they placed the two level, and where they heard nothing at all between them.
+    ``separation`` is the first over the second and ``headroom`` the first over the third, which prices
+    the metric against its own floor. A metric worth its ranking reads well above 1.0 on both.
     """
 
     name: str
@@ -159,7 +160,9 @@ class MetricAgreementRecord(Frozen):
     by_axis: dict[PairAxis, AgreementRecord]
     decided_margin: float | None
     tied_margin: float | None
+    identical_margin: float | None
     separation: float | None
+    headroom: float | None
 
 
 class SelfAgreementRecord(Frozen):
@@ -226,7 +229,9 @@ def _metric_record(metric: MetricAgreement) -> MetricAgreementRecord:
         by_axis={axis: _agreement_record(agreement) for axis, agreement in metric.by_axis.items()},
         decided_margin=metric.decided_margin,
         tied_margin=metric.tied_margin,
+        identical_margin=metric.identical_margin,
         separation=metric.separation,
+        headroom=metric.headroom,
     )
 
 

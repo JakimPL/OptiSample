@@ -51,14 +51,16 @@ For each directory, answer one question: **which of {Side.A} and {Side.B} sounds
 |---|---|
 | `{Verdict.A_CLEARLY}` | {Side.A} is clearly closer |
 | `{Verdict.A_SLIGHTLY}` | {Side.A} is slightly closer |
-| `{Verdict.TIE}` | neither is closer |
+| `{Verdict.TIE}` | both stand the same distance from the recording |
+| `{Verdict.IDENTICAL}` | the two sound alike, with nothing between them to hear |
 | `{Verdict.B_SLIGHTLY}` | {Side.B} is slightly closer |
 | `{Verdict.B_CLEARLY}` | {Side.B} is clearly closer |
 
-Answer `{Verdict.TIE}` freely -- a pair you cannot separate is a real reading, and the metric is measured
-against it like any other. Where a `{Verdict.TIE}` is one you could hear no difference at all in, a one-word
-note saying so is worth having: a pair that sounds identical should read a small margin, which is a
-different check from getting the order right.
+Answer `{Verdict.TIE}` and `{Verdict.IDENTICAL}` freely -- a pair you place level is a real reading, and
+the metric is measured against it like any other. The two are read apart: `{Verdict.TIE}` says each side
+has its own fault and they cost the same, while `{Verdict.IDENTICAL}` says there was nothing to tell them
+by. The second holds a metric to a floor, since a pair you met as one recording is one it is due to read
+as one -- a different check from getting the order right, and the report states both.
 
 The `fault` column is open on every row and names what the side you *rejected* does wrong:
 `{Fault.HISS}` steady noise or grain, `{Fault.DULL}` lost top, `{Fault.FLUTTER}` a fast periodic wobble,

@@ -21,7 +21,7 @@ from optisample.calibrate.ranking import (
     settled,
 )
 
-OPEN_CHOICE: Final = "--"  # what a control shows while the listener has settled nothing
+OPEN_CHOICE: Final = "(open)"  # what a control shows while the listener has settled nothing
 
 _FIRST: Final = 0
 
@@ -94,11 +94,12 @@ def following(session: LabellingSession, place: int) -> int:
 
 
 def verdict_choices() -> dict[str, Verdict | None]:
-    """The scale as a control offers it, reading from A being clearly closer through to B being so."""
+    """The scale as a control offers it, from A being clearly closer through the level pair to B being so."""
     return {
         "A clearly closer": Verdict.A_CLEARLY,
         "A slightly closer": Verdict.A_SLIGHTLY,
         "neither is closer": Verdict.TIE,
+        "no difference to hear": Verdict.IDENTICAL,
         "B slightly closer": Verdict.B_SLIGHTLY,
         "B clearly closer": Verdict.B_CLEARLY,
         OPEN_CHOICE: None,

@@ -41,12 +41,15 @@ class Judgement:
     records that the blinding draw put the question's own first encoding on :attr:`Side.B`, which is what
     :attr:`aligned` reads the answer back through: the two occurrences of a repeated question are blinded
     afresh, so the encodings are all they share and only an answer signed toward those can be compared.
+    ``identical`` marks the level answers the listener heard nothing at all between, which the margins
+    read apart from the rest.
     """
 
     directory: str
     axis: PairAxis
     question_id: int
     heard: int
+    identical: bool
     swapped: bool
     loudness_delta_lu: float
 
@@ -96,9 +99,10 @@ class Agreement:
 class MetricAgreement:
     """One metric ranked against the whole answer sheet, and against each question it holds.
 
-    The two margins price the metric's confidence against the listener's: ``tied_margin`` is what it
-    reads where the listener heard the sides as level, ``decided_margin`` where they heard one ahead. A
-    metric worth its ranking reads the second well clear of the first.
+    The three margins price the metric's confidence against the listener's: ``tied_margin`` is what it
+    reads where the listener placed the sides level, ``identical_margin`` the part of that where they
+    heard nothing at all between them, and ``decided_margin`` where they heard one ahead. A metric worth
+    its ranking reads the last well clear of both.
     """
 
     name: str
@@ -106,6 +110,7 @@ class MetricAgreement:
     by_axis: dict[PairAxis, Agreement]
     decided_margin: float | None
     tied_margin: float | None
+    identical_margin: float | None
 
     @property
     def separation(self) -> float | None:
@@ -118,6 +123,19 @@ class MetricAgreement:
             return None
 
         return self.decided_margin / self.tied_margin
+
+    @property
+    def headroom(self) -> float | None:
+        """How far the metric's calls stand above what it reads on a pair the listener met as one recording.
+
+        :attr:`separation` is read against every question placed level, which holds pairs whose sides a
+        listener told apart and ranked equal. This is read against the ones there was nothing between to
+        hear, so it prices the metric against its own floor, which is the strictest reading a sheet offers.
+        """
+        if self.decided_margin is None or self.identical_margin is None or self.identical_margin == 0.0:
+            return None
+
+        return self.decided_margin / self.identical_margin
 
 
 @dataclass(frozen=True)
@@ -233,6 +251,7 @@ def metric_agreement(readings: MetricReadings, judgements: Sequence[Judgement]) 
         },
         decided_margin=_median_margin([one for one in judgements if one.decided], readings.read),
         tied_margin=_median_margin([one for one in judgements if not one.decided], readings.read),
+        identical_margin=_median_margin([one for one in judgements if one.identical], readings.read),
     )
 
 

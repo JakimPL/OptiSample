@@ -35,6 +35,7 @@ _READINGS = (
     _Reading("aa", Side.A, 2),
     _Reading("a", Side.A, 1),
     _Reading("tie", None, 0),
+    _Reading("same", None, 0),
     _Reading("b", Side.B, 1),
     _Reading("bb", Side.B, 2),
 )

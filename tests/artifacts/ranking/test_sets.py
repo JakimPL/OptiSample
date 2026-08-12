@@ -86,7 +86,7 @@ def test_the_answer_sheet_holds_one_open_row_per_pair(written: ListeningSet) -> 
 def test_the_set_explains_itself_beside_the_audio(written: ListeningSet) -> None:
     readme = written.paths.readme.read_text(encoding="utf-8")
 
-    assert Verdict.TIE in readme and "reference.wav" in readme
+    assert Verdict.TIE in readme and Verdict.IDENTICAL in readme and "reference.wav" in readme
 
 
 def test_the_set_states_how_much_listening_it_asks_for(written: ListeningSet) -> None:

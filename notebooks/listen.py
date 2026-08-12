@@ -29,9 +29,13 @@ def _(mo):
 
         The answer sheet the fidelity metric is ranked against, filled one question at a time.
 
-        For each question: **which of A and B sounds closer to the reference?** Answer on the five-point
-        scale, name what the side you rejected does wrong where a word comes to mind, and move on. Every
-        answer is written to `labels.csv` as it is given, so the session survives a closed browser.
+        For each question: **which of A and B sounds closer to the reference?** Answer on the scale, name
+        what the side you rejected does wrong where a word comes to mind, and move on. Every answer is
+        written to `labels.csv` as it is given, so the session survives a closed browser.
+
+        Two answers place the sides level and say different things. *neither is closer* is for a pair where
+        each side has its own fault and they cost the same; *no difference to hear* is for one you could
+        find nothing to tell apart. The second holds the metric to a floor, so it is worth its own answer.
 
         Fixed volume and one pair of headphones throughout. Take the set in blocks with breaks between
         them, and answer each question as you hear it — a few of them are put twice, and how far those
@@ -42,7 +46,9 @@ def _(mo):
 
 @app.cell
 def _(mo, root):
-    listening_root = mo.ui.text(value=str(root / "listening"), label="listening set root", full_width=True)
+    listening_root = mo.ui.text(
+        value=str(root / "artifacts" / "listening"), label="listening set root", full_width=True
+    )
     instrument = mo.ui.text(value="Piano", label="instrument id")
     mo.vstack([mo.md("## Set"), listening_root, instrument])
     return instrument, listening_root
