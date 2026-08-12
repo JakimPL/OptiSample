@@ -6,7 +6,6 @@ app = marimo.App(width="full")
 
 @app.cell
 def _():
-    import io
     import sys
     from pathlib import Path
     from typing import get_args
@@ -19,32 +18,27 @@ def _():
 
     import marimo as mo
 
-    from notebooks.utils import audioio, reports, runs, viz
+    from notebooks.utils import context, panels, reports, runs, viz
 
-    return Path, audioio, get_args, io, mo, reports, root, runs, viz
+    return Path, context, get_args, mo, panels, reports, root, runs, viz
 
 
 @app.cell
 def _(get_args):
     from optisample.artifacts.paths import plan_paths
-    from optisample.config import load_config
     from optisample.config.reduce import DedupeKey
     from optisample.config.render import Interpolation
     from optisample.config.tracker import TrackerFormat
-    from optisample.io.audio import read_wav
     from optisample.optimize.operating_points import sweep_rates
 
-    config = load_config()
     interpolations = list(get_args(Interpolation))
-    return (
-        DedupeKey,
-        TrackerFormat,
-        config,
-        interpolations,
-        plan_paths,
-        read_wav,
-        sweep_rates,
-    )
+    return DedupeKey, TrackerFormat, interpolations, plan_paths, sweep_rates
+
+
+@app.cell
+def _(context):
+    notebook = context.notebook_context()
+    return (notebook,)
 
 
 @app.cell
@@ -82,34 +76,35 @@ def _(Path, mo, root, runs):
 
 
 @app.cell
-def _(DedupeKey, TrackerFormat, config, interpolations, mo, sweep_rates):
-    _rates = [str(rate) for rate in sweep_rates(config.optimize.sweep, 48_000)]
+def _(DedupeKey, TrackerFormat, interpolations, mo, notebook, sweep_rates):
+    _config = notebook.config
+    _rates = [str(rate) for rate in sweep_rates(_config.optimize.sweep, 48_000)]
 
     fraction = mo.ui.slider(0.05, 1.0, step=0.05, value=0.1, label="subset fraction", show_value=True)
     budget_kb = mo.ui.number(16.0, 8192.0, step=16.0, value=512.0, label="budget (KiB)")
-    workers = mo.ui.slider(1, 16, value=max(1, config.runtime.workers), label="workers", show_value=True)
+    workers = mo.ui.slider(1, 16, value=max(1, _config.runtime.workers), label="workers", show_value=True)
     seed = mo.ui.number(0, 9999, step=1, value=0, label="dither seed")
 
     tracker_format = mo.ui.dropdown(
-        [kind.value for kind in TrackerFormat], value=config.export.tracker.format.value, label="format"
+        [kind.value for kind in TrackerFormat], value=_config.export.tracker.format.value, label="format"
     )
     strategy = mo.ui.dropdown(["both", "ungrouped", "grouped"], value="ungrouped", label="strategy")
-    interpolation = mo.ui.dropdown(interpolations, value=config.export.render.interpolation, label="interpolation")
+    interpolation = mo.ui.dropdown(interpolations, value=_config.export.render.interpolation, label="interpolation")
 
     dedupe_key = mo.ui.dropdown(
-        [key.value for key in DedupeKey], value=config.reduce.dedupe.key.value, label="dedupe key"
+        [key.value for key in DedupeKey], value=_config.reduce.dedupe.key.value, label="dedupe key"
     )
     content_floor_db = mo.ui.slider(
         20.0,
         100.0,
         step=5.0,
-        value=config.reduce.bandwidth.content_floor_db,
+        value=_config.reduce.bandwidth.content_floor_db,
         label="content floor (dB) — how much band a stored rate carries",
         show_value=True,
     )
 
     rates = mo.ui.multiselect(_rates, value=[], label="rate ladder — empty takes the config's")
-    depth = mo.ui.dropdown(["16", "8"], value=str(config.optimize.sweep.depth), label="bit depth")
+    depth = mo.ui.dropdown(["16", "8"], value=str(_config.optimize.sweep.depth), label="bit depth")
     loop = mo.ui.checkbox(value=True, label="allow looping")
     render = mo.ui.checkbox(value=True, label="openmpt123 ground-truth render")
 
@@ -297,27 +292,13 @@ def _(mo):
 
 
 @app.cell
-def _(audioio, io, mo, preview_normalize, read_wav):
-    def clip_player(clip):
-        signal, rate = read_wav(clip.path)
-        return mo.vstack(
-            [
-                mo.md(f"**{clip.label}**"),
-                mo.audio(io.BytesIO(audioio.to_wav_bytes(signal, rate, normalize=preview_normalize.value))),
-            ]
-        )
-
-    return (clip_player,)
-
-
-@app.cell
 def _(mo):
     mo.md("""## Looping — the loop each recording is stored around""")
     return
 
 
 @app.cell
-def _(fields, loop_outcome, mo, reports):
+def _(fields, loop_outcome, mo, panels, reports):
     loop_outcome
     looped_root = fields.looped_root
     loops_doc = None
@@ -333,11 +314,11 @@ def _(fields, loop_outcome, mo, reports):
                 f"{len(_settled)} of {len(loops_doc.recordings)} recordings stored around a loop."
             ),
             mo.md("**Settled loops** — what each one repeats, and what measuring it said:"),
-            mo.ui.table(_settled, selection=None, page_size=10),
+            panels.table(_settled, page_size=10),
             mo.md("**Stored over the span they play** — the recordings no loop was settled for, and what was tried:"),
-            mo.ui.table(reports.unlooped_rows(loops_doc), selection=None, page_size=10),
+            panels.table(reports.unlooped_rows(loops_doc), page_size=10),
             mo.md("**Climbed past** — every cheaper candidate, and the gate it fell outside:"),
-            mo.ui.table(reports.rejected_loop_rows(loops_doc), selection=None, page_size=10),
+            panels.table(reports.rejected_loop_rows(loops_doc), page_size=10),
         ]
     )
     return loops_doc, looped_root
@@ -355,10 +336,10 @@ def _(fields, looped_root, mo, reports):
 
 
 @app.cell
-def _(clip_player, fields, loop_audition_key, looped_root, mo, reports):
+def _(fields, loop_audition_key, looped_root, mo, panels, preview_normalize, reports):
     mo.hstack(
         [
-            clip_player(clip)
+            panels.file_player(clip.path, label=clip.label, normalize=preview_normalize.value)
             for clip in reports.loop_auditions(looped_root, fields.instrument_id, loop_audition_key.value)
         ],
         justify="start",
@@ -375,7 +356,7 @@ def _(mo):
 
 
 @app.cell
-def _(fields, mo, reduce_outcome, reports):
+def _(fields, mo, panels, reduce_outcome, reports):
     reduce_outcome
     reduced_root = fields.reduced_root
     reduced_doc = None
@@ -391,16 +372,16 @@ def _(fields, mo, reduce_outcome, reports):
                 f"**{reduced_doc.instrument_id}** reduced under `{reduced_doc.dedupe_key}` at "
                 f"**{reduced_doc.sample_rate} Hz** — {len(reduced_doc.samples)} survivors written."
             ),
-            mo.ui.table(reports.reduction_rows(reduced_doc.reduction), selection=None),
+            panels.table(reports.reduction_rows(reduced_doc.reduction)),
             mo.md(
                 f"**Kept recordings** — {len(_shortfalls)} of {len(_recordings)} hold less than their pitch asks "
                 "of them, which the objective absorbs by scoring against a shorter reference."
             ),
-            mo.ui.table(_recordings, selection=None, page_size=10),
+            panels.table(_recordings, page_size=10),
             mo.md("**Stored format** — the band each pitch asked for, and the format it is stored at:"),
-            mo.ui.table(reports.stored_format_rows(reduced_doc.reduction), selection=None, page_size=10),
+            panels.table(reports.stored_format_rows(reduced_doc.reduction), page_size=10),
             mo.md("**Survivors** — the dataset an allocation picks up from:"),
-            mo.ui.table(reports.survivor_rows(reduced_doc), selection=None, page_size=10),
+            panels.table(reports.survivor_rows(reduced_doc), page_size=10),
         ]
     )
     return reduced_doc, reduced_root
@@ -418,9 +399,12 @@ def _(fields, mo, reduced_root, reports):
 
 
 @app.cell
-def _(audition_pitch, clip_player, fields, mo, reduced_root, reports):
+def _(audition_pitch, fields, mo, panels, preview_normalize, reduced_root, reports):
     mo.hstack(
-        [clip_player(clip) for clip in reports.auditions(reduced_root, fields.instrument_id, audition_pitch.value)],
+        [
+            panels.file_player(clip.path, label=clip.label, normalize=preview_normalize.value)
+            for clip in reports.auditions(reduced_root, fields.instrument_id, audition_pitch.value)
+        ],
         justify="start",
         wrap=True,
         gap=1,
@@ -445,25 +429,25 @@ def _(fields, mo, optimize_outcome, reports):
 
 
 @app.cell
-def _(fields, mo, plan_paths, plan_strategy, reports, viz):
+def _(fields, mo, panels, plan_paths, plan_strategy, reports, viz):
     paths = plan_paths(fields.artifacts, plan_strategy.value)
     plan = reports.read_plan(paths)
     items = reports.plan_item_rows(plan)
     mo.vstack(
         [
-            mo.ui.table(reports.budget_rows(plan), selection=None),
+            panels.table(reports.budget_rows(plan)),
             mo.md("**Instruments** — what the plan is written as, one row each:"),
-            mo.ui.table(reports.instrument_rows(plan), selection=None),
+            panels.table(reports.instrument_rows(plan)),
             mo.md("**Per-item allocation** — the encoding each kept item spends its bytes on:"),
-            mo.ui.table(items, selection=None, page_size=15),
-            mo.image(viz.figure_png(viz.rd_scatter(items, title=f"{plan.strategy}: what the budget bought"))),
+            panels.table(items, page_size=15),
+            panels.image(viz.rd_scatter(items, title=f"{plan.strategy}: what the budget bought")),
         ]
     )
     return items, paths, plan
 
 
 @app.cell
-def _(mo, paths, reports, viz):
+def _(mo, panels, paths, reports, viz):
     metrics = reports.read_metrics(paths)
     note_rows = reports.note_metric_rows(metrics)
     mo.vstack(
@@ -472,8 +456,8 @@ def _(mo, paths, reports, viz):
                 f"**Per-note fidelity** — objective **{metrics.objective:.4f}**, "
                 f"the plan states **{metrics.plan_objective:.4f}**. Lower is better."
             ),
-            mo.ui.table(note_rows, selection=None, page_size=12),
-            mo.image(viz.figure_png(viz.objective_bar(note_rows))),
+            panels.table(note_rows, page_size=12),
+            panels.image(viz.objective_bar(note_rows)),
         ]
     )
     return metrics, note_rows
@@ -490,48 +474,24 @@ def _(mo, paths, reports):
 
 
 @app.cell
-def _(
-    audioio,
-    compare_pitch,
-    config,
-    io,
-    metrics,
-    mo,
-    paths,
-    preview_normalize,
-    read_wav,
-    reports,
-    viz,
-):
-    def signal_panel(title, path):
-        signal, rate = read_wav(path)
-        return mo.vstack(
-            [
-                mo.md(f"**{title}** — {signal.size / rate:.2f}s at {rate} Hz"),
-                mo.audio(io.BytesIO(audioio.to_wav_bytes(signal, rate, normalize=preview_normalize.value))),
-                mo.image(
-                    viz.figure_png(
-                        viz.spectrogram_figure(
-                            signal,
-                            rate,
-                            params=config.analysis.spectral.stft,
-                            dynamic_range_db=config.analysis.metrics.preprocess.dynamic_range_db,
-                            title=title,
-                        )
-                    )
-                ),
-            ]
-        )
-
-    reference_path, render_path = reports.comparison(paths, compare_pitch.value)
+def _(compare_pitch, metrics, mo, notebook, panels, paths, preview_normalize, reports):
+    _reference_path, _render_path = reports.comparison(paths, compare_pitch.value)
+    _style = notebook.spectrogram
     mo.vstack(
         [
-            mo.hstack([signal_panel("reference", reference_path), signal_panel("module", render_path)]),
+            mo.hstack(
+                [
+                    panels.signal_panel(
+                        _reference_path, label="reference", style=_style, normalize=preview_normalize.value
+                    ),
+                    panels.signal_panel(_render_path, label="module", style=_style, normalize=preview_normalize.value),
+                ]
+            ),
             mo.md("**Scored classes at this pitch** — every note the objective measured through this sample:"),
-            mo.ui.table(reports.event_rows(metrics, compare_pitch.value), selection=None),
+            panels.table(reports.event_rows(metrics, compare_pitch.value)),
         ]
     )
-    return reference_path, render_path, signal_panel
+    return
 
 
 @app.cell

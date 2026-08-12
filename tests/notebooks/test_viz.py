@@ -16,11 +16,12 @@ def test_waveform_and_spectrogram_render_to_png(
     spectral_config: SpectralConfig, metrics_config: MetricsConfig, tone: Callable[..., NDArray[np.float64]]
 ) -> None:
     signal = tone()
+    style = viz.SpectrogramStyle(
+        params=spectral_config.stft, dynamic_range_db=metrics_config.preprocess.dynamic_range_db
+    )
     figures = (
         viz.waveform_figure(signal, SR),
-        viz.spectrogram_figure(
-            signal, SR, params=spectral_config.stft, dynamic_range_db=metrics_config.preprocess.dynamic_range_db
-        ),
+        viz.spectrogram_figure(signal, SR, style=style),
     )
     for figure in figures:
         png = viz.figure_png(figure)

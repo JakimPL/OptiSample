@@ -5,13 +5,23 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from notebooks.utils import loading
+from notebooks.utils import loading, viz
 from optisample.config import OptiConfig
+from optisample.config.metrics import MetricsConfig
+from optisample.config.spectral import SpectralConfig
 from optisample.model import Manifest
 
 SR = 44_100
 
 Demo = tuple[Path, Manifest]
+
+
+@pytest.fixture
+def spectrogram_style(spectral_config: SpectralConfig, metrics_config: MetricsConfig) -> viz.SpectrogramStyle:
+    """The reading every spectrogram in these tests is drawn under, taken off the shipped config."""
+    return viz.SpectrogramStyle(
+        params=spectral_config.stft, dynamic_range_db=metrics_config.preprocess.dynamic_range_db
+    )
 
 
 @pytest.fixture

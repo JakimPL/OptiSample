@@ -1,4 +1,5 @@
 import io
+from dataclasses import dataclass
 
 import numpy as np
 from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -12,6 +13,18 @@ from optisample.dsp.spectral import stft_magnitude
 Signal = NDArray[np.float64]
 
 _CONTRIBUTION_KEYS = ("mrstft", "logmel_l1", "spectral_shape", "mcd")
+
+
+@dataclass(frozen=True)
+class SpectrogramStyle:
+    """The two readings a spectrogram is drawn under: the transform it is taken with and the depth it states.
+
+    Carrying the pair as one value lets a caller holding a config settle it once and hand the same
+    reading to every spectrogram it draws, so the panels of one notebook are read on one scale.
+    """
+
+    params: StftParams
+    dynamic_range_db: float
 
 
 def waveform_figure(signal: Signal, sample_rate: int, *, title: str | None = None) -> Figure:
@@ -34,28 +47,29 @@ def spectrogram_figure(
     signal: Signal,
     sample_rate: int,
     *,
-    params: StftParams,
-    dynamic_range_db: float,
+    style: SpectrogramStyle,
     title: str | None = None,
 ) -> Figure:
     """Log-magnitude spectrogram on a **log-frequency** axis, in dB relative to the peak (floored below).
 
-    The floor is ``dynamic_range_db`` below the peak — the same depth the log-spectral metrics use. A
-    logarithmic frequency axis matches musical pitch (octaves are evenly spaced). It is drawn with
+    The floor is ``style.dynamic_range_db`` below the peak — the same depth the log-spectral metrics use.
+    A logarithmic frequency axis matches musical pitch (octaves are evenly spaced). It is drawn with
     ``pcolormesh`` rather than ``imshow`` because ``imshow`` can only map a linear axis; the DC bin is
     dropped so the axis can be logarithmic (``log 0`` is undefined).
     """
-    magnitude = stft_magnitude(np.asarray(signal, dtype=np.float64), params)
+    magnitude = stft_magnitude(np.asarray(signal, dtype=np.float64), style.params)
     peak = float(np.max(magnitude)) if magnitude.size else 0.0
-    floor = max(peak * 10.0 ** (-dynamic_range_db / 20.0), 1e-12)
+    floor = max(peak * 10.0 ** (-style.dynamic_range_db / 20.0), 1e-12)
     decibels = 20.0 * np.log10(np.maximum(magnitude, floor) / (peak if peak > 0.0 else 1.0))
     nyquist = sample_rate / 2.0 if sample_rate else float(magnitude.shape[1])
-    freqs = np.fft.rfftfreq(params.n_fft, 1.0 / sample_rate) if sample_rate else np.arange(magnitude.shape[1] + 1.0)
-    times = np.arange(magnitude.shape[0]) * params.hop_length / (sample_rate or 1)
+    freqs = (
+        np.fft.rfftfreq(style.params.n_fft, 1.0 / sample_rate) if sample_rate else np.arange(magnitude.shape[1] + 1.0)
+    )
+    times = np.arange(magnitude.shape[0]) * style.params.hop_length / (sample_rate or 1)
     figure = Figure(figsize=(8.0, 3.0))
     axes = figure.add_subplot()
     mesh = axes.pcolormesh(
-        times, freqs[1:], decibels[:, 1:].T, vmin=-dynamic_range_db, vmax=0.0, cmap="magma", shading="nearest"
+        times, freqs[1:], decibels[:, 1:].T, vmin=-style.dynamic_range_db, vmax=0.0, cmap="magma", shading="nearest"
     )
     axes.set_yscale("log")
     axes.set_ylim(float(freqs[1]), nyquist)
