@@ -27,8 +27,9 @@ def _():
     from optisample.cluster.corpus import describe_corpus
     from optisample.cluster.partition import hierarchy, partition, sweep
     from optisample.cluster.representative import grouping
+    from optisample.cluster.selection import selection, write_selection
     from optisample.cluster.space import pairwise_distances
-    from optisample.cluster.stages import StageSettings, available_stages, stage_recordings
+    from optisample.cluster.stages import StageSettings, available_stages, stage_dataset, stage_recordings
     from optisample.config.cluster import (
         DescriptorConfig,
         FrequencyBasis,
@@ -56,8 +57,11 @@ def _():
         hierarchy,
         pairwise_distances,
         partition,
+        selection,
+        stage_dataset,
         stage_recordings,
         sweep,
+        write_selection,
     )
 
 
@@ -564,6 +568,93 @@ def _(described, mo, panels, points, preview_normalize, representatives):
                 wrap=True,
                 gap=1,
             ),
+        ]
+    )
+    return
+
+
+@app.cell
+def _(Path, mo, run_root, stage):
+    selection_dir = mo.ui.text(
+        value=str(Path(run_root.value) / "selection" / stage.value.value),
+        label="write to",
+        full_width=True,
+    )
+    write_now = mo.ui.run_button(label="write the selection as a dataset")
+    _offered = (
+        [selection_dir, write_now]
+        if stage.value.is_dataset
+        else [
+            mo.md(
+                "*The allocated stage holds what one plan stored, which a run reads back through that "
+                "plan — pick a dataset stage to write a selection out of.*"
+            )
+        ]
+    )
+    mo.vstack(
+        [
+            mo.md("""
+                ## Feed the selection back
+
+                The takes standing for their groups, written out as a NoteExtractor dataset: every note
+                those recordings answer for, carried over exactly as this stage states it, beside a copy of
+                each recording. That makes a set chosen by **what it sounds like** something `loop`,
+                `reduce` and `optimize` read the way they read a subset.
+                """),
+            *_offered,
+        ]
+    )
+    return selection_dir, write_now
+
+
+@app.cell
+def _(
+    Path,
+    clusters,
+    cutting,
+    described,
+    groups,
+    instrument,
+    mo,
+    panels,
+    run_root,
+    selection,
+    selection_dir,
+    stage,
+    stage_dataset,
+    write_now,
+    write_selection,
+):
+    mo.stop(
+        not write_now.value,
+        mo.md("*Nothing written yet — press the button to write the selection above out as a dataset.*"),
+    )
+    _chosen = selection(described.corpus, groups, rule=cutting.representative)
+    with mo.status.spinner(title=f"writing {_chosen.size} recordings to {selection_dir.value}..."):
+        _written = write_selection(
+            stage_dataset(Path(run_root.value), stage.value, instrument.value),
+            _chosen,
+            Path(selection_dir.value),
+        )
+
+    _dataset = _written.dataset
+    mo.vstack(
+        [
+            mo.md(
+                f"Wrote **{_dataset.recordings}** recordings and the **{_dataset.kept_notes}** of this "
+                f"stage's **{_dataset.source_notes}** notes they answer for, spanning pitches "
+                f"**{_dataset.pitches[0]}–{_dataset.pitches[1]}** and velocities "
+                f"**{_dataset.velocities[0]}–{_dataset.velocities[1]}**. That written material is what a "
+                f"later stage weighs its allocation by; back in the space these same takes stand for "
+                f"**{_written.selection.covered}** recordings carrying "
+                f"**{_written.selection.playing_s:.1f}s** of playing time, which is the reach the table "
+                f"below reads each of them by."
+            ),
+            mo.md(
+                f"Run the rest of the pipeline over it:\n```\nuv run optisample pipeline {_dataset.source.path} "
+                f"--budget-kb 512 --out artifacts-selection\n```"
+            ),
+            panels.table(clusters.pick_rows(_written.selection)),
         ]
     )
     return

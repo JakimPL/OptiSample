@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import json
 import shutil
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, Protocol
 
 from optisample.io.dataset import SourceDataset, SubsetDataset
 from optisample.io.note_extractor import (
     NOTES_SUFFIX,
+    ManifestNote,
     NotesManifest,
     index_of_wav,
 )
@@ -118,6 +120,16 @@ def select_positions(notes: Sequence[Played], fraction: float) -> tuple[int, ...
     )
 
 
+def notes_recorded_by(notes: Sequence[ManifestNote], recordings: Collection[int]) -> tuple[int, ...]:
+    """Positions of the notes ``recordings`` accounts for, in source order.
+
+    A recording is named by the render index its notes join on, so naming a set of recordings picks out
+    exactly the material those recordings carry. That is what lets a slice be chosen by a rule reading the
+    recordings themselves -- what each one sounds like -- while the notes it keeps follow from the choice.
+    """
+    return tuple(position for position, note in enumerate(notes) if note.render.index in recordings)
+
+
 def _copy_recordings(indices: frozenset[int], samples_dir: Path, out_dir: Path) -> int:
     """Copy every recording the kept notes join to into ``out_dir`` and state how many landed.
 
@@ -140,6 +152,80 @@ def _subset_manifest(raw: dict[str, Any], entries: list[Any]) -> dict[str, Any]:
     return {**raw, _CONFIG_FIELD: config, _NOTES_FIELD: entries}
 
 
+@dataclass(frozen=True)
+class _Source:
+    """One dataset's manifest held both ways a slice reads it.
+
+    ``notes`` is what the picking reads, validated against the shape the pipeline expects, and ``document``
+    is the manifest exactly as its source wrote it, which is what a kept note is carried through as.
+    """
+
+    document: dict[str, Any]
+    notes: tuple[ManifestNote, ...]
+
+    @property
+    def entries(self) -> list[Any]:
+        """Each note as its source states it, standing at the position the parsed notes stand at."""
+        written: list[Any] = self.document[_NOTES_FIELD]
+        return written
+
+
+def _read_source(notes_json: Path) -> _Source:
+    """The manifest at ``notes_json``, read once for both the picking and the writing."""
+    document: dict[str, Any] = json.loads(notes_json.read_text(encoding="utf-8"))
+    return _Source(document=document, notes=tuple(NotesManifest.model_validate(document).notes))
+
+
+@dataclass(frozen=True)
+class _Destination:
+    """The sibling pair a written slice is read back through: its manifest, beside its own recordings."""
+
+    notes_json: Path
+    samples_dir: Path
+
+
+def _destination(out_dir: Path, instrument_id: str) -> _Destination:
+    """Where a slice filed under ``instrument_id`` lands, in the layout a later ingest resolves by default."""
+    return _Destination(notes_json=out_dir / f"{instrument_id}{NOTES_SUFFIX}", samples_dir=out_dir / instrument_id)
+
+
+def _write_slice(
+    source: _Source,
+    positions: Sequence[int],
+    samples_dir: Path,
+    destination: _Destination,
+) -> SubsetDataset:
+    """Write the notes at ``positions``, and the recordings they join to, as a dataset of the source's shape.
+
+    Every slicing rule lands here, so a dataset chosen by the spread of its keys and one chosen by what its
+    recordings sound like are written identically and read back the same way.
+
+    Raises:
+        ValueError: when ``positions`` names no note, which would write a dataset holding no material.
+    """
+    if not positions:
+        raise ValueError("a written slice holds one note at the least")
+
+    kept = [source.notes[position] for position in positions]
+    entries = source.entries
+    destination.notes_json.parent.mkdir(parents=True, exist_ok=True)
+    destination.notes_json.write_text(
+        json.dumps(_subset_manifest(source.document, [entries[position] for position in positions]), indent=2) + "\n",
+        encoding="utf-8",
+    )
+    recordings = _copy_recordings(frozenset(note.render.index for note in kept), samples_dir, destination.samples_dir)
+    pitches = [note.pitch for note in kept]
+    velocities = [note.velocity for note in kept]
+    return SubsetDataset(
+        source=SourceDataset(path=destination.notes_json, samples_dir=destination.samples_dir),
+        kept_notes=len(kept),
+        source_notes=len(source.notes),
+        recordings=recordings,
+        pitches=(min(pitches), max(pitches)),
+        velocities=(min(velocities), max(velocities)),
+    )
+
+
 def write_subset(
     notes_json: Path | str,
     samples_dir: Path | str,
@@ -155,29 +241,37 @@ def write_subset(
     the way it reads the source. Each kept note is written exactly as the source states it, so the
     subset measures the same material, at the same lengths, that the whole dataset would.
     """
-    raw: dict[str, Any] = json.loads(Path(notes_json).read_text(encoding="utf-8"))
-    parsed = NotesManifest.model_validate(raw)
-    positions = select_positions(parsed.notes, fraction)
-    kept = [parsed.notes[position] for position in positions]
+    source = _read_source(Path(notes_json))
+    return _write_slice(
+        source,
+        select_positions(source.notes, fraction),
+        Path(samples_dir),
+        _destination(Path(out_dir), instrument_id),
+    )
 
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    target = out_dir / f"{instrument_id}{NOTES_SUFFIX}"
-    entries: list[Any] = raw[_NOTES_FIELD]
-    target.write_text(
-        json.dumps(_subset_manifest(raw, [entries[position] for position in positions]), indent=2) + "\n",
-        encoding="utf-8",
-    )
-    recordings = _copy_recordings(
-        frozenset(note.render.index for note in kept), Path(samples_dir), out_dir / instrument_id
-    )
-    pitches = [note.pitch for note in kept]
-    velocities = [note.velocity for note in kept]
-    return SubsetDataset(
-        source=SourceDataset(path=target, samples_dir=out_dir / instrument_id),
-        kept_notes=len(kept),
-        source_notes=len(parsed.notes),
-        recordings=recordings,
-        pitches=(min(pitches), max(pitches)),
-        velocities=(min(velocities), max(velocities)),
+
+def write_recording_subset(
+    notes_json: Path | str,
+    samples_dir: Path | str,
+    out_dir: Path | str,
+    *,
+    instrument_id: str,
+    recordings: Collection[int],
+) -> SubsetDataset:
+    """Write the slice of a NoteExtractor dataset that ``recordings`` accounts for.
+
+    ``recordings`` names the takes the slice holds by the render index each of them joins on. What lands is
+    a dataset of the same shape as the source -- the notes those recordings answer for, each written
+    exactly as the source states it, beside a copy of every named recording -- so a set of takes chosen by
+    a rule of the caller's own is read by every later stage the way a subset is.
+
+    Raises:
+        ValueError: when the named recordings answer for no note of the source.
+    """
+    source = _read_source(Path(notes_json))
+    return _write_slice(
+        source,
+        notes_recorded_by(source.notes, recordings),
+        Path(samples_dir),
+        _destination(Path(out_dir), instrument_id),
     )

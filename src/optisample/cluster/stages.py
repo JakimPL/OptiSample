@@ -42,6 +42,11 @@ class Stage(StrEnum):
     REDUCED = "reduced"
     OPTIMIZED = "optimized"
 
+    @property
+    def is_dataset(self) -> bool:
+        """Whether this stage wrote a dataset, which is the shape a later stage reads and a slice is cut of."""
+        return self in (Stage.SUBSET, Stage.LOOPED, Stage.REDUCED)
+
 
 @dataclass(frozen=True)
 class StageSettings:
@@ -131,6 +136,22 @@ def stage_dir(paths: PipelinePaths, stage: Stage) -> Path:
 
         case Stage.OPTIMIZED:
             return paths.optimized_dir
+
+
+def stage_dataset(root: Path, stage: Stage, instrument_id: str) -> SourceDataset:
+    """The dataset ``stage`` wrote under the run rooted at ``root``: its manifest, beside its recordings.
+
+    This is the pair every later stage reads a dataset stage through, so a slice cut of it lands in the
+    shape the pipeline picks up from.
+
+    Raises:
+        ValueError: when ``stage`` holds what an allocation stored, which its plan names rather than a
+            manifest.
+    """
+    if not stage.is_dataset:
+        raise ValueError(f"stage {stage.value} holds stored samples, which its plan names rather than a manifest")
+
+    return _dataset(stage_dir(pipeline_paths(root), stage), instrument_id)
 
 
 def available_stages(root: Path, settings: StageSettings) -> tuple[Stage, ...]:

@@ -17,7 +17,13 @@ from optisample.io.note_extractor import (
     RenderWindow,
     load_notes,
 )
-from optisample.io.subset import even_ranks, select_positions, write_subset
+from optisample.io.subset import (
+    even_ranks,
+    notes_recorded_by,
+    select_positions,
+    write_recording_subset,
+    write_subset,
+)
 from optisample.model import ProjectSpec
 
 SR = 8_000
@@ -207,3 +213,75 @@ def test_recordings_no_note_reaches_stay_behind(source: Path, tmp_path: Path) ->
     kept = {note["render"]["index"] for note in json.loads(dataset.source.path.read_text(encoding="utf-8"))["notes"]}
 
     assert {int(wav.name.split("_", 1)[0]) for wav in dataset.source.recordings_dir.glob("*.wav")} == kept
+
+
+# --- the slice a chosen set of recordings accounts for ----------------------------------------------
+
+_CHOSEN = (0, 7, 41)  # recordings a rule of the caller's own picked out of the source
+
+
+def test_the_notes_a_recording_answers_for_are_the_ones_it_accounts_for(source: Path) -> None:
+    notes = _manifest(source).notes
+    positions = notes_recorded_by(notes, _CHOSEN)
+
+    assert list(positions) == sorted(positions)
+    assert {notes[position].render.index for position in positions} == set(_CHOSEN)
+
+
+def test_a_recording_answering_several_notes_brings_every_one_of_them(source: Path, tmp_path: Path) -> None:
+    """A stage storing one recording for a run of notes hands the slice all of the material it carries."""
+    document = json.loads(source.read_text(encoding="utf-8"))
+    for note in document["notes"][:4]:
+        note["render"]["index"] = 0
+
+    shared = tmp_path / "shared.notes.json"
+    shared.write_text(json.dumps(document))
+
+    assert notes_recorded_by(_manifest(shared).notes, {0}) == (0, 1, 2, 3)
+
+
+def test_the_written_slice_holds_the_recordings_it_was_handed(source: Path, tmp_path: Path) -> None:
+    dataset = write_recording_subset(
+        source, source.parent / "Piano", tmp_path / "out", instrument_id="Piano", recordings=_CHOSEN
+    )
+    written = json.loads(dataset.source.path.read_text(encoding="utf-8"))
+
+    assert dataset.recordings == dataset.kept_notes == len(_CHOSEN)
+    assert dataset.source_notes == _TOTAL
+    assert {note["render"]["index"] for note in written["notes"]} == set(_CHOSEN)
+    assert {int(wav.name.split("_", 1)[0]) for wav in dataset.source.recordings_dir.glob("*.wav")} == set(_CHOSEN)
+
+
+def test_a_chosen_note_is_written_exactly_as_the_source_states_it(source: Path, tmp_path: Path) -> None:
+    """The slice measures the same material at the same lengths, whichever rule chose its recordings."""
+    dataset = write_recording_subset(
+        source, source.parent / "Piano", tmp_path / "out", instrument_id="Piano", recordings=_CHOSEN
+    )
+    written = json.loads(dataset.source.path.read_text(encoding="utf-8"))
+    document = json.loads(source.read_text(encoding="utf-8"))
+    original = {note["render"]["index"]: note for note in document["notes"]}
+
+    assert all(note == original[note["render"]["index"]] for note in written["notes"])
+    assert written["config"]["note_count"] == len(written["notes"])
+    assert written["settings"] == document["settings"]
+
+
+def test_the_written_slice_is_a_dataset_ingest_reads_back(
+    source: Path, tmp_path: Path, ingest_settings: Callable[..., IngestSettings]
+) -> None:
+    dataset = write_recording_subset(
+        source, source.parent / "Piano", tmp_path / "out", instrument_id="Piano", recordings=_CHOSEN
+    )
+    manifest = load_notes(
+        dataset.source.path, dataset.source.recordings_dir, ingest_settings("Piano", project_name="song")
+    )
+
+    assert len(manifest.instruments[0].samples) == len(_CHOSEN)
+    assert {sample.file.name for sample in manifest.instruments[0].samples} == {
+        wav.name for wav in dataset.source.recordings_dir.glob("*.wav")
+    }
+
+
+def test_recordings_answering_for_no_note_leave_nothing_to_write(source: Path, tmp_path: Path) -> None:
+    with pytest.raises(ValueError):
+        write_recording_subset(source, source.parent / "Piano", tmp_path / "out", instrument_id="Piano", recordings=())

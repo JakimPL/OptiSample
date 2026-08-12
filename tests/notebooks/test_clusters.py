@@ -2,6 +2,7 @@ import pytest
 
 from notebooks.utils import clusters
 from optisample.cluster.partition import sweep
+from optisample.cluster.selection import selection
 from optisample.config import OptiConfig
 from optisample.config.cluster import Representative
 from tests.notebooks.conftest import Clustered
@@ -135,6 +136,19 @@ def test_a_take_reads_its_distance_to_every_group_and_owns_exactly_one(clustered
     assert sum(bool(row["own"]) for row in rows) == 1
     owned = next(row for row in rows if bool(row["own"]))
     assert owned["to_nearest"] == pytest.approx(0.0)
+
+
+def test_a_chosen_take_is_listed_beside_the_share_of_the_corpus_it_stands_for(clustered: Clustered) -> None:
+    """A written selection reads as one row per take, so what is about to be written is what is shown."""
+    chosen = selection(clustered.described.corpus, clustered.groups, rule=clustered.rule)
+    rows = clusters.pick_rows(chosen)
+
+    assert len(rows) == len(clustered.groups)
+    assert sum(int(row["members"]) for row in rows) == clustered.described.size
+    assert sum(float(row["playing_s"]) for row in rows) == pytest.approx(clustered.described.weights.sum())
+    for row, group in zip(rows, clustered.groups, strict=True):
+        assert row["group"] == clusters.group_name(group.label)
+        assert row["sample"] == clustered.described.recordings[group.representative(clustered.rule)].label
 
 
 def test_a_representative_rule_names_the_member_the_rows_stand_by(clustered: Clustered) -> None:

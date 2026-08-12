@@ -100,6 +100,14 @@ stands from every group — the company it nearly kept.
 **Representatives** — every group's take in one row of players, so a whole selection is auditioned at
 once.
 
+**Feed the selection back** — those same takes written out as a dataset, holding every note they answer
+for, each carried over exactly as the stage states it, beside a copy of each recording. What lands is a
+NoteExtractor dataset like any other, so `optisample pipeline <written>/<instrument>.notes.json` runs the
+rest of the pipeline over a set chosen for what it sounds like — a selection rule the pipeline's own
+stages have none of, since dedup keeps a recording by the identity and the length it carries. The button
+writes only when pressed, and the three dataset stages are the ones a selection comes out of; what an
+allocation stored is read back through its own plan.
+
 Point the run root at a `optisample pipeline --out` directory; the stage list reads whichever of
 `0_subset`, `1_looped`, `2_reduced` and `3_optimized` are on disk.
 

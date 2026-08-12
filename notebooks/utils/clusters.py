@@ -10,6 +10,7 @@ from optisample.cluster.corpus import DescribedCorpus
 from optisample.cluster.descriptor import SampleDescriptor
 from optisample.cluster.partition import Partition
 from optisample.cluster.representative import Group
+from optisample.cluster.selection import Selection
 from optisample.cluster.space import Block, Coordinates, SampleSpace, mean_pairwise_square
 from optisample.cluster.stages import StageRecording
 from optisample.config.cluster import Representative
@@ -107,6 +108,27 @@ def group_rows(described: DescribedCorpus, groups: Sequence[Group], *, rule: Rep
             "farthest": recordings[group.farthest].label,
         }
         for group in groups
+    ]
+
+
+def pick_rows(chosen: Selection) -> list[Row]:
+    """One row per chosen take: what it plays, and how much of the corpus it was chosen to stand for.
+
+    ``members`` and ``playing_s`` are what the group behind a pick holds, so a written selection is read
+    beside the share of the material each of its recordings answers for.
+    """
+    return [
+        {
+            "group": group_name(pick.group),
+            "sample": pick.recording.label,
+            "note": pick.recording.note,
+            "pitch": pick.recording.key.pitch,
+            "velocity": pick.recording.key.velocity,
+            "members": pick.members,
+            "playing_s": pick.playing_s,
+            "dur_s": pick.recording.duration_s,
+        }
+        for pick in chosen.picks
     ]
 
 
