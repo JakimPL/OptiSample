@@ -44,11 +44,18 @@ class BudgetConfig(ConfigModel):
     ``max_samples`` is the most stored samples a plan may keep, which pitch-zone grouping meets by
     storing wider zones; :data:`EVERY_SAMPLE` keeps as many as the target format numbers. The cap is the
     grouped strategy's to honour, the ungrouped one keeping a recording per key it plays.
+
+    ``resolution`` is the most byte totals a partition walk resolves a budget into
+    (:func:`~optisample.optimize.dp.byte_grid`). The walk holds a row per total it can reach, so this is
+    what decides the table it fills and the time it takes, and it holds them steady as the packs grow:
+    the granularity follows the budget, and each zone gives up under one step of it. ``None`` walks every
+    budget to the byte, which is the exact allocation and costs a table the size of the pack.
     """
 
     method: Method
     energy_exponent: Annotated[float, Field(ge=0.0)]
     max_samples: Annotated[int, Field(ge=EVERY_SAMPLE)]
+    resolution: Annotated[int, Field(gt=0)] | None
 
 
 class VelocityConfig(ConfigModel):

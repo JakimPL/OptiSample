@@ -71,6 +71,7 @@ def _settings() -> OptimizeSettings:
         method=_CONFIG.optimize.budget.method,
         energy_exponent=_CONFIG.optimize.budget.energy_exponent,
         max_samples=_CONFIG.optimize.budget.max_samples,
+        resolution=_CONFIG.optimize.budget.resolution,
         target=export_target(_CONFIG.export.tracker),
     )
 

@@ -543,6 +543,7 @@ def _optimize_settings(
         method=budget.method,
         energy_exponent=budget.energy_exponent,
         max_samples=budget.max_samples,
+        resolution=budget.resolution,
         target=_export_target(config, args),
         seed=args.seed,
         workers=_workers(config, args),

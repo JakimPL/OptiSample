@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
-from optisample.optimize.dp import require_feasible
+from optisample.optimize.dp import ByteGrid, require_feasible
 from optisample.optimize.grouping.cost_model import (
     ZoneSegment,
     _Range,
@@ -33,7 +33,7 @@ class _Walk:
     """What the forward pass reached, and how it got there.
 
     ``distortion[stop][total]`` is the least distortion covering the first ``stop`` keys of the axis for
-    exactly ``total`` charged bytes; the two backpointer tables name the zone the walk arrived through --
+    exactly ``total`` charged steps; the two backpointer tables name the zone the walk arrived through --
     where it started, and which of that span's options it took.
     """
 
@@ -43,27 +43,35 @@ class _Walk:
 
     @property
     def covered(self) -> NDArray[np.float64]:
-        """The distortion each charged byte total reaches once every key on the axis is covered."""
+        """The distortion each charged step total reaches once every key on the axis is covered."""
         return self.distortion[-1]
 
 
-def _charged(option: ZoneOption, reserve: int) -> int:
+def _charged(option: ZoneOption, grid: ByteGrid, reserve: int) -> int:
     """What one zone costs the walk: the bytes it stores plus the reserve each stored sample is charged.
 
     Charging every stored sample above its own bytes is how a cap on the sample count is met: the walk
     then prefers fewer and wider zones, and the bytes the plan truly spends are read back off the options
     it chose (:func:`solve_grouping`).
+
+    The answer is in the steps ``grid`` walks the budget in, taken up to the step that holds the bytes
+    charged, so a partition the walk carries is one the budget carries.
     """
-    return option.stored_bytes + reserve
+    return grid.cost(option.stored_bytes + reserve)
 
 
-def _cheapest_partition_bytes(options: _ZoneOptions, starts: Sequence[Sequence[int]], reserve: int) -> int:
-    """Fewest charged bytes any partition can use (each zone at its smallest option) -- the feasibility floor."""
+def _cheapest_partition_steps(
+    options: _ZoneOptions,
+    starts: Sequence[Sequence[int]],
+    grid: ByteGrid,
+    reserve: int,
+) -> int:
+    """Fewest charged steps any partition can use (each zone at its smallest option) -- the feasibility floor."""
     count = len(starts) - 1
     dp = [0] + [np.iinfo(np.int64).max] * count
     for stop in range(1, count + 1):
         for start in starts[stop]:
-            cheapest = min(_charged(option, reserve) for option in options[(start, stop)])
+            cheapest = min(_charged(option, grid, reserve) for option in options[(start, stop)])
             dp[stop] = min(dp[stop], dp[start] + cheapest)
 
     return int(dp[count])
@@ -90,12 +98,12 @@ def _relax(
 def _forward_dp(
     options: _ZoneOptions,
     starts: Sequence[Sequence[int]],
-    budget_bytes: int,
+    grid: ByteGrid,
     reserve: int,
 ) -> _Walk:
-    """Fill the walk: least distortion covering the first ``j`` pitches in exactly ``b`` charged bytes."""
+    """Fill the walk: least distortion covering the first ``j`` pitches in exactly ``b`` charged steps."""
     count = len(starts) - 1
-    size = budget_bytes + 1
+    size = grid.steps + 1
     distortion = [np.full(size, np.inf, dtype=np.float64) for _ in range(count + 1)]
     distortion[0][0] = 0.0
     walk = _Walk(
@@ -106,8 +114,8 @@ def _forward_dp(
     for stop in range(1, count + 1):
         for start in starts[stop]:
             for index, option in enumerate(options[(start, stop)]):
-                cost = _charged(option, reserve)
-                if cost > budget_bytes:
+                cost = _charged(option, grid, reserve)
+                if cost > grid.steps:
                     continue
 
                 improved = _relax(walk.distortion[start], walk.distortion[stop], cost, option.distortion)
@@ -117,15 +125,15 @@ def _forward_dp(
     return walk
 
 
-def _reconstruct(options: _ZoneOptions, walk: _Walk, total: int, reserve: int) -> list[_Recovered]:
-    """Walk the backpointers from the fully covered axis at ``total`` charged bytes back to the start."""
+def _reconstruct(options: _ZoneOptions, walk: _Walk, total: int, grid: ByteGrid, reserve: int) -> list[_Recovered]:
+    """Walk the backpointers from the fully covered axis at ``total`` charged steps back to the start."""
     recovered: list[_Recovered] = []
     stop, budget = len(walk.distortion) - 1, total
     while stop > 0:
         start = int(walk.from_start[stop][budget])
         option = options[(start, stop)][int(walk.from_option[stop][budget])]
         recovered.append(_Recovered(start=start, stop=stop, option=option))
-        budget -= _charged(option, reserve)
+        budget -= _charged(option, grid, reserve)
         stop = start
 
     recovered.reverse()
@@ -160,11 +168,11 @@ def _layer_at(offsets: Sequence[int], position: int) -> int:
 def solve_grouping(
     segments: Sequence[ZoneSegment],
     options: Sequence[_ZoneOptions],
-    budget_bytes: int,
+    grid: ByteGrid,
     *,
     reserve: int,
 ) -> GroupingResult:
-    """Exact partition + allocation: least-distortion set of zones whose charged bytes fit ``budget_bytes``.
+    """Partition + allocation: least-distortion set of zones whose charged bytes fit the budget ``grid`` holds.
 
     The segments' keys are laid end to end into one axis and their option tables offset onto it, so the
     DP walks every layer in a single pass and the budget is shared across all of them. ``options`` holds
@@ -172,13 +180,18 @@ def solve_grouping(
     sparse, so the passes below step between the range boundaries :func:`zone_starts` reports as
     connected.
 
+    ``grid`` states the budget and the steps it is walked in, and every cost the walk prices is taken up
+    to the step above (:func:`_charged`), so the answer is exact over the byte totals the grid states and
+    fits the budget over every total there is. A grid of whole bytes states them all, which is the exact
+    allocation.
+
     ``reserve`` is what each stored sample is charged on top of the bytes it occupies (:func:`_charged`),
     which is the price a caller raises to draw the walk toward fewer zones; :data:`NO_RESERVE` leaves
     every option at its own size. The zones answered are the ones the walk chose and ``total_bytes`` the
     bytes they truly store, so the reserve shapes the partition and the plan reports what it holds.
 
     Raises:
-        BudgetInfeasibleError: when the cheapest partition's charged bytes overrun ``budget_bytes``.
+        BudgetInfeasibleError: when the cheapest partition's charged bytes overrun what the grid holds.
     """
     tasks = axis_tasks(segments)
     count = len(tasks)
@@ -187,11 +200,12 @@ def solve_grouping(
     combined = combined_options(segments, options)
     offsets = segment_offsets(segments)
     starts = zone_starts(combined, count)
-    require_feasible(_cheapest_partition_bytes(combined, starts, reserve), budget_bytes)
-    walk = _forward_dp(combined, starts, budget_bytes, reserve)
+    cheapest = _cheapest_partition_steps(combined, starts, grid, reserve)
+    require_feasible(grid.spent(cheapest), grid.usable_bytes)
+    walk = _forward_dp(combined, starts, grid, reserve)
     reachable = np.flatnonzero(np.isfinite(walk.covered))
-    best_bytes = int(reachable[int(np.argmin(walk.covered[reachable]))])
-    chosen = _reconstruct(combined, walk, best_bytes, reserve)
+    best_steps = int(reachable[int(np.argmin(walk.covered[reachable]))])
+    chosen = _reconstruct(combined, walk, best_steps, grid, reserve)
     zones = tuple(
         _build_zone(
             tasks,
@@ -205,5 +219,5 @@ def solve_grouping(
     return GroupingResult(
         zones=zones,
         total_bytes=sum(zone.option.stored_bytes for zone in chosen),
-        objective=float(walk.covered[best_bytes]),
+        objective=float(walk.covered[best_steps]),
     )

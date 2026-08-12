@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
 
-from optisample.optimize.dp import AllocationInfeasibleError, BudgetInfeasibleError
+from optisample.optimize.dp import AllocationInfeasibleError, BudgetInfeasibleError, ByteGrid
 from optisample.optimize.grouping.cost_model import ZoneSegment, _ZoneOptions
 from optisample.optimize.grouping.solve import solve_grouping
 from optisample.optimize.plans.grouped import NO_RESERVE, GroupingResult, SampleReserve
@@ -52,7 +52,7 @@ class _Search:
 
     segments: Sequence[ZoneSegment]
     options: Sequence[_ZoneOptions]
-    budget_bytes: int
+    grid: ByteGrid
     cap: int
     probe: ProgressStep
 
@@ -62,9 +62,11 @@ class _Search:
 
         A partition of more than ``cap`` zones pays the charge more than ``cap`` times, so a charge above
         the budget split ``cap + 1`` ways prices all of them past the budget and leaves the walk choosing
-        among the partitions the cap allows.
+        among the partitions the cap allows. The budget split is the one the walk may reach
+        (:attr:`~optisample.optimize.dp.ByteGrid.usable_bytes`), and a charge is only taken up from there,
+        so the ceiling prices a wider partition out on the grid as surely as it does to the byte.
         """
-        return self.budget_bytes // (self.cap + _ONE_ZONE) + 1
+        return self.grid.usable_bytes // (self.cap + _ONE_ZONE) + 1
 
     def within(self, result: GroupingResult) -> bool:
         """Whether ``result`` keeps at most the stored samples the cap allows."""
@@ -77,7 +79,7 @@ class _Search:
             BudgetInfeasibleError: when the cheapest partition's charged bytes overrun the budget.
         """
         self.probe()
-        return solve_grouping(self.segments, self.options, self.budget_bytes, reserve=reserve)
+        return solve_grouping(self.segments, self.options, self.grid, reserve=reserve)
 
     def narrow(self, kept: GroupingResult) -> tuple[int, GroupingResult]:
         """The smallest charge the search reaches that still holds the walk within the cap, and its plan.
@@ -106,16 +108,18 @@ class _Search:
 def solve_within_cap(
     segments: Sequence[ZoneSegment],
     options: Sequence[_ZoneOptions],
-    budget_bytes: int,
+    grid: ByteGrid,
     cap: int,
     *,
     probe: ProgressStep,
 ) -> CappedGrouping:
     """Solve the partition and allocation, held to at most ``cap`` stored samples across every layer.
 
-    The budget alone decides the plan whenever it already stores few enough samples, which is the case
-    every format-sized cap meets and the one that costs a single walk. A cap the free solve overruns is
-    met by charging each stored sample beyond its own bytes until the walk keeps at most ``cap`` of them:
+    ``grid`` is the budget and the steps every walk here prices against, settled once so the charges the
+    search compares are compared on one footing. The budget alone decides the plan whenever it already
+    stores few enough samples, which is the case every format-sized cap meets and the one that costs a
+    single walk. A cap the free solve overruns is met by charging each stored sample beyond its own bytes
+    until the walk keeps at most ``cap`` of them:
     :attr:`_Search.ceiling` is the charge that prices every wider partition out of the budget, and
     :meth:`_Search.narrow` then works back toward the smallest charge that still holds.
 
@@ -128,7 +132,7 @@ def solve_within_cap(
         BudgetInfeasibleError: when the budget carries no partition even before a charge is added.
         SampleCapInfeasibleError: when the charge meeting the cap leaves the budget carrying no partition.
     """
-    search = _Search(segments=segments, options=options, budget_bytes=budget_bytes, cap=cap, probe=probe)
+    search = _Search(segments=segments, options=options, grid=grid, cap=cap, probe=probe)
     free = search.walk(NO_RESERVE)
     if search.within(free):
         return CappedGrouping(
@@ -139,7 +143,7 @@ def solve_within_cap(
     try:
         charged = search.walk(search.ceiling)
     except BudgetInfeasibleError as error:
-        raise SampleCapInfeasibleError(cap, search.ceiling, budget_bytes) from error
+        raise SampleCapInfeasibleError(cap, search.ceiling, grid.usable_bytes) from error
 
     reserve, result = search.narrow(charged)
     return CappedGrouping(

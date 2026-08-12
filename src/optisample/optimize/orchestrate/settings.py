@@ -24,7 +24,8 @@ class OptimizeSettings:
     Carries the config the run needs -- the encoding sweep grid, how a recording is looped, the
     pre-optimization reductions, the velocity layering, the encode config, the fidelity metric's own config, the velocity-map shaping, the
     solver method, how steeply a note's own energy scales what its distortion costs
-    (:func:`~optisample.optimize.weighting.energy_weight`) and the most samples a plan may store -- all
+    (:func:`~optisample.optimize.weighting.energy_weight`), the most samples a plan may store and the
+    byte totals its budget is resolved into (:func:`~optisample.optimize.dp.byte_grid`) -- all
     sourced from config at the entry point. ``target`` is the tracker format the
     plan will be written as, which is what prices every stored sample the allocation considers and how
     many layers it may store. ``seed`` drives the dither RNG, ``workers`` how many processes the stages
@@ -44,6 +45,7 @@ class OptimizeSettings:
     method: Method
     energy_exponent: float
     max_samples: int
+    resolution: int | None
     target: ExportTarget
     loops: bool = LOOPS_OFFERED
     seed: int = DEFAULT_SEED

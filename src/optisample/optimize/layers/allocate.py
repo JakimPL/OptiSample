@@ -6,7 +6,7 @@ from typing import Final
 
 from optisample.io.tracker.target import ExportTarget
 from optisample.model import InstrumentSpec
-from optisample.optimize.dp import AllocationInfeasibleError
+from optisample.optimize.dp import AllocationInfeasibleError, ByteGrid, byte_grid
 from optisample.optimize.grouping.cost_model import ZoneSegment, _ZoneOptions, build_zone_options
 from optisample.optimize.grouping.reserve import PROBES_PER_SOLVE, solve_within_cap
 from optisample.optimize.layers.bands import VelocityBand, VelocityLayers, partitions, velocity_cells
@@ -54,6 +54,14 @@ class _Layering:
     def budget(self, instruments: int) -> BudgetBreakdown:
         """What the instrument may spend on samples once ``instruments`` records are reserved."""
         return split_budget(self.instrument.budget_kb, self.settings.target.storage, instruments)
+
+    def grid(self, budget: BudgetBreakdown) -> ByteGrid:
+        """The byte totals the walk resolves this split's sample budget into, at the run's resolution.
+
+        Every walk one split spends reads the same budget, so the grid is settled once and each of them
+        prices its options against it.
+        """
+        return byte_grid(budget.sample_bytes, self.settings.resolution)
 
     def instruments(self, widths: Sequence[int]) -> int:
         """How many instrument records a split reserves, from the keys each of its bands plays.
@@ -150,7 +158,7 @@ def _allocate(
     capped = solve_within_cap(
         bands,
         universe.options(place),
-        budget.sample_bytes,
+        layering.grid(budget),
         layering.settings.sample_cap,
         probe=probe,
     )

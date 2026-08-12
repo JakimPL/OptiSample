@@ -410,6 +410,7 @@ def optimize_settings(config: OptiConfig, target: ExportTarget) -> Callable[...,
             method=method if method is not None else config.optimize.budget.method,
             energy_exponent=config.optimize.budget.energy_exponent,
             max_samples=config.optimize.budget.max_samples if max_samples is None else max_samples,
+            resolution=config.optimize.budget.resolution,
             target=target,
             seed=seed,
         )

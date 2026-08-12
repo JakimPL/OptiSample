@@ -608,10 +608,29 @@ Samples:         8 stored of 8 allowed  (2371 B charged per sample, objective 24
 
 This is a Lagrangian relaxation of a count constraint, and it behaves like one: it answers with the best
 plan a charge induces, which the byte-vs-distortion frontier may leave a hair off the best plan of exactly
-N samples. The exact alternative — a zone-count axis in the DP — multiplies a table already ~1.5 GB at
-512 KiB by the cap. `--max-samples` overrides the cap for one run, and the cap a run works to is always
-held inside what the target format numbers. The ungrouped strategy keeps a recording per key it plays, so
-the cap is the grouped strategy's to meet.
+N samples. The exact alternative — a zone-count axis in the DP — multiplies the whole table by the cap.
+`--max-samples` overrides the cap for one run, and the cap a run works to is always held inside what the
+target format numbers. The ungrouped strategy keeps a recording per key it plays, so the cap is the
+grouped strategy's to meet.
+
+## Budget resolution: how finely the allocation counts
+
+The partition DP holds a row per byte total it can reach, so how long it runs and how much memory it takes
+follow the budget itself — a 512 KiB pack costs four times what a 128 KiB one does, on the same keyboard.
+`resolution` is how many byte totals it resolves a budget into:
+
+```yaml
+# src/opticonfig/optimize/budget.yaml
+resolution: 65536 # byte totals a partition walk resolves a budget into; null walks it to the byte
+```
+
+The step size follows the budget, so the table stays the same size whatever the pack costs, and each
+stored sample gives up under one step of the budget — a couple of hundred bytes of half a megabyte. Set
+it to `null` to walk every byte total, which is the exact allocation and what a run of a few keys gets
+anyway. The shipped value reads the same plan a walk to the byte reads, on a 62-key piano at both 128 KiB
+and 512 KiB, and turns twelve minutes of allocation into eighty-seven seconds. Lowering it further trades
+that plan for more speed: a quarter of the steps costs 0.03 % of the objective and runs in fifteen
+seconds.
 
 ## Usage
 
