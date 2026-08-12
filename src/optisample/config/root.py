@@ -1,5 +1,6 @@
 from optisample.config.analysis import AnalysisConfig
 from optisample.config.base import ConfigModel
+from optisample.config.cluster import ClusterConfig
 from optisample.config.codec import CodecConfig, EncodeConfig
 from optisample.config.export import ExportConfig
 from optisample.config.loop import LoopConfig
@@ -18,6 +19,7 @@ class OptiConfig(ConfigModel):
     """
 
     analysis: AnalysisConfig
+    cluster: ClusterConfig
     codec: CodecConfig
     loop: LoopConfig
     reduce: ReduceConfig
