@@ -389,6 +389,44 @@ worth **+5.4…+26.1 dB** segmental SNR (median ≈ +15 dB ≈ 2.5 bits), becaus
 setting the code range and the level travels as a curve instead. Carrying the loops in the same file is
 what lets a later stage store the region this run settled over the very audio it was settled on.
 
+### Reading the container back: clustered carrier instruments
+
+`optisample cluster` is what reads a `.sample` back. It takes a run a pipeline already wrote and turns it
+into instruments a tracker loads, choosing what to store by what the recordings *sound like* rather than by
+a byte budget:
+
+```bash
+optisample cluster artifacts --groups 8 --layers 2 --depth 8 --out artifacts/clustered
+```
+
+The velocity axis is cut first, into bands holding equal shares of the material's playing time. A tracker
+keymap names a key and nothing else, so a dynamic is told apart by the instrument a note plays through and
+**one band is one instrument** — which is why the split comes before any grouping. Each band's own
+recordings are then placed as a space (`cluster/space`) and cut into `--groups` groups (`cluster/instruments`), and the take
+standing for each group (the medoid, by default) becomes one stored sample. Keys between two takes are
+handed to whichever is nearer, so the written instrument answers the whole keyboard.
+
+What each sample stores is the **carrier**. The order matters and is the whole point:
+
+1. the one volume envelope the band carries is fitted from the recordings' own levels,
+2. each waveform is then that recording divided by the gain the written curve applies, and
+3. the balance between the waveforms is restored last, on the step the format keeps beside each sample.
+
+Nothing iterates: the level the envelope cannot state is exactly what stays in the waveform, by
+construction. That is what makes `--depth 8` worth asking for — the waveform is level-flat, so it spends
+the whole of a shallow grid on timbre, and the same set of recordings costs half the bytes.
+
+Beside the instruments the run writes `<instrument>.clustered.json` — the bands, the take standing for each
+group and how many recordings it answers for, the step written beside it, and **`dispersion_db`**, how far
+the furthest take stands from the curve they share. That last number is the reading that says whether a
+band was well chosen: near nothing where its recordings decline alike, large where they decline at rates of
+their own and would be better told apart. `auditions/` holds each waveform played out the way a tracker
+plays it — the region wrapped a few rounds under the curve above it — which is how the pair is judged by
+ear rather than read.
+
+A stage that settled no loops (`0_subset`) is split where it stands and stored as the span it plays, so the
+route runs on any dataset stage; `1_looped` is the one that hands it both the split and the loops at once.
+
 ### A held note that declines
 
 Wrapping a region holds one level forever, which suits an organ and lies about a piano. So the stage fits a

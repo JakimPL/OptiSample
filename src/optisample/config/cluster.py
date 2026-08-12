@@ -172,9 +172,28 @@ class PartitionConfig(ConfigModel):
         return self
 
 
+class InstrumentConfig(ConfigModel):
+    """How a cut sample space is written as the instruments a tracker loads.
+
+    ``layers`` is how many velocity bands the corpus is cut into before any of it is grouped. A tracker
+    keymap names a key and nothing else, so a dynamic is told apart by the instrument it plays through and
+    one band is written as one instrument -- which is why the axis is split first and the space is cut
+    inside each band.
+
+    ``rate`` and ``depth`` state what a stored carrier keeps. A waveform whose level has moved to the
+    envelope is level-flat, so it spends the whole of a shallow grid on timbre, which is what makes a depth
+    of eight worth asking for and halves what the same set of recordings costs.
+    """
+
+    layers: Annotated[int, Field(ge=1)]
+    rate: Annotated[int, Field(gt=0)]
+    depth: Annotated[int, Field(gt=0)]
+
+
 class ClusterConfig(StageConfig):
-    """How a set of recordings becomes a space of points, the groups it falls into, and their representatives."""
+    """How a set of recordings becomes a space of points, the groups it falls into, and what they are written as."""
 
     descriptor: DescriptorConfig
     space: SpaceConfig
     partition: PartitionConfig
+    instrument: InstrumentConfig

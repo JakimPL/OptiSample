@@ -34,6 +34,11 @@ def raw(**sections: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "representative": "medoid",
             "min_duration_s": 0.25,
         },
+        "instrument": {
+            "layers": 2,
+            "rate": 22_050,
+            "depth": 8,
+        },
     }
     return {name: {**fields, **sections.get(name, {})} for name, fields in base.items()}
 

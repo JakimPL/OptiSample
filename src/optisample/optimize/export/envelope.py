@@ -67,6 +67,36 @@ def shape_nodes(point_bound: Bound) -> int:
     return point_bound.maximum - _RELEASE_POINTS
 
 
+def played_gain(envelope: Envelope, *, tempo: int, frames: int, sample_rate: int) -> Series:
+    """What ``envelope`` multiplies a held voice by at each of ``frames``, on the clock ``tempo`` runs.
+
+    A tracker walks straight between two breakpoints in amplitude and holds the last one it reaches for
+    as long as the note is held, which is what a note sounding past the corner the shape closes on plays
+    at. Reading the curve this way states the gain the format actually applies, so a waveform divided by
+    it comes back out at the level the recording held.
+
+    The breakpoints up to the sustain point are the shape itself; the one past it carries a released note
+    to silence, so a note still sounding never reaches it.
+    """
+    shape = envelope.points[: envelope.length if envelope.sustain is None else envelope.sustain.begin + 1]
+    length = tick_seconds(tempo)
+    seconds = np.arange(frames, dtype=np.float64) / sample_rate
+    moments = np.asarray([point.tick * length for point in shape], dtype=np.float64)
+    values = np.asarray([point.value / MAX_VOLUME for point in shape], dtype=np.float64)
+    return np.asarray(np.interp(seconds, moments, values), dtype=np.float64)
+
+
+def sounding_gain(envelope: Envelope, *, tempo: int, frames: int, sample_rate: int) -> Series:
+    """:func:`played_gain` held at the quietest step that still sounds, so a division by it stays finite.
+
+    A moment the curve silences outright plays as silence whatever the waveform holds there, so a
+    recording divided by the gain its envelope applies is divided by this instead and the waveform stays
+    finite throughout.
+    """
+    gain = played_gain(envelope, tempo=tempo, frames=frames, sample_rate=sample_rate)
+    return np.maximum(gain, QUIETEST_STEP / MAX_VOLUME)
+
+
 def _grid_value(level_db: float) -> int:
     """The step a node holds ``level_db`` below unity at, on the format's own 0-64 amplitude grid.
 

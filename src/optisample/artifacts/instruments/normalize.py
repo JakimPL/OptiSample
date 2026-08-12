@@ -12,27 +12,24 @@ from optisample.dsp.envelope import decompose, level_reading
 from optisample.dsp.levels import gain_to_db, level_readings
 from optisample.dsp.piecewise import PiecewiseCurve, fit_piecewise
 from optisample.dsp.quantize import headroom_peak, normalize_peak
-from optisample.dsp.series import Readings, Series
+from optisample.dsp.series import Readings
 from optisample.dsp.trajectory import reading_window_s
 from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.base import Signal
 from optisample.music import midi_to_freq, sounded_note
 from optisample.optimize.export.coverage import covered_routing
 from optisample.optimize.export.envelope import (
-    QUIETEST_STEP,
     EnvelopeGrid,
     shape_nodes,
+    sounding_gain,
     volume_envelope,
 )
-from trackmod.core.envelopes.envelope import Envelope
 from trackmod.core.instruments.instrument import Instrument
 from trackmod.core.instruments.keymap import KeyAssignment, Keymap, routed_keymap
 from trackmod.core.instruments.unit import InstrumentUnit
 from trackmod.core.samples.depth import BitDepth
 from trackmod.core.samples.sample import Sample
-from trackmod.core.timing.clock import tick_seconds
 from trackmod.limits.bound import Bound
-from trackmod.spec.levels import MAX_VOLUME
 
 STORED_DEPTH: Final = BitDepth.SIXTEEN  # the depth a reference rendering of a recording keeps its timbre at
 
@@ -96,25 +93,6 @@ def level_curve(recording: NormalizedRecording, target: ExportTarget) -> Piecewi
     that leaves -- twenty-four for Impulse Tracker, eleven for FastTracker 2.
     """
     return fit_piecewise(recording.levels, nodes=shape_nodes(target.envelope_point_bound))
-
-
-def played_gain(envelope: Envelope, *, tempo: int, frames: int, sample_rate: int) -> Series:
-    """What ``envelope`` multiplies a held voice by at each of ``frames``, on the clock ``tempo`` runs.
-
-    A tracker walks straight between two breakpoints in amplitude and holds the last one it reaches for
-    as long as the note is held, which is what a note sounding past the corner the shape closes on plays
-    at. Reading the curve this way states the gain the format actually applies, so a waveform divided by
-    it comes back out at the level the recording held.
-
-    The breakpoints up to the sustain point are the shape itself; the one past it carries a released note
-    to silence, so a note still sounding never reaches it.
-    """
-    shape = envelope.points[: envelope.length if envelope.sustain is None else envelope.sustain.begin + 1]
-    length = tick_seconds(tempo)
-    seconds = np.arange(frames, dtype=np.float64) / sample_rate
-    moments = np.asarray([point.tick * length for point in shape], dtype=np.float64)
-    values = np.asarray([point.value / MAX_VOLUME for point in shape], dtype=np.float64)
-    return np.asarray(np.interp(seconds, moments, values), dtype=np.float64)
 
 
 @dataclass(frozen=True)
@@ -241,13 +219,12 @@ def recording_instrument(
     """
     curve = level_curve(recording, target)
     envelope = volume_envelope(curve, grid, peak_db=curve.peak)
-    gain = played_gain(
+    sounding = sounding_gain(
         envelope,
         tempo=grid.tempo,
         frames=int(recording.signal.size),
         sample_rate=recording.sample_rate,
     )
-    sounding = np.maximum(gain, QUIETEST_STEP / MAX_VOLUME)
     hot, room = normalize_peak(recording.signal / sounding, headroom_peak(headroom_db))
     level = stored_level(room, steps=target.sample_level_bounds)
     levels = target.sample_levels(level.steps)

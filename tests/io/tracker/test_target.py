@@ -12,7 +12,7 @@ from optisample.config.tracker import (
     TrackerFormat,
     XMTrackerConfig,
 )
-from optisample.io.tracker.target import ExportTarget, export_target
+from optisample.io.tracker.target import ExportTarget, balanced_gains, export_target, sample_label
 from trackmod.core.effects.effect import Effect
 from trackmod.core.instruments.instrument import Instrument
 from trackmod.core.instruments.keymap import KeyAssignment, routed_keymap
@@ -28,6 +28,7 @@ from trackmod.core.songs.playback import Playback
 from trackmod.core.songs.song import Song
 from trackmod.limits.capability import Capability
 from trackmod.limits.compliance import Compliance
+from trackmod.spec.levels import MAX_VOLUME
 from trackmod.spec.pitch import RATE_NOTE
 
 _KEY = Note(RATE_NOTE)
@@ -230,3 +231,41 @@ def test_a_pattern_below_the_canonical_floor_is_reported(target: ExportTarget) -
     module = target.bind(song(target.min_rows - 1))
     assert module.violations()  # the floor is what the exporter pads material up to
     assert target.bind(song(target.min_rows)).violations() == ()
+
+
+# --- how a set of samples is balanced and named -------------------------------------------------------------
+
+
+def test_the_sample_asking_for_most_takes_the_top_step(target: ExportTarget) -> None:
+    """Every sample is stored hot, so the balance between them is restored on the step beside each."""
+    assert balanced_gains([1.0, 0.5, 0.25], target) == (MAX_VOLUME, MAX_VOLUME // 2, MAX_VOLUME // 4)
+
+
+def test_a_sample_far_under_the_loudest_is_heard_rather_than_silenced(target: ExportTarget) -> None:
+    """The softest step that still sounds is the floor, so a quiet sample keeps a voice."""
+    assert balanced_gains([1.0, 1e-6], target)[1] == 1
+
+
+def test_a_format_pinning_its_gain_reports_the_top_step_throughout(
+    retarget: Callable[[TrackerFormat], ExportTarget],
+) -> None:
+    """FastTracker 2 keeps no per-sample multiplier, so its balance rides in the PCM instead."""
+    assert balanced_gains([1.0, 0.25], retarget(TrackerFormat.XM)) == (MAX_VOLUME, MAX_VOLUME)
+
+
+def test_a_set_holding_nothing_is_balanced_against_nothing(target: ExportTarget) -> None:
+    """An empty set states no steps, which is what a caller with no samples writes."""
+    assert balanced_gains([], target) == ()
+
+
+def test_a_sample_is_named_for_the_recording_it_holds() -> None:
+    """One key may be stored once per velocity band, so the name states the dynamic as well as the note."""
+    assert sample_label("Piano", pitch=60, velocity=100) == "Piano C4 v100"
+
+
+def test_a_long_instrument_id_is_cut_to_the_field_that_holds_it() -> None:
+    """The whole name fits the narrowest field a target format keeps for it."""
+    name = sample_label("AnUnreasonablyLongInstrumentName", pitch=60, velocity=100)
+
+    assert name.endswith(" C4 v100")
+    assert len(name) <= 22

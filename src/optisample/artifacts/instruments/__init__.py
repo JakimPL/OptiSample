@@ -13,7 +13,6 @@ from optisample.artifacts.instruments.normalize import (
     StoredLevel,
     level_curve,
     normalized_recording,
-    played_gain,
     recording_instrument,
     stored_level,
 )
@@ -37,7 +36,6 @@ __all__ = [
     "dataset_recordings",
     "level_curve",
     "normalized_recording",
-    "played_gain",
     "recording_instrument",
     "stored_level",
     "write_dataset_instruments",

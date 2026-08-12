@@ -10,7 +10,6 @@ from optisample.artifacts.instruments.normalize import (
     NormalizedRecording,
     level_curve,
     normalized_recording,
-    played_gain,
     recording_instrument,
     stored_level,
 )
@@ -20,7 +19,7 @@ from optisample.dsp.levels import gain_to_db, level_readings, peak_amplitude
 from optisample.dsp.quantize import headroom_peak
 from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.base import Signal
-from optisample.optimize.export.envelope import EnvelopeGrid, envelope_grid
+from optisample.optimize.export.envelope import EnvelopeGrid, envelope_grid, played_gain
 from tests.artifacts.instruments.conftest import ROOT_PITCH, Recorder
 from trackmod.core.instruments.unit import InstrumentUnit
 from trackmod.core.notes.pitch import Note
@@ -263,21 +262,6 @@ def test_the_instrument_writes_as_a_standalone_file(
     written = target.instrument_file(_unit(normalized, target, grid_for, encode_config))
     assert written.violations() == ()
     assert len(written.to_bytes()) == written.size().total
-
-
-def test_the_curve_is_held_at_its_last_corner_past_the_recording(
-    normalized: NormalizedRecording,
-    target: ExportTarget,
-    grid_for: Grids,
-    encode_config: EncodeConfig,
-) -> None:
-    """A note held past the shape stays where the shape left it, which is what a tracker's last node does."""
-    grid = grid_for(target)
-    envelope = _unit(normalized, target, grid_for, encode_config).instrument.volume_envelope
-    assert envelope is not None
-    frames = int(normalized.signal.size)
-    held = played_gain(envelope, tempo=grid.tempo, frames=frames * 2, sample_rate=normalized.sample_rate)
-    assert held[frames:] == pytest.approx(held[-1])
 
 
 @pytest.mark.parametrize("decay_db", [12.0, 30.0])

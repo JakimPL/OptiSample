@@ -1,14 +1,13 @@
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
-from typing import Final
 
 import numpy as np
 
 from optisample.config.codec import EncodeConfig
 from optisample.dsp.surrogate import NO_LOOPS, EncodeContext, StoredSample, encode
-from optisample.io.tracker.target import ExportTarget
+from optisample.io.tracker.target import ExportTarget, balanced_gains, sample_label
 from optisample.metrics.base import Signal
-from optisample.music import note_name, sounded_note
+from optisample.music import sounded_note
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.coverage import covered_routing
 from optisample.optimize.layers.slots import InstrumentSlot, SlotLayout
@@ -20,10 +19,6 @@ from trackmod.core.notes.pitch import Note
 from trackmod.core.samples.loop import Loop
 from trackmod.core.samples.sample import Sample
 from trackmod.spec.levels import MAX_VOLUME
-
-_SAMPLE_LABEL_CHARS: Final = 13  # instrument-id chars kept before the " <note> v<velocity>" suffix, XM's 22.
-_UNIT_GAIN: Final = 1.0  # what a sample stored without scaling plays back at
-_QUIETEST_GAIN: Final = 1  # the softest step that still sounds, so a quiet sample is heard rather than dropped
 
 
 @dataclass(frozen=True)
@@ -101,30 +96,17 @@ def sample_gains(
 ) -> tuple[int, ...]:
     """Each sample's playback multiplier, scaled so the one needing most of it takes the top step.
 
-    Every sample is stored as hot as its own depth allows, which spends the whole grid on one recording
-    and leaves the instrument flat -- a naturally quiet key comes back as loud as a bright one. The 0-64
-    gain the format keeps per sample is where that balance is restored (see :func:`_makeup`), stated
-    relative to the sample asking for the most so the whole set fits the steps available. A format
-    pinning the gain to full scale carries the balance in the PCM instead, so every sample there reports
-    the same top step.
+    What each sample asks for is read against the velocity map the same plan writes into the patterns
+    (:func:`_makeup`), and the set is then stated across the steps the format keeps
+    (:func:`~optisample.io.tracker.target.balanced_gains`).
     """
-    if not target.stores_sample_gain:
-        return tuple(MAX_VOLUME for _ in encoded)
-
-    makeups = [_makeup(unit, stored, velocity_map) for unit, stored in encoded]
-    loudest = max(makeups, default=_UNIT_GAIN)
-    return tuple(max(_QUIETEST_GAIN, round(MAX_VOLUME * makeup / loudest)) for makeup in makeups)
+    return balanced_gains([_makeup(unit, stored, velocity_map) for unit, stored in encoded], target)
 
 
 def sample_name(instrument_id: str, unit: SampleUnit) -> str:
-    """The stored sample's display name: the instrument, shortened, plus the recording it holds.
-
-    Naming the recording rather than the key tells the samples of a layered instrument apart, since one
-    key stores a recording per velocity band and the tracker lists them side by side. The whole name fits
-    the narrowest field a target format keeps for it.
-    """
+    """The stored sample's display name, taken from the recording the unit re-encodes."""
     key = unit.representative_key
-    return f"{instrument_id[:_SAMPLE_LABEL_CHARS]} {note_name(key.pitch)} v{key.velocity}"
+    return sample_label(instrument_id, pitch=key.pitch, velocity=key.velocity)
 
 
 def _unit_assignments(unit: SampleUnit, sample: int, target: ExportTarget) -> dict[Note, KeyAssignment]:

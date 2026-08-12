@@ -11,7 +11,14 @@ from optisample.dsp.series import Series
 from optisample.dsp.trajectory import SharedTrajectory
 from optisample.optimize.export.build import loudest_db, slot_envelope
 from optisample.optimize.export.context import ExportContext
-from optisample.optimize.export.envelope import NO_ENVELOPE, EnvelopeGrid, shape_nodes, volume_envelope
+from optisample.optimize.export.envelope import (
+    NO_ENVELOPE,
+    EnvelopeGrid,
+    played_gain,
+    shape_nodes,
+    sounding_gain,
+    volume_envelope,
+)
 from optisample.optimize.export.voices import NO_SHAPE
 from optisample.optimize.plans import InstrumentPlan
 from trackmod.core.envelopes.curve import Breakpoint, timed_envelope
@@ -260,3 +267,72 @@ def test_the_written_module_plays_a_looped_note_down_rather_than_ringing(
     assert any(loops), "the demo plan stores no loop, so this test would prove nothing"
     assert all(envelope is not None for envelope in envelopes)
     assert any(min(_shape_points(envelope)) < MAX_VOLUME for envelope in envelopes if envelope is not None)
+
+
+# --- what a written curve multiplies a held voice by ----------------------------------------------------------
+
+
+def _held_envelope() -> Envelope:
+    """A curve falling over four ticks and sustaining there, which is the shape a struck note is written as."""
+    return timed_envelope(
+        (
+            Breakpoint(seconds=0.0, value=MAX_VOLUME),
+            Breakpoint(seconds=4 * _TICK_S, value=MAX_VOLUME // 4),
+            Breakpoint(seconds=8 * _TICK_S, value=MIN_VOLUME),
+        ),
+        tempo=_TEMPO,
+        tick_bound=_TICKS,
+        value_bound=_VOLUME,
+        sustain=EnvelopeSpan(begin=1, end=1),
+    )
+
+
+def test_the_gain_walks_straight_in_amplitude_between_two_corners() -> None:
+    """A tracker interpolates its envelope in amplitude, so the gain read back is the straight line."""
+    rate = 1000
+    frames = round(4 * _TICK_S * rate)
+    gain = played_gain(_held_envelope(), tempo=_TEMPO, frames=frames, sample_rate=rate)
+
+    assert gain[0] == pytest.approx(1.0)
+    assert gain[-1] == pytest.approx(0.25, abs=0.01)
+    assert np.all(np.diff(gain) <= 0.0)
+    assert gain == pytest.approx(np.linspace(gain[0], gain[-1], frames), abs=0.01)
+
+
+def test_a_voice_held_past_the_shape_stays_where_the_shape_left_it() -> None:
+    """The breakpoint past the sustain carries a released note, so a held one never reaches it."""
+    rate = 1000
+    reached = round(4 * _TICK_S * rate)
+    gain = played_gain(_held_envelope(), tempo=_TEMPO, frames=reached * 2, sample_rate=rate)
+
+    assert gain[reached:] == pytest.approx(gain[-1])
+    assert gain[-1] == pytest.approx(0.25, abs=0.01)
+
+
+def test_a_curve_written_for_a_faster_clock_falls_over_less_time() -> None:
+    """Ticks are what a format counts envelope time in, so the curve holds only for the tempo it was written for."""
+    rate = 1000
+    frames = round(4 * tick_seconds(_TEMPO) * rate)
+    slower = played_gain(_held_envelope(), tempo=_TEMPO, frames=frames, sample_rate=rate)
+    faster = played_gain(_held_envelope(), tempo=_TEMPO * 2, frames=frames, sample_rate=rate)
+
+    assert faster[-1] < slower[-1]
+
+
+def test_the_sounding_gain_stays_above_the_step_that_silences_a_voice() -> None:
+    """A moment the curve silences plays as silence, so dividing a recording by it stays finite."""
+    rate = 1000
+    silencing = timed_envelope(
+        (Breakpoint(seconds=0.0, value=MAX_VOLUME), Breakpoint(seconds=4 * _TICK_S, value=MIN_VOLUME)),
+        tempo=_TEMPO,
+        tick_bound=_TICKS,
+        value_bound=_VOLUME,
+        sustain=EnvelopeSpan(begin=1, end=1),
+    )
+    frames = round(8 * _TICK_S * rate)
+    played = played_gain(silencing, tempo=_TEMPO, frames=frames, sample_rate=rate)
+    sounding = sounding_gain(silencing, tempo=_TEMPO, frames=frames, sample_rate=rate)
+
+    assert np.min(played) == pytest.approx(0.0)
+    assert np.all(sounding >= _QUIETEST_STEP / MAX_VOLUME)
+    assert np.all(np.isfinite(1.0 / sounding))

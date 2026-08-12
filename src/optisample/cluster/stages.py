@@ -17,7 +17,7 @@ from optisample.io.note_extractor import NOTES_SUFFIX, IngestSettings
 from optisample.io.source import load_source
 from optisample.keys import SampleKey, sample_key
 from optisample.metrics.base import Signal
-from optisample.model import InstrumentSpec, Manifest, ProjectSpec, SourceSample
+from optisample.model import InstrumentSpec, Manifest, NoteEvent, ProjectSpec, SourceSample
 from optisample.music import midi_to_freq, note_name, pitch_label
 from optisample.optimize.orchestrate.audio import decode_recordings
 from optisample.optimize.plans import zone_unit_label
@@ -174,6 +174,25 @@ def stage_dataset(root: Path, stage: Stage, instrument_id: str) -> SourceDataset
         raise ValueError(f"stage {stage.value} holds stored samples, which its plan names rather than a manifest")
 
     return _dataset(stage_dir(pipeline_paths(root), stage), instrument_id)
+
+
+def stage_material(root: Path, stage: Stage, settings: StageSettings) -> tuple[NoteEvent, ...]:
+    """The notes the music plays through ``stage``'s dataset, which is what its dynamics are cut on.
+
+    A stage's manifest names one played note per note of the performance, so what comes back states how
+    long the instrument spends at every velocity it was struck at -- the reading a velocity axis is split
+    on (:func:`~optisample.optimize.layers.bands.velocity_cells`).
+
+    Raises:
+        ValueError: when ``stage`` holds what an allocation stored, which its plan names rather than a
+            manifest.
+    """
+    if not stage.is_dataset:
+        raise ValueError(f"stage {stage.value} holds stored samples, which its plan names rather than material")
+
+    directory = stage_dir(pipeline_paths(root), stage)
+    instrument = _one_instrument(load_source(_dataset(directory, settings.instrument_id), _ingest(settings)))
+    return tuple(instrument.material)
 
 
 def available_instruments(root: Path) -> tuple[str, ...]:

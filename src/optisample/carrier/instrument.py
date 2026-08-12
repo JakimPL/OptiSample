@@ -1,0 +1,160 @@
+from __future__ import annotations
+
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Final
+
+import numpy as np
+
+from optisample.carrier.shape import NO_SHAPE, carrier_shape
+from optisample.carrier.source import CarrierSource
+from optisample.carrier.store import CarrierSettings, StoredCarrier, store_carrier
+from optisample.dsp.surrogate import StoredSample
+from optisample.io.tracker.target import ExportTarget, balanced_gains, sample_label
+from optisample.music import sounded_note
+from optisample.optimize.export.coverage import covered_routing
+from optisample.optimize.export.envelope import NO_ENVELOPE, EnvelopeGrid, shape_nodes, volume_envelope
+from trackmod.core.envelopes.envelope import Envelope
+from trackmod.core.instruments.instrument import Instrument
+from trackmod.core.instruments.keymap import KeyAssignment, Keymap, routed_keymap
+from trackmod.core.instruments.unit import InstrumentUnit
+from trackmod.core.notes.pitch import Note
+from trackmod.core.samples.loop import Loop
+from trackmod.core.samples.sample import Sample
+
+NO_DISPERSION: Final = 0.0  # what one envelope costs a set carrying none
+
+_BITS_PER_BYTE: Final = 8
+
+
+@dataclass(frozen=True)
+class WrittenShape:
+    """The one curve a set of recordings is written under, beside what sharing it costs them.
+
+    ``dispersion_db`` is how far the furthest source stands from the shape, which is the reading that says
+    whether the set was well chosen to be written together -- large where the recordings decline at rates
+    of their own, near nothing where they decline alike.
+    """
+
+    envelope: Envelope | None
+    dispersion_db: float
+
+
+@dataclass(frozen=True)
+class CarrierInstrument:
+    """A set of recordings written as one instrument: the waveforms, and what the shared curve cost them.
+
+    ``unit`` is the instrument a format writes as a standalone file. ``stored`` and ``gains`` stand in the
+    order the unit numbers its samples, so a caller reports each waveform beside the step written for it.
+    """
+
+    unit: InstrumentUnit
+    stored: tuple[StoredCarrier, ...]
+    gains: tuple[int, ...]
+    shape: WrittenShape
+
+    @property
+    def dispersion_db(self) -> float:
+        """How far the furthest source stands from the one envelope this instrument plays them through."""
+        return self.shape.dispersion_db
+
+    @property
+    def stored_bytes(self) -> int:
+        """What the waveforms occupy, which is what this many samples cost before any record is counted."""
+        return sum(carrier.stored.frames * carrier.stored.depth_bits // _BITS_PER_BYTE for carrier in self.stored)
+
+
+def _stored_loop(stored: StoredSample) -> Loop | None:
+    """The stored sample's loop as the half-open frame range a tracker repeats."""
+    return None if stored.loop is None else Loop(begin=stored.loop.start, end=stored.loop.end)
+
+
+def _routing(sources: Sequence[CarrierSource], target: ExportTarget) -> dict[Note, KeyAssignment]:
+    """Each source's own key routed to the waveform holding it, sounding the pitch that key is named for.
+
+    A source states one key of its own, so what this builds is the keyboard as the set was recorded.
+    Widening it to every key the format numbers is what
+    :func:`~optisample.optimize.export.coverage.covered_routing` then does, handing each stretch between
+    two recordings to whichever of them is nearer.
+    """
+    routing: dict[Note, KeyAssignment] = {}
+    for sample, source in enumerate(sources):
+        key = target.key(source.root_pitch)
+        routing[key] = KeyAssignment(sample=sample, note=sounded_note(key, key))
+
+    return routing
+
+
+def carrier_keymap(sources: Sequence[CarrierSource], target: ExportTarget) -> Keymap:
+    """Every key ``target`` numbers routed to the source nearest it, each sounding its own pitch."""
+    return routed_keymap(covered_routing(_routing(sources, target), target))
+
+
+def written_shape(sources: Sequence[CarrierSource], *, target: ExportTarget, grid: EnvelopeGrid) -> WrittenShape:
+    """The volume curve an instrument built from ``sources`` carries, beside what sharing it costs.
+
+    The shape is fitted from the sources' own levels and written against its own loudest moment, since the
+    level each source stands at is restored by the step beside its own waveform rather than by the curve.
+    A set holding nothing long enough to read leaves ``NO_ENVELOPE``, which sounds every waveform as it
+    stands and costs its sources nothing.
+    """
+    shape = carrier_shape(sources, nodes=shape_nodes(target.envelope_point_bound))
+    if shape is NO_SHAPE:
+        return WrittenShape(envelope=NO_ENVELOPE, dispersion_db=NO_DISPERSION)
+
+    return WrittenShape(
+        envelope=volume_envelope(shape.curve, grid, peak_db=shape.curve.peak),
+        dispersion_db=shape.dispersion_db,
+    )
+
+
+def carrier_instrument(
+    sources: Sequence[CarrierSource],
+    *,
+    instrument_id: str,
+    name: str,
+    settings: CarrierSettings,
+) -> CarrierInstrument:
+    """``sources`` written as one instrument whose samples hold timbre and whose envelope holds the level.
+
+    The order the work runs in is the point of it. The shape is fitted first, from the levels the
+    recordings themselves hold (:func:`written_shape`); each waveform is then the recording divided by what
+    that written curve plays it down by (:func:`~optisample.carrier.store.store_carrier`); and the balance
+    between the waveforms is restored last, on the step the format keeps beside each sample
+    (:func:`~optisample.io.tracker.target.balanced_gains`). Nothing iterates -- the level the envelope
+    cannot state is exactly what stays in the waveform, by construction.
+
+    Sources are encoded in order from one seeded generator, so the bytes a set is written as reproduce.
+
+    Raises:
+        ValueError: when the sources were read at rates that differ, or when one is worth nothing to the
+            instrument sharing the shape.
+    """
+    shape = written_shape(sources, target=settings.target, grid=settings.grid)
+    rng = np.random.default_rng(settings.seed)
+    stored = tuple(store_carrier(source, shape.envelope, settings=settings, rng=rng) for source in sources)
+    gains = balanced_gains([carrier.playback_gain for carrier in stored], settings.target)
+    samples = tuple(
+        Sample(
+            name=sample_label(instrument_id, pitch=carrier.source.root_pitch, velocity=carrier.source.key.velocity),
+            pcm=carrier.stored.pcm,
+            rate=carrier.stored.sample_rate,
+            depth=carrier.stored.depth,
+            gain=gain,
+            loop=_stored_loop(carrier.stored),
+        )
+        for carrier, gain in zip(stored, gains)
+    )
+    return CarrierInstrument(
+        unit=InstrumentUnit(
+            instrument=Instrument(
+                name=name,
+                keymap=carrier_keymap(sources, settings.target),
+                volume_envelope=shape.envelope,
+            ),
+            samples=samples,
+        ),
+        stored=stored,
+        gains=gains,
+        shape=shape,
+    )

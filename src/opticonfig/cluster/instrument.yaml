@@ -1,0 +1,4 @@
+# How a cut sample space is written as instruments (optisample.config.cluster.InstrumentConfig).
+layers: 2     # velocity bands the corpus is cut into, one instrument answering each
+rate: 22050   # the rate a stored carrier keeps
+depth: 8      # bits a stored carrier keeps, which handing its level to the envelope is what affords

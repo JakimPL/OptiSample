@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Final
 
 from optisample.config.tracker import TrackerConfig, TrackerFormat
+from optisample.music import note_name
 from trackmod.core.instruments.unit import InstrumentUnit
 from trackmod.core.notes.command import NoteCommand
 from trackmod.core.notes.pitch import Note
@@ -31,6 +32,9 @@ from trackmod.trackers.xm.spec.identity import INSTRUMENT_EXTENSION as XM_INSTRU
 from trackmod.trackers.xm.spec.storage import XM_STORAGE
 
 _ON_THE_ROW: Final = 0
+_SAMPLE_LABEL_CHARS: Final = 13  # instrument-id chars kept before the " <note> v<velocity>" suffix, XM's 22
+_UNIT_MAKEUP: Final = 1.0  # what a set holding nothing states as the level it is balanced against
+_QUIETEST_STEP: Final = 1  # the softest step that still sounds, so a quiet sample is heard rather than dropped
 
 
 @dataclass(frozen=True)
@@ -265,6 +269,35 @@ class ExportTarget:
                 return Cell(note=NoteCommand.CUT)
             case TrackerFormat.XM:
                 return Cell(effect=XM_EFFECTS.note_cut(_ON_THE_ROW))
+
+
+def sample_label(instrument_id: str, *, pitch: int, velocity: int) -> str:
+    """The name a tracker's own sample list calls one stored recording.
+
+    Naming the recording rather than the key tells the samples of a layered instrument apart, since one
+    key may be stored once per velocity band and the tracker lists them side by side. The whole name fits
+    the narrowest field a target format keeps for it.
+    """
+    return f"{instrument_id[:_SAMPLE_LABEL_CHARS]} {note_name(pitch)} v{velocity}"
+
+
+def balanced_gains(makeups: Sequence[float], target: ExportTarget) -> tuple[int, ...]:
+    """``makeups`` as the per-sample steps ``target`` keeps, scaled so the largest takes the top one.
+
+    Every sample of a set is stored as hot as its own depth allows, which spends the whole grid on one
+    recording and leaves the instrument flat -- a naturally quiet key comes back as loud as a bright one.
+    The per-sample level the format keeps is where that balance is restored, stated relative to the sample
+    asking for the most of it so the whole set fits the steps available. A format pinning that level to
+    full scale carries the balance in the PCM instead, so every sample there reports the same top step.
+
+    The softest step that still sounds is the floor, so a sample far under the loudest is heard quietly
+    rather than silenced outright.
+    """
+    if not target.stores_sample_gain:
+        return tuple(MAX_VOLUME for _ in makeups)
+
+    loudest = max(makeups, default=_UNIT_MAKEUP)
+    return tuple(max(_QUIETEST_STEP, round(MAX_VOLUME * makeup / loudest)) for makeup in makeups)
 
 
 def export_target(config: TrackerConfig) -> ExportTarget:

@@ -17,7 +17,7 @@ _LOOPS_DIR: Final = "loops"
 _LOOPS_JSON: Final = "loops.json"
 _MODULE_STEM: Final = "module"
 _CONTAINER_EXTENSION: Final = ".bank"
-_SAMPLE_EXTENSION: Final = ".sample"
+SAMPLE_EXTENSION: Final = ".sample"
 _SUBSET_STAGE: Final = "0_subset"
 _LOOPED_STAGE: Final = "1_looped"
 _REDUCED_STAGE: Final = "2_reduced"
@@ -84,7 +84,7 @@ class LoopedPaths:
         level scales, together with the loops settled over it, so the pair sits with the audio it was
         measured from the way a bank's manifest sits with the waveforms it names.
         """
-        return self.samples_dir / f"{stem}{_SAMPLE_EXTENSION}"
+        return self.samples_dir / f"{stem}{SAMPLE_EXTENSION}"
 
 
 def looped_paths(out_dir: Path, instrument_id: str) -> LoopedPaths:

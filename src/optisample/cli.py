@@ -2,21 +2,15 @@ import argparse
 import cProfile
 import pstats
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from pathlib import Path
 from typing import Final, get_args
 
 from optisample.artifacts import (
-    DumpResult,
     DumpSettings,
     InstrumentSettings,
-    ListeningSet,
-    LoopedInstrumentArtifacts,
     PipelineSettings,
-    ReducedInstrument,
-    SlicedDataset,
     SliceSettings,
-    WrittenInstruments,
     dump_project,
     loop_project,
     rank_listening_set,
@@ -27,14 +21,14 @@ from optisample.artifacts import (
     write_slice,
 )
 from optisample.calibrate.ranking import (
-    MetricAgreement,
-    PairAxis,
     PairQuota,
     RankingGrid,
-    RankingReport,
     RankingSettings,
 )
+from optisample.cluster.instruments import ClusterSettings, write_clustered
+from optisample.cluster.stages import Stage, StageSettings, available_instruments
 from optisample.config import OptiConfig, load_config
+from optisample.config.cluster import ClusterConfig
 from optisample.config.layers import LayersConfig
 from optisample.config.optimize import BudgetConfig, SweepConfig
 from optisample.config.ranking import RankingQuotaConfig
@@ -42,14 +36,24 @@ from optisample.config.reduce import DedupeKey, ReduceConfig
 from optisample.config.render import Interpolation
 from optisample.config.subset import IntakeConfig
 from optisample.config.tracker import TrackerConfig, TrackerFormat
-from optisample.io.dataset import SourceDataset, SubsetDataset, instrument_name
+from optisample.console import (
+    plan_total,
+    print_clustered,
+    print_instruments,
+    print_listening,
+    print_looped,
+    print_plans,
+    print_ranking,
+    print_reduced,
+    print_subset,
+)
+from optisample.io.dataset import SourceDataset, instrument_name
 from optisample.io.note_extractor import IngestSettings
 from optisample.io.source import load_source
 from optisample.io.tracker.target import ExportTarget, export_target
 from optisample.metrics.composite import build_composite
 from optisample.model import ProjectSpec
 from optisample.optimize.orchestrate.settings import OptimizeSettings
-from optisample.optimize.reduce.trim import RecordingScreen
 from optisample.progress import ProgressSink, bars_are_watchable, progress_sink
 from optisample.seed import DEFAULT_SEED
 from optisample.synth import DemoSettings, generate_demo
@@ -64,6 +68,8 @@ _LOOPED_OUT: Final = Path("looped")
 _REDUCED_OUT: Final = Path("reduced")
 _SUBSET_OUT: Final = Path("subset")
 _LISTENING_OUT: Final = _ARTIFACTS_OUT / "listening"
+_CLUSTERED_OUT: Final = _ARTIFACTS_OUT / "clustered"
+_DATASET_STRATEGY: Final = "grouped"  # a dataset stage names no allocation, so the strategy stands unread
 
 
 def _config_parser() -> argparse.ArgumentParser:
@@ -377,6 +383,54 @@ def _describe_instruments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _describe_cluster(parser: argparse.ArgumentParser) -> None:
+    """Add what writing a run's recordings as clustered carrier instruments asks for."""
+    parser.add_argument(
+        "run_root",
+        type=Path,
+        help="The run root a chained pipeline wrote its stages under (the parent of 0_subset, 1_looped, ...)",
+    )
+    parser.add_argument(
+        "--stage",
+        choices=[stage.value for stage in Stage if stage.is_dataset],
+        default=Stage.LOOPED.value,
+        help="Which stage's recordings to cut, the looped one carrying the loops and the split a carrier needs",
+    )
+    parser.add_argument(
+        "--instrument-id",
+        default=None,
+        help="Instrument to read (default: the only one the run left under its stages)",
+    )
+    parser.add_argument(
+        "--groups",
+        type=int,
+        default=None,
+        help="Groups each velocity band's space is cut into, one stored sample standing for each",
+    )
+    parser.add_argument(
+        "--layers",
+        type=int,
+        default=None,
+        help="Velocity bands the corpus is cut into, one written instrument answering each",
+    )
+    parser.add_argument("--rate", type=int, default=None, help="Rate every stored carrier keeps, in Hz")
+    parser.add_argument("--depth", type=int, default=None, help="Bit depth every stored carrier keeps")
+    parser.add_argument(
+        "--format",
+        choices=[fmt.value for fmt in TrackerFormat],
+        default=None,
+        help="Tracker format the instruments are written as (default: the configured one)",
+    )
+    parser.add_argument("--keep-tail", action="store_true", help="Read each recording past its note's release")
+    parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help="Dither seed the stored waveforms draw from")
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=_CLUSTERED_OUT,
+        help="Directory to write the instruments, their auditions and the manifest naming them into",
+    )
+
+
 def _describe_loop(parser: argparse.ArgumentParser) -> None:
     """Add what settling loops alone asks for beyond the shared ingest flags."""
     parser.add_argument(
@@ -447,6 +501,13 @@ def build_parser() -> argparse.ArgumentParser:
             "subset",
             parents=[configured, _progress_parser()],
             help="Write the share of a dataset that spans its pitch and velocity ranges",
+        )
+    )
+    _describe_cluster(
+        sub.add_parser(
+            "cluster",
+            parents=staged,
+            help="Write a run's recordings as carrier instruments, one per velocity band, cut into groups",
         )
     )
     _describe_instruments(
@@ -689,138 +750,6 @@ def _pipeline_settings(config: OptiConfig, args: argparse.Namespace) -> Pipeline
     )
 
 
-def _print_screen(screen: RecordingScreen) -> None:
-    """State what the silence screen left out, on the runs where it left anything out."""
-    if screen.admitted_everything:
-        return
-
-    print(
-        f"  {len(screen.silenced)} recordings carried no signal, "
-        f"dropping {screen.dropped_notes} notes at {len(screen.unplayable)} pitches"
-    )
-
-
-def _print_instruments(written: WrittenInstruments) -> None:
-    """State how many standalone instruments a stage wrote, and what a format had no room to state."""
-    directories = ", ".join(directory.name for directory in written.directories)
-    print(f"  {written.files} instruments -> {directories}")
-    if written.unreachable:
-        print(f"  {len(written.unreachable)} recordings play at a key one format leaves out")
-
-    if written.understated:
-        print(f"  {len(written.understated)} sound under the level of the audio they were written from")
-
-
-def _print_brief(dataset: SubsetDataset) -> None:
-    """State what the length floor held out, on the sources where it held anything out."""
-    if not dataset.brief_notes:
-        return
-
-    print(f"  {dataset.brief_notes} of {dataset.source_notes} notes sounded too briefly to slice")
-
-
-def _print_subset(sliced: SlicedDataset) -> None:
-    """State where a slice landed and how much of its source it holds."""
-    dataset = sliced.dataset
-    print(f"{dataset.source.path}")
-    print(f"  {dataset.kept_notes} of {dataset.source_notes} notes, {dataset.recordings} recordings")
-    _print_brief(dataset)
-    print(
-        f"  pitches {dataset.pitches[0]}-{dataset.pitches[1]}, velocities {dataset.velocities[0]}-{dataset.velocities[1]}"
-    )
-    print(f"  samples -> {dataset.source.recordings_dir}")
-    _print_instruments(sliced.instruments)
-
-
-def _print_looped(result: LoopedInstrumentArtifacts) -> None:
-    """State where one instrument's looped dataset landed and how many of its recordings offer a loop."""
-    print(f"{result.instrument_id}: {result.paths.notes_json}  [{result.elapsed_s:.1f}s]")
-    print(f"  {result.looped} of {result.recordings} recordings offer a loop -> {result.paths.samples_dir}")
-    _print_instruments(result.instruments)
-    print(f"  {result.auditions} auditions -> {result.paths.auditions_dir}")
-    print(f"  loops -> {result.paths.loops_json}")
-
-
-def _print_reduced(result: ReducedInstrument) -> None:
-    """State where one instrument's reduced dataset landed and what the stage left it holding."""
-    print(f"{result.instrument_id}: {result.paths.notes_json}  [{result.elapsed_s:.1f}s]")
-    print(f"  {result.survivors} samples, {result.notes} notes -> {result.paths.samples_dir}")
-    _print_screen(result.screen)
-    _print_instruments(result.instruments)
-    print(f"  {result.auditions} auditions -> {result.paths.auditions_dir}")
-    print(f"  reduction -> {result.paths.reduction_json}")
-
-
-def _print_listening(result: ListeningSet) -> None:
-    """State where one instrument's listening set landed and how much listening it asks for."""
-    print(f"{result.instrument_id}: {result.paths.pairs_dir}  [{result.elapsed_s:.1f}s]")
-    print(f"  {result.questions} questions chosen from {result.priced} priced encodings")
-    print(f"  {result.repeats} of them asked twice -> {result.pairs} pairs to hear")
-    print(f"  answer sheet -> {result.paths.labels_csv}")
-
-
-def _reading(value: float | None) -> str:
-    """One figure as the ranking table prints it, dashed where there was nothing to read."""
-    return f"{value:.3f}" if value is not None else "--"
-
-
-def _calls(matched: int, decided: int) -> str:
-    """How many of the calls a listener made were made the same way by whoever is being read against them."""
-    return f"{matched}/{decided}"
-
-
-def _axis_calls(metric: MetricAgreement, axis: PairAxis) -> str:
-    """How many of the listener's calls on one question a metric makes the same way."""
-    read = metric.by_axis.get(axis)
-    return "--" if read is None else _calls(read.matched, read.decided)
-
-
-def _ranking_row(metric: MetricAgreement) -> str:
-    """One metric's whole standing as a line of the ranking table."""
-    axes = "".join(f"{_axis_calls(metric, axis):>9}" for axis in PairAxis)
-    confirmed = _calls(metric.overall.matched, metric.overall.decided)
-    margins = f"{_reading(metric.separation):>7}{_reading(metric.headroom):>7}"
-    return f"  {metric.name:<16}{_reading(metric.overall.tau):>7}{confirmed:>11}{margins}{axes}"
-
-
-def _print_ranking(report: RankingReport) -> None:
-    """State how every metric fared against one answer sheet, with the ceiling and the confound above it."""
-    ceiling, level = report.ceiling, report.level
-    print(f"{report.instrument_id}: {report.answered} answered, {report.outstanding} open")
-    print(
-        f"  ceiling: the listener repeats {_calls(ceiling.matched, ceiling.decided)} of their own calls"
-        f" over {ceiling.repeated} questions asked twice  (tau {_reading(ceiling.tau)})"
-    )
-    print(
-        f"  level:   {_calls(level.louder, level.gapped)} of the calls with an audible gap named the louder"
-        f" side  (tau {_reading(level.tau)})"
-    )
-    heading = "".join(f"{axis:>9}" for axis in PairAxis)
-    print(f"  {'metric':<16}{'tau':>7}{'confirmed':>11}{'sep':>7}{'head':>7}{heading}")
-    for metric in report.metrics:
-        print(_ranking_row(metric))
-
-
-def _print_plans(result: DumpResult) -> None:
-    """State how each strategy fared for one instrument, and where all of them landed."""
-    print(f"{result.instrument_id}: {result.directory}")
-    for plan in result.plans:
-        timing = f"[{plan.elapsed_s:.1f}s]"
-        if not plan.feasible:
-            print(f"  {plan.name:>9}: infeasible ({plan.reason})  {timing}")
-            continue
-
-        rendered = "rendered" if plan.rendered else "no render"
-        print(f"  {plan.name:>9}: objective {plan.objective:.4f}, {plan.used_bytes} B used, {rendered}  {timing}")
-        if plan.instruments is not None:
-            _print_instruments(plan.instruments)
-
-
-def _plan_total(results: Sequence[DumpResult]) -> float:
-    """The wall-clock every strategy of every instrument took together, which closes an allocating run."""
-    return sum(plan.elapsed_s for result in results for plan in result.plans)
-
-
 def _run_loop(config: OptiConfig, args: argparse.Namespace) -> None:
     manifest = load_source(_source(args), _ingest_settings(args))
     for result in loop_project(
@@ -829,7 +758,7 @@ def _run_loop(config: OptiConfig, args: argparse.Namespace) -> None:
         _optimize_settings(config, args, config.optimize.layers, config.optimize.budget),
         _instrument_settings(config, args),
     ):
-        _print_looped(result)
+        print_looped(result)
 
 
 def _run_reduce(config: OptiConfig, args: argparse.Namespace) -> None:
@@ -840,7 +769,7 @@ def _run_reduce(config: OptiConfig, args: argparse.Namespace) -> None:
         _optimize_settings(config, args, config.optimize.layers, config.optimize.budget),
         _instrument_settings(config, args),
     ):
-        _print_reduced(result)
+        print_reduced(result)
 
 
 def _run_listen(config: OptiConfig, args: argparse.Namespace) -> None:
@@ -851,11 +780,11 @@ def _run_listen(config: OptiConfig, args: argparse.Namespace) -> None:
         _optimize_settings(config, args, config.optimize.layers, config.optimize.budget),
         _ranking_settings(config, args),
     ):
-        _print_listening(result)
+        print_listening(result)
 
 
 def _run_rank(config: OptiConfig, args: argparse.Namespace) -> None:
-    _print_ranking(rank_listening_set(args.listening_set, build_composite(config.analysis.metrics), _progress(args)))
+    print_ranking(rank_listening_set(args.listening_set, build_composite(config.analysis.metrics), _progress(args)))
 
 
 def _intake(config: OptiConfig, args: argparse.Namespace) -> IntakeConfig:
@@ -877,32 +806,100 @@ def _slice_settings(config: OptiConfig, args: argparse.Namespace) -> SliceSettin
 
 
 def _run_subset(config: OptiConfig, args: argparse.Namespace) -> None:
-    _print_subset(write_slice(_source(args), args.out, _slice_settings(config, args)))
+    print_subset(write_slice(_source(args), args.out, _slice_settings(config, args)))
+
+
+def _cluster_config(config: OptiConfig, args: argparse.Namespace) -> ClusterConfig:
+    """The clustering config with the flags that vary per run applied over the loaded values.
+
+    Each flag reaches a nested section, so the override goes through a dump-and-revalidate: the schema
+    settles what a group count, a rate or a depth may be, in one place, whichever side supplied it.
+    """
+    data = config.cluster.model_dump()
+    for flag, section, key in (
+        (args.groups, "partition", "groups"),
+        (args.layers, "instrument", "layers"),
+        (args.rate, "instrument", "rate"),
+        (args.depth, "instrument", "depth"),
+    ):
+        if flag is not None:
+            data[section][key] = flag
+
+    if args.groups is not None:
+        data["partition"]["max_groups"] = max(data["partition"]["max_groups"], args.groups)
+
+    return ClusterConfig.model_validate(data)
+
+
+def _clustered_instrument(args: argparse.Namespace) -> str:
+    """Which instrument the run is read for: the flag where one was given, the only one there is otherwise.
+
+    Raises:
+        ValueError: when the run holds no instrument, or holds several and none was named.
+    """
+    if args.instrument_id is not None:
+        return str(args.instrument_id)
+
+    found = available_instruments(args.run_root)
+    if len(found) != 1:
+        raise ValueError(f"name the instrument to read with --instrument-id; the run holds {list(found)}")
+
+    return found[0]
+
+
+def _cluster_settings(config: OptiConfig, args: argparse.Namespace) -> ClusterSettings:
+    """What writing a run's recordings as clustered carrier instruments is carried out with."""
+    progress = _progress(args)
+    return ClusterSettings(
+        stage=Stage(args.stage),
+        reading=StageSettings(
+            instrument_id=_clustered_instrument(args),
+            strategy=_DATASET_STRATEGY,
+            dedupe=config.reduce.dedupe,
+            trim=config.reduce.trim,
+            keep_tail=args.keep_tail,
+            progress=progress,
+        ),
+        cluster=_cluster_config(config, args),
+        features=config.loop.features,
+        encode=config.encode,
+        target=_export_target(config, args),
+        release_s=config.export.envelope.release_s,
+        tempo_bpm=config.export.playback.tempo,
+        seed=args.seed,
+        workers=_workers(config, args),
+        progress=progress,
+    )
+
+
+def _run_cluster(config: OptiConfig, args: argparse.Namespace) -> None:
+    written = write_clustered(args.run_root, args.out, _cluster_settings(config, args))
+    print_clustered(written)
 
 
 def _run_instruments(config: OptiConfig, args: argparse.Namespace) -> None:
     source = _source(args)
     print(f"{source.path}")
-    _print_instruments(write_dataset_instruments(source, settings=_instrument_settings(config, args)))
+    print_instruments(write_dataset_instruments(source, settings=_instrument_settings(config, args)))
 
 
 def _run_optimize(config: OptiConfig, args: argparse.Namespace) -> None:
     manifest = load_source(_source(args), _ingest_settings(args))
     results = dump_project(manifest, args.out, _dump_settings(config, args))
     for result in results:
-        _print_plans(result)
+        print_plans(result)
 
-    print(f"total: {_plan_total(results):.1f}s")
+    print(f"total: {plan_total(results):.1f}s")
 
 
 def _run_pipeline(config: OptiConfig, args: argparse.Namespace) -> None:
     run = run_pipeline(_source(args), args.out, _pipeline_settings(config, args))
     if run.subset is not None:
-        _print_subset(run.subset)
+        print_subset(run.subset)
 
-    _print_looped(run.looped)
-    _print_reduced(run.reduced)
-    _print_plans(run.optimized)
+    print_looped(run.looped)
+    print_reduced(run.reduced)
+    print_plans(run.optimized)
     print(f"total: {run.elapsed_s:.1f}s")
 
 
@@ -952,6 +949,9 @@ def main(argv: list[str] | None = None) -> None:
             _run_synth(config, args)
         case "subset":
             _run_subset(config, args)
+        case "cluster":
+            _run_cluster(config, args)
+
         case "instruments":
             _run_instruments(config, args)
         case "rank":

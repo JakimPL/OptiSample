@@ -1,0 +1,353 @@
+from __future__ import annotations
+
+import json
+from collections.abc import Callable
+from pathlib import Path
+
+import numpy as np
+import pytest
+from numpy.typing import NDArray
+
+from optisample.artifacts.documents.clustered import ClusteredDocument
+from optisample.artifacts.documents.loops import DecayRecord, LoopQualityRecord, SettledLoopRecord
+from optisample.artifacts.documents.sample import SampleDocument
+from optisample.artifacts.serialize import write_msgpack
+from optisample.cluster.corpus import describe_corpus
+from optisample.cluster.instruments import (
+    AUDITIONS_DIR,
+    MANIFEST_SUFFIX,
+    ClusterSettings,
+    carrier_source,
+    cut_band,
+    faithful_offer,
+    velocity_layers,
+    write_clustered,
+)
+from optisample.cluster.stages import Stage, StageCorpus, StageRecording, StageSettings, stage_recordings
+from optisample.config import OptiConfig
+from optisample.io.audio import write_wav
+from optisample.io.note_extractor import NoteRecord, dump_notes
+from optisample.io.tracker.target import export_target
+from optisample.keys import SampleKey
+from optisample.model import NoteEvent
+from optisample.optimize.layers.bands import VelocityBand
+from optisample.progress import NO_PROGRESS
+
+SR = 44_100
+PITCHES = (55, 58, 61, 64, 67, 70)
+VELOCITIES = (30, 100)
+INSTRUMENT = "tiny"
+_SOUNDS_S = 0.9
+_GROUPS = 2
+_LAYERS = 2
+
+
+@pytest.fixture
+def run_root(tmp_path: Path, piano_note: Callable[..., NDArray[np.float64]]) -> Path:
+    """A run whose first stage holds a small grid of notes, over two dynamics and a spread of keys."""
+    stage_dir = tmp_path / "0_subset"
+    samples_dir = stage_dir / INSTRUMENT
+    samples_dir.mkdir(parents=True)
+    records = []
+    index = 0
+    for pitch in PITCHES:
+        for velocity in VELOCITIES:
+            signal = piano_note(pitch, velocity, _SOUNDS_S, seed=pitch * velocity)
+            write_wav(samples_dir / f"{index:04d}_p{pitch}_v{velocity}.wav", signal, SR)
+            records.append(NoteRecord(index=index, pitch=pitch, velocity=velocity, duration_s=_SOUNDS_S))
+            index += 1
+
+    dump_notes(records, stage_dir / f"{INSTRUMENT}{'.notes.json'}")
+    return tmp_path
+
+
+@pytest.fixture
+def cluster_settings(config: OptiConfig) -> Callable[..., ClusterSettings]:
+    """Factory: what a clustered run over the tiny stage is carried out with."""
+
+    def _settings(*, groups: int = _GROUPS, layers: int = _LAYERS, depth: int = 8) -> ClusterSettings:
+        cluster = config.cluster.model_dump()
+        cluster["partition"]["groups"] = groups
+        cluster["partition"]["max_groups"] = max(cluster["partition"]["max_groups"], groups)
+        cluster["instrument"]["layers"] = layers
+        cluster["instrument"]["depth"] = depth
+        cluster["instrument"]["rate"] = 22_050
+        return ClusterSettings(
+            stage=Stage.SUBSET,
+            reading=StageSettings(
+                instrument_id=INSTRUMENT,
+                strategy="grouped",
+                dedupe=config.reduce.dedupe,
+                trim=config.reduce.trim,
+                keep_tail=False,
+                progress=NO_PROGRESS,
+            ),
+            cluster=type(config.cluster).model_validate(cluster),
+            features=config.loop.features,
+            encode=config.encode,
+            target=export_target(config.export.tracker),
+            release_s=config.export.envelope.release_s,
+            tempo_bpm=config.export.playback.tempo,
+            seed=137,
+            workers=1,
+            progress=NO_PROGRESS,
+        )
+
+    return _settings
+
+
+def _quality(spectral_distance: float) -> LoopQualityRecord:
+    return LoopQualityRecord(seam_step=1.0, level_drift_db=0.0, spectral_distance=spectral_distance)
+
+
+def _offer(start: int, spectral_distance: float) -> SettledLoopRecord:
+    return SettledLoopRecord(
+        start=start,
+        end=start + 1000,
+        start_s=start / SR,
+        end_s=(start + 1000) / SR,
+        quality=_quality(spectral_distance),
+        decay=DecayRecord(start_s=0.0, end_s=1.0, final_gain=0.5),
+    )
+
+
+def _document(offers: list[SettledLoopRecord]) -> SampleDocument:
+    payload = np.ones(8, dtype="<f4").tobytes()
+    return SampleDocument(
+        key="p060_C4_v100",
+        root_pitch=60,
+        sample_rate=SR,
+        frames=8,
+        carrier=payload,
+        level=payload,
+        loops=offers,
+        provenance={"stage": "loop", "instrument_id": INSTRUMENT, "index": 0, "source": "x.wav"},
+    )
+
+
+# --- which loop a representative is stored around ---------------------------------------------------------
+
+
+def test_the_offer_standing_closest_to_the_material_is_the_one_stored() -> None:
+    """Offers are ordered by the span each stores, so the faithful one is named by its timbre distance."""
+    document = _document([_offer(100, 7.2), _offer(200, 3.1), _offer(300, 5.0)])
+
+    assert faithful_offer(document) == 1
+
+
+def test_a_recording_the_stage_settled_nothing_over_names_no_loop() -> None:
+    """A recording with no offer stores the span it plays, which asking for no loop is how it is said."""
+    assert faithful_offer(_document([])) is None
+
+
+# --- how the dynamics are cut -------------------------------------------------------------------------------
+
+
+def test_the_velocity_axis_is_tiled_by_the_bands_it_is_cut_into() -> None:
+    """Every dynamic resolves to exactly one band, so a note always finds the instrument meant for it."""
+    material = [NoteEvent(pitch=60, velocity=velocity, duration_s=1.0) for velocity in (10, 40, 80, 120)]
+    layers = velocity_layers(material, 2)
+
+    assert layers.count == 2
+    assert layers.bands[0].lowest == 0
+    assert layers.bands[-1].highest == 127
+    for lower, upper in zip(layers.bands, layers.bands[1:]):
+        assert upper.lowest == lower.highest + 1
+
+
+# --- what a run writes ---------------------------------------------------------------------------------------
+
+
+def test_a_run_writes_one_instrument_per_velocity_band(
+    run_root: Path,
+    tmp_path: Path,
+    cluster_settings: Callable[..., ClusterSettings],
+) -> None:
+    """A keymap names no dynamic, so each band is written as an instrument of its own."""
+    out_dir = tmp_path / "clustered"
+    written = write_clustered(run_root, out_dir, cluster_settings())
+
+    assert len(written.instruments) == _LAYERS
+    assert len(written.bands) == _LAYERS
+    for path in written.instruments:
+        assert path.is_file()
+        assert path.read_bytes()[:4] == b"IMPI"
+
+
+def test_each_band_stores_one_waveform_per_group(
+    run_root: Path,
+    tmp_path: Path,
+    cluster_settings: Callable[..., ClusterSettings],
+) -> None:
+    """The take standing for each group becomes one stored sample, so the count follows the cut."""
+    written = write_clustered(run_root, tmp_path / "clustered", cluster_settings(groups=_GROUPS))
+
+    for band in written.bands:
+        assert len(band.samples) == _GROUPS
+        assert sum(sample.members for sample in band.samples) == len(PITCHES)
+
+
+def test_the_manifest_states_what_the_run_chose(
+    run_root: Path,
+    tmp_path: Path,
+    cluster_settings: Callable[..., ClusterSettings],
+) -> None:
+    """A tracker file carries no clock and no dynamics, so the manifest is where a reader finds them."""
+    out_dir = tmp_path / "clustered"
+    written = write_clustered(run_root, out_dir, cluster_settings())
+    document = ClusteredDocument.model_validate(json.loads(written.manifest.read_text()))
+
+    assert written.manifest.name == f"{INSTRUMENT}{MANIFEST_SUFFIX}"
+    assert document.instrument_id == INSTRUMENT
+    assert document.stage == Stage.SUBSET.value
+    assert document.tempo > 0
+    assert [band.band for band in document.bands] == [band.band for band in written.bands]
+
+
+def test_every_stored_waveform_is_auditioned(
+    run_root: Path,
+    tmp_path: Path,
+    cluster_settings: Callable[..., ClusterSettings],
+) -> None:
+    """The pair is meant to be heard, so each take is played out under the curve above it."""
+    out_dir = tmp_path / "clustered"
+    written = write_clustered(run_root, out_dir, cluster_settings())
+
+    assert written.auditions == sum(len(band.samples) for band in written.bands)
+    assert len(list((out_dir / AUDITIONS_DIR).rglob("*.wav"))) == written.auditions
+
+
+def test_a_stage_that_wrote_no_container_splits_its_recordings_where_they_stand(
+    run_root: Path,
+    tmp_path: Path,
+    cluster_settings: Callable[..., ClusterSettings],
+) -> None:
+    """The first stage settles no loop, so its takes are split here and stored as the span they play."""
+    written = write_clustered(run_root, tmp_path / "clustered", cluster_settings())
+
+    assert written.recordings == len(PITCHES) * len(VELOCITIES)
+    assert written.calibrated == 0
+    assert all(not sample.looped for band in written.bands for sample in band.samples)
+
+
+def test_a_shallower_depth_stores_fewer_bytes(
+    run_root: Path,
+    tmp_path: Path,
+    cluster_settings: Callable[..., ClusterSettings],
+) -> None:
+    """Depth is the axis the carrier buys its bytes back on, and the run states what it spent."""
+    deep = write_clustered(run_root, tmp_path / "deep", cluster_settings(depth=16))
+    shallow = write_clustered(run_root, tmp_path / "shallow", cluster_settings(depth=8))
+
+    assert sum(band.stored_bytes for band in shallow.bands) * 2 == sum(band.stored_bytes for band in deep.bands)
+
+
+# --- reading a recording back through the container the loop stage wrote --------------------------------------
+
+
+def _write_container(samples_dir: Path, stem: str, pitch: int, sample_rate: int, frames: int) -> None:
+    """A ``.sample`` beside the WAV of the same stem, holding a split and one loop the stage settled."""
+    level = np.linspace(1.0, 0.25, frames, dtype="<f4")
+    carrier = np.ones(frames, dtype="<f4")
+    document = SampleDocument(
+        key=f"p{pitch:03d}_v100",
+        root_pitch=pitch,
+        sample_rate=sample_rate,
+        frames=frames,
+        carrier=carrier.tobytes(),
+        level=level.tobytes(),
+        loops=[_offer(frames // 4, 5.0), _offer(frames // 3, 2.0)],
+        provenance={"stage": "loop", "instrument_id": INSTRUMENT, "index": 0, "source": f"{stem}.wav"},
+    )
+    write_msgpack(samples_dir / f"{stem}.sample", document)
+
+
+def test_a_recording_with_a_container_beside_it_is_read_through_it(
+    run_root: Path,
+    config: OptiConfig,
+) -> None:
+    """The loop stage writes the split and the loops together, so reading the container hands over both."""
+    samples_dir = run_root / "0_subset" / INSTRUMENT
+    wav = sorted(samples_dir.glob("*.wav"))[0]
+    frames = 4096
+    _write_container(samples_dir, wav.stem, PITCHES[0], SR, frames)
+
+    recording = StageRecording(
+        file=wav,
+        key=SampleKey(pitch=PITCHES[0], velocity=100),
+        signal=np.zeros(frames, dtype=np.float64),
+        sample_rate=SR,
+        weight=1.0,
+    )
+    source, calibrated = carrier_source(recording, config.encode)
+
+    assert calibrated
+    assert source.frames == frames
+    assert source.loop_index == 1  # the offer standing closest to the material it replaces
+    assert len(source.loops) == 2
+
+
+def test_a_recording_without_a_container_is_split_where_it_stands(
+    run_root: Path,
+    config: OptiConfig,
+    piano_note: Callable[..., NDArray[np.float64]],
+) -> None:
+    """A stage that settled no loop leaves the split to be taken here, and the take stores what it plays."""
+    wav = sorted((run_root / "0_subset" / INSTRUMENT).glob("*.wav"))[0]
+    signal = piano_note(PITCHES[0], 100, _SOUNDS_S, seed=1)
+    recording = StageRecording(
+        file=wav, key=SampleKey(pitch=PITCHES[0], velocity=100), signal=signal, sample_rate=SR, weight=1.0
+    )
+
+    source, calibrated = carrier_source(recording, config.encode)
+
+    assert not calibrated
+    assert source.loops == ()
+    assert source.loop_index is None
+
+
+def test_a_band_holding_one_recording_is_stood_for_by_it(
+    run_root: Path,
+    config: OptiConfig,
+    cluster_settings: Callable[..., ClusterSettings],
+) -> None:
+    """There is nothing to tell apart inside a band of one, so that take stands for the whole of it."""
+    settings = cluster_settings()
+    corpus = stage_recordings(run_root, Stage.SUBSET, settings.reading)
+    alone = StageCorpus(stage=corpus.stage, instrument_id=corpus.instrument_id, recordings=corpus.recordings[:1])
+    described = describe_corpus(
+        alone,
+        features=config.loop.features,
+        config=settings.cluster.descriptor,
+        workers=1,
+        progress=NO_PROGRESS,
+    )
+    band = VelocityBand(0, 127)
+
+    cut = cut_band(described, band, groups=settings.cluster.partition.groups, config=settings.cluster)
+
+    assert cut.representatives == (0,)
+    assert cut.members == (1,)
+
+
+def test_a_band_the_corpus_left_empty_is_passed_over(
+    run_root: Path,
+    config: OptiConfig,
+    cluster_settings: Callable[..., ClusterSettings],
+) -> None:
+    """An instrument with no waveform sounds nothing, so a band holding no recording is not written."""
+    settings = cluster_settings()
+    corpus = stage_recordings(run_root, Stage.SUBSET, settings.reading)
+    described = describe_corpus(
+        corpus,
+        features=config.loop.features,
+        config=settings.cluster.descriptor,
+        workers=1,
+        progress=NO_PROGRESS,
+    )
+    unplayed = VelocityBand(VELOCITIES[-1] + 1, 127)
+
+    cut = cut_band(described, unplayed, groups=settings.cluster.partition.groups, config=settings.cluster)
+
+    assert cut.representatives == ()
+    assert cut.members == ()

@@ -707,3 +707,80 @@ def test_synth_command_generates_notes(tmp_path: Path, capsys: pytest.CaptureFix
     main(["synth", str(tmp_path / "demo"), "--sample-rate", "22050"])
     assert sorted((tmp_path / "demo").glob("*.notes.json"))
     assert "notes.json" in capsys.readouterr().out.lower()
+
+
+# --- writing a run's recordings as clustered carrier instruments ---------------------------------------------
+
+
+@pytest.fixture
+def clustered_run(tiny_notes: Path, tmp_path: Path) -> Path:
+    """A run root whose first stage holds the tiny project, which is what a clustered run reads."""
+    root = tmp_path / "run"
+    main(["subset", str(tiny_notes), "--fraction", "1.0", "--min-duration-s", "0.0", "--out", str(root / "0_subset")])
+    return root
+
+
+def test_cluster_writes_one_instrument_per_velocity_band(clustered_run: Path, tmp_path: Path) -> None:
+    """A keymap names no dynamic, so each band the corpus is cut into is written as its own file."""
+    out_dir = tmp_path / "clustered"
+    main(
+        [
+            "cluster",
+            str(clustered_run),
+            "--stage",
+            "subset",
+            "--groups",
+            "2",
+            "--layers",
+            "1",
+            "--depth",
+            "8",
+            "--workers",
+            "1",
+            "--no-progress",
+            "--out",
+            str(out_dir),
+        ]
+    )
+
+    written = sorted(instrument_files_dir(out_dir / "piano", ".iti").glob("*.iti"))
+    assert len(written) == 1
+    assert (out_dir / "piano.clustered.json").is_file()
+    assert list((out_dir / "auditions").rglob("*.wav"))
+
+
+def test_cluster_states_the_depth_and_groups_it_was_asked_for(clustered_run: Path, tmp_path: Path) -> None:
+    """The flags reach the nested config, so the manifest reports what the run was actually told to do."""
+    out_dir = tmp_path / "clustered"
+    main(
+        [
+            "cluster",
+            str(clustered_run),
+            "--stage",
+            "subset",
+            "--groups",
+            "3",
+            "--layers",
+            "1",
+            "--depth",
+            "16",
+            "--workers",
+            "1",
+            "--no-progress",
+            "--out",
+            str(out_dir),
+        ]
+    )
+
+    document = json.loads((out_dir / "piano.clustered.json").read_text())
+    assert document["groups"] == 3
+    assert {sample["depth"] for band in document["bands"] for sample in band["samples"]} == {16}
+
+
+def test_cluster_asks_which_instrument_to_read_when_a_run_holds_several(clustered_run: Path, tmp_path: Path) -> None:
+    """A run carrying more than one instrument names none of them by default, so the flag is required."""
+    shutil.copytree(clustered_run / "0_subset" / "piano", clustered_run / "0_subset" / "other")
+    shutil.copy(clustered_run / "0_subset" / "piano.notes.json", clustered_run / "0_subset" / "other.notes.json")
+
+    with pytest.raises(ValueError, match="--instrument-id"):
+        main(["cluster", str(clustered_run), "--stage", "subset", "--no-progress", "--out", str(tmp_path / "out")])
