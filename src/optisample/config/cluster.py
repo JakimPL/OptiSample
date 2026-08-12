@@ -145,6 +145,11 @@ class PartitionConfig(ConfigModel):
     ``groups`` is how many the space is cut into, and ``max_groups`` how far a sweep climbs while it reports
     what each count is worth, so a reader picks the count off a curve. ``representative`` names the member
     a group is stood for by.
+
+    ``min_duration_s`` is how long the take standing for a group rings for at the least. A representative is
+    what a later stage loops, shapes and allocates storage to, so it has to hold enough sound for a listener
+    to control; where the member the rule names falls short of that length, the group's own nearest member
+    holding it stands instead. A floor of zero leaves the rule's own choice standing.
     """
 
     algorithm: PartitionAlgorithm
@@ -152,6 +157,7 @@ class PartitionConfig(ConfigModel):
     groups: Annotated[int, Field(ge=2)]
     max_groups: Annotated[int, Field(ge=2)]
     representative: Representative
+    min_duration_s: Annotated[float, Field(ge=0.0)]
 
     @model_validator(mode="after")
     def _sweep_reaches_the_cut(self) -> Self:

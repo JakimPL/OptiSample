@@ -13,7 +13,6 @@ from optisample.cluster.representative import Group
 from optisample.cluster.selection import Selection
 from optisample.cluster.space import Block, Coordinates, SampleSpace, mean_pairwise_square
 from optisample.cluster.stages import StageRecording
-from optisample.config.cluster import Representative
 
 _LOG_BASE: Final = 10.0  # what the anchor times are stated in logs of, which reads them back as seconds
 _NO_SPREAD: Final = 0.0  # the spread a set of readings standing at one point holds
@@ -40,33 +39,21 @@ def _group_of(groups: Sequence[Group], samples: int) -> tuple[int, ...]:
     return tuple(placed)
 
 
-def point_rows(
-    described: DescribedCorpus,
-    groups: Sequence[Group],
-    distances: Coordinates,
-    *,
-    rule: Representative,
-) -> list[Row]:
+def point_rows(described: DescribedCorpus, groups: Sequence[Group], distances: Coordinates) -> list[Row]:
     """One row per recording: where it sits, which group it fell into, and how far it stands from that group.
 
     These are the rows the scatter hovers and the member tables list, so a point picked off the picture and
     a line read out of a table say the same things about the same take.
     """
     placed = _group_of(groups, described.size)
-    return [_point_row(described, index, groups[placed[index]], reach, rule) for index, reach in enumerate(distances)]
+    return [_point_row(described, index, groups[placed[index]], reach) for index, reach in enumerate(distances)]
 
 
-def _point_row(
-    described: DescribedCorpus,
-    index: int,
-    group: Group,
-    reach: Coordinates,
-    rule: Representative,
-) -> Row:
+def _point_row(described: DescribedCorpus, index: int, group: Group, reach: Coordinates) -> Row:
     """One recording as the line every panel reads it through."""
     recording = described.recordings[index]
     descriptor = described.descriptors[index]
-    representative = group.representative(rule)
+    representative = group.representative
     return {
         "sample": recording.label,
         "note": recording.note,
@@ -83,7 +70,7 @@ def _point_row(
     }
 
 
-def group_rows(described: DescribedCorpus, groups: Sequence[Group], *, rule: Representative) -> list[Row]:
+def group_rows(described: DescribedCorpus, groups: Sequence[Group]) -> list[Row]:
     """One row per group: how big it is, what it spans, and which takes stand for it.
 
     ``spread_mean`` and ``spread_max`` say how far the group reaches from its medoid, so a representative
@@ -101,7 +88,7 @@ def group_rows(described: DescribedCorpus, groups: Sequence[Group], *, rule: Rep
             "playing_s": sum(recordings[member].weight for member in group.members.tolist()),
             "spread_mean": group.spread_mean,
             "spread_max": group.spread_max,
-            "stands_for_it": recordings[group.representative(rule)].label,
+            "stands_for_it": recordings[group.representative].label,
             "medoid": recordings[group.medoid].label,
             "weighted_medoid": recordings[group.weighted_medoid].label,
             "nearest_centroid": recordings[group.nearest_centroid].label,
@@ -206,8 +193,6 @@ def reach_rows(
     described: DescribedCorpus,
     groups: Sequence[Group],
     distances: Coordinates,
-    *,
-    rule: Representative,
 ) -> list[Row]:
     """How far one recording stands from every group, so the company it nearly kept reads beside its own.
 
@@ -219,9 +204,9 @@ def reach_rows(
         {
             "group": group_name(group.label),
             "own": place in group.members.tolist(),
-            "to_representative": float(reach[group.representative(rule)]),
+            "to_representative": float(reach[group.representative]),
             "to_nearest": float(min(reach[member] for member in group.members.tolist())),
-            "stands_for_it": described.recordings[group.representative(rule)].label,
+            "stands_for_it": described.recordings[group.representative].label,
         }
         for group in groups
     ]

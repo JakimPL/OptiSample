@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from optisample.artifacts.paths import pipeline_paths
-from optisample.cluster.representative import Group, grouping
+from optisample.cluster.representative import Group, MemberReadings, grouping
 from optisample.cluster.selection import Selection, selection, write_selection
 from optisample.cluster.space import Coordinates
 from optisample.cluster.stages import (
@@ -17,7 +17,6 @@ from optisample.cluster.stages import (
     stage_recordings,
 )
 from optisample.config import OptiConfig
-from optisample.config.cluster import Representative
 from optisample.io.audio import write_wav
 from optisample.io.note_extractor import NOTES_SUFFIX, NoteRecord, dump_notes
 from optisample.music import midi_to_freq
@@ -93,17 +92,17 @@ def coordinates(corpus: StageCorpus) -> Coordinates:
 
 
 @pytest.fixture
-def groups(corpus: StageCorpus, coordinates: Coordinates) -> tuple[Group, ...]:
+def groups(corpus: StageCorpus, coordinates: Coordinates, config: OptiConfig) -> tuple[Group, ...]:
     """The two groups those points fall into, read for the takes standing for each."""
     labels = np.asarray([0] * (len(_PITCHES) // 2) + [1] * (len(_PITCHES) // 2), dtype=np.intp)
-    weights = np.asarray([recording.weight for recording in corpus.recordings], dtype=np.float64)
-    return grouping(coordinates, labels, weights)
+    readings = MemberReadings(weights=corpus.weights, durations_s=corpus.durations_s)
+    return grouping(coordinates, labels, readings, config=config.cluster.partition)
 
 
 @pytest.fixture
 def chosen(corpus: StageCorpus, groups: tuple[Group, ...]) -> Selection:
     """The take standing for each group, which is what a written selection holds."""
-    return selection(corpus, groups, rule=Representative.MEDOID)
+    return selection(corpus, groups)
 
 
 def test_a_selection_holds_one_take_for_every_group(chosen: Selection, groups: tuple[Group, ...]) -> None:
@@ -117,7 +116,7 @@ def test_every_chosen_take_is_a_member_of_the_group_it_stands_for(chosen: Select
     """A representative is a real recording out of its own group, which is what makes it playable."""
     for pick, group in zip(chosen.picks, groups, strict=True):
         assert pick.place in group.members.tolist()
-        assert pick.place == group.representative(Representative.MEDOID)
+        assert pick.place == group.representative
 
 
 def test_a_pick_carries_the_recording_the_point_stood_for(chosen: Selection, corpus: StageCorpus) -> None:

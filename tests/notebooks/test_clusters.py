@@ -1,7 +1,8 @@
 import pytest
 
 from notebooks.utils import clusters
-from optisample.cluster.partition import sweep
+from optisample.cluster.partition import partition, sweep
+from optisample.cluster.representative import grouping
 from optisample.cluster.selection import selection
 from optisample.config import OptiConfig
 from optisample.config.cluster import Representative
@@ -19,7 +20,7 @@ def test_a_group_is_spelled_the_same_way_in_every_panel() -> None:
 
 def test_every_recording_gets_one_row_naming_the_group_it_fell_into(clustered: Clustered) -> None:
     """A point row stands for one take, so what is hovered and what is listed are the same reading."""
-    rows = clusters.point_rows(clustered.described, clustered.groups, clustered.distances, rule=clustered.rule)
+    rows = clusters.point_rows(clustered.described, clustered.groups, clustered.distances)
 
     assert len(rows) == clustered.described.size
     assert {str(row["group"]) for row in rows} == {clusters.group_name(group.label) for group in clustered.groups}
@@ -31,38 +32,38 @@ def test_every_recording_gets_one_row_naming_the_group_it_fell_into(clustered: C
 
 def test_the_take_standing_for_a_group_is_the_one_its_row_names_a_representative(clustered: Clustered) -> None:
     """Exactly the members the rule picks read as representatives, so the picture and the tables agree."""
-    rows = clusters.point_rows(clustered.described, clustered.groups, clustered.distances, rule=clustered.rule)
+    rows = clusters.point_rows(clustered.described, clustered.groups, clustered.distances)
     marked = {index for index, row in enumerate(rows) if row["role"] == "representative"}
 
-    assert marked == {group.representative(clustered.rule) for group in clustered.groups}
+    assert marked == {group.representative for group in clustered.groups}
 
 
 def test_a_representative_stands_no_distance_from_itself(clustered: Clustered) -> None:
     """The distance a row states is read in the space the group was cut in, so its own take reads zero."""
-    rows = clusters.point_rows(clustered.described, clustered.groups, clustered.distances, rule=clustered.rule)
+    rows = clusters.point_rows(clustered.described, clustered.groups, clustered.distances)
 
     for group in clustered.groups:
         assert rows[group.medoid]["to_medoid"] == pytest.approx(0.0)
-        assert rows[group.representative(clustered.rule)]["to_representative"] == pytest.approx(0.0)
+        assert rows[group.representative]["to_representative"] == pytest.approx(0.0)
 
 
 def test_a_group_row_spans_the_pitches_and_the_playing_time_its_members_carry(clustered: Clustered) -> None:
     """A group reads as what it gathered, so the sizes and the playing times sum back to the corpus."""
-    rows = clusters.group_rows(clustered.described, clustered.groups, rule=clustered.rule)
+    rows = clusters.group_rows(clustered.described, clustered.groups)
 
     assert len(rows) == len(clustered.groups)
     assert sum(int(row["size"]) for row in rows) == clustered.described.size
-    assert sum(float(row["playing_s"]) for row in rows) == pytest.approx(clustered.described.weights.sum())
+    assert sum(float(row["playing_s"]) for row in rows) == pytest.approx(clustered.described.corpus.weights.sum())
     for row, group in zip(rows, clustered.groups, strict=True):
         pitches = [clustered.described.recordings[member].key.pitch for member in group.members.tolist()]
         assert row["pitch_lo"] == min(pitches)
         assert row["pitch_hi"] == max(pitches)
-        assert row["stands_for_it"] == clustered.described.recordings[group.representative(clustered.rule)].label
+        assert row["stands_for_it"] == clustered.described.recordings[group.representative].label
 
 
 def test_members_are_listed_from_the_medoid_outwards(clustered: Clustered) -> None:
     """Ordering by that distance puts the take standing for the group first and the one it covers least last."""
-    rows = clusters.point_rows(clustered.described, clustered.groups, clustered.distances, rule=clustered.rule)
+    rows = clusters.point_rows(clustered.described, clustered.groups, clustered.distances)
     for group in clustered.groups:
         listed = clusters.member_rows(rows, group)
 
@@ -130,7 +131,7 @@ def test_one_take_states_its_own_readings_on_a_single_line(clustered: Clustered)
 
 def test_a_take_reads_its_distance_to_every_group_and_owns_exactly_one(clustered: Clustered) -> None:
     """The company a take nearly kept reads beside its own, which is where a cut is finely balanced."""
-    rows = clusters.reach_rows(0, clustered.described, clustered.groups, clustered.distances, rule=clustered.rule)
+    rows = clusters.reach_rows(0, clustered.described, clustered.groups, clustered.distances)
 
     assert len(rows) == len(clustered.groups)
     assert sum(bool(row["own"]) for row in rows) == 1
@@ -140,20 +141,27 @@ def test_a_take_reads_its_distance_to_every_group_and_owns_exactly_one(clustered
 
 def test_a_chosen_take_is_listed_beside_the_share_of_the_corpus_it_stands_for(clustered: Clustered) -> None:
     """A written selection reads as one row per take, so what is about to be written is what is shown."""
-    chosen = selection(clustered.described.corpus, clustered.groups, rule=clustered.rule)
+    chosen = selection(clustered.described.corpus, clustered.groups)
     rows = clusters.pick_rows(chosen)
 
     assert len(rows) == len(clustered.groups)
     assert sum(int(row["members"]) for row in rows) == clustered.described.size
-    assert sum(float(row["playing_s"]) for row in rows) == pytest.approx(clustered.described.weights.sum())
+    assert sum(float(row["playing_s"]) for row in rows) == pytest.approx(clustered.described.corpus.weights.sum())
     for row, group in zip(rows, clustered.groups, strict=True):
         assert row["group"] == clusters.group_name(group.label)
-        assert row["sample"] == clustered.described.recordings[group.representative(clustered.rule)].label
+        assert row["sample"] == clustered.described.recordings[group.representative].label
 
 
 def test_a_representative_rule_names_the_member_the_rows_stand_by(clustered: Clustered) -> None:
     """Naming another rule moves which take a group is stood for by, and every row follows it."""
-    weighted = clusters.group_rows(clustered.described, clustered.groups, rule=Representative.WEIGHTED_MEDOID)
+    leaning = clustered.cutting.model_copy(update={"representative": Representative.WEIGHTED_MEDOID})
+    regrouped = grouping(
+        clustered.space.coordinates,
+        partition(clustered.space.coordinates, groups=len(clustered.groups), config=leaning).labels,
+        clustered.described.readings,
+        config=leaning,
+    )
+    rows = clusters.group_rows(clustered.described, regrouped)
 
-    for row, group in zip(weighted, clustered.groups, strict=True):
+    for row, group in zip(rows, regrouped, strict=True):
         assert row["stands_for_it"] == clustered.described.recordings[group.weighted_medoid].label

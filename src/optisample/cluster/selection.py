@@ -6,7 +6,6 @@ from pathlib import Path
 
 from optisample.cluster.representative import Group
 from optisample.cluster.stages import Stage, StageCorpus, StageRecording
-from optisample.config.cluster import Representative
 from optisample.io.dataset import SourceDataset, SubsetDataset
 from optisample.io.note_extractor import index_of_wav
 from optisample.io.subset import write_recording_subset
@@ -67,8 +66,8 @@ class Selection:
         return frozenset(pick.render_index for pick in self.picks)
 
 
-def selection(corpus: StageCorpus, groups: Sequence[Group], *, rule: Representative) -> Selection:
-    """The take standing for each group under ``rule``, beside what its group asked it to cover.
+def selection(corpus: StageCorpus, groups: Sequence[Group]) -> Selection:
+    """The take standing for each group, beside what its group asked it to cover.
 
     The groups are read against the corpus the space was built from, so a pick names the very recording a
     point stood for and carries the file that take is stored in.
@@ -76,13 +75,13 @@ def selection(corpus: StageCorpus, groups: Sequence[Group], *, rule: Representat
     return Selection(
         stage=corpus.stage,
         instrument_id=corpus.instrument_id,
-        picks=tuple(_pick(corpus, group, rule) for group in groups),
+        picks=tuple(_pick(corpus, group) for group in groups),
     )
 
 
-def _pick(corpus: StageCorpus, group: Group, rule: Representative) -> Pick:
+def _pick(corpus: StageCorpus, group: Group) -> Pick:
     """One group's chosen take, carrying the size and the playing time of the group it stands for."""
-    place = group.representative(rule)
+    place = group.representative
     return Pick(
         group=group.label,
         place=place,

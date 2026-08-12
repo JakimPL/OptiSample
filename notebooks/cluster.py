@@ -248,7 +248,7 @@ def _(
 
     mo.md(
         f"**{corpus.instrument_id}** at `{stage.value}` — **{described.size}** recordings carrying "
-        f"**{described.weights.sum():.1f}s** of playing time, read at "
+        f"**{described.corpus.weights.sum():.1f}s** of playing time, read at "
         f"`{reading.frequency_basis.value}` over {len(reading.anchor_depths_db)} fall depths."
     )
     return corpus, described, settings
@@ -325,13 +325,22 @@ def _(LinkageMethod, PartitionAlgorithm, Representative, described, mo, notebook
         value=_cutting.representative.value,
         label="stands for its group",
     )
+    min_duration_s = mo.ui.slider(
+        0.0,
+        2.0,
+        step=0.05,
+        value=_cutting.min_duration_s,
+        label="a representative rings for at least (s)",
+        show_value=True,
+    )
     mo.vstack(
         [
             mo.md("## How the space is cut"),
-            mo.hstack([algorithm, linkage_method, groups_wanted, sweep_to, representative], justify="start", gap=2),
+            mo.hstack([algorithm, linkage_method, groups_wanted, sweep_to], justify="start", gap=2),
+            mo.hstack([representative, min_duration_s], justify="start", gap=2),
         ]
     )
-    return algorithm, groups_wanted, linkage_method, representative, sweep_to
+    return algorithm, groups_wanted, linkage_method, min_duration_s, representative, sweep_to
 
 
 @app.cell
@@ -344,6 +353,7 @@ def _(
     grouping,
     groups_wanted,
     linkage_method,
+    min_duration_s,
     partition,
     representative,
     space,
@@ -356,12 +366,13 @@ def _(
         groups=int(groups_wanted.value),
         max_groups=max(int(groups_wanted.value), int(sweep_to.value)),
         representative=representative.value,
+        min_duration_s=float(min_duration_s.value),
     )
     climbed = sweep(space.coordinates, cutting)
     cut_now = partition(space.coordinates, groups=cutting.groups, config=cutting)
-    groups = grouping(space.coordinates, cut_now.labels, described.weights)
-    points = clusters.point_rows(described, groups, distances, rule=cutting.representative)
-    representatives = [group.representative(cutting.representative) for group in groups]
+    groups = grouping(space.coordinates, cut_now.labels, described.readings, config=cutting)
+    points = clusters.point_rows(described, groups, distances)
+    representatives = [group.representative for group in groups]
     return climbed, cut_now, cutting, groups, points, representatives
 
 
@@ -518,11 +529,11 @@ def _(PartitionAlgorithm, climbed, clusters, cut_now, cutting, hierarchy, mo, pa
 
 
 @app.cell
-def _(clusters, cutting, described, groups, mo, panels, space):
+def _(clusters, described, groups, mo, panels, space):
     mo.vstack(
         [
             mo.md("## Groups — what each one gathered, and the take standing for it"),
-            panels.table(clusters.group_rows(described, groups, rule=cutting.representative)),
+            panels.table(clusters.group_rows(described, groups)),
             mo.md("**How tightly each group holds together, block by block** — where the grouping came from:"),
             panels.table(clusters.group_block_rows(space, groups), page_size=12),
         ]
@@ -574,7 +585,6 @@ def _(described, get_examined):
 @app.cell
 def _(
     clusters,
-    cutting,
     described,
     distances,
     examined,
@@ -628,7 +638,7 @@ def _(
             mo.md("**Where it stands on its own decline** — the depths it reached, and the ones the space reads:"),
             panels.table(clusters.anchor_rows(_descriptor, reading.anchor_depths_db, space)),
             mo.md("**How far it stands from every group** — the company it nearly kept:"),
-            panels.table(clusters.reach_rows(examined, described, groups, distances, rule=cutting.representative)),
+            panels.table(clusters.reach_rows(examined, described, groups, distances)),
         ]
     )
     return
@@ -697,7 +707,6 @@ def _(Path, mo, run_root, stage):
 def _(
     Path,
     clusters,
-    cutting,
     described,
     groups,
     instrument,
@@ -715,7 +724,7 @@ def _(
         not write_now.value,
         mo.md("*Nothing written yet — press the button to write the selection above out as a dataset.*"),
     )
-    _chosen = selection(described.corpus, groups, rule=cutting.representative)
+    _chosen = selection(described.corpus, groups)
     with mo.status.spinner(title=f"writing {_chosen.size} recordings to {selection_dir.value}..."):
         _written = write_selection(
             stage_dataset(Path(run_root.value), stage.value, instrument.value),

@@ -13,7 +13,7 @@ from optisample.cluster.representative import Group, grouping
 from optisample.cluster.space import Coordinates, SampleSpace, pairwise_distances
 from optisample.cluster.stages import Stage, StageCorpus, StageRecording
 from optisample.config import OptiConfig
-from optisample.config.cluster import Representative
+from optisample.config.cluster import PartitionConfig
 from optisample.config.metrics import MetricsConfig
 from optisample.config.spectral import SpectralConfig
 from optisample.keys import SampleKey
@@ -55,7 +55,7 @@ class Clustered:
     space: SampleSpace
     groups: tuple[Group, ...]
     distances: Coordinates
-    rule: Representative
+    cutting: PartitionConfig
 
 
 @pytest.fixture
@@ -88,9 +88,9 @@ def clustered(config: OptiConfig) -> Clustered:
     return Clustered(
         described=described,
         space=space,
-        groups=grouping(space.coordinates, cut_now.labels, described.weights),
+        groups=grouping(space.coordinates, cut_now.labels, described.readings, config=cutting),
         distances=pairwise_distances(space.coordinates),
-        rule=cutting.representative,
+        cutting=cutting,
     )
 
 

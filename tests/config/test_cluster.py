@@ -32,6 +32,7 @@ def raw(**sections: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "groups": 8,
             "max_groups": 16,
             "representative": "medoid",
+            "min_duration_s": 0.25,
         },
     }
     return {name: {**fields, **sections.get(name, {})} for name, fields in base.items()}
@@ -71,6 +72,7 @@ def test_bundled_shape_validates() -> None:
         ("partition", {"max_groups": 1}),
         ("partition", {"groups": 20}),  # past the ceiling the sweep climbs to
         ("partition", {"representative": "loudest"}),
+        ("partition", {"min_duration_s": -0.1}),
     ],
 )
 def test_out_of_range_values_are_rejected(section: str, overrides: dict[str, Any]) -> None:

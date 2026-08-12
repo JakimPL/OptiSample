@@ -116,10 +116,12 @@ def test_each_recording_carries_the_playing_time_the_material_gives_it(
     features_config: FeatureConfig,
     descriptor_config: DescriptorConfig,
 ) -> None:
-    """The weights stand where their recordings do, which is what a weighted medoid reads them by."""
+    """The readings stand where their recordings do, which is what a medoid and a length floor read them by."""
     described = _described(_corpus(ringing_note), features_config, descriptor_config)
+    lengths = [recording.duration_s for recording in described.recordings]
 
-    assert described.weights == pytest.approx([1.0, 2.0, 3.0, 4.0])
+    assert described.readings.weights == pytest.approx([1.0, 2.0, 3.0, 4.0])
+    assert described.readings.durations_s == pytest.approx(lengths)
 
 
 def test_the_space_places_one_point_per_recording(

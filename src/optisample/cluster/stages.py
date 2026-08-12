@@ -5,8 +5,11 @@ from enum import StrEnum, unique
 from pathlib import Path
 from typing import Final
 
+import numpy as np
+
 from optisample.artifacts.documents.plan import PlanDocument
 from optisample.artifacts.paths import PipelinePaths, PlanPaths, pipeline_paths, plan_paths
+from optisample.cluster.representative import Durations, MemberReadings, Weights
 from optisample.config.reduce import DedupeConfig, TrimConfig
 from optisample.io.audio import mono, read_wav
 from optisample.io.dataset import SourceDataset
@@ -120,6 +123,25 @@ class StageCorpus:
     def size(self) -> int:
         """How many recordings the stage offers, which is how many points its space holds."""
         return len(self.recordings)
+
+    @property
+    def weights(self) -> Weights:
+        """The playing time the material gives each recording, which is the say it carries in a group.
+
+        A weighted medoid read under these stands for the take its group leans on musically rather than
+        the one sitting in the geometric middle.
+        """
+        return np.asarray([recording.weight for recording in self.recordings], dtype=np.float64)
+
+    @property
+    def durations_s(self) -> Durations:
+        """How long each recording sounds for, which is what holds a representative to a length one can shape."""
+        return np.asarray([recording.duration_s for recording in self.recordings], dtype=np.float64)
+
+    @property
+    def readings(self) -> MemberReadings:
+        """What each recording carries beyond its place in a space, as the grouping reads them together."""
+        return MemberReadings(weights=self.weights, durations_s=self.durations_s)
 
 
 def stage_dir(paths: PipelinePaths, stage: Stage) -> Path:

@@ -22,7 +22,7 @@ def _placed(clustered: Clustered, components: int) -> layouts.Embedding:
 
 def _rows(clustered: Clustered) -> list[dict[str, float | int | str | bool]]:
     """The rows the scatter hovers, read the way the notebook reads them."""
-    return clusters.point_rows(clustered.described, clustered.groups, clustered.distances, rule=clustered.rule)
+    return clusters.point_rows(clustered.described, clustered.groups, clustered.distances)
 
 
 @pytest.mark.parametrize("components", [_PLANE, _BOX])
@@ -31,7 +31,7 @@ def test_a_named_column_draws_one_trace_per_name_beside_the_representatives(
 ) -> None:
     """A column holding names draws one colour and one legend entry apiece, so a click isolates a group."""
     rows = _rows(clustered)
-    representatives = [group.representative(clustered.rule) for group in clustered.groups]
+    representatives = [group.representative for group in clustered.groups]
     figure = scatter.space_scatter(
         _placed(clustered, components),
         rows,
@@ -99,7 +99,7 @@ def test_a_picture_in_three_dimensions_names_all_three(clustered: Clustered) -> 
 def test_the_take_standing_for_a_group_is_ringed_in_that_groups_colour(clustered: Clustered, colour_by: str) -> None:
     """A ring says which take was chosen and which group chose it, whatever the field is coloured by."""
     rows = _rows(clustered)
-    representatives = [group.representative(clustered.rule) for group in clustered.groups]
+    representatives = [group.representative for group in clustered.groups]
     grouped = scatter.space_scatter(
         _placed(clustered, _PLANE), rows, colour_by="group", representatives=representatives, title="by group"
     )

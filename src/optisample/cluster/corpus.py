@@ -4,10 +4,8 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Final
 
-import numpy as np
-
 from optisample.cluster.descriptor import SampleDescriptor, describe
-from optisample.cluster.representative import Weights
+from optisample.cluster.representative import MemberReadings
 from optisample.cluster.space import SampleSpace, sample_space
 from optisample.cluster.stages import StageCorpus, StageRecording
 from optisample.config.cluster import DescriptorConfig, SpaceConfig
@@ -58,13 +56,9 @@ class DescribedCorpus:
         return len(self.descriptors)
 
     @property
-    def weights(self) -> Weights:
-        """The playing time the material gives each recording, which is the say it carries in a group.
-
-        A weighted medoid read under these stands for the take its group leans on musically rather than
-        the one sitting in the geometric middle.
-        """
-        return np.asarray([recording.weight for recording in self.recordings], dtype=np.float64)
+    def readings(self) -> MemberReadings:
+        """What each recording carries beyond its place in the space: the say it holds and how long it rings."""
+        return self.corpus.readings
 
     def space(self, config: SpaceConfig) -> SampleSpace:
         """The corpus placed as points whose plain distance is the weighted distance across the blocks.
