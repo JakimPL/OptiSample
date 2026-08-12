@@ -23,6 +23,7 @@ from optisample.artifacts.serialize import write_json
 from optisample.cluster.stages import (
     Stage,
     StageSettings,
+    available_instruments,
     available_stages,
     stage_dir,
     stage_recordings,
@@ -36,6 +37,7 @@ from optisample.progress import NO_PROGRESS
 SR = 8_000
 
 _INSTRUMENT = "Piano"
+_OTHER_INSTRUMENT = "Rhodes"  # a second dataset beside the first, which a listing names after it
 _STRATEGY = "grouped"
 _PITCHES = (48, 60, 72)  # the notes a stage's dataset holds, one recording apiece
 _VELOCITY = 100
@@ -228,6 +230,35 @@ def test_a_stage_a_run_never_reached_is_left_out(tmp_path: Path, settings: Stage
     _write_dataset(paths.looped_dir, _plain_notes(), {index: _take(pitch) for index, pitch in enumerate(_PITCHES)})
 
     assert available_stages(tmp_path, settings) == (Stage.LOOPED,)
+
+
+def test_a_run_offers_every_instrument_it_carried_once(run: Path) -> None:
+    """One instrument written by every stage is named once, and a second one beside it is named too."""
+    paths = pipeline_paths(run)
+    (paths.looped_dir / _OTHER_INSTRUMENT).mkdir(parents=True, exist_ok=True)
+    dump_notes(_plain_notes(), paths.looped_dir / f"{_OTHER_INSTRUMENT}{NOTES_SUFFIX}")
+
+    assert available_instruments(run) == (_INSTRUMENT, _OTHER_INSTRUMENT)
+
+
+def test_an_instrument_an_allocation_stored_is_offered_on_its_own(tmp_path: Path) -> None:
+    """A tree holding only what one allocation stored names its instrument by the directory it stored under."""
+    _write_plan(tmp_path, _STRATEGY)
+
+    assert available_instruments(tmp_path) == (_INSTRUMENT,)
+
+
+def test_a_manifest_standing_without_its_recordings_names_no_instrument(tmp_path: Path) -> None:
+    """A dataset is a manifest beside the recordings it joins to, so half of one is left out of the listing."""
+    paths = pipeline_paths(tmp_path)
+    paths.subset_dir.mkdir(parents=True)
+    dump_notes(_plain_notes(), paths.subset_dir / f"{_INSTRUMENT}{NOTES_SUFFIX}")
+
+    assert available_instruments(tmp_path) == ()
+
+
+def test_a_root_no_run_ever_wrote_under_offers_no_instrument(tmp_path: Path) -> None:
+    assert available_instruments(tmp_path / "never-run") == ()
 
 
 @pytest.mark.parametrize("stage", _DATASET_STAGES)

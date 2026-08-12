@@ -63,7 +63,8 @@ the same note at v100 differ by their timbre alone. **Length**: time is anchored
 decline — anchor *k* is the moment that note had fallen *k* dB below its own peak — so a two-second take
 and an eight-second take of one sound are read at the same points.
 
-**Controls** — the run root, instrument and strategy; which stage to read, whether to read past each
+**Controls** — the run root, then the dataset: the instruments that run carried are listed as they stand on
+disk, so one is picked rather than spelled out. Then the strategy; which stage to read, whether to read past each
 note's release, and how many workers share the reading; the frequency axis (the note's own partials, or
 the mel bands the optimizer scores with), the fall depths, the harmonic count, the cepstral coefficients
 and the anchor span; the four block weights and the share of the corpus a depth must reach to be read at
@@ -76,8 +77,14 @@ stage or the frequency axis re-reads the audio.
 
 **The space** — every recording where the layout placed it, hovering everything it was read for. A column
 holding names (the group, the note) draws one colour and one legend entry apiece, so clicking the legend
-isolates a group; a column holding measurements is shaded along a scale. The outlined diamonds are the
-takes standing for their groups, and clicking any point sends it to the examine panel below.
+isolates a group; a column holding measurements is shaded along a scale. The takes standing for their groups
+are ringed, each in its own group's colour, so a selection is picked out by eye whatever the field is
+coloured by. Clicking any point plays that recording — normalized, so a quiet take is as audible as a loud
+one — and sends it to the examine panel below.
+
+**Pitch against velocity** — the same corpus as the keyboard holds it: the note across, the velocity it was
+struck at up, coloured and ringed like the space. This says which keys the stage kept a recording of and how
+a group sits across them, and a click on it picks a take out just as a click on the space does.
 
 PCA and MDS draw the space's own geometry, so what is read off the picture holds in the numbers. t-SNE
 and UMAP are additional variants for the eye — they place each recording beside the company it keeps, so
@@ -92,7 +99,8 @@ the top of the tree with the height the cut reads it at drawn across it.
 from its medoid) and how tightly it holds together block by block, which says where the grouping came
 from. Then one group's recordings, ordered from its medoid outwards.
 
-**Examine and play** — the picked recording heard and seen: a player, its waveform, its spectrogram, the
+**Examine and play** — the picked recording, from either picture or by name, heard and seen: a player, its
+waveform, its spectrogram, the
 level it holds against the decline and the curve fitted to it, what it sounded like at each depth it
 reached, its own readings, the depths it arrived at beside the ones the space reads, and how far it
 stands from every group — the company it nearly kept.

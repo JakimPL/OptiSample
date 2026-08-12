@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, Final
 
 import numpy as np
@@ -22,14 +23,19 @@ _CUSTOM_DATA: Final = "customdata"  # what plotly calls the values a point carri
 _PLANE: Final = 2  # components a picture drawn on a plane holds
 _MARKER_SIZE: Final = 7  # how big a recording is drawn on a plane
 _SOLID_MARKER_SIZE: Final = 4  # how big it is drawn in a box, where depth already thins the field
-_REPRESENTATIVE_SIZE: Final = 13  # how big the take standing for a group is drawn
+_REPRESENTATIVE_SIZE: Final = 19  # how big the ring around the take standing for a group is drawn on a plane
+_REPRESENTATIVE_SOLID_SIZE: Final = 12  # how big that ring is drawn in a box, over the smaller points there
 _REPRESENTATIVE_SYMBOL: Final = "diamond-open"  # the one outline both the plane and the box draw it with
-_LINE_WIDTH: Final = 1.6
+_RING_WIDTH: Final = 3.0  # how thick that outline is stroked, well above the field it stands over
+_ON_SCREEN_SIZE: Final = 13  # how big the count a sweep curve is being read at is ringed
+_GROUP_COLUMN: Final = "group"  # the column naming the group a take fell into, which rings it in that colour
+_PITCH_AXIS: Final = "pitch"  # the note a take plays, which a key map reads across
+_VELOCITY_AXIS: Final = "velocity"  # how hard it was struck, which a key map reads up
 _HEIGHT: Final = 620  # pixels a scatter is given, ample for a group to be picked out by eye
+_KEY_HEIGHT: Final = 420  # pixels a key map is given, a grid being wider than it is tall
 _CURVE_HEIGHT: Final = 320  # pixels the two reading curves are given
 _FLOAT_FORMAT: Final = ":.3f"  # how a measured reading is spelled in a hover
 _PLAIN: Final = ""  # how a name or a count is spelled there
-_OUTLINE: Final = "#111111"
 _CUT_COLOUR: Final = "#d62728"
 _LINK_COLOUR: Final = "#4c78a8"
 _LEAF_SCALE: Final = 10.0  # the width scipy spaces dendrogram leaves by, which its own coordinates count in
@@ -54,62 +60,106 @@ def _carried(rows: Sequence[Row], keys: Sequence[str]) -> list[list[object]]:
     return [[index, *(row[key] for key in keys)] for index, row in enumerate(rows)]
 
 
-def _positions(embedding: Embedding, places: Sequence[int]) -> dict[str, Sequence[float]]:
+@dataclass(frozen=True)
+class Placement:
+    """Where every recording sits on one drawn picture, beside what the axes it is drawn on are called.
+
+    A picture drawn from a layout carries the components an embedding placed each recording on; one drawn
+    from the keys carries the note it plays and the velocity it was struck at. Both stand here in the one
+    shape, so a field is coloured, hovered and clicked the same way whichever of the two it draws.
+    """
+
+    axes: tuple[tuple[float, ...], ...]
+    titles: tuple[str, ...]
+
+    @property
+    def components(self) -> int:
+        """How many axes the picture is drawn on, which is what tells a plane from a box."""
+        return len(self.axes)
+
+
+def _laid_out(embedding: Embedding) -> Placement:
+    """The recordings where the layout put them, on axes named for the share of the spread each carries."""
+    return Placement(
+        axes=tuple(
+            tuple(float(value) for value in embedding.coordinates[:, axis]) for axis in range(embedding.components)
+        ),
+        titles=tuple(_axis_title(embedding, axis) for axis in range(embedding.components)),
+    )
+
+
+def _keyed(rows: Sequence[Row]) -> Placement:
+    """The recordings at the keys they play: the note across, the velocity it was struck at up."""
+    return Placement(
+        axes=(
+            tuple(float(row[_PITCH_AXIS]) for row in rows),
+            tuple(float(row[_VELOCITY_AXIS]) for row in rows),
+        ),
+        titles=(_PITCH_AXIS, _VELOCITY_AXIS),
+    )
+
+
+def _positions(placement: Placement, places: Sequence[int]) -> dict[str, Sequence[float]]:
     """Where the named recordings sit, as the axis arguments a plotly trace is built from."""
     axes = ("x", "y", "z")
-    return {
-        axes[axis]: [float(embedding.coordinates[place, axis]) for place in places]
-        for axis in range(embedding.components)
-    }
+    return {axes[axis]: [placement.axes[axis][place] for place in places] for axis in range(placement.components)}
 
 
-def _trace(embedding: Embedding, *, places: Sequence[int], **options: object) -> go.Scatter | go.Scatter3d:
-    """One set of recordings drawn where the layout put them, on a plane or in a box as it has axes for."""
-    positions = _positions(embedding, places)
-    if embedding.components <= _PLANE:
+def _trace(placement: Placement, *, places: Sequence[int], **options: object) -> go.Scatter | go.Scatter3d:
+    """One set of recordings drawn where the picture puts them, on a plane or in a box as it has axes for."""
+    positions = _positions(placement, places)
+    if placement.components <= _PLANE:
         return go.Scatter(mode="markers", **positions, **options)
 
     return go.Scatter3d(mode="markers", **positions, **options)
 
 
+def _marker_size(placement: Placement) -> int:
+    """How big a recording is drawn, a box thinning the field by depth where a plane holds it all at once."""
+    return _MARKER_SIZE if placement.components <= _PLANE else _SOLID_MARKER_SIZE
+
+
+def _colours(names: Sequence[str]) -> dict[str, str]:
+    """The colour each name is drawn in, which is the one spelling every trace of a picture reads it by."""
+    return {name: _PALETTE[position % len(_PALETTE)] for position, name in enumerate(names)}
+
+
 def _named_traces(
-    embedding: Embedding,
+    placement: Placement,
     rows: Sequence[Row],
     carried: Sequence[Sequence[object]],
     hover: str,
     colour_by: str,
 ) -> list[go.Scatter | go.Scatter3d]:
     """One trace per value the colouring column names, so each reads as its own colour and legend entry."""
-    size = _MARKER_SIZE if embedding.components <= _PLANE else _SOLID_MARKER_SIZE
-    names = sorted({str(row[colour_by]) for row in rows})
+    colours = _colours(sorted({str(row[colour_by]) for row in rows}))
     return [
         _trace(
-            embedding,
+            placement,
             places=[index for index, row in enumerate(rows) if str(row[colour_by]) == name],
             name=name,
-            marker={"size": size, "color": _PALETTE[position % len(_PALETTE)]},
+            marker={"size": _marker_size(placement), "color": colour},
             customdata=[carried[index] for index, row in enumerate(rows) if str(row[colour_by]) == name],
             hovertemplate=hover,
         )
-        for position, name in enumerate(names)
+        for name, colour in colours.items()
     ]
 
 
 def _scaled_trace(
-    embedding: Embedding,
+    placement: Placement,
     rows: Sequence[Row],
     carried: Sequence[Sequence[object]],
     hover: str,
     colour_by: str,
 ) -> go.Scatter | go.Scatter3d:
     """Every recording in one trace, shaded along the reading the colouring column holds."""
-    size = _MARKER_SIZE if embedding.components <= _PLANE else _SOLID_MARKER_SIZE
     return _trace(
-        embedding,
+        placement,
         places=range(len(rows)),
         name=colour_by,
         marker={
-            "size": size,
+            "size": _marker_size(placement),
             "color": [float(row[colour_by]) for row in rows],
             "colorscale": _CONTINUOUS,
             "showscale": True,
@@ -121,25 +171,68 @@ def _scaled_trace(
 
 
 def _representative_trace(
-    embedding: Embedding,
+    placement: Placement,
+    rows: Sequence[Row],
     carried: Sequence[Sequence[object]],
     hover: str,
     representatives: Sequence[int],
 ) -> go.Scatter | go.Scatter3d:
-    """The takes standing for their groups, drawn over the field so a selection reads at a glance."""
+    """The takes standing for their groups, ringed over the field so a selection reads at a glance.
+
+    The ring stands well clear of the point it surrounds and is stroked in the colour of the group that
+    take was chosen for, so a representative is picked out of the field by eye and read as a member of its
+    own group at once -- whichever reading the field itself is coloured by.
+    """
+    colours = _colours(sorted({str(row[_GROUP_COLUMN]) for row in rows}))
     return _trace(
-        embedding,
+        placement,
         places=representatives,
         name="stands for its group",
         marker={
-            "size": _REPRESENTATIVE_SIZE,
+            "size": _REPRESENTATIVE_SIZE if placement.components <= _PLANE else _REPRESENTATIVE_SOLID_SIZE,
             "symbol": _REPRESENTATIVE_SYMBOL,
-            "color": _OUTLINE,
-            "line": {"width": _LINE_WIDTH, "color": _OUTLINE},
+            "color": [colours[str(rows[place][_GROUP_COLUMN])] for place in representatives],
+            "line": {"width": _RING_WIDTH},
         },
         customdata=[carried[place] for place in representatives],
         hovertemplate=hover,
     )
+
+
+def _field(
+    placement: Placement,
+    rows: Sequence[Row],
+    *,
+    colour_by: str,
+    representatives: Sequence[int],
+    title: str,
+) -> go.Figure:
+    """Every recording where ``placement`` puts it, shaded by one of its readings and hovering all of them.
+
+    A column holding names -- the group a take fell into, the note it plays -- draws one colour and one
+    legend entry per name, so a click on the legend isolates that set; a column holding measurements is
+    shaded along a scale beside the picture. The takes standing for their groups are ringed over the top,
+    and every point carries its place in the space, which is what a click hands back to Python.
+    """
+    keys = list(rows[0]) if rows else []
+    carried = _carried(rows, keys)
+    hover = _hover(rows, keys) if rows else _PLAIN
+    named = isinstance(rows[0][colour_by], str) if rows else False
+    traces = (
+        _named_traces(placement, rows, carried, hover, colour_by)
+        if named
+        else [_scaled_trace(placement, rows, carried, hover, colour_by)]
+    )
+    figure = go.Figure(data=[*traces, _representative_trace(placement, rows, carried, hover, representatives)])
+    figure.update_layout(
+        title=title,
+        height=_HEIGHT,
+        margin={"l": 10, "r": 10, "t": 50, "b": 10},
+        legend={"itemsizing": "constant"},
+        clickmode="event+select",
+    )
+    _label_axes(figure, placement)
+    return figure
 
 
 def space_scatter(
@@ -150,31 +243,30 @@ def space_scatter(
     representatives: Sequence[int],
     title: str,
 ) -> go.Figure:
-    """Every recording where the layout placed it, shaded by one of its readings and hovering all of them.
+    """Every recording where the layout placed it, on the axes carrying the most of the space's spread.
 
-    A column holding names -- the group a take fell into, the note it plays -- draws one colour and one
-    legend entry per name, so a click on the legend isolates that set; a column holding measurements is
-    shaded along a scale beside the picture. The takes standing for their groups are drawn over the top,
-    and every point carries its place in the space, which is what a click hands back to Python.
+    This is the geometry the groups were cut in, so what is read off the picture -- how far two takes stand
+    apart, which of them a group gathered -- is what the numbers underneath say.
     """
-    keys = list(rows[0]) if rows else []
-    carried = _carried(rows, keys)
-    hover = _hover(rows, keys) if rows else _PLAIN
-    named = isinstance(rows[0][colour_by], str) if rows else False
-    traces = (
-        _named_traces(embedding, rows, carried, hover, colour_by)
-        if named
-        else [_scaled_trace(embedding, rows, carried, hover, colour_by)]
-    )
-    figure = go.Figure(data=[*traces, _representative_trace(embedding, carried, hover, representatives)])
-    figure.update_layout(
-        title=title,
-        height=_HEIGHT,
-        margin={"l": 10, "r": 10, "t": 50, "b": 10},
-        legend={"itemsizing": "constant"},
-        clickmode="event+select",
-    )
-    _label_axes(figure, embedding)
+    return _field(_laid_out(embedding), rows, colour_by=colour_by, representatives=representatives, title=title)
+
+
+def key_scatter(
+    rows: Sequence[Row],
+    *,
+    colour_by: str,
+    representatives: Sequence[int],
+    title: str,
+) -> go.Figure:
+    """Every recording at the key it plays, the note across and the velocity it was struck at up.
+
+    This is the corpus as the keyboard holds it rather than as the space places it, so a grouping is read
+    against the keys it came from: where a group sits on the keyboard, which stretches of it one take was
+    chosen to stand for, and which keys the corpus holds a recording of at all. Takes sharing a key stand
+    on one point, and a click on any of them picks it out the way a click on the space does.
+    """
+    figure = _field(_keyed(rows), rows, colour_by=colour_by, representatives=representatives, title=title)
+    figure.update_layout(height=_KEY_HEIGHT)
     return figure
 
 
@@ -186,10 +278,10 @@ def _axis_title(embedding: Embedding, axis: int) -> str:
     return f"component {axis + 1}"
 
 
-def _label_axes(figure: go.Figure, embedding: Embedding) -> None:
-    """Name every drawn axis on the figure, on the plane or on the box as the layout has axes for."""
-    titles = [_axis_title(embedding, axis) for axis in range(embedding.components)]
-    if embedding.components <= _PLANE:
+def _label_axes(figure: go.Figure, placement: Placement) -> None:
+    """Name every drawn axis on the figure, on the plane or on the box as the picture has axes for."""
+    titles = placement.titles
+    if placement.components <= _PLANE:
         figure.update_layout(xaxis_title=titles[0], yaxis_title=titles[1])
         return
 
@@ -203,6 +295,16 @@ def selected(points: Sequence[SelectionPoint]) -> tuple[int, ...]:
     into the very corpus the picture was built from whichever trace the click landed on.
     """
     return tuple(int(point[_CUSTOM_DATA][_INDEX_COLUMN]) for point in points if _CUSTOM_DATA in point)
+
+
+def picked(points: Sequence[SelectionPoint], standing: int) -> int:
+    """Which recording a click picked out, holding ``standing`` where the click named none.
+
+    Several pictures of one corpus each hand back what was clicked on them, and a picture redrawn hands
+    back nothing at all, so holding what stood leaves the panels reading the take a reader picked last.
+    """
+    found = selected(points)
+    return found[0] if found else standing
 
 
 def sweep_curve(rows: Sequence[Row], *, title: str) -> go.Figure:
@@ -222,7 +324,7 @@ def sweep_curve(rows: Sequence[Row], *, title: str) -> go.Figure:
                 y=[scores[index] for index in on_screen],
                 mode="markers",
                 name="on screen",
-                marker={"size": _REPRESENTATIVE_SIZE, "symbol": "circle-open", "color": _CUT_COLOUR},
+                marker={"size": _ON_SCREEN_SIZE, "symbol": "circle-open", "color": _CUT_COLOUR},
             ),
         ]
     )

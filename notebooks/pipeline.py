@@ -339,7 +339,7 @@ def _(fields, looped_root, mo, reports):
 def _(fields, loop_audition_key, looped_root, mo, panels, preview_normalize, reports):
     mo.hstack(
         [
-            panels.file_player(clip.path, label=clip.label, normalize=preview_normalize.value)
+            panels.file_player(clip.path, label=clip.label, normalize=preview_normalize.value, autoplay=False)
             for clip in reports.loop_auditions(looped_root, fields.instrument_id, loop_audition_key.value)
         ],
         justify="start",
@@ -402,7 +402,7 @@ def _(fields, mo, reduced_root, reports):
 def _(audition_pitch, fields, mo, panels, preview_normalize, reduced_root, reports):
     mo.hstack(
         [
-            panels.file_player(clip.path, label=clip.label, normalize=preview_normalize.value)
+            panels.file_player(clip.path, label=clip.label, normalize=preview_normalize.value, autoplay=False)
             for clip in reports.auditions(reduced_root, fields.instrument_id, audition_pitch.value)
         ],
         justify="start",

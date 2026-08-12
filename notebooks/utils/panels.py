@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import base64
 import io
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Final
 
 import marimo as mo
 import numpy as np
@@ -20,6 +22,8 @@ from notebooks.utils.viz import (
 from optisample.io.audio import read_wav
 
 Signal = NDArray[np.float64]
+
+_WAV_MIME: Final = "audio/wav"
 
 
 def image(figure: Figure) -> mo.Html:
@@ -41,24 +45,38 @@ def table(rows: Sequence[Row], *, page_size: int | None = None) -> mo.ui.table:
     return mo.ui.table(list(rows), selection=None, page_size=page_size)
 
 
-def player(signal: Signal, sample_rate: int, *, label: str, normalize: bool) -> mo.Html:
+def _audio(clip: bytes, *, autoplay: bool) -> mo.Html:
+    """``clip`` as the player a panel shows, sounding as it is drawn where the caller asks it to.
+
+    Marimo's own player is what a panel shows when it waits to be pressed. A player asked to sound at once
+    is written as the audio element the browser starts on its own, which is what makes a click on a picture
+    audible without a second press; the browser plays it once the reader has touched the page.
+    """
+    if not autoplay:
+        return mo.audio(io.BytesIO(clip))
+
+    return mo.Html(f'<audio src="data:{_WAV_MIME};base64,{base64.b64encode(clip).decode("ascii")}" controls autoplay>')
+
+
+def player(signal: Signal, sample_rate: int, *, label: str, normalize: bool, autoplay: bool) -> mo.Html:
     """``signal`` as a titled player, encoded to WAV in memory.
 
     Normalizing makes a quiet clip audible at the cost of the level it was played at, so the caller
-    states which of the two its panel is asking about.
+    states which of the two its panel is asking about. ``autoplay`` states whether the clip sounds as the
+    panel is drawn, which is what a panel answering a click on a picture asks for.
     """
     return mo.vstack(
         [
             mo.md(f"**{label}**"),
-            mo.audio(io.BytesIO(to_wav_bytes(signal, sample_rate, normalize=normalize))),
+            _audio(to_wav_bytes(signal, sample_rate, normalize=normalize), autoplay=autoplay),
         ]
     )
 
 
-def file_player(path: Path, *, label: str, normalize: bool) -> mo.Html:
+def file_player(path: Path, *, label: str, normalize: bool, autoplay: bool) -> mo.Html:
     """The recording at ``path`` as a titled player."""
     signal, sample_rate = read_wav(path)
-    return player(signal, sample_rate, label=label, normalize=normalize)
+    return player(signal, sample_rate, label=label, normalize=normalize, autoplay=autoplay)
 
 
 def waveform(signal: Signal, sample_rate: int, *, title: str) -> mo.Html:
@@ -81,7 +99,7 @@ def signal_panel(path: Path, *, label: str, style: SpectrogramStyle, normalize: 
     return mo.vstack(
         [
             mo.md(f"**{label}** — {signal.size / sample_rate:.2f}s at {sample_rate} Hz"),
-            mo.audio(io.BytesIO(to_wav_bytes(signal, sample_rate, normalize=normalize))),
+            _audio(to_wav_bytes(signal, sample_rate, normalize=normalize), autoplay=False),
             spectrogram(signal, sample_rate, style=style, title=label),
         ]
     )

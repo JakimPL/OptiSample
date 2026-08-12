@@ -154,6 +154,17 @@ def stage_dataset(root: Path, stage: Stage, instrument_id: str) -> SourceDataset
     return _dataset(stage_dir(pipeline_paths(root), stage), instrument_id)
 
 
+def available_instruments(root: Path) -> tuple[str, ...]:
+    """Every instrument a run left readable under ``root``, in the order a listing names them.
+
+    A chain files each stage under the instrument it carried, so the instruments there are to read are the
+    ones the dataset stages wrote a manifest and a recordings directory for, beside the ones the allocated
+    stage stored under. Naming them is what lets a reader pick a dataset off a run it has on disk.
+    """
+    paths = pipeline_paths(root)
+    return tuple(sorted({name for stage in Stage for name in _instruments_at(stage_dir(paths, stage), stage)}))
+
+
 def available_stages(root: Path, settings: StageSettings) -> tuple[Stage, ...]:
     """The stages a run left readable under ``root``, in the order they ran.
 
@@ -210,6 +221,21 @@ def _dataset(directory: Path, instrument_id: str) -> SourceDataset:
 def _plan(directory: Path, settings: StageSettings) -> PlanPaths:
     """Where the strategy ``settings`` names left its artifacts, under the allocated stage's directory."""
     return plan_paths(directory / settings.instrument_id, settings.strategy)
+
+
+def _instruments_at(directory: Path, stage: Stage) -> tuple[str, ...]:
+    """The instruments ``stage`` left under ``directory``, named the way that stage files them.
+
+    A dataset stage names an instrument by the manifest it wrote beside the recordings it joins to, and the
+    allocated stage by the directory it stored one instrument's artifacts under.
+    """
+    match stage:
+        case Stage.SUBSET | Stage.LOOPED | Stage.REDUCED:
+            named = (found.name.removesuffix(NOTES_SUFFIX) for found in directory.glob(f"*{NOTES_SUFFIX}"))
+            return tuple(name for name in named if (directory / name).is_dir())
+
+        case Stage.OPTIMIZED:
+            return tuple(found.name for found in directory.glob("*") if found.is_dir())
 
 
 def _stage_ready(directory: Path, stage: Stage, settings: StageSettings) -> bool:

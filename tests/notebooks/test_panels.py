@@ -14,16 +14,25 @@ PNG_URI = "data:image/png"
 
 
 def test_player_titles_the_clip_and_carries_its_audio(tone: Callable[..., NDArray[np.float64]]) -> None:
-    html = panels.player(tone(), SR, label="original", normalize=True)
+    html = panels.player(tone(), SR, label="original", normalize=True, autoplay=False)
     assert isinstance(html, mo.Html)
     assert "original" in html.text
     assert "<audio" in html.text
+    assert "autoplay" not in html.text
+
+
+def test_a_player_answering_a_click_sounds_as_it_is_drawn(tone: Callable[..., NDArray[np.float64]]) -> None:
+    """A picture is made audible by a player that starts on its own, so a click needs no second press."""
+    html = panels.player(tone(), SR, label="clicked", normalize=True, autoplay=True)
+    assert "clicked" in html.text
+    assert "autoplay" in html.text
+    assert "data:audio/wav;base64," in html.text
 
 
 def test_file_player_reads_the_recording_beside_it(tmp_path: Path, tone: Callable[..., NDArray[np.float64]]) -> None:
     path = tmp_path / "take.wav"
     write_wav(path, tone(), SR)
-    html = panels.file_player(path, label="take", normalize=False)
+    html = panels.file_player(path, label="take", normalize=False, autoplay=False)
     assert "take" in html.text
     assert "<audio" in html.text
 

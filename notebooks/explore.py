@@ -123,7 +123,7 @@ def _(mo, notebook, panels, sample_dropdown, signals):
     mo.vstack(
         [
             mo.md(f"#### `{sample_dropdown.value}` — listen & inspect"),
-            panels.player(reference, ref_sr, label="recording", normalize=True),
+            panels.player(reference, ref_sr, label="recording", normalize=True, autoplay=False),
             panels.waveform(reference, ref_sr, title="waveform"),
             panels.spectrogram(reference, ref_sr, style=notebook.spectrogram, title="spectrogram (dB rel. peak)"),
         ]
@@ -184,8 +184,8 @@ def _(
             mo.md(f"**Candidate: {_spec.label}**  · previews are peak-normalized, so read level from `loudness_dLU`."),
             mo.hstack(
                 [
-                    panels.player(reference, ref_sr, label="original", normalize=True),
-                    panels.player(_candidate, ref_sr, label=_spec.label, normalize=True),
+                    panels.player(reference, ref_sr, label="original", normalize=True, autoplay=False),
+                    panels.player(_candidate, ref_sr, label=_spec.label, normalize=True, autoplay=False),
                 ]
             ),
             panels.table([_row]),

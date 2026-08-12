@@ -12,6 +12,7 @@ _BOX = 3
 _REPRESENTATIVES = 1  # the one trace the takes standing for their groups are drawn over the field in
 _LEAVES = 5
 _INDEX = 0  # where a point's place in the space sits among the values it carries
+_STOOD = 2  # the recording a panel was already reading when a picture named none
 
 
 def _placed(clustered: Clustered, components: int) -> layouts.Embedding:
@@ -94,6 +95,45 @@ def test_a_picture_in_three_dimensions_names_all_three(clustered: Clustered) -> 
     assert figure.layout.scene.zaxis.title.text.startswith("component 3")
 
 
+@pytest.mark.parametrize("colour_by", ["group", "pitch"])
+def test_the_take_standing_for_a_group_is_ringed_in_that_groups_colour(clustered: Clustered, colour_by: str) -> None:
+    """A ring says which take was chosen and which group chose it, whatever the field is coloured by."""
+    rows = _rows(clustered)
+    representatives = [group.representative(clustered.rule) for group in clustered.groups]
+    grouped = scatter.space_scatter(
+        _placed(clustered, _PLANE), rows, colour_by="group", representatives=representatives, title="by group"
+    )
+    figure = scatter.space_scatter(
+        _placed(clustered, _PLANE), rows, colour_by=colour_by, representatives=representatives, title=colour_by
+    )
+    palette = {trace.name: trace.marker.color for trace in grouped.data[:-1]}
+    ringed = figure.data[-1]
+
+    assert list(ringed.marker.color) == [palette[str(rows[place]["group"])] for place in representatives]
+    assert ringed.marker.size > figure.data[0].marker.size
+    assert "open" in ringed.marker.symbol
+
+
+def test_the_key_map_places_every_take_at_the_note_and_velocity_it_plays(clustered: Clustered) -> None:
+    """The corpus as the keyboard holds it, which is what says where a group sits across the keys."""
+    rows = _rows(clustered)
+    figure = scatter.key_scatter(rows, colour_by="group", representatives=[0], title="keys")
+    placed = {(across, up) for trace in figure.data[:-1] for across, up in zip(trace.x, trace.y)}
+
+    assert placed == {(float(row["pitch"]), float(row["velocity"])) for row in rows}
+    assert figure.layout.xaxis.title.text == "pitch"
+    assert figure.layout.yaxis.title.text == "velocity"
+
+
+def test_a_click_on_the_key_map_reads_back_the_same_recordings_the_space_does(clustered: Clustered) -> None:
+    """Both pictures carry the place a point stands at, so either one picks a take out of the same corpus."""
+    rows = _rows(clustered)
+    figure = scatter.key_scatter(rows, colour_by="group", representatives=[1], title="keys")
+    carried = sorted(int(point[_INDEX]) for trace in figure.data[:-1] for point in trace.customdata)
+
+    assert carried == list(range(len(rows)))
+
+
 def test_a_click_reads_back_the_recordings_it_landed_on() -> None:
     """The place travels with the point, so a selection comes back as indices into the very corpus drawn."""
     clicked = [{"customdata": [7, "0007_p060"], "pointNumber": 3}, {"customdata": [2, "0002_p048"]}]
@@ -104,6 +144,12 @@ def test_a_click_reads_back_the_recordings_it_landed_on() -> None:
 def test_a_click_landing_on_a_point_carrying_nothing_names_no_recording() -> None:
     """A payload without the values a point was drawn with picks nothing, leaving the panel as it stood."""
     assert scatter.selected([{"pointNumber": 3}]) == ()
+
+
+def test_a_picture_naming_no_recording_leaves_the_one_that_stood() -> None:
+    """A redrawn picture hands back nothing, so the take a reader picked last is what the panels keep on."""
+    assert scatter.picked([{"customdata": [4, "0004_p060"]}], _STOOD) == 4
+    assert scatter.picked([], _STOOD) == _STOOD
 
 
 def test_the_sweep_curve_marks_the_count_on_screen(clustered: Clustered, config: OptiConfig) -> None:
