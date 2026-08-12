@@ -7,6 +7,7 @@ from optisample.config.loop import LoopConfig
 from optisample.config.optimize import OptimizeConfig
 from optisample.config.reduce import ReduceConfig
 from optisample.config.runtime import RuntimeConfig
+from optisample.config.subsonic import SubsonicConfig
 from optisample.config.synth import SynthConfig
 
 
@@ -15,11 +16,16 @@ class OptiConfig(ConfigModel):
 
     Field names match the ``opticonfig`` layout one-to-one: a stage
     (:class:`~optisample.config.stage.StageConfig`) is a directory holding one file per group, and the
-    two standalone groups are a file each.
+    standalone groups are a file each.
+
+    ``subsonic`` stands on its own because it is the band the whole run works in rather than one stage's
+    knob: the very first stage reads its source past it, and every stage after that reads a dataset
+    already holding what a listener has.
     """
 
     analysis: AnalysisConfig
     cluster: ClusterConfig
+    subsonic: SubsonicConfig
     codec: CodecConfig
     loop: LoopConfig
     reduce: ReduceConfig

@@ -79,6 +79,16 @@ note; what is left over then goes round the pitches busiest first. Each kept not
 as the source states it, so the slice measures the same material at the same lengths, and the output
 root is itself a NoteExtractor dataset.
 
+**The band under hearing comes off here.** The first stage is where a run takes its material in, so it
+is where the depth beneath hearing goes: content below `cutoff_hz` (30 Hz, under the lowest note a
+keyboard sounds) rolls away and is `rejection_db` (60 dB) down by `rejection_hz` (10 Hz), tuned in
+`src/opticonfig/subsonic.yaml`. The curve is the shallowest maximally flat one reaching that depth and
+is run forward and back, so what it passes arrives at the level and the phase it was captured on —
+0.07 dB down at 55 Hz, nothing measurable from 100 Hz up. Rumble holds its level while a note decays,
+so it grows as a share of what the tail carries; taking it off once, on the way in, leaves every later
+stage measuring, storing and scoring the content a listener has. Each stage after this one reads the
+dataset the one before it wrote, so the roll-off is applied exactly once and never accumulates.
+
 Because a pitch's picks start from its quietest and loudest recordings, a slice holds one recording
 per identity and leaves deduplication nothing to collapse. That is the honest reading of a slice's
 `recordings: n listed -> n kept` line: the dedupe axis is exercised by the whole dataset, not by a

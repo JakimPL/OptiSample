@@ -8,8 +8,12 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from numpy.typing import NDArray
 
-from optisample.io.audio import write_wav
+from optisample.config import load_config
+from optisample.dsp.subsonic import remove_subsonic
+from optisample.io.audio import read_wav, write_wav
+from optisample.io.dataset import SourceDataset
 from optisample.io.note_extractor import (
     IngestSettings,
     ManifestNote,
@@ -27,9 +31,27 @@ from optisample.io.subset import (
 from optisample.model import ProjectSpec
 
 SR = 8_000
+_SUBSONIC = load_config().subsonic
+_SILENT = 1.0e-300  # a floor keeping a band holding nothing off the logarithm
 _PITCHES = tuple(range(60, 72))
 _VELOCITIES = (20, 45, 70, 95, 120)
 _TOTAL = len(_PITCHES) * len(_VELOCITIES)
+
+
+def _depth_db(signal: NDArray[np.float64], sample_rate: int, hz: float) -> float:
+    """How much energy ``signal`` carries under ``hz``, in decibels, which is what a roll-off takes away.
+
+    The reading is taken under a raised cosine, which holds a band this deep clear of what the ends of a
+    finite stretch spread into it.
+    """
+    spectrum = np.abs(np.fft.rfft(signal * np.hanning(signal.size))) ** 2
+    freqs = np.fft.rfftfreq(signal.size, 1.0 / sample_rate)
+    return float(10.0 * np.log10(spectrum[freqs < hz].sum() + _SILENT))
+
+
+def _dataset(source: Path) -> SourceDataset:
+    """The source pair a slice is cut of: the manifest, beside the recordings it joins to."""
+    return SourceDataset(path=source, samples_dir=source.parent / "Piano")
 
 
 @dataclass(frozen=True)
@@ -166,7 +188,7 @@ def test_a_fraction_outside_the_unit_interval_is_rejected(source: Path, fraction
 def test_the_written_subset_is_a_dataset_ingest_reads_back(
     source: Path, tmp_path: Path, ingest_settings: Callable[..., IngestSettings]
 ) -> None:
-    dataset = write_subset(source, source.parent / "Piano", tmp_path / "out", instrument_id="Piano", fraction=0.2)
+    dataset = write_subset(_dataset(source), tmp_path / "out", subsonic=_SUBSONIC, instrument_id="Piano", fraction=0.2)
 
     assert (dataset.source.path, dataset.source.recordings_dir) == (
         tmp_path / "out" / "Piano.notes.json",
@@ -184,7 +206,7 @@ def test_the_written_subset_is_a_dataset_ingest_reads_back(
 
 def test_a_kept_note_is_written_exactly_as_the_source_states_it(source: Path, tmp_path: Path) -> None:
     """The subset measures the same material at the same lengths, so every field carries over verbatim."""
-    dataset = write_subset(source, source.parent / "Piano", tmp_path / "out", instrument_id="Piano", fraction=0.2)
+    dataset = write_subset(_dataset(source), tmp_path / "out", subsonic=_SUBSONIC, instrument_id="Piano", fraction=0.2)
     written = json.loads(dataset.source.path.read_text(encoding="utf-8"))
     original = {note["render"]["index"]: note for note in json.loads(source.read_text(encoding="utf-8"))["notes"]}
 
@@ -196,20 +218,20 @@ def test_a_kept_note_is_written_exactly_as_the_source_states_it(source: Path, tm
 
 def test_the_subset_reports_the_ranges_it_spans(source: Path, tmp_path: Path) -> None:
     """Two notes a pitch is enough to reach both ends of the dynamics it was played across."""
-    dataset = write_subset(source, source.parent / "Piano", tmp_path / "out", instrument_id="Piano", fraction=0.4)
+    dataset = write_subset(_dataset(source), tmp_path / "out", subsonic=_SUBSONIC, instrument_id="Piano", fraction=0.4)
 
     assert dataset.pitches == (_PITCHES[0], _PITCHES[-1])
     assert dataset.velocities == (_VELOCITIES[0], _VELOCITIES[-1])
 
 
 def test_one_note_a_pitch_keeps_the_velocity_most_typical_of_it(source: Path, tmp_path: Path) -> None:
-    dataset = write_subset(source, source.parent / "Piano", tmp_path / "out", instrument_id="Piano", fraction=0.2)
+    dataset = write_subset(_dataset(source), tmp_path / "out", subsonic=_SUBSONIC, instrument_id="Piano", fraction=0.2)
 
     assert dataset.velocities == (_VELOCITIES[2], _VELOCITIES[2])
 
 
 def test_recordings_no_note_reaches_stay_behind(source: Path, tmp_path: Path) -> None:
-    dataset = write_subset(source, source.parent / "Piano", tmp_path / "out", instrument_id="Piano", fraction=0.2)
+    dataset = write_subset(_dataset(source), tmp_path / "out", subsonic=_SUBSONIC, instrument_id="Piano", fraction=0.2)
     kept = {note["render"]["index"] for note in json.loads(dataset.source.path.read_text(encoding="utf-8"))["notes"]}
 
     assert {int(wav.name.split("_", 1)[0]) for wav in dataset.source.recordings_dir.glob("*.wav")} == kept
@@ -241,9 +263,7 @@ def test_a_recording_answering_several_notes_brings_every_one_of_them(source: Pa
 
 
 def test_the_written_slice_holds_the_recordings_it_was_handed(source: Path, tmp_path: Path) -> None:
-    dataset = write_recording_subset(
-        source, source.parent / "Piano", tmp_path / "out", instrument_id="Piano", recordings=_CHOSEN
-    )
+    dataset = write_recording_subset(_dataset(source), tmp_path / "out", instrument_id="Piano", recordings=_CHOSEN)
     written = json.loads(dataset.source.path.read_text(encoding="utf-8"))
 
     assert dataset.recordings == dataset.kept_notes == len(_CHOSEN)
@@ -254,9 +274,7 @@ def test_the_written_slice_holds_the_recordings_it_was_handed(source: Path, tmp_
 
 def test_a_chosen_note_is_written_exactly_as_the_source_states_it(source: Path, tmp_path: Path) -> None:
     """The slice measures the same material at the same lengths, whichever rule chose its recordings."""
-    dataset = write_recording_subset(
-        source, source.parent / "Piano", tmp_path / "out", instrument_id="Piano", recordings=_CHOSEN
-    )
+    dataset = write_recording_subset(_dataset(source), tmp_path / "out", instrument_id="Piano", recordings=_CHOSEN)
     written = json.loads(dataset.source.path.read_text(encoding="utf-8"))
     document = json.loads(source.read_text(encoding="utf-8"))
     original = {note["render"]["index"]: note for note in document["notes"]}
@@ -269,9 +287,7 @@ def test_a_chosen_note_is_written_exactly_as_the_source_states_it(source: Path, 
 def test_the_written_slice_is_a_dataset_ingest_reads_back(
     source: Path, tmp_path: Path, ingest_settings: Callable[..., IngestSettings]
 ) -> None:
-    dataset = write_recording_subset(
-        source, source.parent / "Piano", tmp_path / "out", instrument_id="Piano", recordings=_CHOSEN
-    )
+    dataset = write_recording_subset(_dataset(source), tmp_path / "out", instrument_id="Piano", recordings=_CHOSEN)
     manifest = load_notes(
         dataset.source.path, dataset.source.recordings_dir, ingest_settings("Piano", project_name="song")
     )
@@ -282,6 +298,40 @@ def test_the_written_slice_is_a_dataset_ingest_reads_back(
     }
 
 
+def test_a_written_subset_holds_its_recordings_past_the_band_under_hearing(source: Path, tmp_path: Path) -> None:
+    """The way in is where the depth beneath hearing comes off, so what lands is the content a listener has."""
+    dataset = write_subset(_dataset(source), tmp_path / "out", instrument_id="Piano", fraction=0.2, subsonic=_SUBSONIC)
+    originals = {wav.name: wav for wav in (source.parent / "Piano").glob("*.wav")}
+
+    for wav in sorted(dataset.source.recordings_dir.glob("*.wav")):
+        kept, sample_rate = read_wav(wav)
+        raw, _ = read_wav(originals[wav.name])
+        taken = _depth_db(raw, sample_rate, _SUBSONIC.rejection_hz) - _depth_db(
+            kept, sample_rate, _SUBSONIC.rejection_hz
+        )
+        assert taken >= _SUBSONIC.rejection_db
+
+
+def test_a_written_subset_holds_exactly_what_the_roll_off_leaves(source: Path, tmp_path: Path) -> None:
+    """One curve states the treatment, so what lands is the source read through it and nothing besides."""
+    dataset = write_subset(_dataset(source), tmp_path / "out", instrument_id="Piano", fraction=0.2, subsonic=_SUBSONIC)
+    originals = {wav.name: wav for wav in (source.parent / "Piano").glob("*.wav")}
+
+    for wav in sorted(dataset.source.recordings_dir.glob("*.wav")):
+        kept, sample_rate = read_wav(wav)
+        raw, _ = read_wav(originals[wav.name])
+        np.testing.assert_allclose(kept, remove_subsonic(raw, sample_rate, _SUBSONIC), atol=1.0e-6)
+
+
+def test_a_chosen_recording_is_carried_over_as_it_stands(source: Path, tmp_path: Path) -> None:
+    """A set chosen off a stage holds exactly the audio that stage did, the band having come off once."""
+    dataset = write_recording_subset(_dataset(source), tmp_path / "out", instrument_id="Piano", recordings=_CHOSEN)
+    originals = {wav.name: wav for wav in (source.parent / "Piano").glob("*.wav")}
+
+    for wav in sorted(dataset.source.recordings_dir.glob("*.wav")):
+        np.testing.assert_array_equal(read_wav(wav)[0], read_wav(originals[wav.name])[0])
+
+
 def test_recordings_answering_for_no_note_leave_nothing_to_write(source: Path, tmp_path: Path) -> None:
     with pytest.raises(ValueError):
-        write_recording_subset(source, source.parent / "Piano", tmp_path / "out", instrument_id="Piano", recordings=())
+        write_recording_subset(_dataset(source), tmp_path / "out", instrument_id="Piano", recordings=())

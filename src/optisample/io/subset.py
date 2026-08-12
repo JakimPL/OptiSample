@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, Protocol
 
+from optisample.config.subsonic import SubsonicConfig
+from optisample.dsp.subsonic import remove_subsonic
+from optisample.io.audio import read_wav, write_wav
 from optisample.io.dataset import SourceDataset, SubsetDataset
 from optisample.io.note_extractor import (
     NOTES_SUFFIX,
@@ -130,6 +133,11 @@ def notes_recorded_by(notes: Sequence[ManifestNote], recordings: Collection[int]
     return tuple(position for position, note in enumerate(notes) if note.render.index in recordings)
 
 
+def _kept_recordings(indices: frozenset[int], samples_dir: Path) -> tuple[Path, ...]:
+    """The recordings the kept notes join to, in the order a listing names them."""
+    return tuple(wav for wav in sorted(samples_dir.glob("*.wav")) if index_of_wav(wav) in indices)
+
+
 def _copy_recordings(indices: frozenset[int], samples_dir: Path, out_dir: Path) -> int:
     """Copy every recording the kept notes join to into ``out_dir`` and state how many landed.
 
@@ -137,13 +145,29 @@ def _copy_recordings(indices: frozenset[int], samples_dir: Path, out_dir: Path) 
     leaves the subset resolving its recordings exactly as the source dataset does.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    copied = 0
-    for wav in sorted(samples_dir.glob("*.wav")):
-        if index_of_wav(wav) in indices:
-            shutil.copy2(wav, out_dir / wav.name)
-            copied += 1
+    kept = _kept_recordings(indices, samples_dir)
+    for wav in kept:
+        shutil.copy2(wav, out_dir / wav.name)
 
-    return copied
+    return len(kept)
+
+
+def _clean_recordings(indices: frozenset[int], samples_dir: Path, out_dir: Path, subsonic: SubsonicConfig) -> int:
+    """Write every recording the kept notes join to into ``out_dir`` past the band under hearing.
+
+    This is where a run takes its material in, so it is where the depth beneath hearing comes off: each
+    take is read, run through the roll-off :func:`~optisample.dsp.subsonic.remove_subsonic` states, and
+    written back under its own name. Doing it once, at the way in, leaves every later stage reading a
+    dataset that already holds what a listener has -- so the content each stage measures, stores and
+    scores is the content the one before it did, at the level it was captured on.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    kept = _kept_recordings(indices, samples_dir)
+    for wav in kept:
+        signal, sample_rate = read_wav(wav)
+        write_wav(out_dir / wav.name, remove_subsonic(signal, sample_rate, subsonic), sample_rate)
+
+    return len(kept)
 
 
 def _subset_manifest(raw: dict[str, Any], entries: list[Any]) -> dict[str, Any]:
@@ -189,16 +213,15 @@ def _destination(out_dir: Path, instrument_id: str) -> _Destination:
     return _Destination(notes_json=out_dir / f"{instrument_id}{NOTES_SUFFIX}", samples_dir=out_dir / instrument_id)
 
 
-def _write_slice(
+def _write_notes(
     source: _Source,
     positions: Sequence[int],
-    samples_dir: Path,
     destination: _Destination,
-) -> SubsetDataset:
-    """Write the notes at ``positions``, and the recordings they join to, as a dataset of the source's shape.
+) -> tuple[ManifestNote, ...]:
+    """Write the notes at ``positions`` as a manifest of the source's shape, and state which they were.
 
     Every slicing rule lands here, so a dataset chosen by the spread of its keys and one chosen by what its
-    recordings sound like are written identically and read back the same way.
+    recordings sound like carry their notes identically and are read back the same way.
 
     Raises:
         ValueError: when ``positions`` names no note, which would write a dataset holding no material.
@@ -206,14 +229,22 @@ def _write_slice(
     if not positions:
         raise ValueError("a written slice holds one note at the least")
 
-    kept = [source.notes[position] for position in positions]
     entries = source.entries
     destination.notes_json.parent.mkdir(parents=True, exist_ok=True)
     destination.notes_json.write_text(
         json.dumps(_subset_manifest(source.document, [entries[position] for position in positions]), indent=2) + "\n",
         encoding="utf-8",
     )
-    recordings = _copy_recordings(frozenset(note.render.index for note in kept), samples_dir, destination.samples_dir)
+    return tuple(source.notes[position] for position in positions)
+
+
+def _sliced(
+    source: _Source,
+    kept: Sequence[ManifestNote],
+    destination: _Destination,
+    recordings: int,
+) -> SubsetDataset:
+    """What a written slice reads back as: where it landed, how much of its source it holds, and its ranges."""
     pitches = [note.pitch for note in kept]
     velocities = [note.velocity for note in kept]
     return SubsetDataset(
@@ -226,13 +257,18 @@ def _write_slice(
     )
 
 
+def _indices(kept: Sequence[ManifestNote]) -> frozenset[int]:
+    """The render indices the kept notes join their recordings on."""
+    return frozenset(note.render.index for note in kept)
+
+
 def write_subset(
-    notes_json: Path | str,
-    samples_dir: Path | str,
+    dataset: SourceDataset,
     out_dir: Path | str,
     *,
     instrument_id: str,
     fraction: float,
+    subsonic: SubsonicConfig,
 ) -> SubsetDataset:
     """Write the ``fraction`` of a NoteExtractor dataset that spans its pitch and velocity ranges.
 
@@ -240,19 +276,19 @@ def write_subset(
     ``<instrument_id>/`` recordings -- so a later ingest resolves it by default and every stage reads it
     the way it reads the source. Each kept note is written exactly as the source states it, so the
     subset measures the same material, at the same lengths, that the whole dataset would.
+
+    This is the pipeline's way in, so it is where the band under hearing comes off: what lands holds the
+    content a listener has, and every stage after it reads a dataset already carrying only that.
     """
-    source = _read_source(Path(notes_json))
-    return _write_slice(
-        source,
-        select_positions(source.notes, fraction),
-        Path(samples_dir),
-        _destination(Path(out_dir), instrument_id),
-    )
+    source = _read_source(dataset.path)
+    destination = _destination(Path(out_dir), instrument_id)
+    kept = _write_notes(source, select_positions(source.notes, fraction), destination)
+    written = _clean_recordings(_indices(kept), dataset.recordings_dir, destination.samples_dir, subsonic)
+    return _sliced(source, kept, destination, written)
 
 
 def write_recording_subset(
-    notes_json: Path | str,
-    samples_dir: Path | str,
+    dataset: SourceDataset,
     out_dir: Path | str,
     *,
     instrument_id: str,
@@ -263,15 +299,14 @@ def write_recording_subset(
     ``recordings`` names the takes the slice holds by the render index each of them joins on. What lands is
     a dataset of the same shape as the source -- the notes those recordings answer for, each written
     exactly as the source states it, beside a copy of every named recording -- so a set of takes chosen by
-    a rule of the caller's own is read by every later stage the way a subset is.
+    a rule of the caller's own is read by every later stage the way a subset is. Each take is carried over
+    as it stands, which keeps a set chosen off a stage of a run holding exactly the audio that stage did.
 
     Raises:
         ValueError: when the named recordings answer for no note of the source.
     """
-    source = _read_source(Path(notes_json))
-    return _write_slice(
-        source,
-        notes_recorded_by(source.notes, recordings),
-        Path(samples_dir),
-        _destination(Path(out_dir), instrument_id),
-    )
+    source = _read_source(dataset.path)
+    destination = _destination(Path(out_dir), instrument_id)
+    kept = _write_notes(source, notes_recorded_by(source.notes, recordings), destination)
+    written = _copy_recordings(_indices(kept), dataset.recordings_dir, destination.samples_dir)
+    return _sliced(source, kept, destination, written)

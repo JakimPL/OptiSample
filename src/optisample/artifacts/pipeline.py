@@ -6,12 +6,13 @@ from pathlib import Path
 from time import perf_counter
 
 from optisample.artifacts.context import DumpResult, DumpSettings
-from optisample.artifacts.dataset import SlicedDataset, write_slice
+from optisample.artifacts.dataset import SlicedDataset, SliceSettings, write_slice
 from optisample.artifacts.dump import dump_project
 from optisample.artifacts.instruments.dump import InstrumentSettings
 from optisample.artifacts.looped import LoopedInstrumentArtifacts, loop_project
 from optisample.artifacts.paths import pipeline_paths
 from optisample.artifacts.reduced import ReducedInstrument, reduce_project
+from optisample.config.subsonic import SubsonicConfig
 from optisample.io.dataset import SourceDataset
 from optisample.io.note_extractor import IngestSettings
 from optisample.io.source import load_source
@@ -27,7 +28,8 @@ class PipelineSettings:
     keep its dataset the one any allocation off it reads back.
 
     ``fraction`` is the share of the source a slice keeps. Naming none reduces the source as it stands,
-    which is what a dataset small enough to run whole -- or already sliced -- asks for.
+    which is what a dataset small enough to run whole -- or already sliced -- asks for. ``subsonic`` is
+    the band under hearing that slice is written past, which is where a chain takes its material in.
 
     ``instruments`` is what every stage carries its own recordings as, so each dataset the chain writes is
     playable in a tracker on the terms the run's own export states.
@@ -37,6 +39,7 @@ class PipelineSettings:
     reduce: OptimizeSettings
     dump: DumpSettings
     instruments: InstrumentSettings
+    subsonic: SubsonicConfig
     fraction: float | None
 
 
@@ -62,9 +65,12 @@ def _sliced(source: SourceDataset, out_dir: Path, settings: PipelineSettings) ->
     return write_slice(
         source,
         out_dir,
-        instrument_id=settings.ingest.instrument_id,
-        fraction=settings.fraction,
-        instruments=settings.instruments,
+        SliceSettings(
+            instrument_id=settings.ingest.instrument_id,
+            fraction=settings.fraction,
+            subsonic=settings.subsonic,
+            instruments=settings.instruments,
+        ),
     )
 
 

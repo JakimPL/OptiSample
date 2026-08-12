@@ -1,5 +1,5 @@
 from optisample.artifacts.context import DumpResult, DumpSettings, PlanArtifacts
-from optisample.artifacts.dataset import SlicedDataset, write_slice
+from optisample.artifacts.dataset import SlicedDataset, SliceSettings, write_slice
 from optisample.artifacts.dump import dump_instrument, dump_project
 from optisample.artifacts.instruments import (
     InstrumentSettings,
@@ -59,6 +59,7 @@ __all__ = [
     "RankingPaths",
     "ReducedInstrument",
     "ReducedPaths",
+    "SliceSettings",
     "SlicedDataset",
     "WrittenInstruments",
     "dump_instrument",

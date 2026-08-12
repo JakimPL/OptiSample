@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from optisample.config import load_config
 from optisample.io.audio import write_wav
 from optisample.io.dataset import SourceDataset
 from optisample.io.note_extractor import IngestSettings, NoteRecord, dump_notes
@@ -13,6 +14,7 @@ from optisample.io.source import load_source, write_source_subset
 from optisample.model import ProjectSpec
 
 SR = 8_000
+_SUBSONIC = load_config().subsonic
 _INSTRUMENT = "Piano"
 _FRAMES = 1_600
 _TAKE_S = _FRAMES / SR
@@ -94,6 +96,7 @@ def test_a_slice_of_a_manifest_dataset_is_a_manifest_dataset(manifest: Path, tmp
         tmp_path / "out",
         instrument_id=_INSTRUMENT,
         fraction=_SLICE,
+        subsonic=_SUBSONIC,
     )
 
     assert dataset.source.path == tmp_path / "out" / f"{_INSTRUMENT}.notes.json"
@@ -106,6 +109,7 @@ def test_a_slice_of_a_directory_is_a_directory(recordings: Path, tmp_path: Path)
         tmp_path / "out",
         instrument_id=_INSTRUMENT,
         fraction=_SLICE,
+        subsonic=_SUBSONIC,
     )
 
     assert dataset.source.path == tmp_path / "out" / _INSTRUMENT
@@ -115,10 +119,18 @@ def test_a_slice_of_a_directory_is_a_directory(recordings: Path, tmp_path: Path)
 def test_either_shape_slices_to_the_same_share_of_its_source(manifest: Path, recordings: Path, tmp_path: Path) -> None:
     """One selection rule reads both shapes, so a fraction means the same thing whichever was handed in."""
     joined = write_source_subset(
-        SourceDataset(path=manifest, samples_dir=None), tmp_path / "a", instrument_id=_INSTRUMENT, fraction=_SLICE
+        SourceDataset(path=manifest, samples_dir=None),
+        tmp_path / "a",
+        instrument_id=_INSTRUMENT,
+        fraction=_SLICE,
+        subsonic=_SUBSONIC,
     )
     read = write_source_subset(
-        SourceDataset(path=recordings, samples_dir=None), tmp_path / "b", instrument_id=_INSTRUMENT, fraction=_SLICE
+        SourceDataset(path=recordings, samples_dir=None),
+        tmp_path / "b",
+        instrument_id=_INSTRUMENT,
+        fraction=_SLICE,
+        subsonic=_SUBSONIC,
     )
 
     assert joined.kept_notes == read.kept_notes == _SLICED_TAKES
@@ -134,6 +146,7 @@ def test_a_slice_is_read_back_by_the_loader_its_source_was(
         tmp_path / "out",
         instrument_id=_INSTRUMENT,
         fraction=_SLICE,
+        subsonic=_SUBSONIC,
     )
     (instrument,) = load_source(dataset.source, settings).instruments
 

@@ -5,7 +5,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from optisample.artifacts.documents.reduction import WrittenSampleRecord
-from optisample.artifacts.instruments.dump import InstrumentSettings, WrittenInstruments, write_dataset_instruments
+from optisample.artifacts.instruments.dump import (
+    InstrumentSettings,
+    WrittenInstruments,
+    write_dataset_instruments,
+)
+from optisample.config.subsonic import SubsonicConfig
 from optisample.io.audio import write_wav
 from optisample.io.dataset import SourceDataset, SubsetDataset
 from optisample.io.note_extractor import NoteRecord
@@ -99,21 +104,37 @@ class SlicedDataset:
     instruments: WrittenInstruments
 
 
-def write_slice(
-    source: SourceDataset,
-    out_dir: Path,
-    *,
-    instrument_id: str,
-    fraction: float,
-    instruments: InstrumentSettings,
-) -> SlicedDataset:
+@dataclass(frozen=True)
+class SliceSettings:
+    """What taking the share of a source a run begins from is carried out with.
+
+    ``fraction`` is how much of the source the slice keeps and ``instrument_id`` what it is filed under.
+    ``subsonic`` is the band under hearing the slice is written past, which is the one treatment the way
+    into a run gives its material, and ``instruments`` states what the kept recordings are carried as so
+    the very first stage is playable in a tracker.
+    """
+
+    instrument_id: str
+    fraction: float
+    subsonic: SubsonicConfig
+    instruments: InstrumentSettings
+
+
+def write_slice(source: SourceDataset, out_dir: Path, settings: SliceSettings) -> SlicedDataset:
     """Write the share of ``source`` a slice keeps, and carry each recording it kept as an instrument.
 
     A slice is written in the shape its source came in, so it reads back the way the whole dataset would,
-    and the instruments beside it make the very first stage of a run playable in a tracker.
+    and the instruments beside it make the very first stage of a run playable in a tracker. What lands
+    holds the content a listener has, the depth beneath hearing coming off here and nowhere later.
     """
-    dataset = write_source_subset(source, out_dir, instrument_id=instrument_id, fraction=fraction)
+    dataset = write_source_subset(
+        source,
+        out_dir,
+        instrument_id=settings.instrument_id,
+        fraction=settings.fraction,
+        subsonic=settings.subsonic,
+    )
     return SlicedDataset(
         dataset=dataset,
-        instruments=write_dataset_instruments(dataset.source, settings=instruments),
+        instruments=write_dataset_instruments(dataset.source, settings=settings.instruments),
     )

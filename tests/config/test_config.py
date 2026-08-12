@@ -78,6 +78,13 @@ def test_a_freshly_loaded_encode_config_names_no_instrument_to_normalize_against
             lambda cfg: cfg.runtime.workers,
             id="a group standing on its own reads the one file that names it",
         ),
+        pytest.param(
+            ("subsonic",),
+            "cutoff_hz",
+            25.0,
+            lambda cfg: cfg.subsonic.cutoff_hz,
+            id="the band a run works in is retuned where it stands, beside the stages that read past it",
+        ),
     ],
 )
 def test_a_retuned_directory_is_read_in_place_of_the_bundled_settings(

@@ -70,13 +70,16 @@ def allocation(tiny_settings: OptimizeSettings, config: OptiConfig) -> DumpSetti
 
 
 @pytest.fixture
-def whole(ingest: IngestSettings, tiny_settings: OptimizeSettings, allocation: DumpSettings) -> PipelineSettings:
+def whole(
+    config: OptiConfig, ingest: IngestSettings, tiny_settings: OptimizeSettings, allocation: DumpSettings
+) -> PipelineSettings:
     """A chain reducing the source it was handed, which is what an already-sliced dataset asks for."""
     return PipelineSettings(
         ingest=ingest,
         reduce=tiny_settings,
         dump=allocation,
         instruments=allocation.instruments,
+        subsonic=config.subsonic,
         fraction=None,
     )
 

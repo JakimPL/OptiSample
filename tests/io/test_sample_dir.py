@@ -7,7 +7,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from optisample.io.audio import write_wav
+from optisample.config import load_config
+from optisample.dsp.subsonic import remove_subsonic
+from optisample.io.audio import read_wav, write_wav
 from optisample.io.note_extractor import IngestSettings
 from optisample.io.sample_dir import (
     UNKNOWN_VELOCITY,
@@ -18,6 +20,7 @@ from optisample.io.sample_dir import (
 from optisample.model import ProjectSpec
 
 SR = 8_000
+_SUBSONIC = load_config().subsonic
 _INSTRUMENT = "Piano"
 _FRAMES = 1_600
 _TAKE_S = _FRAMES / SR
@@ -182,7 +185,9 @@ def test_padding_claiming_a_whole_take_is_reported(named_grid: Path, settings: I
 
 def test_a_slice_of_a_directory_is_a_directory(named_grid: Path, tmp_path: Path) -> None:
     """The slice reads back the way its source does, so the stage after it sees one shape."""
-    dataset = write_sample_dir_subset(named_grid, tmp_path / "out", instrument_id=_INSTRUMENT, fraction=0.4)
+    dataset = write_sample_dir_subset(
+        named_grid, tmp_path / "out", instrument_id=_INSTRUMENT, fraction=0.4, subsonic=_SUBSONIC
+    )
 
     assert dataset.source.is_directory
     assert dataset.source.path == tmp_path / "out" / _INSTRUMENT
@@ -190,16 +195,33 @@ def test_a_slice_of_a_directory_is_a_directory(named_grid: Path, tmp_path: Path)
 
 
 def test_a_slice_spans_the_ranges_its_source_covers(named_grid: Path, tmp_path: Path) -> None:
-    dataset = write_sample_dir_subset(named_grid, tmp_path / "out", instrument_id=_INSTRUMENT, fraction=0.4)
+    dataset = write_sample_dir_subset(
+        named_grid, tmp_path / "out", instrument_id=_INSTRUMENT, fraction=0.4, subsonic=_SUBSONIC
+    )
 
     assert dataset.source_notes == len(_PITCHES) * len(_VELOCITIES)
     assert dataset.pitches == (_PITCHES[0], _PITCHES[-1])
     assert dataset.velocities == (_VELOCITIES[0], _VELOCITIES[-1])
 
 
-def test_a_slice_keeps_the_takes_it_copied_readable(named_grid: Path, tmp_path: Path, settings: IngestSettings) -> None:
-    """Each take is copied under its own name, so the slice spells the same keys the source did."""
-    dataset = write_sample_dir_subset(named_grid, tmp_path / "out", instrument_id=_INSTRUMENT, fraction=0.4)
+def test_a_slice_of_a_directory_arrives_past_the_band_under_hearing(named_grid: Path, tmp_path: Path) -> None:
+    """Either shape of source is taken in the same way, so a directory of takes is cleaned as a manifest is."""
+    dataset = write_sample_dir_subset(
+        named_grid, tmp_path / "out", instrument_id=_INSTRUMENT, fraction=0.4, subsonic=_SUBSONIC
+    )
+    originals = {wav.name: wav for wav in named_grid.glob("*.wav")}
+
+    for wav in sorted(dataset.source.path.glob("*.wav")):
+        kept, sample_rate = read_wav(wav)
+        raw, _ = read_wav(originals[wav.name])
+        np.testing.assert_allclose(kept, remove_subsonic(raw, sample_rate, _SUBSONIC), atol=1.0e-6)
+
+
+def test_a_slice_keeps_the_takes_it_wrote_readable(named_grid: Path, tmp_path: Path, settings: IngestSettings) -> None:
+    """Each take is written under its own name, so the slice spells the same keys the source did."""
+    dataset = write_sample_dir_subset(
+        named_grid, tmp_path / "out", instrument_id=_INSTRUMENT, fraction=0.4, subsonic=_SUBSONIC
+    )
     (instrument,) = load_sample_dir(dataset.source.path, settings).instruments
 
     assert len(instrument.samples) == dataset.kept_notes

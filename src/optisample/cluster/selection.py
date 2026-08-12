@@ -119,8 +119,7 @@ def write_selection(source: SourceDataset, chosen: Selection, out_dir: Path) -> 
     return WrittenSelection(
         selection=chosen,
         dataset=write_recording_subset(
-            source.path,
-            source.recordings_dir,
+            source,
             out_dir,
             instrument_id=chosen.instrument_id,
             recordings=chosen.render_indices,

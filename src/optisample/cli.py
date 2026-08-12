@@ -15,6 +15,7 @@ from optisample.artifacts import (
     PipelineSettings,
     ReducedInstrument,
     SlicedDataset,
+    SliceSettings,
     WrittenInstruments,
     dump_project,
     loop_project,
@@ -670,6 +671,7 @@ def _pipeline_settings(config: OptiConfig, args: argparse.Namespace) -> Pipeline
         reduce=_optimize_settings(config, args, config.optimize.layers, config.optimize.budget),
         dump=_dump_settings(config, args),
         instruments=_instrument_settings(config, args),
+        subsonic=config.subsonic,
         fraction=args.fraction,
     )
 
@@ -834,16 +836,18 @@ def _run_rank(config: OptiConfig, args: argparse.Namespace) -> None:
     _print_ranking(rank_listening_set(args.listening_set, build_composite(config.analysis.metrics), _progress(args)))
 
 
-def _run_subset(config: OptiConfig, args: argparse.Namespace) -> None:
-    _print_subset(
-        write_slice(
-            _source(args),
-            args.out,
-            instrument_id=args.instrument_id or instrument_name(args.source),
-            fraction=args.fraction,
-            instruments=_instrument_settings(config, args),
-        )
+def _slice_settings(config: OptiConfig, args: argparse.Namespace) -> SliceSettings:
+    """What taking the share of a source a run begins from is carried out with, off the loaded config."""
+    return SliceSettings(
+        instrument_id=args.instrument_id or instrument_name(args.source),
+        fraction=args.fraction,
+        subsonic=config.subsonic,
+        instruments=_instrument_settings(config, args),
     )
+
+
+def _run_subset(config: OptiConfig, args: argparse.Namespace) -> None:
+    _print_subset(write_slice(_source(args), args.out, _slice_settings(config, args)))
 
 
 def _run_instruments(config: OptiConfig, args: argparse.Namespace) -> None:

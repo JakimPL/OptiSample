@@ -57,8 +57,11 @@ in a shell can be inspected here without re-running it.
 ## `cluster.py` — sample space
 
 Every recording of one pipeline stage placed as a point in a space built from what it sounds like, cut
-into groups, and each group stood for by a real take you can play. Two things are held out of the
-geometry on purpose. **Level**: every reading is taken past its own frame's mean, so a note at v020 and
+into groups, and each group stood for by a real take you can play. Three things are held out of the
+geometry on purpose. **The inaudible depth**: the first stage writes its recordings past a 30 Hz roll-off
+that is 60 dB down by 10 Hz, so every stage read here holds what a listener has — rumble keeps its level
+while a note decays, which is exactly where the deep anchors read.
+**Level**: every reading is taken past its own frame's mean, so a note at v020 and
 the same note at v100 differ by their timbre alone. **Length**: time is anchored to each recording's own
 decline — anchor *k* is the moment that note had fallen *k* dB below its own peak — so a two-second take
 and an eight-second take of one sound are read at the same points.

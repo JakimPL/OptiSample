@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import re
-import shutil
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from optisample.io.audio import probe_wav
+from optisample.config.subsonic import SubsonicConfig
+from optisample.dsp.subsonic import remove_subsonic
+from optisample.io.audio import probe_wav, read_wav, write_wav
 from optisample.io.dataset import SourceDataset, SubsetDataset
 from optisample.io.note_extractor import NO_PADDING_S, IngestSettings
 from optisample.io.subset import select_positions
@@ -249,19 +250,24 @@ def write_sample_dir_subset(
     *,
     instrument_id: str,
     fraction: float,
+    subsonic: SubsonicConfig,
 ) -> SubsetDataset:
     """Write the ``fraction`` of a directory of recordings that spans its pitch and velocity ranges.
 
-    The output is itself a directory of recordings, at ``<out_dir>/<instrument_id>``, each take copied
+    The output is itself a directory of recordings, at ``<out_dir>/<instrument_id>``, each take written
     under its own name -- so the slice reads back exactly the way its source does, and the ranges it
-    spans say whether it still exercises the whole instrument.
+    spans say whether it still exercises the whole instrument. This is the pipeline's way in for a
+    directory of takes, so it is where the band under hearing comes off
+    (:func:`~optisample.dsp.subsonic.remove_subsonic`), leaving every later stage a dataset that already
+    holds the content a listener has.
     """
     takes = read_takes(Path(samples_dir))
     kept = [takes[position] for position in select_positions(takes, fraction)]
     target = Path(out_dir) / instrument_id
     target.mkdir(parents=True, exist_ok=True)
     for take in kept:
-        shutil.copy2(take.file, target / take.file.name)
+        signal, sample_rate = read_wav(take.file)
+        write_wav(target / take.file.name, remove_subsonic(signal, sample_rate, subsonic), sample_rate)
 
     pitches = [take.pitch for take in kept]
     velocities = [take.velocity for take in kept]
