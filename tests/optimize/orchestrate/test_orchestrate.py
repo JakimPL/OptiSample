@@ -15,7 +15,7 @@ from optisample.keys import SampleKey
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.dp import BudgetInfeasibleError
 from optisample.optimize.orchestrate import optimize_instrument, run_instrument
-from optisample.optimize.orchestrate.audio import load_instrument_audio
+from optisample.optimize.orchestrate.audio import decode_recordings, load_instrument_audio
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import InstrumentPlan
 from optisample.optimize.tasks import StoredRecordings
@@ -292,6 +292,43 @@ def test_load_instrument_audio_downmixes_stereo_and_resamples(tmp_path: Path) ->
     assert audio[SampleKey(60, 100)].ndim == 1  # stereo downmixed to mono
     # written as 22.05 kHz, resampled up to 44.1 kHz → twice the frames
     assert audio[SampleKey(67, 100)].size == pytest.approx(mono.size * 2, abs=2)
+
+
+def test_decoding_reads_every_listed_recording_and_not_the_survivors_alone(tmp_path: Path) -> None:
+    """The decode a run gives its survivors, offered over a whole listed grid -- one entry per recording."""
+    first = tmp_path / "0000_p60_v100.wav"
+    second = tmp_path / "0001_p60_v100.wav"
+    write_wav(first, note(60, 100, dur=1.2), SR)
+    write_wav(second, note(60, 100, dur=1.0), SR)  # the same key, so dedup would keep only one of the two
+    samples = [
+        SourceSample(file=first, pitch=60, velocity=100),
+        SourceSample(file=second, pitch=60, velocity=100),
+    ]
+
+    decoded = decode_recordings(samples, _REDUCE.trim, NO_PROGRESS, label="reading")
+
+    assert decoded.sample_rate == SR
+    assert len(decoded.signals) == len(samples)
+    for signal, path in zip(decoded.signals, (first, second)):
+        expected, _ = read_wav(path)
+        np.testing.assert_array_equal(signal, expected)
+
+
+def test_a_recording_carrying_no_signal_leaves_its_own_position_empty(tmp_path: Path) -> None:
+    """Which recordings the screen turned away reads off the position, so a caller names its own losses."""
+    silent = tmp_path / "0000_p60_v100.wav"
+    played = tmp_path / "0001_p67_v100.wav"
+    write_wav(silent, np.full(round(0.6 * SR), 1.0e-6), SR)
+    write_wav(played, note(67, 100, dur=0.6), SR)
+    samples = [
+        SourceSample(file=silent, pitch=60, velocity=100),
+        SourceSample(file=played, pitch=67, velocity=100),
+    ]
+
+    decoded = decode_recordings(samples, _REDUCE.trim, NO_PROGRESS, label="reading")
+
+    assert decoded.signals[0] is None
+    assert decoded.signals[1] is not None
 
 
 def test_every_stored_sample_states_its_share_of_the_objective(optimize: Callable[..., InstrumentPlan]) -> None:

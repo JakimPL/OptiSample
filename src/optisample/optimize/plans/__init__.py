@@ -20,6 +20,7 @@ from optisample.optimize.plans.strategy import (
     SampleUnit,
     Strategy,
     StrategyPlan,
+    zone_unit_label,
 )
 from optisample.optimize.plans.ungrouped import InstrumentPlan, PitchPlan
 
@@ -43,4 +44,5 @@ __all__ = [
     "instrument_overhead",
     "populated_instrument_bytes",
     "split_budget",
+    "zone_unit_label",
 ]

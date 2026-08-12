@@ -3,6 +3,7 @@ from typing import Final, Literal, Protocol
 
 from optisample.dsp.surrogate import EncodingParams
 from optisample.keys import SampleKey
+from optisample.music import note_name
 from optisample.optimize.layers.bands import VelocityLayers
 from optisample.optimize.reduce.summary import ReductionSummary
 from optisample.optimize.velocity_map import VelocityVolumeMap
@@ -12,6 +13,17 @@ Method = Literal["exact", "lagrangian"]  # the MCKP solver the ungrouped strateg
 
 SINGLE_LAYER: Final = 1  # instruments a plan writes while one recording per key answers every dynamic
 FIRST_LAYER: Final = 0  # the layer that one recording is written as, and the quietest of any richer split
+
+
+def zone_unit_label(index: int, representative: int) -> str:
+    """How a grouped plan names the sample one zone stores: its position, then the pitch it repitches from.
+
+    The position leads so a listing of the stored samples reads in plan order, and the pitch follows in
+    the zero-padded spelling every per-pitch artifact carries, so the note a whole stretch of keyboard is
+    served from is readable off the filename alone. One spelling, so the dumper's WAV, the bank's entry
+    and a reader walking the samples directory all name the same zone the same way.
+    """
+    return f"zone{index:02d}_rep{representative:03d}_{note_name(representative)}"
 
 
 @dataclass(frozen=True)

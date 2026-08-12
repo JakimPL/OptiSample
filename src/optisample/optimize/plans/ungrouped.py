@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from optisample.keys import SampleKey
-from optisample.music import note_name
+from optisample.music import pitch_label
 from optisample.optimize.knapsack import Allocation, RDCurvePoint
 from optisample.optimize.layers.bands import UNSPLIT, VelocityLayers
 from optisample.optimize.operating_points import OperatingPoint
@@ -73,7 +73,7 @@ class InstrumentPlan(BudgetedPlanMixin):
         """
         return tuple(
             SampleUnit(
-                label=f"p{pitch.pitch:03d}_{note_name(pitch.pitch)}",
+                label=pitch_label(pitch.pitch),
                 representative_key=pitch.representative_key,
                 layer=FIRST_LAYER,
                 keys=(pitch.pitch,),

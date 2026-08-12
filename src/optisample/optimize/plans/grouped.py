@@ -3,10 +3,9 @@ from typing import Final, Literal
 
 from optisample.dsp.surrogate import EncodingParams
 from optisample.keys import SampleKey
-from optisample.music import note_name
 from optisample.optimize.layers.bands import VelocityLayers
 from optisample.optimize.plans.budget import BudgetBreakdown, BudgetedPlanMixin
-from optisample.optimize.plans.strategy import SampleUnit
+from optisample.optimize.plans.strategy import SampleUnit, zone_unit_label
 from optisample.optimize.reduce.summary import ReductionSummary
 from optisample.optimize.velocity_map import VelocityVolumeMap
 
@@ -120,7 +119,7 @@ class GroupedInstrumentPlan(BudgetedPlanMixin):
         """One stored sample per zone, every key the zone covers routed to its repitched representative."""
         return tuple(
             SampleUnit(
-                label=f"zone{index:02d}_rep{zone.representative:03d}_{note_name(zone.representative)}",
+                label=zone_unit_label(index, zone.representative),
                 representative_key=zone.representative_key,
                 layer=zone.layer,
                 keys=zone.pitches,
