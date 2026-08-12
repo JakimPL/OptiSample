@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from notebooks.utils import loading, viz
+from notebooks.utils import clusters, loading, viz
 from optisample.cluster.corpus import DescribedCorpus, describe_corpus
 from optisample.cluster.partition import partition
 from optisample.cluster.representative import Group, grouping
@@ -54,6 +54,7 @@ class Clustered:
     described: DescribedCorpus
     space: SampleSpace
     groups: tuple[Group, ...]
+    named: tuple[clusters.NamedGroup, ...]
     distances: Coordinates
     cutting: PartitionConfig
 
@@ -85,10 +86,12 @@ def clustered(config: OptiConfig) -> Clustered:
     space = described.space(config.cluster.space)
     cutting = config.cluster.partition.model_copy(update={"groups": _GROUPS})
     cut_now = partition(space.coordinates, groups=_GROUPS, config=cutting)
+    groups = grouping(space.coordinates, cut_now.labels, described.readings, config=cutting)
     return Clustered(
         described=described,
         space=space,
-        groups=grouping(space.coordinates, cut_now.labels, described.readings, config=cutting),
+        groups=groups,
+        named=clusters.named_groups(described, groups),
         distances=pairwise_distances(space.coordinates),
         cutting=cutting,
     )

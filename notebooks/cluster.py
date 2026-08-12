@@ -371,9 +371,10 @@ def _(
     climbed = sweep(space.coordinates, cutting)
     cut_now = partition(space.coordinates, groups=cutting.groups, config=cutting)
     groups = grouping(space.coordinates, cut_now.labels, described.readings, config=cutting)
-    points = clusters.point_rows(described, groups, distances)
+    named = clusters.named_groups(described, groups)
+    points = clusters.point_rows(described, named, distances)
     representatives = [group.representative for group in groups]
-    return climbed, cut_now, cutting, groups, points, representatives
+    return climbed, cut_now, cutting, groups, named, points, representatives
 
 
 @app.cell
@@ -419,6 +420,12 @@ def _(layouts, mo):
 
 
 @app.cell
+def _(clusters, colour_by, named, scatter):
+    colouring = scatter.Colouring(column=colour_by.value, groups=clusters.group_colours(named))
+    return (colouring,)
+
+
+@app.cell
 def _(components, layout, layouts, mo, space):
     with mo.status.spinner(title=f"laying the space out by {layout.value}..."):
         placed = layouts.draw(space.coordinates, layout=layout.value, components=int(components.value), seed=0)
@@ -427,12 +434,12 @@ def _(components, layout, layouts, mo, space):
 
 
 @app.cell
-def _(colour_by, layout, mo, placed, points, representatives, scatter, set_examined, stage):
+def _(colour_by, colouring, layout, mo, placed, points, representatives, scatter, set_examined, stage):
     space_plot = mo.ui.plotly(
         scatter.space_scatter(
             placed,
             points,
-            colour_by=colour_by.value,
+            colouring=colouring,
             representatives=representatives,
             title=f"{stage.value} — {layout.value}, coloured by {colour_by.value}",
         ),
@@ -478,11 +485,11 @@ def _(described, examined, mo, panels, play_on_click, points):
 
 
 @app.cell
-def _(colour_by, mo, points, representatives, scatter, set_examined, stage):
+def _(colour_by, colouring, mo, points, representatives, scatter, set_examined, stage):
     key_plot = mo.ui.plotly(
         scatter.key_scatter(
             points,
-            colour_by=colour_by.value,
+            colouring=colouring,
             representatives=representatives,
             title=f"{stage.value} — the keys the corpus covers, coloured by {colour_by.value}",
         ),
@@ -529,29 +536,34 @@ def _(PartitionAlgorithm, climbed, clusters, cut_now, cutting, hierarchy, mo, pa
 
 
 @app.cell
-def _(clusters, described, groups, mo, panels, space):
+def _(clusters, described, mo, named, panels, space):
     mo.vstack(
         [
             mo.md("## Groups — what each one gathered, and the take standing for it"),
-            panels.table(clusters.group_rows(described, groups)),
+            mo.md(
+                "Each group goes by the key of the take standing for it, and is drawn in the colour that "
+                "key turns: the pitch sets the hue and the velocity fills it in, so the field carries the "
+                "keyboard and one key is the same colour in every picture and at every stage."
+            ),
+            panels.table(clusters.group_rows(described, named)),
             mo.md("**How tightly each group holds together, block by block** — where the grouping came from:"),
-            panels.table(clusters.group_block_rows(space, groups), page_size=12),
+            panels.table(clusters.group_block_rows(space, named), page_size=12),
         ]
     )
     return
 
 
 @app.cell
-def _(clusters, groups, mo):
-    _options = {clusters.group_name(group.label): index for index, group in enumerate(groups)}
+def _(mo, named):
+    _options = {group.name: index for index, group in enumerate(named)}
     group_pick = mo.ui.dropdown(options=_options, value=next(iter(_options)), label="group")
     mo.vstack([mo.md("## Members — ordered by how far they stand from their medoid"), group_pick])
     return (group_pick,)
 
 
 @app.cell
-def _(clusters, group_pick, groups, panels, points):
-    panels.table(clusters.member_rows(points, groups[group_pick.value]), page_size=12)
+def _(clusters, group_pick, named, panels, points):
+    panels.table(clusters.member_rows(points, named[group_pick.value]), page_size=12)
     return
 
 
@@ -588,8 +600,8 @@ def _(
     described,
     distances,
     examined,
-    groups,
     mo,
+    named,
     notebook,
     panels,
     preview_normalize,
@@ -638,7 +650,7 @@ def _(
             mo.md("**Where it stands on its own decline** — the depths it reached, and the ones the space reads:"),
             panels.table(clusters.anchor_rows(_descriptor, reading.anchor_depths_db, space)),
             mo.md("**How far it stands from every group** — the company it nearly kept:"),
-            panels.table(clusters.reach_rows(examined, described, groups, distances)),
+            panels.table(clusters.reach_rows(examined, described, named, distances)),
         ]
     )
     return
@@ -711,6 +723,7 @@ def _(
     groups,
     instrument,
     mo,
+    named,
     panels,
     run_root,
     selection,
@@ -749,7 +762,7 @@ def _(
                 f"Run the rest of the pipeline over it:\n```\nuv run optisample pipeline {_dataset.source.path} "
                 f"--budget-kb 512 --out artifacts-selection\n```"
             ),
-            panels.table(clusters.pick_rows(_written.selection)),
+            panels.table(clusters.pick_rows(_written.selection, named)),
         ]
     )
     return

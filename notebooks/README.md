@@ -85,6 +85,12 @@ are ringed, each in its own group's colour, so a selection is picked out by eye 
 coloured by. Clicking any point plays that recording — normalized, so a quiet take is as audible as a loud
 one — and sends it to the examine panel below.
 
+Each group goes by the key of the take standing for it — `p060_v100` is a group stood for by middle C
+struck at velocity 100 — and is drawn in the colour that key turns: the pitch sets the hue and the velocity
+fills it in, opening a quarter of the way up so the softest takes keep a colour of their own. The field
+therefore carries the keyboard, and one key is drawn the same colour in every picture, at every stage and
+across datasets. Where two groups are stood for by takes of one key, the second onward carries a number.
+
 **Pitch against velocity** — the same corpus as the keyboard holds it: the note across, the velocity it was
 struck at up, coloured and ringed like the space. This says which keys the stage kept a recording of and how
 a group sits across them, and a click on it picks a take out just as a click on the space does.

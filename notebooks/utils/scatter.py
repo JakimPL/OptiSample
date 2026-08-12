@@ -61,6 +61,26 @@ def _carried(rows: Sequence[Row], keys: Sequence[str]) -> list[list[object]]:
 
 
 @dataclass(frozen=True)
+class _Reading:
+    """The rows of one picture as every trace of it draws them, read once for the whole figure.
+
+    ``rows`` is what each recording was read for, ``carried`` the same readings as the values a point is
+    drawn with -- its place in the space first -- and ``hover`` the tooltip listing them. Every trace of a
+    field draws from these, so a point picked out of any of them says what a point of any other says.
+    """
+
+    rows: Sequence[Row]
+    carried: Sequence[Sequence[object]]
+    hover: str
+
+
+def _reading(rows: Sequence[Row]) -> _Reading:
+    """One picture's rows read for what its points carry and the tooltip they are hovered by."""
+    keys = list(rows[0]) if rows else []
+    return _Reading(rows=rows, carried=_carried(rows, keys), hover=_hover(rows, keys) if rows else _PLAIN)
+
+
+@dataclass(frozen=True)
 class Placement:
     """Where every recording sits on one drawn picture, beside what the axes it is drawn on are called.
 
@@ -119,62 +139,79 @@ def _marker_size(placement: Placement) -> int:
     return _MARKER_SIZE if placement.components <= _PLANE else _SOLID_MARKER_SIZE
 
 
+@dataclass(frozen=True)
+class Colouring:
+    """Which reading a field is drawn by, and the colour each group of the cut holds.
+
+    ``column`` names the reading every point is coloured by: a column of names draws one colour and one
+    legend entry apiece, a column of measurements shades along a scale. ``groups`` is the colour each group
+    goes by, read off the key the take standing for it plays -- it strokes the rings over the field
+    whatever the field is coloured by, and colours the field itself where a reader is colouring by group.
+    """
+
+    column: str
+    groups: Mapping[str, str]
+
+
 def _colours(names: Sequence[str]) -> dict[str, str]:
     """The colour each name is drawn in, which is the one spelling every trace of a picture reads it by."""
     return {name: _PALETTE[position % len(_PALETTE)] for position, name in enumerate(names)}
 
 
-def _named_traces(
-    placement: Placement,
-    rows: Sequence[Row],
-    carried: Sequence[Sequence[object]],
-    hover: str,
-    colour_by: str,
-) -> list[go.Scatter | go.Scatter3d]:
+def _set_colours(rows: Sequence[Row], colouring: Colouring) -> dict[str, str]:
+    """The colour each set of the colouring column is drawn in, the sets in the order a legend lists them.
+
+    Colouring by group hands each set the colour its own key turned, so a field, its legend and the rings
+    over it all carry the keyboard; any other column of names is handed the palette, which tells its sets
+    apart without claiming to say anything about the keys.
+    """
+    names = sorted({str(row[colouring.column]) for row in rows})
+    if colouring.column == _GROUP_COLUMN:
+        return {name: colouring.groups[name] for name in names}
+
+    return _colours(names)
+
+
+def _named_traces(placement: Placement, read: _Reading, colouring: Colouring) -> list[go.Scatter | go.Scatter3d]:
     """One trace per value the colouring column names, so each reads as its own colour and legend entry."""
-    colours = _colours(sorted({str(row[colour_by]) for row in rows}))
+    rows = read.rows
+    column = colouring.column
     return [
         _trace(
             placement,
-            places=[index for index, row in enumerate(rows) if str(row[colour_by]) == name],
+            places=[index for index, row in enumerate(rows) if str(row[column]) == name],
             name=name,
             marker={"size": _marker_size(placement), "color": colour},
-            customdata=[carried[index] for index, row in enumerate(rows) if str(row[colour_by]) == name],
-            hovertemplate=hover,
+            customdata=[read.carried[index] for index, row in enumerate(rows) if str(row[column]) == name],
+            hovertemplate=read.hover,
         )
-        for name, colour in colours.items()
+        for name, colour in _set_colours(rows, colouring).items()
     ]
 
 
-def _scaled_trace(
-    placement: Placement,
-    rows: Sequence[Row],
-    carried: Sequence[Sequence[object]],
-    hover: str,
-    colour_by: str,
-) -> go.Scatter | go.Scatter3d:
+def _scaled_trace(placement: Placement, read: _Reading, colouring: Colouring) -> go.Scatter | go.Scatter3d:
     """Every recording in one trace, shaded along the reading the colouring column holds."""
+    column = colouring.column
     return _trace(
         placement,
-        places=range(len(rows)),
-        name=colour_by,
+        places=range(len(read.rows)),
+        name=column,
         marker={
             "size": _marker_size(placement),
-            "color": [float(row[colour_by]) for row in rows],
+            "color": [float(row[column]) for row in read.rows],
             "colorscale": _CONTINUOUS,
             "showscale": True,
-            "colorbar": {"title": colour_by},
+            "colorbar": {"title": column},
         },
-        customdata=list(carried),
-        hovertemplate=hover,
+        customdata=list(read.carried),
+        hovertemplate=read.hover,
     )
 
 
 def _representative_trace(
     placement: Placement,
-    rows: Sequence[Row],
-    carried: Sequence[Sequence[object]],
-    hover: str,
+    read: _Reading,
+    colouring: Colouring,
     representatives: Sequence[int],
 ) -> go.Scatter | go.Scatter3d:
     """The takes standing for their groups, ringed over the field so a selection reads at a glance.
@@ -183,7 +220,6 @@ def _representative_trace(
     take was chosen for, so a representative is picked out of the field by eye and read as a member of its
     own group at once -- whichever reading the field itself is coloured by.
     """
-    colours = _colours(sorted({str(row[_GROUP_COLUMN]) for row in rows}))
     return _trace(
         placement,
         places=representatives,
@@ -191,11 +227,11 @@ def _representative_trace(
         marker={
             "size": _REPRESENTATIVE_SIZE if placement.components <= _PLANE else _REPRESENTATIVE_SOLID_SIZE,
             "symbol": _REPRESENTATIVE_SYMBOL,
-            "color": [colours[str(rows[place][_GROUP_COLUMN])] for place in representatives],
+            "color": [colouring.groups[str(read.rows[place][_GROUP_COLUMN])] for place in representatives],
             "line": {"width": _RING_WIDTH},
         },
-        customdata=[carried[place] for place in representatives],
-        hovertemplate=hover,
+        customdata=[read.carried[place] for place in representatives],
+        hovertemplate=read.hover,
     )
 
 
@@ -203,7 +239,7 @@ def _field(
     placement: Placement,
     rows: Sequence[Row],
     *,
-    colour_by: str,
+    colouring: Colouring,
     representatives: Sequence[int],
     title: str,
 ) -> go.Figure:
@@ -214,16 +250,10 @@ def _field(
     shaded along a scale beside the picture. The takes standing for their groups are ringed over the top,
     and every point carries its place in the space, which is what a click hands back to Python.
     """
-    keys = list(rows[0]) if rows else []
-    carried = _carried(rows, keys)
-    hover = _hover(rows, keys) if rows else _PLAIN
-    named = isinstance(rows[0][colour_by], str) if rows else False
-    traces = (
-        _named_traces(placement, rows, carried, hover, colour_by)
-        if named
-        else [_scaled_trace(placement, rows, carried, hover, colour_by)]
-    )
-    figure = go.Figure(data=[*traces, _representative_trace(placement, rows, carried, hover, representatives)])
+    read = _reading(rows)
+    named = isinstance(rows[0][colouring.column], str) if rows else False
+    traces = _named_traces(placement, read, colouring) if named else [_scaled_trace(placement, read, colouring)]
+    figure = go.Figure(data=[*traces, _representative_trace(placement, read, colouring, representatives)])
     figure.update_layout(
         title=title,
         height=_HEIGHT,
@@ -239,7 +269,7 @@ def space_scatter(
     embedding: Embedding,
     rows: Sequence[Row],
     *,
-    colour_by: str,
+    colouring: Colouring,
     representatives: Sequence[int],
     title: str,
 ) -> go.Figure:
@@ -248,13 +278,13 @@ def space_scatter(
     This is the geometry the groups were cut in, so what is read off the picture -- how far two takes stand
     apart, which of them a group gathered -- is what the numbers underneath say.
     """
-    return _field(_laid_out(embedding), rows, colour_by=colour_by, representatives=representatives, title=title)
+    return _field(_laid_out(embedding), rows, colouring=colouring, representatives=representatives, title=title)
 
 
 def key_scatter(
     rows: Sequence[Row],
     *,
-    colour_by: str,
+    colouring: Colouring,
     representatives: Sequence[int],
     title: str,
 ) -> go.Figure:
@@ -265,7 +295,7 @@ def key_scatter(
     chosen to stand for, and which keys the corpus holds a recording of at all. Takes sharing a key stand
     on one point, and a click on any of them picks it out the way a click on the space does.
     """
-    figure = _field(_keyed(rows), rows, colour_by=colour_by, representatives=representatives, title=title)
+    figure = _field(_keyed(rows), rows, colouring=colouring, representatives=representatives, title=title)
     figure.update_layout(height=_KEY_HEIGHT)
     return figure
 
