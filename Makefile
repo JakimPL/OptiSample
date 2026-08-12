@@ -1,6 +1,6 @@
 .PHONY: test
 test:
-	uv run pytest
+	uv run python -m pytest -n 6
 
 .PHONY: lint
 lint:
