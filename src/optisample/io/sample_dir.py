@@ -6,12 +6,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from optisample.config.subsonic import SubsonicConfig
+from optisample.config.subset import IntakeConfig
 from optisample.dsp.subsonic import remove_subsonic
 from optisample.io.audio import probe_wav, read_wav, write_wav
 from optisample.io.dataset import SourceDataset, SubsetDataset
 from optisample.io.note_extractor import NO_PADDING_S, IngestSettings
-from optisample.io.subset import select_positions
+from optisample.io.subset import admit
 from optisample.model import InstrumentSpec, Manifest, NoteEvent, SourceSample
 from optisample.music import MIDI_MAX_VELOCITY, named_pitch
 
@@ -250,7 +250,7 @@ def write_sample_dir_subset(
     *,
     instrument_id: str,
     fraction: float,
-    subsonic: SubsonicConfig,
+    intake: IntakeConfig,
 ) -> SubsetDataset:
     """Write the ``fraction`` of a directory of recordings that spans its pitch and velocity ranges.
 
@@ -260,14 +260,19 @@ def write_sample_dir_subset(
     directory of takes, so it is where the band under hearing comes off
     (:func:`~optisample.dsp.subsonic.remove_subsonic`), leaving every later stage a dataset that already
     holds the content a listener has.
+
+    A take is held to ``min_duration_s`` over the span its own header reports, which is what a directory
+    states about itself; a source declaring the padding it was cut with says so through its manifest and
+    is sliced against the note's own sounding span instead.
     """
     takes = read_takes(Path(samples_dir))
-    kept = [takes[position] for position in select_positions(takes, fraction)]
+    admitted = admit(takes, fraction=fraction, min_duration_s=intake.min_duration_s)
+    kept = [takes[position] for position in admitted.positions]
     target = Path(out_dir) / instrument_id
     target.mkdir(parents=True, exist_ok=True)
     for take in kept:
         signal, sample_rate = read_wav(take.file)
-        write_wav(target / take.file.name, remove_subsonic(signal, sample_rate, subsonic), sample_rate)
+        write_wav(target / take.file.name, remove_subsonic(signal, sample_rate, intake.subsonic), sample_rate)
 
     pitches = [take.pitch for take in kept]
     velocities = [take.velocity for take in kept]
@@ -276,6 +281,7 @@ def write_sample_dir_subset(
         kept_notes=len(kept),
         source_notes=len(takes),
         recordings=len(kept),
+        brief_notes=admitted.brief,
         pitches=(min(pitches), max(pitches)),
         velocities=(min(velocities), max(velocities)),
     )

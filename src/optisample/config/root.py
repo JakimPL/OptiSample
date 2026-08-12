@@ -7,6 +7,7 @@ from optisample.config.loop import LoopConfig
 from optisample.config.optimize import OptimizeConfig
 from optisample.config.reduce import ReduceConfig
 from optisample.config.runtime import RuntimeConfig
+from optisample.config.subset import IntakeConfig, SubsetConfig
 from optisample.config.subsonic import SubsonicConfig
 from optisample.config.synth import SynthConfig
 
@@ -20,11 +21,13 @@ class OptiConfig(ConfigModel):
 
     ``subsonic`` stands on its own because it is the band the whole run works in rather than one stage's
     knob: the very first stage reads its source past it, and every stage after that reads a dataset
-    already holding what a listener has.
+    already holding what a listener has. ``subset`` stands beside it for the same reason read the other
+    way: it settles which of a source's material enters the run at all.
     """
 
     analysis: AnalysisConfig
     cluster: ClusterConfig
+    subset: SubsetConfig
     subsonic: SubsonicConfig
     codec: CodecConfig
     loop: LoopConfig
@@ -33,6 +36,15 @@ class OptiConfig(ConfigModel):
     export: ExportConfig
     synth: SynthConfig
     runtime: RuntimeConfig
+
+    @property
+    def intake(self) -> IntakeConfig:
+        """What the first stage does to a source, gathered from the two groups that settle the way in.
+
+        A slice admits what is long enough to work with and writes what it keeps past the band under
+        hearing, so the two travel together and every caller of the way in receives one validated value.
+        """
+        return IntakeConfig(min_duration_s=self.subset.min_duration_s, subsonic=self.subsonic)
 
     @property
     def encode(self) -> EncodeConfig:

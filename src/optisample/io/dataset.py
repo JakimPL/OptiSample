@@ -64,11 +64,16 @@ class SubsetDataset:
 
     ``pitches`` and ``velocities`` are the closed ranges the kept notes span, which is what says
     whether a subset small enough to iterate on still exercises the whole instrument.
+
+    ``brief_notes`` is how many of the source's notes sounded for less than the slice admits, so a source
+    recorded largely in fragments states that at the way in rather than through the loops a later stage
+    fails to settle.
     """
 
     source: SourceDataset
     kept_notes: int
     source_notes: int
     recordings: int
+    brief_notes: int
     pitches: tuple[int, int]
     velocities: tuple[int, int]

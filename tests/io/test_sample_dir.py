@@ -8,8 +8,10 @@ import numpy as np
 import pytest
 
 from optisample.config import load_config
+from optisample.config.subset import IntakeConfig
 from optisample.dsp.subsonic import remove_subsonic
 from optisample.io.audio import read_wav, write_wav
+from optisample.io.dataset import SubsetDataset
 from optisample.io.note_extractor import IngestSettings
 from optisample.io.sample_dir import (
     UNKNOWN_VELOCITY,
@@ -28,6 +30,7 @@ _PITCHES = (48, 60, 72)
 _VELOCITIES = (20, 70, 120)
 _LEAD_IN_S = 0.05
 _TRAIL_OUT_S = 0.03
+_ADMIT_EVERY = 0.0  # a floor every take clears, so a slice is read on its spread alone
 
 
 @dataclass(frozen=True)
@@ -186,7 +189,11 @@ def test_padding_claiming_a_whole_take_is_reported(named_grid: Path, settings: I
 def test_a_slice_of_a_directory_is_a_directory(named_grid: Path, tmp_path: Path) -> None:
     """The slice reads back the way its source does, so the stage after it sees one shape."""
     dataset = write_sample_dir_subset(
-        named_grid, tmp_path / "out", instrument_id=_INSTRUMENT, fraction=0.4, subsonic=_SUBSONIC
+        named_grid,
+        tmp_path / "out",
+        instrument_id=_INSTRUMENT,
+        fraction=0.4,
+        intake=IntakeConfig(min_duration_s=_ADMIT_EVERY, subsonic=_SUBSONIC),
     )
 
     assert dataset.source.is_directory
@@ -196,7 +203,11 @@ def test_a_slice_of_a_directory_is_a_directory(named_grid: Path, tmp_path: Path)
 
 def test_a_slice_spans_the_ranges_its_source_covers(named_grid: Path, tmp_path: Path) -> None:
     dataset = write_sample_dir_subset(
-        named_grid, tmp_path / "out", instrument_id=_INSTRUMENT, fraction=0.4, subsonic=_SUBSONIC
+        named_grid,
+        tmp_path / "out",
+        instrument_id=_INSTRUMENT,
+        fraction=0.4,
+        intake=IntakeConfig(min_duration_s=_ADMIT_EVERY, subsonic=_SUBSONIC),
     )
 
     assert dataset.source_notes == len(_PITCHES) * len(_VELOCITIES)
@@ -207,7 +218,11 @@ def test_a_slice_spans_the_ranges_its_source_covers(named_grid: Path, tmp_path: 
 def test_a_slice_of_a_directory_arrives_past_the_band_under_hearing(named_grid: Path, tmp_path: Path) -> None:
     """Either shape of source is taken in the same way, so a directory of takes is cleaned as a manifest is."""
     dataset = write_sample_dir_subset(
-        named_grid, tmp_path / "out", instrument_id=_INSTRUMENT, fraction=0.4, subsonic=_SUBSONIC
+        named_grid,
+        tmp_path / "out",
+        instrument_id=_INSTRUMENT,
+        fraction=0.4,
+        intake=IntakeConfig(min_duration_s=_ADMIT_EVERY, subsonic=_SUBSONIC),
     )
     originals = {wav.name: wav for wav in named_grid.glob("*.wav")}
 
@@ -217,10 +232,41 @@ def test_a_slice_of_a_directory_arrives_past_the_band_under_hearing(named_grid: 
         np.testing.assert_allclose(kept, remove_subsonic(raw, sample_rate, _SUBSONIC), atol=1.0e-6)
 
 
+@pytest.mark.parametrize(
+    ("min_duration_s", "kept"),
+    [(_TAKE_S, len(_PITCHES) * len(_VELOCITIES) * 0.4), (2.0 * _TAKE_S, 0)],
+    ids=["a floor every take reaches", "a floor past what any take runs"],
+)
+def test_a_directory_holds_its_takes_to_the_length_its_headers_report(
+    named_grid: Path, tmp_path: Path, min_duration_s: float, kept: float
+) -> None:
+    """A directory states its own recorded span, which is the length a floor over a folder of takes reads."""
+
+    def slice_it() -> SubsetDataset:
+        return write_sample_dir_subset(
+            named_grid,
+            tmp_path / "out",
+            instrument_id=_INSTRUMENT,
+            fraction=0.4,
+            intake=IntakeConfig(min_duration_s=min_duration_s, subsonic=_SUBSONIC),
+        )
+
+    if not kept:
+        with pytest.raises(ValueError, match="sounds for less than"):
+            slice_it()
+        return
+
+    assert slice_it().kept_notes == round(kept)
+
+
 def test_a_slice_keeps_the_takes_it_wrote_readable(named_grid: Path, tmp_path: Path, settings: IngestSettings) -> None:
     """Each take is written under its own name, so the slice spells the same keys the source did."""
     dataset = write_sample_dir_subset(
-        named_grid, tmp_path / "out", instrument_id=_INSTRUMENT, fraction=0.4, subsonic=_SUBSONIC
+        named_grid,
+        tmp_path / "out",
+        instrument_id=_INSTRUMENT,
+        fraction=0.4,
+        intake=IntakeConfig(min_duration_s=_ADMIT_EVERY, subsonic=_SUBSONIC),
     )
     (instrument,) = load_sample_dir(dataset.source.path, settings).instruments
 

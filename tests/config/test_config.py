@@ -85,6 +85,13 @@ def test_a_freshly_loaded_encode_config_names_no_instrument_to_normalize_against
             lambda cfg: cfg.subsonic.cutoff_hz,
             id="the band a run works in is retuned where it stands, beside the stages that read past it",
         ),
+        pytest.param(
+            ("subset",),
+            "min_duration_s",
+            1.25,
+            lambda cfg: cfg.subset.min_duration_s,
+            id="what a run admits is retuned beside the band it works in, both settling the way in",
+        ),
     ],
 )
 def test_a_retuned_directory_is_read_in_place_of_the_bundled_settings(

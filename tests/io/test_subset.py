@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,9 +11,10 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.config import load_config
+from optisample.config.subset import IntakeConfig
 from optisample.dsp.subsonic import remove_subsonic
 from optisample.io.audio import read_wav, write_wav
-from optisample.io.dataset import SourceDataset
+from optisample.io.dataset import SourceDataset, SubsetDataset
 from optisample.io.note_extractor import (
     IngestSettings,
     ManifestNote,
@@ -22,9 +23,11 @@ from optisample.io.note_extractor import (
     load_notes,
 )
 from optisample.io.subset import (
+    admit,
     even_ranks,
     notes_recorded_by,
     select_positions,
+    sounding_positions,
     write_recording_subset,
     write_subset,
 )
@@ -36,6 +39,10 @@ _SILENT = 1.0e-300  # a floor keeping a band holding nothing off the logarithm
 _PITCHES = tuple(range(60, 72))
 _VELOCITIES = (20, 45, 70, 95, 120)
 _TOTAL = len(_PITCHES) * len(_VELOCITIES)
+_ADMIT_EVERY = 0.0  # a floor every note of the shared fixture clears, so a slice is read on its spread alone
+_NOTE_S = 0.75  # how long each note of the shared fixture sounds, an exact binary fraction so spans read back whole
+_BRIEF_S = 0.25  # how long the short notes of the ragged fixture sound, exact for the same reason
+_BRIEF_EVERY = 3  # one note in this many of the ragged fixture is a short one
 
 
 def _depth_db(signal: NDArray[np.float64], sample_rate: int, hz: float) -> float:
@@ -52,6 +59,17 @@ def _depth_db(signal: NDArray[np.float64], sample_rate: int, hz: float) -> float
 def _dataset(source: Path) -> SourceDataset:
     """The source pair a slice is cut of: the manifest, beside the recordings it joins to."""
     return SourceDataset(path=source, samples_dir=source.parent / "Piano")
+
+
+def _written(source: Path, out_dir: Path, *, fraction: float, min_duration_s: float) -> SubsetDataset:
+    """The slice ``fraction`` of ``source`` writes into ``out_dir``, admitting notes at the floor named."""
+    return write_subset(
+        _dataset(source),
+        out_dir,
+        instrument_id="Piano",
+        fraction=fraction,
+        intake=IntakeConfig(min_duration_s=min_duration_s, subsonic=_SUBSONIC),
+    )
 
 
 @dataclass(frozen=True)
@@ -74,9 +92,8 @@ _RANK_CASES = (
 )
 
 
-@pytest.fixture
-def source(tmp_path: Path) -> Path:
-    """A dataset covering every ``(pitch, velocity)`` pair once, so a subset's spread is readable."""
+def _write_source(tmp_path: Path, durations_s: Sequence[float]) -> Path:
+    """A dataset covering every ``(pitch, velocity)`` pair once, each note sounding as long as it is given."""
     samples = tmp_path / "Piano"
     samples.mkdir()
     generator = np.random.default_rng(0)
@@ -89,7 +106,11 @@ def source(tmp_path: Path) -> Path:
                 "pitch": pitch,
                 "velocity": velocity,
                 "cc_averages": {"1": float(velocity)},
-                "render": {"index": index, "start_seconds": float(index), "release_end_seconds": index + 0.75},
+                "render": {
+                    "index": index,
+                    "start_seconds": float(index),
+                    "release_end_seconds": index + durations_s[index],
+                },
             }
         )
 
@@ -101,6 +122,21 @@ def source(tmp_path: Path) -> Path:
     }
     notes_json.write_text(json.dumps(document))
     return notes_json
+
+
+@pytest.fixture
+def source(tmp_path: Path) -> Path:
+    """A dataset covering every pair once, all notes alike in length, so a subset's spread is readable."""
+    return _write_source(tmp_path, [_NOTE_S] * _TOTAL)
+
+
+@pytest.fixture
+def ragged(tmp_path: Path) -> Path:
+    """The same grid with one note in three sounding for less than a slice admits."""
+    return _write_source(
+        tmp_path,
+        [_BRIEF_S if index % _BRIEF_EVERY == 0 else _NOTE_S for index in range(_TOTAL)],
+    )
 
 
 def _manifest(notes_json: Path) -> NotesManifest:
@@ -182,13 +218,56 @@ def test_a_fraction_outside_the_unit_interval_is_rejected(source: Path, fraction
         select_positions(_manifest(source).notes, fraction)
 
 
+# --- the length a note sounds for to be drawn on ----------------------------------------------------
+
+
+def test_only_the_notes_sounding_long_enough_are_drawn_on(ragged: Path) -> None:
+    notes = _manifest(ragged).notes
+    sounding = sounding_positions(notes, _NOTE_S)
+
+    assert sounding == tuple(position for position in range(_TOTAL) if position % _BRIEF_EVERY)
+    assert all(notes[position].duration_s >= _NOTE_S for position in sounding)
+
+
+def test_a_note_sounding_exactly_the_floor_is_drawn_on(ragged: Path) -> None:
+    """The floor is the shortest a note may sound, so the length it names is a length that qualifies."""
+    assert len(sounding_positions(_manifest(ragged).notes, _BRIEF_S)) == _TOTAL
+
+
+def test_the_share_is_counted_against_the_source_before_its_short_notes_leave(ragged: Path) -> None:
+    """Raising the floor narrows what a slice draws on and leaves the size it comes out at alone."""
+    notes = _manifest(ragged).notes
+    admitted = admit(notes, fraction=0.5, min_duration_s=_NOTE_S)
+
+    assert len(admitted.positions) == round(0.5 * _TOTAL)
+    assert all(notes[position].duration_s >= _NOTE_S for position in admitted.positions)
+
+
+def test_the_notes_held_out_for_sounding_briefly_are_counted(ragged: Path) -> None:
+    admitted = admit(_manifest(ragged).notes, fraction=0.5, min_duration_s=_NOTE_S)
+
+    assert admitted.brief == len(range(0, _TOTAL, _BRIEF_EVERY))
+
+
+def test_a_share_wider_than_the_floor_leaves_keeps_everything_that_survives_it(ragged: Path) -> None:
+    notes = _manifest(ragged).notes
+    admitted = admit(notes, fraction=1.0, min_duration_s=_NOTE_S)
+
+    assert admitted.positions == sounding_positions(notes, _NOTE_S)
+
+
+def test_a_floor_no_note_reaches_leaves_nothing_to_draw_on(ragged: Path) -> None:
+    with pytest.raises(ValueError, match="sounds for less than"):
+        admit(_manifest(ragged).notes, fraction=0.5, min_duration_s=_NOTE_S + _BRIEF_S + 1.0)
+
+
 # --- the dataset it writes -------------------------------------------------------------------------
 
 
 def test_the_written_subset_is_a_dataset_ingest_reads_back(
     source: Path, tmp_path: Path, ingest_settings: Callable[..., IngestSettings]
 ) -> None:
-    dataset = write_subset(_dataset(source), tmp_path / "out", subsonic=_SUBSONIC, instrument_id="Piano", fraction=0.2)
+    dataset = _written(source, tmp_path / "out", fraction=0.2, min_duration_s=_ADMIT_EVERY)
 
     assert (dataset.source.path, dataset.source.recordings_dir) == (
         tmp_path / "out" / "Piano.notes.json",
@@ -206,7 +285,7 @@ def test_the_written_subset_is_a_dataset_ingest_reads_back(
 
 def test_a_kept_note_is_written_exactly_as_the_source_states_it(source: Path, tmp_path: Path) -> None:
     """The subset measures the same material at the same lengths, so every field carries over verbatim."""
-    dataset = write_subset(_dataset(source), tmp_path / "out", subsonic=_SUBSONIC, instrument_id="Piano", fraction=0.2)
+    dataset = _written(source, tmp_path / "out", fraction=0.2, min_duration_s=_ADMIT_EVERY)
     written = json.loads(dataset.source.path.read_text(encoding="utf-8"))
     original = {note["render"]["index"]: note for note in json.loads(source.read_text(encoding="utf-8"))["notes"]}
 
@@ -218,20 +297,31 @@ def test_a_kept_note_is_written_exactly_as_the_source_states_it(source: Path, tm
 
 def test_the_subset_reports_the_ranges_it_spans(source: Path, tmp_path: Path) -> None:
     """Two notes a pitch is enough to reach both ends of the dynamics it was played across."""
-    dataset = write_subset(_dataset(source), tmp_path / "out", subsonic=_SUBSONIC, instrument_id="Piano", fraction=0.4)
+    dataset = _written(source, tmp_path / "out", fraction=0.4, min_duration_s=_ADMIT_EVERY)
 
     assert dataset.pitches == (_PITCHES[0], _PITCHES[-1])
     assert dataset.velocities == (_VELOCITIES[0], _VELOCITIES[-1])
 
 
 def test_one_note_a_pitch_keeps_the_velocity_most_typical_of_it(source: Path, tmp_path: Path) -> None:
-    dataset = write_subset(_dataset(source), tmp_path / "out", subsonic=_SUBSONIC, instrument_id="Piano", fraction=0.2)
+    dataset = _written(source, tmp_path / "out", fraction=0.2, min_duration_s=_ADMIT_EVERY)
 
     assert dataset.velocities == (_VELOCITIES[2], _VELOCITIES[2])
 
 
+def test_a_written_slice_states_how_many_notes_sounded_too_briefly(ragged: Path, tmp_path: Path) -> None:
+    dataset = _written(ragged, tmp_path / "out", fraction=0.5, min_duration_s=_NOTE_S)
+
+    assert dataset.brief_notes == len(range(0, _TOTAL, _BRIEF_EVERY))
+    assert dataset.kept_notes == round(0.5 * _TOTAL)
+
+
+def test_a_written_slice_of_a_source_it_all_admits_states_nothing_held_out(source: Path, tmp_path: Path) -> None:
+    assert _written(source, tmp_path / "out", fraction=0.2, min_duration_s=_NOTE_S).brief_notes == 0
+
+
 def test_recordings_no_note_reaches_stay_behind(source: Path, tmp_path: Path) -> None:
-    dataset = write_subset(_dataset(source), tmp_path / "out", subsonic=_SUBSONIC, instrument_id="Piano", fraction=0.2)
+    dataset = _written(source, tmp_path / "out", fraction=0.2, min_duration_s=_ADMIT_EVERY)
     kept = {note["render"]["index"] for note in json.loads(dataset.source.path.read_text(encoding="utf-8"))["notes"]}
 
     assert {int(wav.name.split("_", 1)[0]) for wav in dataset.source.recordings_dir.glob("*.wav")} == kept
@@ -300,7 +390,7 @@ def test_the_written_slice_is_a_dataset_ingest_reads_back(
 
 def test_a_written_subset_holds_its_recordings_past_the_band_under_hearing(source: Path, tmp_path: Path) -> None:
     """The way in is where the depth beneath hearing comes off, so what lands is the content a listener has."""
-    dataset = write_subset(_dataset(source), tmp_path / "out", instrument_id="Piano", fraction=0.2, subsonic=_SUBSONIC)
+    dataset = _written(source, tmp_path / "out", fraction=0.2, min_duration_s=_ADMIT_EVERY)
     originals = {wav.name: wav for wav in (source.parent / "Piano").glob("*.wav")}
 
     for wav in sorted(dataset.source.recordings_dir.glob("*.wav")):
@@ -314,7 +404,7 @@ def test_a_written_subset_holds_its_recordings_past_the_band_under_hearing(sourc
 
 def test_a_written_subset_holds_exactly_what_the_roll_off_leaves(source: Path, tmp_path: Path) -> None:
     """One curve states the treatment, so what lands is the source read through it and nothing besides."""
-    dataset = write_subset(_dataset(source), tmp_path / "out", instrument_id="Piano", fraction=0.2, subsonic=_SUBSONIC)
+    dataset = _written(source, tmp_path / "out", fraction=0.2, min_duration_s=_ADMIT_EVERY)
     originals = {wav.name: wav for wav in (source.parent / "Piano").glob("*.wav")}
 
     for wav in sorted(dataset.source.recordings_dir.glob("*.wav")):

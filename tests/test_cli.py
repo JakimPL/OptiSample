@@ -28,6 +28,9 @@ from optisample.io.note_extractor import NoteRecord, dump_notes
 SR = 44_100
 PITCHES = (60, 62, 64)
 _HELD_S = 1.5  # past the length a listening set asks about, so the set has material to draw on
+_SOUNDS_S = 0.75  # a note ringing long enough for a slice to draw on it
+_BRIEF_S = 0.25  # a note ringing for less than the floor a slice is asked for
+_ADMITS_BOTH = 0.5  # a floor standing between the two, so a ragged source loses exactly its short notes
 
 
 @pytest.fixture
@@ -43,6 +46,22 @@ def tiny_notes(tmp_path: Path, piano_note: Callable[..., NDArray[np.float64]]) -
     for index, pitch in enumerate(PITCHES):
         write_wav(samples_dir / f"{index:04d}_p{pitch}_v100.wav", piano_note(pitch, 100, 0.6, seed=pitch), SR)
         records.append(NoteRecord(index=index, pitch=pitch, velocity=100, duration_s=0.5))
+    notes_json = tmp_path / "piano.notes.json"
+    dump_notes(records, notes_json)
+    return notes_json
+
+
+@pytest.fixture
+def ragged_notes(tmp_path: Path, piano_note: Callable[..., NDArray[np.float64]]) -> Path:
+    """The same project with its first note ringing for less than a slice draws on."""
+    samples_dir = tmp_path / "piano"
+    samples_dir.mkdir()
+    records = []
+    for index, pitch in enumerate(PITCHES):
+        write_wav(samples_dir / f"{index:04d}_p{pitch}_v100.wav", piano_note(pitch, 100, 0.6, seed=pitch), SR)
+        sounds_s = _BRIEF_S if index == 0 else _SOUNDS_S
+        records.append(NoteRecord(index=index, pitch=pitch, velocity=100, duration_s=sounds_s))
+
     notes_json = tmp_path / "piano.notes.json"
     dump_notes(records, notes_json)
     return notes_json
@@ -413,6 +432,36 @@ def test_subset_command_writes_a_dataset_the_other_commands_read(
         ["optimize", str(out / "piano.notes.json"), "--budget-kb", "48", "--out", str(tmp_path / "art"), "--no-render"]
     )
     assert (tmp_path / "art" / "piano" / "ungrouped" / "plan.json").is_file()
+
+
+def test_the_subset_command_states_what_sounded_too_briefly_to_slice(
+    tmp_path: Path, ragged_notes: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out = tmp_path / "subset"
+    main(
+        [
+            "subset",
+            str(ragged_notes),
+            "--fraction",
+            "1.0",
+            "--min-duration-s",
+            str(_ADMITS_BOTH),
+            "--out",
+            str(out),
+        ]
+    )
+    printed = capsys.readouterr().out
+
+    assert "2 of 3 notes" in printed
+    assert "1 of 3 notes sounded too briefly to slice" in printed
+
+
+def test_the_subset_command_says_nothing_of_a_source_it_admits_whole(
+    tmp_path: Path, ragged_notes: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    main(["subset", str(ragged_notes), "--fraction", "1.0", "--min-duration-s", "0.0", "--out", str(tmp_path / "s")])
+
+    assert "too briefly" not in capsys.readouterr().out
 
 
 def test_the_subset_command_names_its_output_after_the_instrument(tmp_path: Path, tiny_notes: Path) -> None:

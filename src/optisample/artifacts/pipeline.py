@@ -12,7 +12,7 @@ from optisample.artifacts.instruments.dump import InstrumentSettings
 from optisample.artifacts.looped import LoopedInstrumentArtifacts, loop_project
 from optisample.artifacts.paths import pipeline_paths
 from optisample.artifacts.reduced import ReducedInstrument, reduce_project
-from optisample.config.subsonic import SubsonicConfig
+from optisample.config.subset import IntakeConfig
 from optisample.io.dataset import SourceDataset
 from optisample.io.note_extractor import IngestSettings
 from optisample.io.source import load_source
@@ -28,8 +28,9 @@ class PipelineSettings:
     keep its dataset the one any allocation off it reads back.
 
     ``fraction`` is the share of the source a slice keeps. Naming none reduces the source as it stands,
-    which is what a dataset small enough to run whole -- or already sliced -- asks for. ``subsonic`` is
-    the band under hearing that slice is written past, which is where a chain takes its material in.
+    which is what a dataset small enough to run whole -- or already sliced -- asks for. ``intake`` is what
+    that slice does to the material it draws on: the length a note sounds for to be kept, and the band it
+    is written past, which together are where a chain takes its material in.
 
     ``instruments`` is what every stage carries its own recordings as, so each dataset the chain writes is
     playable in a tracker on the terms the run's own export states.
@@ -39,7 +40,7 @@ class PipelineSettings:
     reduce: OptimizeSettings
     dump: DumpSettings
     instruments: InstrumentSettings
-    subsonic: SubsonicConfig
+    intake: IntakeConfig
     fraction: float | None
 
 
@@ -68,7 +69,7 @@ def _sliced(source: SourceDataset, out_dir: Path, settings: PipelineSettings) ->
         SliceSettings(
             instrument_id=settings.ingest.instrument_id,
             fraction=settings.fraction,
-            subsonic=settings.subsonic,
+            intake=settings.intake,
             instruments=settings.instruments,
         ),
     )

@@ -10,7 +10,7 @@ from optisample.artifacts.instruments.dump import (
     WrittenInstruments,
     write_dataset_instruments,
 )
-from optisample.config.subsonic import SubsonicConfig
+from optisample.config.subset import IntakeConfig
 from optisample.io.audio import write_wav
 from optisample.io.dataset import SourceDataset, SubsetDataset
 from optisample.io.note_extractor import NoteRecord
@@ -109,14 +109,14 @@ class SliceSettings:
     """What taking the share of a source a run begins from is carried out with.
 
     ``fraction`` is how much of the source the slice keeps and ``instrument_id`` what it is filed under.
-    ``subsonic`` is the band under hearing the slice is written past, which is the one treatment the way
-    into a run gives its material, and ``instruments`` states what the kept recordings are carried as so
-    the very first stage is playable in a tracker.
+    ``intake`` is what the way in does to that source -- the length a note sounds for to be drawn on, and
+    the band every kept take is written past. ``instruments`` states what the kept recordings are carried
+    as, so the very first stage is playable in a tracker.
     """
 
     instrument_id: str
     fraction: float
-    subsonic: SubsonicConfig
+    intake: IntakeConfig
     instruments: InstrumentSettings
 
 
@@ -132,7 +132,7 @@ def write_slice(source: SourceDataset, out_dir: Path, settings: SliceSettings) -
         out_dir,
         instrument_id=settings.instrument_id,
         fraction=settings.fraction,
-        subsonic=settings.subsonic,
+        intake=settings.intake,
     )
     return SlicedDataset(
         dataset=dataset,

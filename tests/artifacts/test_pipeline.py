@@ -79,7 +79,7 @@ def whole(
         reduce=tiny_settings,
         dump=allocation,
         instruments=allocation.instruments,
-        subsonic=config.subsonic,
+        intake=config.intake,
         fraction=None,
     )
 

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, Protocol
 
+from optisample.config.subset import IntakeConfig
 from optisample.config.subsonic import SubsonicConfig
 from optisample.dsp.subsonic import remove_subsonic
 from optisample.io.audio import read_wav, write_wav
@@ -22,10 +23,12 @@ _NOTES_FIELD: Final = "notes"
 _CONFIG_FIELD: Final = "config"
 _NOTE_COUNT_FIELD: Final = "note_count"
 _WHOLE: Final = 1.0
+_AT_LEAST_ONE: Final = 1  # notes a slice holds however small the share asked of it
+_NOTHING_HELD_OUT: Final = 0  # notes a floor removes where a caller names its recordings itself
 
 
 class Played(Protocol):
-    """A recorded note as the selection reads it: the two axes a representative slice has to span.
+    """A recorded note as the selection reads it: the two axes a slice has to span, and how long it sounds.
 
     Stated as a protocol so the same rule slices both shapes of dataset -- the notes a manifest lists
     and the takes a directory of recordings names -- from one implementation.
@@ -36,6 +39,9 @@ class Played(Protocol):
 
     @property
     def velocity(self) -> int: ...
+
+    @property
+    def duration_s(self) -> float: ...
 
 
 def even_ranks(count: int, picks: int) -> tuple[int, ...]:
@@ -101,13 +107,8 @@ def _velocity_ordered_pitches(notes: Sequence[Played]) -> list[list[int]]:
     ]
 
 
-def select_positions(notes: Sequence[Played], fraction: float) -> tuple[int, ...]:
-    """Positions of the notes a subset holding ``fraction`` of ``notes`` keeps, in source order.
-
-    Notes are grouped by pitch, each pitch is allotted a share of the subset, and the notes a pitch
-    contributes are those its velocities spread evenly over. The subset therefore covers the pitch
-    range the source plays and, within each pitch, the dynamics it was played across -- which is what
-    makes a small slice representative enough to predict how the whole dataset behaves.
+def kept_count(notes: int, fraction: float) -> int:
+    """How many of ``notes`` a subset holding ``fraction`` of them keeps, which is one at the least.
 
     Raises:
         ValueError: if ``fraction`` falls outside ``(0, 1]``.
@@ -115,11 +116,81 @@ def select_positions(notes: Sequence[Played], fraction: float) -> tuple[int, ...
     if not 0.0 < fraction <= _WHOLE:
         raise ValueError(f"subset fraction must fall in (0, 1], got {fraction}")
 
+    return max(_AT_LEAST_ONE, round(fraction * notes))
+
+
+def select_count(notes: Sequence[Played], keep: int) -> tuple[int, ...]:
+    """Positions of the ``keep`` notes a subset holds, in source order.
+
+    Notes are grouped by pitch, each pitch is allotted a share of the subset, and the notes a pitch
+    contributes are those its velocities spread evenly over. The subset therefore covers the pitch
+    range the source plays and, within each pitch, the dynamics it was played across -- which is what
+    makes a small slice representative enough to predict how the whole dataset behaves.
+
+    Asking for at least as many notes as there are keeps every one of them, so a caller counting its
+    share against a larger source than it hands over receives the whole of what it handed over.
+    """
     groups = _velocity_ordered_pitches(notes)
-    keep = max(1, round(fraction * len(notes)))
     allotted = _allotments([len(group) for group in groups], keep)
     return tuple(
         sorted(group[rank] for group, picks in zip(groups, allotted) for rank in even_ranks(len(group), picks))
+    )
+
+
+def select_positions(notes: Sequence[Played], fraction: float) -> tuple[int, ...]:
+    """Positions of the notes a subset holding ``fraction`` of ``notes`` keeps, in source order.
+
+    Raises:
+        ValueError: if ``fraction`` falls outside ``(0, 1]``.
+    """
+    return select_count(notes, kept_count(len(notes), fraction))
+
+
+def sounding_positions(notes: Sequence[Played], min_duration_s: float) -> tuple[int, ...]:
+    """Positions of the notes sounding for at least ``min_duration_s``, in source order.
+
+    A note is measured over the span every stage after the slice reads it as -- its onset through the end
+    of its release. One sounding for less than a loop may run offers the loop stage nothing to settle and
+    a group nothing to stand behind, so where the floor stands is where a run's material becomes usable.
+    """
+    return tuple(position for position, note in enumerate(notes) if note.duration_s >= min_duration_s)
+
+
+@dataclass(frozen=True)
+class Admission:
+    """Which of a source's notes a slice draws on, and how many the length floor held out.
+
+    ``positions`` are the kept notes in source order. ``brief`` is how many sounded for less than the
+    floor asked, which a slice reports so a source recorded largely in fragments says so at the way in.
+    """
+
+    positions: tuple[int, ...]
+    brief: int
+
+
+def admit(notes: Sequence[Played], *, fraction: float, min_duration_s: float) -> Admission:
+    """The notes a slice keeps: the share ``fraction`` asks for, drawn from those sounding long enough.
+
+    The floor is read first and the share is counted against the source as it arrived, so a slice comes
+    out the size the caller asked for while the notes filling it are all material a run can work with.
+    Where the floor holds back more than the share leaves room for, what survives it is kept entire.
+
+    Raises:
+        ValueError: if ``fraction`` falls outside ``(0, 1]``.
+        ValueError: when every note sounds for less than ``min_duration_s``, leaving nothing to draw on.
+    """
+    keep = kept_count(len(notes), fraction)
+    sounding = sounding_positions(notes, min_duration_s)
+    if not sounding:
+        raise ValueError(
+            f"every one of the {len(notes)} notes sounds for less than {min_duration_s} s, "
+            "which is the length a slice admits"
+        )
+
+    carried = [notes[position] for position in sounding]
+    return Admission(
+        positions=tuple(sounding[rank] for rank in select_count(carried, keep)),
+        brief=len(notes) - len(sounding),
     )
 
 
@@ -243,6 +314,7 @@ def _sliced(
     kept: Sequence[ManifestNote],
     destination: _Destination,
     recordings: int,
+    brief_notes: int,
 ) -> SubsetDataset:
     """What a written slice reads back as: where it landed, how much of its source it holds, and its ranges."""
     pitches = [note.pitch for note in kept]
@@ -252,6 +324,7 @@ def _sliced(
         kept_notes=len(kept),
         source_notes=len(source.notes),
         recordings=recordings,
+        brief_notes=brief_notes,
         pitches=(min(pitches), max(pitches)),
         velocities=(min(velocities), max(velocities)),
     )
@@ -268,7 +341,7 @@ def write_subset(
     *,
     instrument_id: str,
     fraction: float,
-    subsonic: SubsonicConfig,
+    intake: IntakeConfig,
 ) -> SubsetDataset:
     """Write the ``fraction`` of a NoteExtractor dataset that spans its pitch and velocity ranges.
 
@@ -277,14 +350,17 @@ def write_subset(
     the way it reads the source. Each kept note is written exactly as the source states it, so the
     subset measures the same material, at the same lengths, that the whole dataset would.
 
-    This is the pipeline's way in, so it is where the band under hearing comes off: what lands holds the
-    content a listener has, and every stage after it reads a dataset already carrying only that.
+    This is the pipeline's way in, so it is where a run settles what it works with: the notes sounding
+    for at least ``min_duration_s`` are what the share is drawn from (:func:`admit`), and every take that
+    lands is written past the band under hearing, so every stage after it reads a dataset already
+    carrying the content a listener has.
     """
     source = _read_source(dataset.path)
     destination = _destination(Path(out_dir), instrument_id)
-    kept = _write_notes(source, select_positions(source.notes, fraction), destination)
-    written = _clean_recordings(_indices(kept), dataset.recordings_dir, destination.samples_dir, subsonic)
-    return _sliced(source, kept, destination, written)
+    admitted = admit(source.notes, fraction=fraction, min_duration_s=intake.min_duration_s)
+    kept = _write_notes(source, admitted.positions, destination)
+    written = _clean_recordings(_indices(kept), dataset.recordings_dir, destination.samples_dir, intake.subsonic)
+    return _sliced(source, kept, destination, written, admitted.brief)
 
 
 def write_recording_subset(
@@ -309,4 +385,4 @@ def write_recording_subset(
     destination = _destination(Path(out_dir), instrument_id)
     kept = _write_notes(source, notes_recorded_by(source.notes, recordings), destination)
     written = _copy_recordings(_indices(kept), dataset.recordings_dir, destination.samples_dir)
-    return _sliced(source, kept, destination, written)
+    return _sliced(source, kept, destination, written, _NOTHING_HELD_OUT)

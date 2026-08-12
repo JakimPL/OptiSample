@@ -14,7 +14,12 @@ from optisample.cluster.descriptor import SampleDescriptor
 from optisample.cluster.partition import Partition
 from optisample.cluster.representative import Group
 from optisample.cluster.selection import Selection
-from optisample.cluster.space import Block, Coordinates, SampleSpace, mean_pairwise_square
+from optisample.cluster.space import (
+    Block,
+    Coordinates,
+    SampleSpace,
+    mean_pairwise_square,
+)
 from optisample.cluster.stages import StageRecording
 from optisample.keys import SampleKey
 from optisample.music import MIDI_HIGHEST_PITCH, MIDI_MAX_VELOCITY
@@ -23,7 +28,7 @@ _LOG_BASE: Final = 10.0  # what the anchor times are stated in logs of, which re
 _NO_SPREAD: Final = 0.0  # the spread a set of readings standing at one point holds
 _REPRESENTATIVE: Final = "representative"  # what the member a group is stood for by is listed as
 _MEMBER: Final = "member"  # what every other recording of a group is listed as
-_HUE_SPAN: Final = 0.85  # of the colour wheel the keyboard is laid across, which holds its two ends apart
+_HUE_SPAN: Final = 1.0  # of the colour wheel the keyboard is laid across, which holds its two ends apart
 _QUIETEST: Final = 0.25  # the saturation the softest take is drawn at, so a quiet group is still a colour
 _LOUDEST: Final = 1.0  # the saturation the hardest-struck take fills, the velocity spanning what lies between
 _BRIGHTNESS: Final = 0.9  # the value a group is drawn at, one step under white so a light page holds it

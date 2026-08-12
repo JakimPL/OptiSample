@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from optisample.config import load_config
+from optisample.config.subset import IntakeConfig
 from optisample.io.audio import write_wav
 from optisample.io.dataset import SourceDataset
 from optisample.io.note_extractor import IngestSettings, NoteRecord, dump_notes
@@ -22,6 +23,8 @@ _PITCHES = (48, 55, 60, 67, 72)
 _VELOCITY = 100
 _SLICE = 0.4
 _SLICED_TAKES = 2
+_ADMIT_EVERY = 0.0  # a floor every take clears, so both shapes are read on their spread alone
+_INTAKE = IntakeConfig(min_duration_s=_ADMIT_EVERY, subsonic=_SUBSONIC)
 
 
 @pytest.fixture
@@ -96,7 +99,7 @@ def test_a_slice_of_a_manifest_dataset_is_a_manifest_dataset(manifest: Path, tmp
         tmp_path / "out",
         instrument_id=_INSTRUMENT,
         fraction=_SLICE,
-        subsonic=_SUBSONIC,
+        intake=_INTAKE,
     )
 
     assert dataset.source.path == tmp_path / "out" / f"{_INSTRUMENT}.notes.json"
@@ -109,7 +112,7 @@ def test_a_slice_of_a_directory_is_a_directory(recordings: Path, tmp_path: Path)
         tmp_path / "out",
         instrument_id=_INSTRUMENT,
         fraction=_SLICE,
-        subsonic=_SUBSONIC,
+        intake=_INTAKE,
     )
 
     assert dataset.source.path == tmp_path / "out" / _INSTRUMENT
@@ -123,14 +126,14 @@ def test_either_shape_slices_to_the_same_share_of_its_source(manifest: Path, rec
         tmp_path / "a",
         instrument_id=_INSTRUMENT,
         fraction=_SLICE,
-        subsonic=_SUBSONIC,
+        intake=_INTAKE,
     )
     read = write_source_subset(
         SourceDataset(path=recordings, samples_dir=None),
         tmp_path / "b",
         instrument_id=_INSTRUMENT,
         fraction=_SLICE,
-        subsonic=_SUBSONIC,
+        intake=_INTAKE,
     )
 
     assert joined.kept_notes == read.kept_notes == _SLICED_TAKES
@@ -146,7 +149,7 @@ def test_a_slice_is_read_back_by_the_loader_its_source_was(
         tmp_path / "out",
         instrument_id=_INSTRUMENT,
         fraction=_SLICE,
-        subsonic=_SUBSONIC,
+        intake=_INTAKE,
     )
     (instrument,) = load_source(dataset.source, settings).instruments
 

@@ -79,6 +79,13 @@ note; what is left over then goes round the pitches busiest first. Each kept not
 as the source states it, so the slice measures the same material at the same lengths, and the output
 root is itself a NoteExtractor dataset.
 
+**Notes too short to work with stay behind.** A note sounding for less than `min_duration_s` (0.5 s,
+tuned in `src/opticonfig/subset.yaml`, overridable with `--min-duration-s`) is held out before the share
+is taken: nothing that brief offers a loop stage a round to settle or a group a take to stand behind.
+The share is counted against the source as it arrived, so raising the floor narrows what the slice draws
+on and leaves the size it comes out at where you asked for it. The command says how many notes it held
+out, and a source recorded entirely in fragments is reported as such rather than run.
+
 **The band under hearing comes off here.** The first stage is where a run takes its material in, so it
 is where the depth beneath hearing goes: content below `cutoff_hz` (30 Hz, under the lowest note a
 keyboard sounds) rolls away and is `rejection_db` (60 dB) down by `rejection_hz` (10 Hz), tuned in

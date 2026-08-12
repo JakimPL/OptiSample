@@ -40,8 +40,9 @@ from optisample.config.optimize import BudgetConfig, SweepConfig
 from optisample.config.ranking import RankingQuotaConfig
 from optisample.config.reduce import DedupeKey, ReduceConfig
 from optisample.config.render import Interpolation
+from optisample.config.subset import IntakeConfig
 from optisample.config.tracker import TrackerConfig, TrackerFormat
-from optisample.io.dataset import SourceDataset, instrument_name
+from optisample.io.dataset import SourceDataset, SubsetDataset, instrument_name
 from optisample.io.note_extractor import IngestSettings
 from optisample.io.source import load_source
 from optisample.io.tracker.target import ExportTarget, export_target
@@ -266,6 +267,16 @@ def _describe_optimize(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _describe_admission(parser: argparse.ArgumentParser) -> None:
+    """Add the length a note sounds for to be drawn on, shared by every command that takes a slice."""
+    parser.add_argument(
+        "--min-duration-s",
+        type=float,
+        default=None,
+        help="Shortest a note may sound and still be sliced, in seconds (default: the configured floor)",
+    )
+
+
 def _describe_pipeline(parser: argparse.ArgumentParser) -> None:
     """Add what chaining the stages asks for beyond the shared ingest and allocation flags."""
     parser.add_argument(
@@ -280,6 +291,7 @@ def _describe_pipeline(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Share of the source notes to slice out first, in (0, 1]; naming none reduces the source itself",
     )
+    _describe_admission(parser)
 
 
 def _describe_subset(parser: argparse.ArgumentParser) -> None:
@@ -293,8 +305,9 @@ def _describe_subset(parser: argparse.ArgumentParser) -> None:
         "--fraction",
         type=float,
         required=True,
-        help="Share of the notes to keep, in (0, 1]",
+        help="Share of the notes to keep, in (0, 1], counted against the source before its short notes leave",
     )
+    _describe_admission(parser)
     parser.add_argument(
         "--samples-dir",
         type=Path,
@@ -671,7 +684,7 @@ def _pipeline_settings(config: OptiConfig, args: argparse.Namespace) -> Pipeline
         reduce=_optimize_settings(config, args, config.optimize.layers, config.optimize.budget),
         dump=_dump_settings(config, args),
         instruments=_instrument_settings(config, args),
-        subsonic=config.subsonic,
+        intake=_intake(config, args),
         fraction=args.fraction,
     )
 
@@ -698,11 +711,20 @@ def _print_instruments(written: WrittenInstruments) -> None:
         print(f"  {len(written.understated)} sound under the level of the audio they were written from")
 
 
+def _print_brief(dataset: SubsetDataset) -> None:
+    """State what the length floor held out, on the sources where it held anything out."""
+    if not dataset.brief_notes:
+        return
+
+    print(f"  {dataset.brief_notes} of {dataset.source_notes} notes sounded too briefly to slice")
+
+
 def _print_subset(sliced: SlicedDataset) -> None:
     """State where a slice landed and how much of its source it holds."""
     dataset = sliced.dataset
     print(f"{dataset.source.path}")
     print(f"  {dataset.kept_notes} of {dataset.source_notes} notes, {dataset.recordings} recordings")
+    _print_brief(dataset)
     print(
         f"  pitches {dataset.pitches[0]}-{dataset.pitches[1]}, velocities {dataset.velocities[0]}-{dataset.velocities[1]}"
     )
@@ -836,12 +858,20 @@ def _run_rank(config: OptiConfig, args: argparse.Namespace) -> None:
     _print_ranking(rank_listening_set(args.listening_set, build_composite(config.analysis.metrics), _progress(args)))
 
 
+def _intake(config: OptiConfig, args: argparse.Namespace) -> IntakeConfig:
+    """What the way in does to a source, the length flag standing in for the configured floor."""
+    return IntakeConfig(
+        min_duration_s=config.subset.min_duration_s if args.min_duration_s is None else args.min_duration_s,
+        subsonic=config.subsonic,
+    )
+
+
 def _slice_settings(config: OptiConfig, args: argparse.Namespace) -> SliceSettings:
     """What taking the share of a source a run begins from is carried out with, off the loaded config."""
     return SliceSettings(
         instrument_id=args.instrument_id or instrument_name(args.source),
         fraction=args.fraction,
-        subsonic=config.subsonic,
+        intake=_intake(config, args),
         instruments=_instrument_settings(config, args),
     )
 

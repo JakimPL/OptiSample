@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from optisample.config.subsonic import SubsonicConfig
+from optisample.config.subset import IntakeConfig
 from optisample.io.dataset import SourceDataset, SubsetDataset
 from optisample.io.note_extractor import IngestSettings, load_notes
 from optisample.io.sample_dir import load_sample_dir, write_sample_dir_subset
@@ -29,17 +29,18 @@ def write_source_subset(
     *,
     instrument_id: str,
     fraction: float,
-    subsonic: SubsonicConfig,
+    intake: IntakeConfig,
 ) -> SubsetDataset:
     """Write the ``fraction`` of ``source`` spanning its pitch and velocity ranges, in the shape it came in.
 
     A slice of a manifest dataset is a manifest dataset and a slice of a directory of recordings is a
     directory of recordings, so the stage after it reads the slice the way it would have read the whole.
-    Either shape lands past the band under hearing, which is the one treatment the way in gives a source.
+    Either shape holds its notes to the length ``intake`` admits and lands past the band it passes, which
+    are the two treatments the way in gives a source.
     """
     if source.is_directory:
         return write_sample_dir_subset(
-            source.path, out_dir, instrument_id=instrument_id, fraction=fraction, subsonic=subsonic
+            source.path, out_dir, instrument_id=instrument_id, fraction=fraction, intake=intake
         )
 
-    return write_subset(source, out_dir, instrument_id=instrument_id, fraction=fraction, subsonic=subsonic)
+    return write_subset(source, out_dir, instrument_id=instrument_id, fraction=fraction, intake=intake)
