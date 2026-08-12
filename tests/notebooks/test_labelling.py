@@ -57,6 +57,7 @@ def _record(directory: str, index: int) -> ListeningPairRecord:
         composite_side=Side.A,
         margin=0.5,
         loudness_delta_lu=0.0,
+        heard_gain_db=12.0,
     )
 
 

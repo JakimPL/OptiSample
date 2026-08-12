@@ -37,9 +37,10 @@ def _(mo):
         each side has its own fault and they cost the same; *no difference to hear* is for one you could
         find nothing to tell apart. The second holds the metric to a floor, so it is worth its own answer.
 
-        Fixed volume and one pair of headphones throughout. Take the set in blocks with breaks between
-        them, and answer each question as you hear it — a few of them are put twice, and how far those
-        agree is what says whether the sheet can be trusted.
+        Fixed volume and one pair of headphones throughout: every question is written at one loudness, so
+        one setting carries the whole set. Take it in blocks with breaks between them, and answer each
+        question as you hear it — a few of them are put twice, and how far those agree is what says
+        whether the sheet can be trusted.
         """)
     return
 
@@ -140,14 +141,11 @@ def _(fault, labelling, mo, note, place, session, set_place, set_session, verdic
     def _step(offset):
         set_place((place + offset) % session.total)
 
-    mo.hstack(
-        [
-            mo.ui.button(label="◀ back", on_click=lambda _value: _step(-1)),
-            mo.ui.button(label="save and go on ▶", on_click=_answer),
-            mo.ui.button(label="skip ▶", on_click=lambda _value: _step(1)),
-        ]
-    )
-    return
+    back = mo.ui.button(label="◀ back", on_click=lambda _value: _step(-1))
+    save = mo.ui.button(label="save and go on ▶", on_click=_answer)
+    skip = mo.ui.button(label="skip ▶", on_click=lambda _value: _step(1))
+    mo.hstack([back, save, skip])
+    return back, save, skip
 
 
 @app.cell

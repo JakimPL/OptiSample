@@ -23,6 +23,7 @@ from optisample.calibrate.ranking import (
     read_labels,
     settled,
 )
+from optisample.dsp.levels import peak_amplitude
 from optisample.io.audio import read_wav
 from optisample.model import InstrumentSpec, Manifest, ProjectSpec
 from optisample.optimize.orchestrate.audio import LoadedInstrument
@@ -33,6 +34,7 @@ from optisample.optimize.tasks import AudioMap, StoredRecordings
 Recordings = Callable[..., StoredRecordings]
 
 _PAIR_FILES = 3  # the recording and the two sides, which is the whole of what a listener meets
+_CEILING_AMPLITUDE = 10.0 ** (-1.0 / 20.0)  # the -1 dBFS a lifted question is held under
 
 
 def _manifest(written: ListeningSet) -> dict:
@@ -66,6 +68,19 @@ def test_the_two_sides_are_different_audio(written: ListeningSet) -> None:
     first, _ = read_wav(directory / f"{Side.A}.wav")
     second, _ = read_wav(directory / f"{Side.B}.wav")
     assert not np.array_equal(first, second)
+
+
+def test_every_question_states_the_lift_its_audio_was_written_with(written: ListeningSet) -> None:
+    stated = [record["heard_gain_db"] for record in _manifest(written)["pairs"]]
+
+    assert len(stated) == written.pairs and all(np.isfinite(gain) for gain in stated)
+
+
+def test_a_written_question_stands_under_the_ceiling_its_lift_is_held_to(written: ListeningSet) -> None:
+    directory = written.paths.pairs_dir / _manifest(written)["pairs"][0]["directory"]
+
+    peaks = [peak_amplitude(read_wav(directory / f"{stem}.wav")[0]) for stem in ("reference", Side.A, Side.B)]
+    assert max(peaks) <= _CEILING_AMPLITUDE
 
 
 def test_the_audio_is_written_at_the_rate_the_run_measures_at(written: ListeningSet) -> None:

@@ -6,6 +6,7 @@ import pytest
 
 from optisample.artifacts.documents.ranking import (
     RankingSetDocument,
+    WrittenPair,
     pair_directory,
     ranking_document,
 )
@@ -25,6 +26,7 @@ _SAMPLE_RATE = 44_100
 _SEED = 137
 _PRICED = 11
 _LOUDNESS = -23.0
+_HEARD_GAINS = (12.5, 3.25)
 
 
 def _rendition(
@@ -75,7 +77,7 @@ def pairs(clip: ClipRenditions) -> tuple[ListeningPair, ...]:
 
 def _document(pairs: Sequence[ListeningPair]) -> RankingSetDocument:
     return ranking_document(
-        pairs,
+        [WrittenPair(pair=pair, heard_gain_db=gain) for pair, gain in zip(pairs, _HEARD_GAINS, strict=True)],
         instrument_id="piano",
         sample_rate=_SAMPLE_RATE,
         seed=_SEED,
@@ -126,6 +128,12 @@ def test_the_manifest_states_how_much_louder_one_side_plays(pairs: Sequence[List
     document = _document(pairs)
 
     assert document.pairs[0].loudness_delta_lu == pytest.approx(0.4)
+
+
+def test_the_manifest_states_the_lift_each_question_was_written_with(pairs: Sequence[ListeningPair]) -> None:
+    document = _document(pairs)
+
+    assert [record.heard_gain_db for record in document.pairs] == list(_HEARD_GAINS)
 
 
 def test_the_manifest_names_the_comparison_each_pair_puts(pairs: Sequence[ListeningPair]) -> None:

@@ -7,6 +7,7 @@ from typing import Final
 
 from optisample.artifacts.documents.ranking import (
     RankingSetDocument,
+    WrittenPair,
     pair_directory,
     ranking_document,
 )
@@ -22,6 +23,7 @@ from optisample.calibrate.ranking import (
     Verdict,
     assemble_ranking,
     blank_sheet,
+    heard_pair,
     labels_text,
     read_labels,
     reference,
@@ -70,9 +72,12 @@ which change the ranking calls for, so it is worth a word where one comes to min
 
 ## Working through it
 
-Fixed volume and one pair of headphones throughout. Level is deliberately left as each encoding produces
-it, so a side that plays louder is telling you something real -- the gap is measured into `pairs.json` and
-the reading is checked against it afterwards.
+Fixed volume and one pair of headphones throughout. Each question is written at one loudness, lifted as a
+whole so a note the material plays softly is met at the level of one it leans on and a single volume
+setting carries the session. Inside a question the levels stand as each encoding produced them, so a side
+that plays louder is telling you something real -- the gap is measured into `pairs.json` and the reading
+is checked against it afterwards. Each question runs the stretch its three recordings share, which is as
+far as a comparison reaches.
 
 Take the set in blocks with breaks between them. A few questions are put more than once, blinded afresh
 and far apart: answer each one as you hear it rather than reaching for what you said before, since how far
@@ -116,13 +121,20 @@ class ListeningSet:
         return self.questions + self.repeats
 
 
-def _write_pair(pair: ListeningPair, directory: Path, context: EvalContext) -> None:
-    """Write one question's three files: the recording, and each side's encoding of it."""
+def _write_pair(pair: ListeningPair, directory: Path, context: EvalContext) -> WrittenPair:
+    """Write one question's three files at the length and level they are met at, and state the lift they carry."""
     directory.mkdir(parents=True, exist_ok=True)
     sample_rate = context.sample_rate
-    write_wav(directory / f"{_REFERENCE_STEM}.wav", reference(pair.clip, context), sample_rate)
-    write_wav(directory / f"{Side.A}.wav", rendered(pair.clip, pair.first, context), sample_rate)
-    write_wav(directory / f"{Side.B}.wav", rendered(pair.clip, pair.second, context), sample_rate)
+    heard = heard_pair(
+        reference(pair.clip, context),
+        rendered(pair.clip, pair.first, context),
+        rendered(pair.clip, pair.second, context),
+        sample_rate,
+    )
+    write_wav(directory / f"{_REFERENCE_STEM}.wav", heard.reference, sample_rate)
+    write_wav(directory / f"{Side.A}.wav", heard.first, sample_rate)
+    write_wav(directory / f"{Side.B}.wav", heard.second, sample_rate)
+    return WrittenPair(pair=pair, heard_gain_db=heard.gain_db)
 
 
 def pair_clips(paths: RankingPaths, directory: str) -> PairClips:
@@ -165,13 +177,13 @@ def write_ranking_set(
         label=_WRITE_LABEL,
         total=len(ranking.pairs),
     )
-    for index, pair in tracked:
-        _write_pair(pair, paths.pairs_dir / pair_directory(pair, index), ranking.context)
-
+    written = [
+        _write_pair(pair, paths.pairs_dir / pair_directory(pair, index), ranking.context) for index, pair in tracked
+    ]
     write_json(
         paths.manifest_json,
         ranking_document(
-            ranking.pairs,
+            written,
             instrument_id=instrument_id,
             sample_rate=ranking.context.sample_rate,
             seed=seed,

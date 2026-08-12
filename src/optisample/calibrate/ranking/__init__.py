@@ -4,6 +4,7 @@ from optisample.calibrate.ranking.assembly import (
     assemble_ranking,
 )
 from optisample.calibrate.ranking.grid import RankingGrid, widened_encodings
+from optisample.calibrate.ranking.heard import HeardPair, heard_pair
 from optisample.calibrate.ranking.pairs import (
     ListeningPair,
     PairAxis,
@@ -50,6 +51,7 @@ __all__ = [
     "Agreement",
     "ClipRenditions",
     "Fault",
+    "HeardPair",
     "Judgement",
     "LabelSheet",
     "LevelConfound",
@@ -70,6 +72,7 @@ __all__ = [
     "assemble_ranking",
     "blank_sheet",
     "clip_renditions",
+    "heard_pair",
     "heard_strength",
     "labels_text",
     "level_confound",

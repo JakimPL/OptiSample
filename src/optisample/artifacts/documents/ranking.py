@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from optisample.artifacts.serialize import Frozen
 from optisample.calibrate.ranking import (
@@ -40,7 +41,9 @@ class ListeningPairRecord(Frozen):
     apart it puts the two -- a pair the metric all but ties is where a label is worth most.
     ``question_id`` is shared by the pairs putting one comparison twice, which is how a listener's
     agreement with themselves is read, and ``loudness_delta_lu`` states how much louder side A plays, so
-    a preference can be checked against the level it was heard at.
+    a preference can be checked against the level it was heard at. ``heard_gain_db`` is the one lift all
+    three of the question's recordings were written with, so what each encoding delivers and what the
+    listener met stay reconcilable; the gap between the sides is what it is either way.
     """
 
     directory: str
@@ -55,6 +58,7 @@ class ListeningPairRecord(Frozen):
     composite_side: Side
     margin: float
     loudness_delta_lu: float
+    heard_gain_db: float
 
 
 class RankingSetDocument(Frozen):
@@ -95,8 +99,17 @@ def pair_directory(pair: ListeningPair, index: int) -> str:
     return f"{index:03d}_{pair.clip.key.label}"
 
 
-def pair_record(pair: ListeningPair, index: int) -> ListeningPairRecord:
-    """One pair as the manifest states it, decoding both sides and the composite's own call."""
+@dataclass(frozen=True)
+class WrittenPair:
+    """One question as it landed on disk: the pair it asks, and the lift its three recordings were written with."""
+
+    pair: ListeningPair
+    heard_gain_db: float
+
+
+def pair_record(written: WrittenPair, index: int) -> ListeningPairRecord:
+    """One pair as the manifest states it: both sides decoded, the composite's own call, and the lift it carries."""
+    pair = written.pair
     return ListeningPairRecord(
         directory=pair_directory(pair, index),
         axis=pair.axis,
@@ -110,24 +123,25 @@ def pair_record(pair: ListeningPair, index: int) -> ListeningPairRecord:
         composite_side=pair.composite_side,
         margin=pair.margin,
         loudness_delta_lu=pair.loudness_delta_lu,
+        heard_gain_db=written.heard_gain_db,
     )
 
 
 def ranking_document(
-    pairs: Sequence[ListeningPair],
+    written: Sequence[WrittenPair],
     *,
     instrument_id: str,
     sample_rate: int,
     seed: int,
     priced_encodings: int,
 ) -> RankingSetDocument:
-    """The manifest written beside a listening set's audio."""
+    """The manifest written beside a listening set's audio, in the order the questions were put on disk."""
     return RankingSetDocument(
         instrument_id=instrument_id,
         sample_rate=sample_rate,
         seed=seed,
         priced_encodings=priced_encodings,
-        pairs=[pair_record(pair, index) for index, pair in enumerate(pairs)],
+        pairs=[pair_record(one, index) for index, one in enumerate(written)],
     )
 
 
