@@ -9,18 +9,20 @@ import plotly.graph_objects as go
 from plotly.colors import qualitative
 from scipy.cluster.hierarchy import dendrogram
 
+from notebooks.utils.layouts import Placement
 from notebooks.utils.views import Row
-from optisample.cluster.embed import Embedding
 from optisample.cluster.partition import Tree
 
 SelectionPoint = Mapping[str, Any]  # one clicked point as plotly serialized it and marimo handed it back
 
 _PALETTE: Final = tuple(qualitative.Dark24)
 _CONTINUOUS: Final = "Viridis"  # the scale a reading with an order of its own is drawn along
-_INDEX_COLUMN: Final = 0  # where a point's place in the space sits among the values it carries
-_FIRST_VALUE: Final = 1  # where the readings a hover lists start, the place having gone first
-_CUSTOM_DATA: Final = "customdata"  # what plotly calls the values a point carries beside its position
-_PLANE: Final = 2  # components a picture drawn on a plane holds
+_CURVE: Final = "curveNumber"  # what plotly calls the trace a clicked point was drawn in
+_POINT_INDEX: Final = "pointIndex"  # what it calls the place of that point inside its own trace
+_POINT_NUMBER: Final = "pointNumber"  # the same place under the name a click payload states it by
+_CLICKABLE_MODE: Final = "lines+markers"  # what a flat trace is drawn as, which is what marimo forwards clicks from
+_SOLID_MODE: Final = "markers"  # what a trace in a box is drawn as, a scene reading points alone
+_HAIRLINE: Final = 0  # the width the run joining a flat trace's markers is stroked at, leaving the points alone
 _MARKER_SIZE: Final = 7  # how big a recording is drawn on a plane
 _SOLID_MARKER_SIZE: Final = 4  # how big it is drawn in a box, where depth already thins the field
 _REPRESENTATIVE_SIZE: Final = 19  # how big the ring around the take standing for a group is drawn on a plane
@@ -29,10 +31,7 @@ _REPRESENTATIVE_SYMBOL: Final = "diamond-open"  # the one outline both the plane
 _RING_WIDTH: Final = 3.0  # how thick that outline is stroked, well above the field it stands over
 _ON_SCREEN_SIZE: Final = 13  # how big the count a sweep curve is being read at is ringed
 _GROUP_COLUMN: Final = "group"  # the column naming the group a take fell into, which rings it in that colour
-_PITCH_AXIS: Final = "pitch"  # the note a take plays, which a key map reads across
-_VELOCITY_AXIS: Final = "velocity"  # how hard it was struck, which a key map reads up
 _HEIGHT: Final = 620  # pixels a scatter is given, ample for a group to be picked out by eye
-_KEY_HEIGHT: Final = 420  # pixels a key map is given, a grid being wider than it is tall
 _CURVE_HEIGHT: Final = 320  # pixels the two reading curves are given
 _FLOAT_FORMAT: Final = ":.3f"  # how a measured reading is spelled in a hover
 _PLAIN: Final = ""  # how a name or a count is spelled there
@@ -51,13 +50,13 @@ def _formats(rows: Sequence[Row], keys: Sequence[str]) -> tuple[str, ...]:
 def _hover(rows: Sequence[Row], keys: Sequence[str]) -> str:
     """The tooltip one point shows, listing every reading its row carries."""
     formats = _formats(rows, keys)
-    lines = [f"{key}: %{{customdata[{index + _FIRST_VALUE}]{formats[index]}}}" for index, key in enumerate(keys)]
+    lines = [f"{key}: %{{customdata[{index}]{formats[index]}}}" for index, key in enumerate(keys)]
     return "<br>".join(lines) + "<extra></extra>"
 
 
 def _carried(rows: Sequence[Row], keys: Sequence[str]) -> list[list[object]]:
-    """What each point carries beside its position: its place in the space, then every reading it was read for."""
-    return [[index, *(row[key] for key in keys)] for index, row in enumerate(rows)]
+    """What each point carries beside its position: every reading its recording was read for, in one list."""
+    return [[row[key] for key in keys] for row in rows]
 
 
 @dataclass(frozen=True)
@@ -81,42 +80,15 @@ def _reading(rows: Sequence[Row]) -> _Reading:
 
 
 @dataclass(frozen=True)
-class Placement:
-    """Where every recording sits on one drawn picture, beside what the axes it is drawn on are called.
+class _Drawn:
+    """One trace of a field beside the recordings it drew, in the order it drew them.
 
-    A picture drawn from a layout carries the components an embedding placed each recording on; one drawn
-    from the keys carries the note it plays and the velocity it was struck at. Both stand here in the one
-    shape, so a field is coloured, hovered and clicked the same way whichever of the two it draws.
+    A click comes back naming the trace it landed on and where inside that trace the point sits, so the
+    places a trace was built from are what turn either number into a recording of the corpus.
     """
 
-    axes: tuple[tuple[float, ...], ...]
-    titles: tuple[str, ...]
-
-    @property
-    def components(self) -> int:
-        """How many axes the picture is drawn on, which is what tells a plane from a box."""
-        return len(self.axes)
-
-
-def _laid_out(embedding: Embedding) -> Placement:
-    """The recordings where the layout put them, on axes named for the share of the spread each carries."""
-    return Placement(
-        axes=tuple(
-            tuple(float(value) for value in embedding.coordinates[:, axis]) for axis in range(embedding.components)
-        ),
-        titles=tuple(_axis_title(embedding, axis) for axis in range(embedding.components)),
-    )
-
-
-def _keyed(rows: Sequence[Row]) -> Placement:
-    """The recordings at the keys they play: the note across, the velocity it was struck at up."""
-    return Placement(
-        axes=(
-            tuple(float(row[_PITCH_AXIS]) for row in rows),
-            tuple(float(row[_VELOCITY_AXIS]) for row in rows),
-        ),
-        titles=(_PITCH_AXIS, _VELOCITY_AXIS),
-    )
+    trace: go.Scatter | go.Scatter3d
+    places: tuple[int, ...]
 
 
 def _positions(placement: Placement, places: Sequence[int]) -> dict[str, Sequence[float]]:
@@ -125,18 +97,25 @@ def _positions(placement: Placement, places: Sequence[int]) -> dict[str, Sequenc
     return {axes[axis]: [placement.axes[axis][place] for place in places] for axis in range(placement.components)}
 
 
-def _trace(placement: Placement, *, places: Sequence[int], **options: object) -> go.Scatter | go.Scatter3d:
-    """One set of recordings drawn where the picture puts them, on a plane or in a box as it has axes for."""
-    positions = _positions(placement, places)
-    if placement.components <= _PLANE:
-        return go.Scatter(mode="markers", **positions, **options)
+def _trace(placement: Placement, *, places: Sequence[int], **options: object) -> _Drawn:
+    """One set of recordings drawn where the picture puts them, on a plane or in a box as it has axes for.
 
-    return go.Scatter3d(mode="markers", **positions, **options)
+    A flat trace is drawn as a run of markers joined by a hairline, which is the shape marimo forwards a
+    click back from; the run is stroked at no width, so the field on screen is the markers alone.
+    """
+    positions = _positions(placement, places)
+    drawn: go.Scatter | go.Scatter3d
+    if placement.is_plane:
+        drawn = go.Scatter(mode=_CLICKABLE_MODE, line={"width": _HAIRLINE}, **positions, **options)
+    else:
+        drawn = go.Scatter3d(mode=_SOLID_MODE, **positions, **options)
+
+    return _Drawn(trace=drawn, places=tuple(places))
 
 
 def _marker_size(placement: Placement) -> int:
     """How big a recording is drawn, a box thinning the field by depth where a plane holds it all at once."""
-    return _MARKER_SIZE if placement.components <= _PLANE else _SOLID_MARKER_SIZE
+    return _MARKER_SIZE if placement.is_plane else _SOLID_MARKER_SIZE
 
 
 @dataclass(frozen=True)
@@ -172,7 +151,7 @@ def _set_colours(rows: Sequence[Row], colouring: Colouring) -> dict[str, str]:
     return _colours(names)
 
 
-def _named_traces(placement: Placement, read: _Reading, colouring: Colouring) -> list[go.Scatter | go.Scatter3d]:
+def _named_traces(placement: Placement, read: _Reading, colouring: Colouring) -> list[_Drawn]:
     """One trace per value the colouring column names, so each reads as its own colour and legend entry."""
     rows = read.rows
     column = colouring.column
@@ -189,12 +168,12 @@ def _named_traces(placement: Placement, read: _Reading, colouring: Colouring) ->
     ]
 
 
-def _scaled_trace(placement: Placement, read: _Reading, colouring: Colouring) -> go.Scatter | go.Scatter3d:
+def _scaled_trace(placement: Placement, read: _Reading, colouring: Colouring) -> _Drawn:
     """Every recording in one trace, shaded along the reading the colouring column holds."""
     column = colouring.column
     return _trace(
         placement,
-        places=range(len(read.rows)),
+        places=list(range(len(read.rows))),
         name=column,
         marker={
             "size": _marker_size(placement),
@@ -213,7 +192,7 @@ def _representative_trace(
     read: _Reading,
     colouring: Colouring,
     representatives: Sequence[int],
-) -> go.Scatter | go.Scatter3d:
+) -> _Drawn:
     """The takes standing for their groups, ringed over the field so a selection reads at a glance.
 
     The ring stands well clear of the point it surrounds and is stroked in the colour of the group that
@@ -225,7 +204,7 @@ def _representative_trace(
         places=representatives,
         name="stands for its group",
         marker={
-            "size": _REPRESENTATIVE_SIZE if placement.components <= _PLANE else _REPRESENTATIVE_SOLID_SIZE,
+            "size": _REPRESENTATIVE_SIZE if placement.is_plane else _REPRESENTATIVE_SOLID_SIZE,
             "symbol": _REPRESENTATIVE_SYMBOL,
             "color": [colouring.groups[str(read.rows[place][_GROUP_COLUMN])] for place in representatives],
             "line": {"width": _RING_WIDTH},
@@ -235,25 +214,41 @@ def _representative_trace(
     )
 
 
-def _field(
+@dataclass(frozen=True)
+class Picture:
+    """A drawn field beside the recordings each of its traces drew, which is what a click is read through.
+
+    ``figure`` is what marimo shows; ``places`` says, trace by trace and point by point, which recording of
+    the corpus stands there. A click hands back the trace it landed on and the place of the point inside
+    it, so the two together name a recording however the field was split into traces.
+    """
+
+    figure: go.Figure
+    places: tuple[tuple[int, ...], ...]
+
+
+def field(
     placement: Placement,
     rows: Sequence[Row],
     *,
     colouring: Colouring,
     representatives: Sequence[int],
     title: str,
-) -> go.Figure:
+) -> Picture:
     """Every recording where ``placement`` puts it, shaded by one of its readings and hovering all of them.
 
     A column holding names -- the group a take fell into, the note it plays -- draws one colour and one
     legend entry per name, so a click on the legend isolates that set; a column holding measurements is
     shaded along a scale beside the picture. The takes standing for their groups are ringed over the top,
-    and every point carries its place in the space, which is what a click hands back to Python.
+    and the picture keeps which recording each trace drew, which is what turns a click into a recording.
     """
     read = _reading(rows)
     named = isinstance(rows[0][colouring.column], str) if rows else False
-    traces = _named_traces(placement, read, colouring) if named else [_scaled_trace(placement, read, colouring)]
-    figure = go.Figure(data=[*traces, _representative_trace(placement, read, colouring, representatives)])
+    drawn = [
+        *(_named_traces(placement, read, colouring) if named else [_scaled_trace(placement, read, colouring)]),
+        _representative_trace(placement, read, colouring, representatives),
+    ]
+    figure = go.Figure(data=[one.trace for one in drawn])
     figure.update_layout(
         title=title,
         height=_HEIGHT,
@@ -262,78 +257,64 @@ def _field(
         clickmode="event+select",
     )
     _label_axes(figure, placement)
-    return figure
-
-
-def space_scatter(
-    embedding: Embedding,
-    rows: Sequence[Row],
-    *,
-    colouring: Colouring,
-    representatives: Sequence[int],
-    title: str,
-) -> go.Figure:
-    """Every recording where the layout placed it, on the axes carrying the most of the space's spread.
-
-    This is the geometry the groups were cut in, so what is read off the picture -- how far two takes stand
-    apart, which of them a group gathered -- is what the numbers underneath say.
-    """
-    return _field(_laid_out(embedding), rows, colouring=colouring, representatives=representatives, title=title)
-
-
-def key_scatter(
-    rows: Sequence[Row],
-    *,
-    colouring: Colouring,
-    representatives: Sequence[int],
-    title: str,
-) -> go.Figure:
-    """Every recording at the key it plays, the note across and the velocity it was struck at up.
-
-    This is the corpus as the keyboard holds it rather than as the space places it, so a grouping is read
-    against the keys it came from: where a group sits on the keyboard, which stretches of it one take was
-    chosen to stand for, and which keys the corpus holds a recording of at all. Takes sharing a key stand
-    on one point, and a click on any of them picks it out the way a click on the space does.
-    """
-    figure = _field(_keyed(rows), rows, colouring=colouring, representatives=representatives, title=title)
-    figure.update_layout(height=_KEY_HEIGHT)
-    return figure
-
-
-def _axis_title(embedding: Embedding, axis: int) -> str:
-    """What one drawn axis is called, carrying the share of the spread it holds where the layout states one."""
-    if axis < embedding.explained.size:
-        return f"component {axis + 1} — {embedding.explained[axis]:.1%}"
-
-    return f"component {axis + 1}"
+    return Picture(figure=figure, places=tuple(one.places for one in drawn))
 
 
 def _label_axes(figure: go.Figure, placement: Placement) -> None:
     """Name every drawn axis on the figure, on the plane or on the box as the picture has axes for."""
     titles = placement.titles
-    if placement.components <= _PLANE:
+    if placement.is_plane:
         figure.update_layout(xaxis_title=titles[0], yaxis_title=titles[1])
         return
 
     figure.update_layout(scene={"xaxis_title": titles[0], "yaxis_title": titles[1], "zaxis_title": titles[2]})
 
 
-def selected(points: Sequence[SelectionPoint]) -> tuple[int, ...]:
-    """Which recordings a click on the scatter picked out, as places in the space.
+def _landed(point: SelectionPoint) -> tuple[int, int] | None:
+    """Which trace a clicked point was drawn in and where inside it, as the payload states the pair.
 
-    Each point carries its place among the values it was drawn with, so a selection comes back as indices
-    into the very corpus the picture was built from whichever trace the click landed on.
+    A click arriving from the browser is read for the two numbers plotly always sends with a point; a
+    payload stating either of them some other way names nothing, which leaves the panels as they stood.
     """
-    return tuple(int(point[_CUSTOM_DATA][_INDEX_COLUMN]) for point in points if _CUSTOM_DATA in point)
+    curve = point.get(_CURVE)
+    inside = point.get(_POINT_INDEX, point.get(_POINT_NUMBER))
+    if isinstance(curve, int) and isinstance(inside, int):
+        return curve, inside
+
+    return None
 
 
-def picked(points: Sequence[SelectionPoint], standing: int) -> int:
+def _place(picture: Picture, point: SelectionPoint) -> int | None:
+    """Which recording of the corpus one clicked point stands for, where ``picture`` drew one there."""
+    landed = _landed(point)
+    if landed is None:
+        return None
+
+    curve, inside = landed
+    if curve in range(len(picture.places)) and inside in range(len(picture.places[curve])):
+        return picture.places[curve][inside]
+
+    return None
+
+
+def selected(picture: Picture, points: Sequence[SelectionPoint]) -> tuple[int, ...]:
+    """Which recordings a click or a drag over ``picture`` picked out, as places in the corpus.
+
+    Every point comes back naming the trace it was drawn in and where it sits inside that trace, and the
+    picture holds which recording each trace drew there, so a selection reads as indices into the very
+    corpus the picture was built from whichever trace the click landed on.
+    """
+    found = (_place(picture, point) for point in points)
+    return tuple(place for place in found if place is not None)
+
+
+def picked(picture: Picture, points: Sequence[SelectionPoint], standing: int) -> int:
     """Which recording a click picked out, holding ``standing`` where the click named none.
 
-    Several pictures of one corpus each hand back what was clicked on them, and a picture redrawn hands
-    back nothing at all, so holding what stood leaves the panels reading the take a reader picked last.
+    A picture redrawn hands back nothing at all, so holding what stood leaves the panels reading the take a
+    reader picked last.
     """
-    found = selected(points)
+    found = selected(picture, points)
     return found[0] if found else standing
 
 

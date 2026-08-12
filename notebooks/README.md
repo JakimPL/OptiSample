@@ -82,8 +82,9 @@ stage or the frequency axis re-reads the audio.
 holding names (the group, the note) draws one colour and one legend entry apiece, so clicking the legend
 isolates a group; a column holding measurements is shaded along a scale. The takes standing for their groups
 are ringed, each in its own group's colour, so a selection is picked out by eye whatever the field is
-coloured by. Clicking any point plays that recording — normalized, so a quiet take is as audible as a loud
-one — and sends it to the examine panel below.
+coloured by. Clicking any point of a flat picture plays that recording — normalized, so a quiet take is as
+audible as a loud one — and sends it to the examine panel below; a box is turned and read by eye, and a
+recording is picked out of one by naming it in that panel.
 
 Each group goes by the key of the take standing for it — `p060_v100` is a group stood for by middle C
 struck at velocity 100 — and is drawn in the colour that key turns: the pitch sets the hue and the velocity
@@ -91,15 +92,15 @@ fills it in, opening a quarter of the way up so the softest takes keep a colour 
 therefore carries the keyboard, and one key is drawn the same colour in every picture, at every stage and
 across datasets. Where two groups are stood for by takes of one key, the second onward carries a number.
 
-**Pitch against velocity** — the same corpus as the keyboard holds it: the note across, the velocity it was
-struck at up, coloured and ringed like the space. This says which keys the stage kept a recording of and how
-a group sits across them, and a click on it picks a take out just as a click on the space does.
-
 PCA and MDS draw the space's own geometry, so what is read off the picture holds in the numbers. t-SNE
 and UMAP are additional variants for the eye — they place each recording beside the company it keeps, so
 a group reads as a cluster while the room between clusters follows the neighbourhoods. They appear in the
 layout list when scikit-learn and umap-learn are installed; without them the notebook draws the pair that
-stands on the space's own distances. Every number the panels report is the space's own either way.
+stands on the space's own distances. **Keys** leaves the space aside and lays the corpus out as the keyboard
+holds it: the note across, the velocity it was struck at up, and in three dimensions how long each take
+rings. That says which keys the stage kept a recording of and how a group sits across them — coloured,
+ringed and clicked exactly as the space is, since it is the same field drawn on other axes. Every number the
+panels report is the space's own whichever layout is on screen.
 
 **How many groups** — the silhouette against the number of groups, with the count on screen ringed, and
 the top of the tree with the height the cut reads it at drawn across it.

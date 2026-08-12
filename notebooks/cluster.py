@@ -402,7 +402,11 @@ def _(mo):
 @app.cell
 def _(layouts, mo):
     _offered = layouts.available_layouts()
-    layout = mo.ui.dropdown(options={found.value: found for found in _offered}, value=_offered[0].value, label="layout")
+    layout = mo.ui.dropdown(
+        options={found.value: found for found in _offered},
+        value=_offered[0].value,
+        label="layout — the space's own geometry, or the keys the corpus covers",
+    )
     components = mo.ui.dropdown(options={"2D": 2, "3D": 3}, value="2D", label="components")
     colour_by = mo.ui.dropdown(
         options=["group", "note", "role", "pitch", "velocity", "dur_s", "playing_s", "rate", "depths", "to_medoid"],
@@ -412,7 +416,7 @@ def _(layouts, mo):
     play_on_click = mo.ui.checkbox(value=True, label="play the clicked recording, normalized")
     mo.vstack(
         [
-            mo.md("## The space"),
+            mo.md("## The space — and the keyboard it was recorded from"),
             mo.hstack([layout, components, colour_by, play_on_click], justify="start", gap=2),
         ]
     )
@@ -426,24 +430,27 @@ def _(clusters, colour_by, named, scatter):
 
 
 @app.cell
-def _(components, layout, layouts, mo, space):
-    with mo.status.spinner(title=f"laying the space out by {layout.value}..."):
-        placed = layouts.draw(space.coordinates, layout=layout.value, components=int(components.value), seed=0)
+def _(components, layout, layouts, mo, points, space):
+    with mo.status.spinner(title=f"placing the recordings by {layout.value}..."):
+        placement = layouts.place(
+            space.coordinates, points, layout=layout.value, components=int(components.value), seed=0
+        )
 
-    return (placed,)
+    return (placement,)
 
 
 @app.cell
-def _(colour_by, colouring, layout, mo, placed, points, representatives, scatter, set_examined, stage):
+def _(colour_by, colouring, layout, mo, placement, points, representatives, scatter, set_examined, stage):
+    _picture = scatter.field(
+        placement,
+        points,
+        colouring=colouring,
+        representatives=representatives,
+        title=f"{stage.value} — {layout.value}, coloured by {colour_by.value}",
+    )
     space_plot = mo.ui.plotly(
-        scatter.space_scatter(
-            placed,
-            points,
-            colouring=colouring,
-            representatives=representatives,
-            title=f"{stage.value} — {layout.value}, coloured by {colour_by.value}",
-        ),
-        on_change=lambda clicked: set_examined(lambda standing: scatter.picked(clicked or [], standing)),
+        _picture.figure,
+        on_change=lambda clicked: set_examined(lambda standing: scatter.picked(_picture, clicked or [], standing)),
     )
     _said = [
         mo.md(
@@ -452,12 +459,28 @@ def _(colour_by, colouring, layout, mo, placed, points, representatives, scatter
             "in its own group's colour."
         )
     ]
-    if not layout.value.preserves_distance:
+    if not layout.value.reads_the_space:
+        _said.append(
+            mo.md(
+                "This is the corpus as the keyboard holds it: the note across, the velocity it was struck at "
+                "up, and in three dimensions how long the take rings. It says which keys this stage kept a "
+                "recording of and how a group sits across them; takes sharing a key stand on one point."
+            )
+        )
+    elif not layout.value.preserves_distance:
         _said.append(
             mo.md(
                 "This layout places each recording beside the company it keeps, so a group reads as a cluster "
                 "while the room between clusters follows the neighbourhoods. Every number reported below is "
                 "the space's own."
+            )
+        )
+
+    if not placement.is_plane:
+        _said.append(
+            mo.md(
+                "A box is turned and read by eye, and a click reaches Python from a plane — so a recording "
+                "drawn in three dimensions is picked out by naming it in the examine panel below."
             )
         )
 
@@ -480,30 +503,6 @@ def _(described, examined, mo, panels, play_on_click, points):
         label=f"{points[examined]['group']} · {_heard.label} — {_heard.note} at velocity {_heard.key.velocity}",
         normalize=True,
         autoplay=True,
-    )
-    return
-
-
-@app.cell
-def _(colour_by, colouring, mo, points, representatives, scatter, set_examined, stage):
-    key_plot = mo.ui.plotly(
-        scatter.key_scatter(
-            points,
-            colouring=colouring,
-            representatives=representatives,
-            title=f"{stage.value} — the keys the corpus covers, coloured by {colour_by.value}",
-        ),
-        on_change=lambda clicked: set_examined(lambda standing: scatter.picked(clicked or [], standing)),
-    )
-    mo.vstack(
-        [
-            mo.md(
-                "**Pitch against velocity** — the corpus as the keyboard holds it. This says which keys the "
-                "stage kept a recording of and how a group sits across them; takes sharing a key stand on one "
-                "point, and a click picks one out just as the space does."
-            ),
-            key_plot,
-        ]
     )
     return
 
@@ -581,7 +580,7 @@ def _(mo, points, set_examined):
     )
     mo.vstack(
         [
-            mo.md("## Examine and play — a click on either picture picks the recording, or name one here"),
+            mo.md("## Examine and play — a click on the field picks the recording, or name one here"),
             mo.hstack([examined_pick, preview_normalize], justify="start", gap=2),
         ]
     )
