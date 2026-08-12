@@ -67,10 +67,22 @@ class EnvelopeReading:
     anchor_log_s: Signal
 
     @property
+    def scalars(self) -> Signal:
+        """The four readings the contour states ahead of its anchor times, in the order listed above."""
+        return np.asarray([self.attack_s, self.settle_s, self.decay_db_per_s, self.curvature_db], dtype=np.float64)
+
+    @property
     def values(self) -> Signal:
         """The whole contour as one block of the descriptor, the four scalars ahead of the anchor times."""
-        scalars = [self.attack_s, self.settle_s, self.decay_db_per_s, self.curvature_db]
-        return np.asarray(np.concatenate((scalars, self.anchor_log_s)), dtype=np.float64)
+        return np.asarray(np.concatenate((self.scalars, self.anchor_log_s)), dtype=np.float64)
+
+    def at(self, depths: Reached) -> Signal:
+        """The contour read at the depths ``depths`` marks, the four scalars ahead of those anchor times.
+
+        A corpus reads its recordings at the depths enough of them arrive at, and this states the contour
+        over the same ones, so the timing of a fall and the sound held there stand on one grid.
+        """
+        return np.asarray(np.concatenate((self.scalars, self.anchor_log_s[depths])), dtype=np.float64)
 
 
 @dataclass(frozen=True)

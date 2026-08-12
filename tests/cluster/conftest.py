@@ -7,7 +7,7 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.config import OptiConfig
-from optisample.config.cluster import DescriptorConfig
+from optisample.config.cluster import DescriptorConfig, PartitionConfig, SpaceConfig
 from optisample.config.loop import FeatureConfig
 
 SR = 44_100
@@ -29,6 +29,18 @@ def descriptor_config(config: OptiConfig) -> DescriptorConfig:
 def features_config(config: OptiConfig) -> FeatureConfig:
     """How a recording is read as a series of timbre frames, taken off the shipped config."""
     return config.loop.features
+
+
+@pytest.fixture
+def space_config(config: OptiConfig) -> SpaceConfig:
+    """How the blocks are scaled and weighed into one space, taken off the shipped config."""
+    return config.cluster.space
+
+
+@pytest.fixture
+def partition_config(config: OptiConfig) -> PartitionConfig:
+    """How a space is cut into groups and which member stands for each, taken off the shipped config."""
+    return config.cluster.partition
 
 
 @pytest.fixture
