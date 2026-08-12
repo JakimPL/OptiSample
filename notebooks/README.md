@@ -11,6 +11,7 @@ From the repo root:
 
 ```bash
 uv run marimo edit notebooks/pipeline.py    # the CLI as controls, its output as an explorer
+uv run marimo edit notebooks/cluster.py     # a stage's recordings as a space you can hover and play
 uv run marimo edit notebooks/explore.py     # samples and the metric layer
 uv run marimo run  notebooks/pipeline.py    # read-only app
 ```
@@ -52,6 +53,55 @@ the sub-scores behind the number.
 The run root defaults to the repository root, so `subset/`, `looped/`, `reduced/` and `artifacts/` from
 a terminal run are picked up as they are. The explorers read whatever is on disk, so a long run started
 in a shell can be inspected here without re-running it.
+
+## `cluster.py` — sample space
+
+Every recording of one pipeline stage placed as a point in a space built from what it sounds like, cut
+into groups, and each group stood for by a real take you can play. Two things are held out of the
+geometry on purpose. **Level**: every reading is taken past its own frame's mean, so a note at v020 and
+the same note at v100 differ by their timbre alone. **Length**: time is anchored to each recording's own
+decline — anchor *k* is the moment that note had fallen *k* dB below its own peak — so a two-second take
+and an eight-second take of one sound are read at the same points.
+
+**Controls** — the run root, instrument and strategy; which stage to read, whether to read past each
+note's release, and how many workers share the reading; the frequency axis (the note's own partials, or
+the mel bands the optimizer scores with), the fall depths, the harmonic count, the cepstral coefficients
+and the anchor span; the four block weights and the share of the corpus a depth must reach to be read at
+all; the algorithm, linkage, group count and which member stands for its group; then the layout, 2D or
+3D, and what to colour by.
+
+The reading of the recordings is the expensive half and is done once — moving a weight or a group count
+re-reads the geometry off blocks already read, so those controls respond immediately while changing the
+stage or the frequency axis re-reads the audio.
+
+**The space** — every recording where the layout placed it, hovering everything it was read for. A column
+holding names (the group, the note) draws one colour and one legend entry apiece, so clicking the legend
+isolates a group; a column holding measurements is shaded along a scale. The outlined diamonds are the
+takes standing for their groups, and clicking any point sends it to the examine panel below.
+
+PCA and MDS draw the space's own geometry, so what is read off the picture holds in the numbers. t-SNE
+and UMAP are additional variants for the eye — they place each recording beside the company it keeps, so
+a group reads as a cluster while the room between clusters follows the neighbourhoods. They appear in the
+layout list when scikit-learn and umap-learn are installed; without them the notebook draws the pair that
+stands on the space's own distances. Every number the panels report is the space's own either way.
+
+**How many groups** — the silhouette against the number of groups, with the count on screen ringed, and
+the top of the tree with the height the cut reads it at drawn across it.
+
+**Groups and members** — what each group gathered (size, pitch and velocity range, playing time, spread
+from its medoid) and how tightly it holds together block by block, which says where the grouping came
+from. Then one group's recordings, ordered from its medoid outwards.
+
+**Examine and play** — the picked recording heard and seen: a player, its waveform, its spectrogram, the
+level it holds against the decline and the curve fitted to it, what it sounded like at each depth it
+reached, its own readings, the depths it arrived at beside the ones the space reads, and how far it
+stands from every group — the company it nearly kept.
+
+**Representatives** — every group's take in one row of players, so a whole selection is auditioned at
+once.
+
+Point the run root at a `optisample pipeline --out` directory; the stage list reads whichever of
+`0_subset`, `1_looped`, `2_reduced` and `3_optimized` are on disk.
 
 ## `explore.py` — sample & metric inspector
 

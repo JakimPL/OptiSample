@@ -1,4 +1,5 @@
 import io
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -8,7 +9,10 @@ from numpy.typing import NDArray
 
 from notebooks.utils.views import Row
 from optisample.config.spectral import StftParams
+from optisample.dsp.levels import decay_trend, level_readings
+from optisample.dsp.piecewise import fit_piecewise
 from optisample.dsp.spectral import stft_magnitude
+from optisample.dsp.trajectory import reading_window_s
 
 Signal = NDArray[np.float64]
 
@@ -141,6 +145,65 @@ def objective_bar(rows: list[Row], *, title: str | None = None) -> Figure:
     axes.set_xticklabels(labels, rotation=90.0, fontsize="x-small")
     axes.set_ylabel("weighted distortion")
     axes.set_title(title or "Objective contribution per pitch")
+    figure.set_layout_engine("tight")
+    return figure
+
+
+def decline_figure(signal: Signal, sample_rate: int, *, nodes: int, title: str | None = None) -> Figure:
+    """A recording's level against the straight decline fitted to it and the curve fitted through it.
+
+    All three are read in decibels, the domain a ringing note falls straight in, so the gap between the
+    readings and the line is what ``curvature_db`` states as one number: a note holding its own line runs
+    flat against it, and one that races away and then settles bows off it.
+    """
+    readings = level_readings(signal, sample_rate, window_s=reading_window_s(signal.size, sample_rate))
+    curve = fit_piecewise(readings, nodes=nodes)
+    trend = decay_trend(signal, sample_rate)
+    figure = Figure(figsize=(8.0, 2.6))
+    axes = figure.add_subplot()
+    axes.plot(readings.seconds, readings.values, linewidth=1.0, label="level read")
+    axes.plot(readings.seconds, curve.at(readings.seconds), linewidth=1.4, label=f"fitted curve ({nodes} corners)")
+    if trend is not None:
+        line = trend.mean_db + trend.slope_db * (readings.seconds - trend.mean_s)
+        axes.plot(readings.seconds, line, linewidth=1.2, linestyle="--", label=f"decline {trend.slope_db:.1f} dB/s")
+
+    axes.set_xlabel("time (s)")
+    axes.set_ylabel("level (dB)")
+    axes.legend(loc="upper right", fontsize="small")
+    if title:
+        axes.set_title(title)
+
+    figure.set_layout_engine("tight")
+    return figure
+
+
+def profile_figure(
+    sustain: Signal,
+    *,
+    depths_db: Sequence[float],
+    reached: NDArray[np.bool_],
+    title: str | None = None,
+) -> Figure:
+    """What a recording sounded like at each depth of its own decline, one line per depth it arrived at.
+
+    Reading the lines together says how a note's timbre changes as it falls away: partials that drop out
+    early pull their line down as the decline deepens, and a sound that holds its balance keeps its lines
+    together. The values stand past each frame's own mean, so the picture is the balance itself rather than
+    the level the note was played at.
+    """
+    figure = Figure(figsize=(8.0, 2.8))
+    axes = figure.add_subplot()
+    columns = np.arange(sustain.shape[1])
+    for index, depth in enumerate(depths_db):
+        if bool(reached[index]):
+            axes.plot(columns, sustain[index], linewidth=1.1, label=f"-{depth:g} dB")
+
+    axes.set_xlabel("reading")
+    axes.set_ylabel("level past the frame's mean (dB)")
+    axes.legend(loc="upper right", fontsize="x-small", ncols=2)
+    if title:
+        axes.set_title(title)
+
     figure.set_layout_engine("tight")
     return figure
 
