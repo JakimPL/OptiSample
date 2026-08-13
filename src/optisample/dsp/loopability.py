@@ -232,6 +232,17 @@ def _spread(reaches: Sequence[LoopReach], count: int) -> tuple[LoopReach, ...]:
     return tuple(reaches[index] for index in chosen)
 
 
+def holds_a_round(series: FrameSeries, bounds: FrontierBounds, features: FeatureConfig) -> bool:
+    """Whether the window ``bounds`` names has room for one round of the shortest length it accepts.
+
+    This is the room :func:`loop_frontier` needs before any wrap is worth reading, so a caller finding no
+    round on offer separates a recording that held too little material from one whose every wrap landed on
+    a sound it had moved away from.
+    """
+    window = _Window(series=series, bounds=bounds, span=span_frames(series, features))
+    return window.size > window.shortest
+
+
 def loop_frontier(
     series: FrameSeries,
     bounds: FrontierBounds,

@@ -18,8 +18,8 @@ from optisample.dsp.loop import (
     crossfade_loop,
     level_loop,
     loop_at_rate,
-    loop_candidates,
     loop_quality,
+    loop_search,
     prepare_loop,
     seam_frames,
     shortest_loop_frames,
@@ -79,7 +79,7 @@ def _reading(config: EnvelopeConfig, root_hz: float = FREQ) -> LevelReading:
 
 def _cheapest(signal: NDArray[np.float64], config: LoopConfig, root_hz: float = FREQ) -> Loop | None:
     """The front of the ladder a settlement climbs: the earliest, shortest loop the geometry allows."""
-    candidates = sorted(loop_candidates(signal, SR, config, root_hz), key=lambda loop: (loop.end, loop.start))
+    candidates = sorted(loop_search(signal, SR, config, root_hz).candidates, key=lambda loop: (loop.end, loop.start))
     return candidates[0] if candidates else None
 
 
@@ -282,7 +282,7 @@ def test_a_floor_asked_shorter_than_one_analysis_window_still_offers_a_readable_
     """
     high_freq = 800.0
     asked = loop(geometry={**loop_config.geometry.model_dump(), "min_loop_s": 1e-4, "min_periods": 1})
-    candidates = loop_candidates(_sine(4 * SR, freq=high_freq), SR, asked, high_freq)
+    candidates = loop_search(_sine(4 * SR, freq=high_freq), SR, asked, high_freq).candidates
 
     assert shortest_loop_frames(SR / high_freq, SR, asked.geometry) >= _QUALITY_FFT
     assert all(candidate.length >= _QUALITY_FFT for candidate in candidates)
@@ -293,7 +293,7 @@ def test_a_floor_asked_shorter_than_one_analysis_window_still_offers_a_readable_
 
 def test_every_candidate_clears_the_floor_and_spans_whole_periods(loop_config: LoopConfig) -> None:
     floor = shortest_loop_frames(PERIOD, SR, loop_config.geometry)
-    candidates = loop_candidates(_sine(4 * SR), SR, loop_config, FREQ)
+    candidates = loop_search(_sine(4 * SR), SR, loop_config, FREQ).candidates
 
     assert len(candidates) > 1
     assert all(loop.length >= floor and loop.length % PERIOD == 0 for loop in candidates)
@@ -302,14 +302,14 @@ def test_every_candidate_clears_the_floor_and_spans_whole_periods(loop_config: L
 
 def test_the_cheapest_candidate_is_the_one_the_frontier_offers_first(loop_config: LoopConfig) -> None:
     signal = _sine(4 * SR)
-    offers = sorted(loop_candidates(signal, SR, loop_config, FREQ), key=lambda loop: (loop.end, loop.start))
+    offers = sorted(loop_search(signal, SR, loop_config, FREQ).candidates, key=lambda loop: (loop.end, loop.start))
 
     assert _cheapest(signal, loop_config) == offers[0]
 
 
 def test_candidates_run_from_the_cheapest_stored_span_upward(loop_config: LoopConfig) -> None:
     """Storing a candidate keeps everything up to its end, so the frontier is a rate axis read along it."""
-    candidates = loop_candidates(_sine(4 * SR), SR, loop_config, FREQ)
+    candidates = loop_search(_sine(4 * SR), SR, loop_config, FREQ).candidates
     ends = [loop.end for loop in candidates]
 
     assert len(candidates) > 1
@@ -321,7 +321,7 @@ def test_candidates_stay_inside_the_steady_region_and_stand_apart(loop_config: L
     signal = _sine(2 * SR)
     attack = _earliest_start(loop_config)
     tail = signal.size - round(loop_config.geometry.tail_skip_s * SR)
-    candidates = loop_candidates(signal, SR, loop_config, FREQ)
+    candidates = loop_search(signal, SR, loop_config, FREQ).candidates
 
     assert len(set(candidates)) == len(candidates)  # reaches snapping onto one region are offered once
     assert all(loop.start >= attack - PERIOD for loop in candidates)  # snapping moves a start by a period
@@ -339,7 +339,7 @@ def test_a_note_that_settles_late_has_its_candidates_placed_past_the_stretch_it_
     rng = np.random.default_rng(0)
     moving = 0.8 * rng.standard_normal(SR // 2)
     signal = np.concatenate([moving, _sine(4 * SR)])
-    candidates = loop_candidates(signal, SR, loop_config, FREQ)
+    candidates = loop_search(signal, SR, loop_config, FREQ).candidates
 
     assert candidates != ()
     assert all(loop.start > moving.size // 2 for loop in candidates)
@@ -354,7 +354,7 @@ def test_a_length_the_region_lacks_room_for_shrinks_onto_the_whole_periods_that_
     skipped = _earliest_start(loop_config) + round(loop_config.geometry.tail_skip_s * SR)
     signal = _sine(skipped + floor + floor // 2)
     tail = signal.size - round(loop_config.geometry.tail_skip_s * SR)
-    longest = max(loop_candidates(signal, SR, loop_config, FREQ), key=lambda loop: loop.length)
+    longest = max(loop_search(signal, SR, loop_config, FREQ).candidates, key=lambda loop: loop.length)
 
     assert longest.length > floor
     assert longest.length % PERIOD == 0
@@ -364,7 +364,7 @@ def test_a_length_the_region_lacks_room_for_shrinks_onto_the_whole_periods_that_
 def test_material_a_loop_has_no_purchase_on_offers_no_candidates(loop_config: LoopConfig) -> None:
     rng = np.random.default_rng(0)
 
-    assert loop_candidates(rng.standard_normal(SR), SR, loop_config, FREQ) == ()
+    assert loop_search(rng.standard_normal(SR), SR, loop_config, FREQ).candidates == ()
 
 
 def test_a_candidate_on_a_period_that_falls_between_frames_wraps_onto_the_material_it_left(
@@ -384,7 +384,7 @@ def test_a_candidate_on_a_period_that_falls_between_frames_wraps_onto_the_materi
 def test_a_matched_end_stays_inside_the_length_the_geometry_laid_out(loop_config: LoopConfig) -> None:
     """Matching moves an end by up to half a period, which leaves every candidate clearing the floor."""
     floor = shortest_loop_frames(UNEVEN_PERIOD, SR, loop_config.geometry)
-    candidates = loop_candidates(_sine(4 * SR, freq=UNEVEN_FREQ), SR, loop_config, UNEVEN_FREQ)
+    candidates = loop_search(_sine(4 * SR, freq=UNEVEN_FREQ), SR, loop_config, UNEVEN_FREQ).candidates
 
     assert candidates != ()
     assert all(loop.length >= floor for loop in candidates)

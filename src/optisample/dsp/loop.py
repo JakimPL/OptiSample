@@ -1,15 +1,16 @@
 from dataclasses import dataclass
+from enum import StrEnum, unique
 from math import ceil, floor
 from typing import Final
 
 import numpy as np
 from numpy.typing import NDArray
 
-from optisample.config.loop import GeometryConfig, LoopConfig, SeamConfig
+from optisample.config.loop import GeometryConfig, LoopConfig, PhaseConfig, SeamConfig
 from optisample.config.spectral import StftParams
 from optisample.dsp.envelope import LevelReading, local_level_over
 from optisample.dsp.level import gain_to_db
-from optisample.dsp.loopability import FrontierBounds, LoopReach, loop_frontier
+from optisample.dsp.loopability import FrontierBounds, LoopReach, holds_a_round, loop_frontier
 from optisample.dsp.resample import resampled_frame_count
 from optisample.dsp.series import autocorrelation, refined_lag
 from optisample.dsp.similarity import FrameSeries, frame_series, settling_frame
@@ -27,7 +28,6 @@ _QUALITY_HOP: Final = 512
 _AMPLITUDE_DB: Final = 20.0  # decibels per decade of amplitude
 _SPECTRUM_FLOOR: Final = 1e-10
 _STEP_FLOOR: Final = 1e-12
-_MATCH_SHARE: Final = 2  # share of a period the matched end is searched on either side of a whole count
 _CORRELATION_FLOOR: Final = 1e-24  # product of two norms a silent stretch reaches, which correlates with nothing
 _MAX_LEVEL_GAIN: Final = 4.0  # +12 dB, the most holding a region at one level asks of the material
 _MAX_SEAM_GAIN: Final = 2.0  # +6 dB, the most holding a blend at one level asks of material that cancels
@@ -43,6 +43,38 @@ class Loop:
     @property
     def length(self) -> int:
         return self.end - self.start
+
+
+@unique
+class Material(StrEnum):
+    """What a recording holds too little of for any loop to be placed in it.
+
+    Each value names the reading that came up short, so a recording stored over the span it plays says
+    which knob would have to move for it to offer a loop at all. ``STEADY`` and ``ROUND`` are both length:
+    the recording settles too late or ends too soon to hold one round of
+    :func:`shortest_loop_frames`, which is what a floor on how long a note must sound answers for.
+    ``PERIOD`` is material whose pitch reads too loosely to wrap, ``MOVEMENT`` material whose every round
+    lands on a sound the recording has left behind, and ``PHASE`` a round the geometry named that the
+    waveform had no room to land on.
+    """
+
+    STEADY = "steady"
+    PERIOD = "period"
+    ROUND = "round"
+    MOVEMENT = "movement"
+    PHASE = "phase"
+
+
+@dataclass(frozen=True)
+class LoopSearch:
+    """Every loop worth offering for one recording, and what stood in the way where there are none.
+
+    ``lacking`` is stated exactly where ``candidates`` is empty, so a settlement reports the reason a
+    recording offers nothing rather than leaving a caller to infer it from an absence.
+    """
+
+    candidates: tuple[Loop, ...]
+    lacking: Material | None
 
 
 @dataclass(frozen=True)
@@ -67,13 +99,26 @@ class _SteadyRegion:
     """The stretch a loop may be placed in, the period its material repeats at, and how it reads as timbre.
 
     ``series`` is the recording read as timbre frames, which is both where the window's opening was found
-    and what the rounds inside it are looked for over, so one reading serves the whole placement.
+    and what the rounds inside it are looked for over, so one reading serves the whole placement. The two
+    radii a round is landed within are read off the same period, so what ``phase`` asks for in periods
+    arrives in frames of this recording.
     """
 
     attack: int
     tail: int
     period: float
     series: FrameSeries
+    phase: PhaseConfig
+
+    @property
+    def snap_radius(self) -> int:
+        """How far either side of a named start an ascending zero crossing is looked for."""
+        return round(self.period * self.phase.snap_periods)
+
+    @property
+    def match_radius(self) -> int:
+        """How far either side of a whole count of periods a matched end is searched."""
+        return round(self.period * self.phase.match_periods)
 
 
 def _searched_lags(sample_rate: int, config: GeometryConfig, root_hz: float) -> tuple[int, int]:
@@ -157,7 +202,7 @@ def _steady_region(
     sample_rate: int,
     config: LoopConfig,
     root_hz: float,
-) -> _SteadyRegion | None:
+) -> _SteadyRegion | Material:
     """The window a loop may be placed in, together with the period it repeats at.
 
     Material that declines as it rings is placed in just as steady material is: the region is held at one
@@ -165,22 +210,23 @@ def _steady_region(
     :class:`~optisample.dsp.decay.LinearDecay`, so a struck note is stored as attack plus loop and declines
     from there.
 
-    Returns ``None`` for material a loop has no purchase on: a steady window shorter than
-    ``_MIN_STEADY_FRAMES``, or one carrying no reliable period.
+    Answers with the reading that came up short for material a loop has no purchase on:
+    :attr:`Material.STEADY` for a window shorter than ``_MIN_STEADY_FRAMES``, and
+    :attr:`Material.PERIOD` for one carrying no reliable period.
     """
     series = frame_series(signal, sample_rate, config.features, root_hz)
     attack = _settled_frame(series, sample_rate, config)
     tail = _steady_tail(signal, sample_rate, config.geometry)
     if tail - attack < _MIN_STEADY_FRAMES:
-        return None
+        return Material.STEADY
 
     estimated = seconds_to_frames(config.geometry.max_estimation_s, sample_rate)
     window = signal[attack : min(tail, attack + estimated)]
     period = _estimate_period(window, sample_rate, config.geometry, root_hz)
     if period is None:
-        return None
+        return Material.PERIOD
 
-    return _SteadyRegion(attack=attack, tail=tail, period=period, series=series)
+    return _SteadyRegion(attack=attack, tail=tail, period=period, series=series, phase=config.phase)
 
 
 def shortest_loop_frames(period: float, sample_rate: int, config: GeometryConfig) -> int:
@@ -237,10 +283,9 @@ def _matched_end(signal: Signal, start: int, wanted: int, region: _SteadyRegion,
     material in phase where a whole count of periods only comes close, since a period read off a finite
     window carries an error every period of a loop compounds.
 
-    The search runs half a period either side of the whole count -- far enough to reach any phase, near
-    enough to keep the count the geometry laid out -- and stays inside the steady region and no shorter than
-    ``shortest``, so a matched end names a loop the geometry accepts. Where the room before ``start`` holds
-    less than two frames to correlate over, the whole count stands.
+    The search runs :attr:`_SteadyRegion.match_radius` either side of the whole count and stays inside the
+    steady region and no shorter than ``shortest``, so a matched end names a loop the geometry accepts.
+    Where the room before ``start`` holds less than two frames to correlate over, the whole count stands.
     """
     window = min(round(region.period), start, wanted)
     ideal = start + wanted
@@ -248,7 +293,7 @@ def _matched_end(signal: Signal, start: int, wanted: int, region: _SteadyRegion,
         return ideal
 
     approaching_start = signal[start - window : start]
-    radius = round(region.period / _MATCH_SHARE)
+    radius = region.match_radius
     ends = range(max(start + shortest, ideal - radius), min(region.tail, ideal + radius) + 1)
     return max(ends, key=lambda end: _normalized_correlation(signal[end - window : end], approaching_start))
 
@@ -257,14 +302,14 @@ def _placed(signal: Signal, reach: LoopReach, region: _SteadyRegion, shortest: i
     """The loop a frontier reach names, landed on the phase the waveform itself makes.
 
     A reach is read off frames of the timbre series, each spanning several periods of the note, so both
-    bounds are brought onto the waveform: the start snaps to the nearest ascending zero crossing within a
-    period, which lands the wrap mid-slope in phase for the seam crossfade to smooth over, and the end is
-    matched to the phase the start approaches on (:func:`_matched_end`) once the length is fitted to the
-    room the region has.
+    bounds are brought onto the waveform: the start snaps to the nearest ascending zero crossing within
+    :attr:`_SteadyRegion.snap_radius`, which lands the wrap mid-slope in phase for the seam crossfade to
+    smooth over, and the end is matched to the phase the start approaches on (:func:`_matched_end`) once
+    the length is fitted to the room the region has.
 
     Returns ``None`` where the room past the snapped start holds less than the shortest accepted loop.
     """
-    start = _snap_ascending_zero(signal, reach.start, radius=round(region.period))
+    start = _snap_ascending_zero(signal, reach.start, radius=region.snap_radius)
     fitted = _fitted_length(start, max(reach.length, shortest), region, shortest)
     if fitted is None:
         return None
@@ -290,12 +335,25 @@ def _frontier_bounds(sample_rate: int, region: _SteadyRegion, config: LoopConfig
     )
 
 
-def loop_candidates(
+def _lacking(series: FrameSeries, bounds: FrontierBounds, config: LoopConfig, reaches: int) -> Material:
+    """Which reading left a recording with no loop to place, read in the order the search takes them.
+
+    Room comes first because a window holding less than one round is measured no wraps at all, then the
+    wraps themselves, and last the landing: a reach the frontier named that the waveform had no room to
+    land on (:func:`_placed`).
+    """
+    if not holds_a_round(series, bounds, config.features):
+        return Material.ROUND
+
+    return Material.MOVEMENT if reaches == 0 else Material.PHASE
+
+
+def loop_search(
     signal: Signal,
     sample_rate: int,
     config: LoopConfig,
     root_hz: float,
-) -> tuple[Loop, ...]:
+) -> LoopSearch:
     """Every forward loop worth offering for ``signal``, the frontier a settlement prices.
 
     Which rounds are on offer is read off the recording's own self-similarity
@@ -312,23 +370,26 @@ def loop_candidates(
     (:func:`_settled_frame`) and the tail skip, and clears the shortest loop worth storing
     (:func:`shortest_loop_frames`).
 
-    Returns an empty tuple for material a loop has no purchase on: a steady region too short to analyse,
-    one carrying no reliable period, one with room for less than the shortest accepted loop, or one whose
-    every round wraps onto a sound the recording has moved away from.
+    Material a loop has no purchase on offers no candidate and states which reading came up short
+    (:class:`Material`), so a recording stored over the span it plays says why.
     """
     region = _steady_region(signal, sample_rate, config, root_hz)
-    if region is None:
-        return ()
+    if isinstance(region, Material):
+        return LoopSearch(candidates=(), lacking=region)
 
     shortest = shortest_loop_frames(region.period, sample_rate, config.geometry)
     bounds = _frontier_bounds(sample_rate, region, config, shortest)
+    reaches = loop_frontier(region.series, bounds, config.features, config.frontier)
     found: list[Loop] = []
-    for reach in loop_frontier(region.series, bounds, config.features, config.frontier):
+    for reach in reaches:
         placed = _placed(signal, reach, region, shortest)
         if placed is not None:
             found.append(placed)
 
-    return tuple(dict.fromkeys(found))
+    if not found:
+        return LoopSearch(candidates=(), lacking=_lacking(region.series, bounds, config, len(reaches)))
+
+    return LoopSearch(candidates=tuple(dict.fromkeys(found)), lacking=None)
 
 
 def loop_at_rate(loop: Loop, orig_rate: int, target_rate: int, *, frames: int) -> Loop | None:

@@ -7,8 +7,8 @@ import numpy as np
 from numpy.typing import NDArray
 
 from optisample.config.loop import LoopConfig
-from optisample.dsp.loop import seam_frames
-from optisample.loop.settle import Gate, Settlement, StoredLoop, _ordered_candidates, settle_loop
+from optisample.dsp.loop import Material, seam_frames
+from optisample.loop.settle import Gate, Settlement, StoredLoop, _ordered_search, settle_loop
 from tests.conftest import recorded
 
 SR = 22_050
@@ -152,7 +152,7 @@ def test_every_candidate_the_frontier_offers_is_either_offered_or_named(loop: Lo
     assert sorted(measured, key=lambda region: (region.end, region.start)) == sorted(
         set(measured), key=lambda region: (region.end, region.start)
     )
-    assert len(measured) == len(_ordered_candidates(_decaying()[: round(_HELD_S * SR)], SR, tight, _FREQ))
+    assert len(measured) == len(_ordered_search(_decaying()[: round(_HELD_S * SR)], SR, tight, _FREQ).candidates)
 
 
 # --- what the settlement carries ------------------------------------------------------------------
@@ -202,23 +202,46 @@ def test_the_decline_is_read_over_the_whole_recording_rather_than_the_span_searc
     assert decay.end_s == _HELD_S
 
 
-def test_material_no_loop_has_purchase_on_settles_none_and_names_nothing(loop: LoopFactory) -> None:
-    """Noise carries no period, so the ladder is empty and the recording is stored over the span it plays."""
+def test_material_no_loop_has_purchase_on_settles_none_and_names_what_it_lacked(loop: LoopFactory) -> None:
+    """Noise carries no period, so the ladder is empty and the recording is stored over the span it plays.
+
+    No candidate reaches a gate, so nothing is rejected -- and the reading that came up short is stated
+    instead, which is what separates material a gate turned down from material a gate never saw.
+    """
     noise = np.random.default_rng(0).standard_normal(int(_HELD_S * SR))
 
     settlement = settle_loop(noise, SR, loop(quality=_WIDE_OPEN), root_hz=_FREQ, search_s=_HELD_S)
 
     assert not settlement.loops
     assert settlement.rejected == ()
+    assert settlement.lacking is Material.PERIOD
 
 
 def test_a_recording_shorter_than_the_shortest_accepted_loop_settles_none(loop: LoopFactory) -> None:
+    """A note ending before one round fits reports its length rather than an absence a reader must read."""
     config = loop(quality=_WIDE_OPEN)
     brief = config.seam.min_fade_s + config.geometry.min_loop_s / 2
 
     settlement = settle_loop(_tone(brief), SR, config, root_hz=_FREQ, search_s=brief)
 
     assert not settlement.loops
+    assert settlement.lacking in {Material.STEADY, Material.ROUND}
+
+
+def test_a_recording_a_gate_turned_down_lacked_nothing_to_measure(loop: LoopFactory) -> None:
+    """The two ways a recording ends up unlooped stay apart: one had candidates, the other had none."""
+    settlement = settle_loop(_tone(), SR, loop(quality=_SEAM_SHUT), root_hz=_FREQ, search_s=_HELD_S)
+
+    assert not settlement.loops
+    assert settlement.rejected != ()
+    assert settlement.lacking is None
+
+
+def test_a_recording_offering_a_loop_lacks_nothing(loop: LoopFactory) -> None:
+    settlement = settle_loop(_tone(), SR, loop(quality=_WIDE_OPEN), root_hz=_FREQ, search_s=_HELD_S)
+
+    assert settlement.loops
+    assert settlement.lacking is None
 
 
 def test_the_stored_loop_reads_its_region_and_its_decline_through_one_settled_value(loop: LoopFactory) -> None:

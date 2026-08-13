@@ -153,10 +153,11 @@ def loop_rows(document: LoopsDocument) -> list[Row]:
 
 
 def unlooped_rows(document: LoopsDocument) -> list[Row]:
-    """One row per recording stored over the span it plays, with how many candidates were measured for it.
+    """One row per recording stored over the span it plays, with why it ended up there.
 
-    A recording reaches this table either because its material is too short for the shortest accepted loop,
-    which shows as ``tried`` of zero, or because every candidate fell outside a gate.
+    A recording reaches this table one of two ways, and ``lacking`` tells them apart: it holds a reading
+    where the material offered no candidate to measure at all, naming the one that came up short, and is
+    empty where ``tried`` candidates were measured and every one of them fell outside a gate.
     """
     return [
         {
@@ -165,6 +166,7 @@ def unlooped_rows(document: LoopsDocument) -> list[Row]:
             "note": record.note,
             "search_s": round(record.search_s, 3),
             "tried": len(record.rejected),
+            "lacking": record.lacking or "",
         }
         for record in document.recordings
         if not record.offered

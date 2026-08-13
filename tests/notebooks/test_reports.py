@@ -233,6 +233,7 @@ def _loops() -> LoopsDocument:
                 rejected=[
                     RejectedLoopRecord(start_s=0.05, end_s=0.30, quality=_quality(0.9, 2.0, 14.0), gate="timbre"),
                 ],
+                lacking=None,
             ),
             RecordingLoopsRecord(
                 key="p067_G4_v080",
@@ -246,6 +247,18 @@ def _loops() -> LoopsDocument:
                     RejectedLoopRecord(start_s=0.05, end_s=0.55, quality=_quality(6.0, 2.0, 2.0), gate="seam"),
                     RejectedLoopRecord(start_s=0.60, end_s=1.10, quality=_quality(1.0, 2.0, 20.0), gate="timbre"),
                 ],
+                lacking=None,
+            ),
+            RecordingLoopsRecord(
+                key="p072_C5_v080",
+                pitch=72,
+                note="C5",
+                velocity=80,
+                cc=[],
+                search_s=0.4,
+                offered=[],
+                rejected=[],
+                lacking="round",
             ),
         ],
     )
@@ -360,10 +373,12 @@ def test_every_loop_a_recording_offers_is_reported_with_what_it_measured(looped_
 
 
 def test_a_recording_stored_over_the_span_it_plays_is_reported_with_what_was_tried(looped_root: Path) -> None:
+    """The two ways a recording lands here read apart: one every gate turned down, one no gate ever saw."""
     rows = reports.unlooped_rows(reports.read_loop_document(looped_root, _INSTRUMENT))
 
-    assert [row["key"] for row in rows] == ["p067_G4_v080"]
-    assert (rows[0]["search_s"], rows[0]["tried"]) == (1.5, 2)
+    assert [row["key"] for row in rows] == ["p067_G4_v080", "p072_C5_v080"]
+    assert (rows[0]["search_s"], rows[0]["tried"], rows[0]["lacking"]) == (1.5, 2, "")
+    assert (rows[1]["tried"], rows[1]["lacking"]) == (0, "round")
 
 
 def test_each_candidate_the_ladder_turned_down_names_the_gate_it_fell_outside(looped_root: Path) -> None:

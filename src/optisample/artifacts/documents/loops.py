@@ -5,7 +5,7 @@ from pathlib import Path
 
 from optisample.artifacts.serialize import Frozen
 from optisample.dsp.decay import NO_DECAY, LinearDecay
-from optisample.dsp.loop import Loop, LoopQuality
+from optisample.dsp.loop import Loop, LoopQuality, Material
 from optisample.dsp.surrogate import SettledLoop, SettledLoops
 from optisample.keys import SampleKey
 from optisample.loop.settle import RejectedLoop, Settlement, StoredLoop
@@ -76,10 +76,13 @@ class RecordingLoopsRecord(Frozen):
     """What the loop stage found for one recording: the loops it offers, and the ones it turned down.
 
     ``offered`` runs from the cheapest stored span to the dearest, the order an encoding indexes them in,
-    and is empty for a recording stored over the span it plays. ``cc`` carries the controller buckets its
-    identity was keyed under, so a reader rebuilds the same :class:`~optisample.keys.SampleKey` the audio is
-    held under. ``search_s`` is the stretch candidates were measured over, which is the longest note the
-    material plays at this pitch.
+    and is empty for a recording stored over the span it plays. ``lacking`` states the reading that came up
+    short for a recording whose material offered no candidate to measure at all
+    (:class:`~optisample.dsp.loop.Material`), so the two ways a recording ends up unlooped read apart:
+    ``rejected`` for one whose candidates were measured and passed over, ``lacking`` for one that had none.
+    ``cc`` carries the controller buckets its identity was keyed under, so a reader rebuilds the same
+    :class:`~optisample.keys.SampleKey` the audio is held under. ``search_s`` is the stretch candidates were
+    measured over, which is the longest note the material plays at this pitch.
     """
 
     key: str
@@ -90,6 +93,7 @@ class RecordingLoopsRecord(Frozen):
     search_s: float
     offered: list[SettledLoopRecord]
     rejected: list[RejectedLoopRecord]
+    lacking: str | None
 
 
 class LoopsDocument(Frozen):
@@ -149,6 +153,11 @@ def _rejected_loop_record(rejected: RejectedLoop, sample_rate: int) -> RejectedL
     )
 
 
+def _lacking_value(lacking: Material | None) -> str | None:
+    """The reading a recording came up short on, as the document states it."""
+    return None if lacking is None else lacking.value
+
+
 def loops_document(
     instrument_id: str,
     sample_rate: int,
@@ -173,6 +182,7 @@ def loops_document(
                 search_s=searched[key],
                 offered=[settled_loop_record(stored, sample_rate) for stored in settlements[key].offered],
                 rejected=[_rejected_loop_record(rejected, sample_rate) for rejected in settlements[key].rejected],
+                lacking=_lacking_value(settlements[key].lacking),
             )
             for key in sorted(settlements)
         ],

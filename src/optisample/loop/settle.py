@@ -6,7 +6,7 @@ from enum import StrEnum, unique
 from optisample.config.loop import LoopConfig, QualityConfig
 from optisample.dsp.decay import LinearDecay, fit_linear_decay
 from optisample.dsp.envelope import level_reading
-from optisample.dsp.loop import Loop, LoopQuality, loop_candidates, loop_quality
+from optisample.dsp.loop import Loop, LoopQuality, LoopSearch, Material, loop_quality, loop_search
 from optisample.dsp.surrogate import SettledLoop, SettledLoops
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.metrics.base import Signal
@@ -60,13 +60,19 @@ class Settlement:
     frontier the sweep prices a loop's length along: a longer region carries more of the material's own
     movement for more bytes, and which of those trades is worth buying is settled against a budget rather
     than here. It is empty where the material offers no candidate clearing the gates, which stores the
-    recording as it was played. ``rejected`` states each candidate that fell outside a gate, so the reason
-    a recording ended up unlooped is readable rather than inferred. ``search_s`` is the stretch the
-    candidates were measured over, which bounds where a loop was worth placing.
+    recording as it was played.
+
+    Why a recording ended up unlooped is stated rather than inferred, and the two ways it happens are kept
+    apart. ``rejected`` names each candidate that was measured and fell outside a gate, which is a
+    recording the material offered something for. ``lacking`` names the reading that came up short where
+    the material offered nothing to measure at all (:class:`~optisample.dsp.loop.Material`), which is a
+    recording no gate ever saw. ``search_s`` is the stretch the candidates were measured over, which bounds
+    where a loop was worth placing.
     """
 
     offered: tuple[StoredLoop, ...]
     rejected: tuple[RejectedLoop, ...]
+    lacking: Material | None
     search_s: float
 
     @property
@@ -107,8 +113,8 @@ def _failed_gate(quality: LoopQuality, config: QualityConfig) -> Gate | None:
     return None
 
 
-def _ordered_candidates(signal: Signal, sample_rate: int, config: LoopConfig, root_hz: float) -> tuple[Loop, ...]:
-    """The candidates in the order the settlement measures and offers them: cheapest first.
+def _ordered_search(signal: Signal, sample_rate: int, config: LoopConfig, root_hz: float) -> LoopSearch:
+    """The search with its candidates in the order the settlement measures and offers them: cheapest first.
 
     A candidate costs what storing ``[0, loop.end)`` costs, so ordering by ``loop.end`` puts the most
     aggressive loop -- the earliest and shortest the material offers -- at the front and leaves the offers
@@ -116,8 +122,9 @@ def _ordered_candidates(signal: Signal, sample_rate: int, config: LoopConfig, ro
     reach on the waveform's own phase moves both bounds by up to a period, so the order is settled here
     rather than taken from the frontier, and the start breaks ties so a recording reads the same each run.
     """
-    candidates = loop_candidates(signal, sample_rate, config, root_hz)
-    return tuple(sorted(candidates, key=lambda loop: (loop.end, loop.start)))
+    search = loop_search(signal, sample_rate, config, root_hz)
+    ordered = tuple(sorted(search.candidates, key=lambda loop: (loop.end, loop.start)))
+    return LoopSearch(candidates=ordered, lacking=search.lacking)
 
 
 def settle_loop(
@@ -131,7 +138,7 @@ def settle_loop(
     """The loops ``signal`` may be stored around, taken from the frontier its own material offers.
 
     ``root_hz`` is the pitch the recording was played at, which the material's period is searched around
-    (:func:`~optisample.dsp.loop.loop_candidates`) and its level read over two of
+    (:func:`~optisample.dsp.loop.loop_search`) and its level read over two of
     (:func:`~optisample.dsp.envelope.level_reading`), so both readings are taken over the stretch this note
     repeats in. One reading serves every candidate, so all of them are measured alike and each region
     that ends up stored is levelled by the same curve that admitted it.
@@ -139,8 +146,9 @@ def settle_loop(
     Candidates are measured over the first ``search_s`` of the recording -- the longest stretch the
     material asks of it -- because a loop ending past that stores more than keeping the played span would
     and so wins nothing. Every candidate is measured and each one clearing every quality gate is offered,
-    cheapest first (:func:`_ordered_candidates`), so the gates say which loops a recording supports and
-    a budget says which of them is worth its bytes.
+    cheapest first (:func:`_ordered_search`), so the gates say which loops a recording supports and
+    a budget says which of them is worth its bytes. Where the material offered no candidate to measure,
+    the search says what it lacked and the settlement carries that instead.
 
     Each offer's decline is fitted over the whole recording rather than the searched stretch, so the ramp a
     held note falls on is read off every level the recording states, and it is fitted per loop because
@@ -148,9 +156,10 @@ def settle_loop(
     """
     searched = signal[: seconds_to_frames(search_s, sample_rate)]
     reading = level_reading(sample_rate, config.envelope, root_hz)
+    search = _ordered_search(searched, sample_rate, config, root_hz)
     offered: list[StoredLoop] = []
     rejected: list[RejectedLoop] = []
-    for loop in _ordered_candidates(searched, sample_rate, config, root_hz):
+    for loop in search.candidates:
         quality = loop_quality(searched, loop, sample_rate, config, reading)
         gate = _failed_gate(quality, config.quality)
         if gate is None:
@@ -159,4 +168,9 @@ def settle_loop(
         else:
             rejected.append(RejectedLoop(loop=loop, quality=quality, gate=gate))
 
-    return Settlement(offered=tuple(offered), rejected=tuple(rejected), search_s=search_s)
+    return Settlement(
+        offered=tuple(offered),
+        rejected=tuple(rejected),
+        lacking=search.lacking,
+        search_s=search_s,
+    )

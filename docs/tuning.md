@@ -315,7 +315,7 @@ fitted decay, so the lever for "this rings on" is the export gap above rather th
 
 The loop stage (`src/opticonfig/loop/`) finds them per recording, before any byte is allocated and at the
 rate the analysis runs at. It offers **every** candidate clearing the gates, so which one a sample stores is
-an operating point the allocation buys rather than a decision taken ahead of it. Four groups tune it:
+an operating point the allocation buys rather than a decision taken ahead of it. Five groups tune it:
 
 - **`loop/features.yaml`** states where the sustain a loop is taken from begins. Each recording is read as a
   series of log-mel frames spanning `window_periods: 3` periods of its own pitch (floored at
@@ -348,14 +348,27 @@ an operating point the allocation buys rather than a decision taken ahead of it.
   cents off at worst, so a semitone leaves room for the tuning a set was recorded at and for a piano's own
   string stretch. A third floor is the code's own: a candidate spans at least the window a spectrum is read
   over, which is what leaves the gates below deciding rather than the seconds floor.
+- **`loop/phase.yaml`** lands the round the frontier named on the waveform itself. A reach is read off timbre
+  frames spanning several periods each, so it arrives knowing the round it wants and not the sample it
+  starts on. `snap_periods: 1.0` is how far either side of that start an ascending zero crossing is looked
+  for, which puts the wrap mid-slope; `match_periods: 0.5` is how far either side of the whole count of
+  periods the end is searched for the phase the start is approached on, and half a period reaches every
+  phase there is. Asking for more lets the end move by whole periods too, trading the length the geometry
+  laid out for a closer match. This is the group that matters most as samples come to hold carriers rather
+  than recordings: a carrier states timbre alone, so what a wrap has left to carry over is phase.
 - **`loop/quality.yaml`** holds the two gates, which are the aggressiveness dial. `max_seam_step: 4.0`
   bounds the step at the wrap, measured in units of the frame-to-frame motion the waveform makes there, so
   the reading means the same on a loud attack and a quiet decay.
-  `max_spectral_distance_db: 12.0` bounds how far the loop's timbre sits from the stretch it stands in for.
+  `max_spectral_distance_db: 18.0` bounds how far the loop's timbre sits from the stretch it stands in for.
   Every candidate clearing both is offered, cheapest first — earliest and shortest — so a gate sets
   where the frontier starts rather than which single loop is kept: tighten one and the cheap end drops off,
-  loosen one and it extends downward. On real Piano material the gates now turn down nothing at all, so
-  `min_loop_s` and `loop/frontier.yaml` above are what bound how aggressive a stored loop can be. How far a
+  loosen one and it extends downward. On a 387-recording Piano corpus the timbre gate is what the cheap end
+  of the frontier runs into: at 12 dB it turned down 17 candidates and left 3 recordings unlooped, and at
+  18 dB every recording loops, one seam rejection remains, and three recordings reach a cheaper offer than
+  they otherwise could — a stored span cut by a mean 52% and up to 60% (0.580 s to 0.235 s at the extreme).
+  Which of those two settings is right is an ear's decision rather than a measurement's: a wrap holding a
+  timbre 18 dB from what it stands in for is only inaudible because the seam is blended across bands, so
+  audition the cheap end (`auditions/looped0.wav`) before trusting it. How far a
   region's level falls across it is measured and reported beside them; levelling answers for it directly,
   and on 187 real offers the worst fall was 9.6 dB against the +12 dB levelling reaches.
 - **`loop/envelope.yaml`** states how the level a recording holds is read, which is the curve levelling
@@ -385,9 +398,23 @@ stops following the recording. On 54 real Piano loops the level step across one 
 |2.65| dB to |0.21| dB, and the region is left tilting |0.03| dB across itself against |1.02| dB before:
 what was a pulse at the loop's rate becomes the note going on declining.
 
+**Whether a recording loops at all is a length question, and the floor lives upstream.** A round has to
+clear `min_loop_s: 0.1` and sit inside a window that opens at `min_fade_s: 0.01` and closes at
+`tail_skip_s: 0.02`, so a note holding less than about 0.15 s offers nothing to measure and no gate ever
+sees it. On a 401-recording Piano corpus carrying notes down to 0.026 s, that was every one of the 40
+unlooped recordings — 39 for want of one round's room, one for a steady window that closed before it opened
+— while every recording past 0.153 s looped. `subset.yaml`'s `min_duration_s: 0.5` is the knob that answers
+for it: it holds a note out of the run by the span it sounds for, onset through the end of its release, and
+setting it took the same corpus to 387 recordings with 3 unlooped. Half a second rather than the bare
+mechanical 0.15 s is what leaves a loop something to stand in for — mean offers per recording run 2.03 in
+0.25-0.5 s and 3.16 in 0.5-1.0 s, so the frontier only becomes a curve a budget can price around there.
+
 `loops.json` states every loop a recording offers, in the order an encoding indexes them, and every
 candidate turned down with the gate it fell outside, so a retune reads off the last run rather than
-guessing. `1_looped/loops/<id>/auditions/` holds each offer played out against its recording as
+guessing. A recording whose material offered no candidate to measure states which reading came up short
+instead (`lacking`: `steady`, `period`, `round`, `movement` or `phase`), so the two ways a recording ends up
+unlooped read apart — one the gates turned down, one they never saw.
+`1_looped/loops/<id>/auditions/` holds each offer played out against its recording as
 `looped<n>.wav`, which is the by-ear reading of the length axis the allocation prices.
 
 ### 8b. What the composite says about levelling
@@ -467,6 +494,8 @@ as the format numbers. Each extra sample is charged a reserve, so the run states
 | `loop.features.settle_db_per_s`, `loop.geometry.max_attack_s` | `loop/features.yaml`, `loop/geometry.yaml` | The loop sits where the note has not settled yet. |
 | `loop.frontier.max_offers`, `loop.frontier.max_reach_s` | `loop/frontier.yaml` | Every loop offered sounds alike, so length buys nothing. |
 | `loop.frontier.max_wrap_distance_db` | `loop/frontier.yaml` | Material that should loop settles none, or one loops that should not. |
+| `subset.min_duration_s` | `subset.yaml` | Recordings settle no loop at all: notes too short to hold one round. |
+| `loop.phase.snap_periods`, `loop.phase.match_periods` | `loop/phase.yaml` | A wrap lands off-phase — the seam blends level but the waveform steps. |
 | `loop.seam.fade_share`, `loop.seam.min_fade_s` | `loop/seam.yaml` | The wrap is continuous but audible as a texture change. |
 | `loop.seam.crossovers_hz`, `loop.seam.crossover_octaves` | `loop/seam.yaml` | A wrap thins or dulls one part of the spectrum while the rest comes through. |
 | `loop.envelope.highest_hz` | `loop/envelope.yaml` | A held note pulses at the loop's rate, or a levelled region wavers where the recording was steady. |

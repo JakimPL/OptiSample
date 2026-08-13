@@ -36,6 +36,27 @@ class GeometryConfig(ConfigModel):
     max_estimation_s: Annotated[float, Field(gt=0.0)]
 
 
+class PhaseConfig(ConfigModel):
+    """How a round the frontier names is landed on the waveform's own phase.
+
+    A reach is read off timbre frames, each spanning several periods of the note, so both of its bounds
+    arrive knowing the round they want and not the sample it starts on. Landing them is what leaves a wrap
+    the crossfade has motion to blend across (:func:`~optisample.dsp.loop.crossfade_loop`), and it matters
+    the more the material a sample holds is a carrier: a carrier states timbre alone, so what a wrap
+    carries over is phase.
+
+    ``snap_periods`` is how far either side of the named start an ascending zero crossing is looked for,
+    in periods of the pitch the recording was played at, which lands the start mid-slope.
+    ``match_periods`` is how far either side of the whole count of periods the end is searched, matching
+    the phase the start is approached on (:func:`~optisample.dsp.loop._matched_end`). Half a period reaches
+    every phase there is; asking for more lets the end move by whole periods as well, which trades the
+    length the geometry laid out for a closer match.
+    """
+
+    snap_periods: Annotated[float, Field(gt=0.0)]
+    match_periods: Annotated[float, Field(gt=0.0)]
+
+
 class FeatureConfig(ConfigModel):
     """How a recording is read as a series of timbre frames, which is where its own onset is found.
 
@@ -162,9 +183,10 @@ class QualityConfig(ConfigModel):
 
 
 class LoopConfig(StageConfig):
-    """How one recording is looped: where the loop sits, the level it is held at, its wrap, and its gates."""
+    """How one recording is looped: where the loop sits and lands, the level it is held at, its wrap and its gates."""
 
     geometry: GeometryConfig
+    phase: PhaseConfig
     features: FeatureConfig
     frontier: FrontierConfig
     envelope: EnvelopeConfig
