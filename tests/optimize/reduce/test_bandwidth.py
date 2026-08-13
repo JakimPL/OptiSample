@@ -212,6 +212,58 @@ def test_the_stored_length_reaches_every_encoding_offered(make_context: Callable
     assert {params.trim_s for params in offered} == {_TRIM_S}
 
 
+def test_a_shallow_depth_offers_every_span_both_plain_and_compressed(
+    make_context: Callable[..., _Context],
+) -> None:
+    """Compression is an axis the run prices, not a step it takes: both ways are offered and one is picked."""
+    context = make_context(depth=_SHALLOW_DEPTH, compress=True)
+    stored = stored_format(broadband(), UNTRANSPOSED, context)
+
+    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S, loops=2)
+
+    assert [(params.loop_index, params.compress) for params in offered] == [
+        (UNLOOPED, False),
+        (UNLOOPED, True),
+        (0, False),
+        (0, True),
+        (1, False),
+        (1, True),
+    ]
+
+
+def test_a_run_asking_for_no_dynamics_offers_every_span_once(make_context: Callable[..., _Context]) -> None:
+    """A run that turns the stage off prices no compressed encoding, however shallow its grid runs."""
+    context = make_context(depth=_SHALLOW_DEPTH, compress=False)
+    stored = stored_format(broadband(), UNTRANSPOSED, context)
+
+    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S, loops=2)
+
+    assert [params.compress for params in offered] == [False, False, False]
+
+
+def test_a_depth_deep_enough_to_carry_the_material_offers_no_compressed_encoding(
+    make_context: Callable[..., _Context],
+) -> None:
+    """A sixteen-bit grid already sits under anything compression would protect, so it is offered plain."""
+    context = make_context(depth=_DEEP_DEPTH, compress=True)
+    stored = stored_format(broadband(), UNTRANSPOSED, context)
+
+    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S, loops=2)
+
+    assert [params.compress for params in offered] == [False, False, False]
+
+
+def test_the_trimmed_span_leads_whatever_the_depth_offers(make_context: Callable[..., _Context]) -> None:
+    """Spans lead, so the trimmed one opens the list for every clip and two sweeps score in one order."""
+    context = make_context(depth=_SHALLOW_DEPTH, compress=True)
+    stored = stored_format(broadband(), UNTRANSPOSED, context)
+
+    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S, loops=3)
+
+    assert all(params.loop_index is UNLOOPED for params in offered[:2])
+    assert [params.loop_index for params in offered[2:]] == [0, 0, 1, 1, 2, 2]
+
+
 def test_a_clip_with_no_settled_loop_offers_the_trimmed_span_alone(make_context: Callable[..., _Context]) -> None:
     """Nothing prices a loop for a recording the loop stage found none in, so the played span stands alone."""
     context = make_context()

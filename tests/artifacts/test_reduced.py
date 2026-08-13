@@ -175,17 +175,21 @@ def test_the_auditions_are_the_encodings_the_document_states(reduced: ReducedIns
 
 
 def test_an_audition_is_named_by_the_encoding_it_holds(reduced: ReducedInstrument) -> None:
-    """Every audition of a pitch is stored at the one format the reduction settled for it."""
+    """Every audition of a pitch is stored at the rate and depth the reduction settled, named by its axes.
+
+    A depth shallow enough for the dynamics stage offers each span both ways, so the folder holds a
+    compressed audition beside every plain one and a listener hears the axis the objective picks along.
+    """
     grid = _document(reduced)["reduction"]["grids"][0]  # type: ignore[index]
     folder = reduced.paths.auditions_dir / f"p{grid['pitch']:03d}_{grid['note']}"
     stored = grid["stored"]
-    stem = f"r{stored['target_rate']}_d{stored['depth_bits']}" + ("_c" if stored["compress"] else "")
+    stem = f"r{stored['target_rate']}_d{stored['depth_bits']}"
+    dynamics = ("", "_c") if stored["compress"] else ("",)
+    spans = ["", *(f"_loop{index}" for index in range(grid["swept"] // len(dynamics) - _TRIMMED_ONLY))]
 
     auditions = sorted(path.name for path in folder.glob("*.wav") if path.stem != "reference")
-    # one audition per loop the pitch offered beside the trimmed span, each named by the offer it holds
-    looped = [f"{stem}_loop{index}.wav" for index in range(grid["swept"] - _TRIMMED_ONLY)]
 
-    assert auditions == sorted([f"{stem}.wav", *looped])
+    assert auditions == sorted(f"{stem}{compressed}{span}.wav" for span in spans for compressed in dynamics)
 
 
 def test_an_audition_runs_as_long_as_the_note_it_stands_for(reduced: ReducedInstrument) -> None:

@@ -109,11 +109,15 @@ def useful_rate_hz(
 
 @dataclass(frozen=True)
 class StoredFormat:
-    """The rate, depth and compression one sample is stored at, settled from the recording's own content.
+    """The rate and depth one sample is stored at, settled from the recording's own content.
 
     The reduction stage decides this and the allocation spends its bytes elsewhere -- on zone width,
     sample count, stored length and which loop -- so a plan pressed for room stores fewer, wider or
     shorter samples while each one it does store carries the band its recording asked for.
+
+    ``compress`` says the dynamics stage is *available* at this depth, which is a property of the grid the
+    depth leaves rather than a decision: what the sweep does with it is offer each stored span both ways
+    and let the objective pick (:func:`stored_encodings`).
     """
 
     target_rate: int
@@ -174,18 +178,29 @@ def stored_encodings(
     The format is settled before the sweep starts and the loops are settled before it too, so what the
     sweep prices is how far the sample carries on past its attack: keeping the played span, against keeping
     the attack plus each of the ``loops`` regions the loop stage found. Those regions run from short to
-    long, so the encodings after the first walk a sample's stored length from its cheapest to its most
-    faithful and the hull picks the trades worth keeping. The trimmed span leads however many loops there
-    are, so it sits at the same index for every clip and the per-pitch and per-zone sweeps score in one
-    order.
+    long, so the encodings walk a sample's stored length from its cheapest to its most faithful and the
+    hull picks the trades worth keeping.
+
+    Where the depth leaves a grid shallow enough for the dynamics stage to buy headroom, each span is
+    offered both plain and compressed and the objective picks between them, which is what makes compression
+    an axis the run prices rather than a step it takes on the way past. A depth deep enough to carry the
+    material outright offers each span once.
+
+    Spans lead: every encoding of the trimmed span stands before the first loop's, so the trimmed span
+    occupies the opening positions for every clip and the per-pitch and per-zone sweeps score in one order.
     """
-    trimmed = EncodingParams(
+    plain = EncodingParams(
         target_rate=stored.target_rate,
         depth_bits=stored.depth_bits,
         trim_s=trim_s,
         dither=sweep.dither,
         noise_shaping=sweep.noise_shaping,
         loop_index=UNLOOPED,
-        compress=stored.compress,
+        compress=False,
     )
-    return (trimmed, *(replace(trimmed, loop_index=index) for index in range(loops)))
+    dynamics = (False, True) if stored.compress else (False,)
+    return tuple(
+        replace(plain, loop_index=span, compress=compress)
+        for span in (UNLOOPED, *range(loops))
+        for compress in dynamics
+    )
