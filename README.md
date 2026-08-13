@@ -385,9 +385,17 @@ already is rather than as a dozen characters a number.
 
 `level * carrier` is the recording, so the pair carries everything the WAV holds. What it adds is that a
 copy stored from the carrier alone spends the whole depth of its grid on the waveform: at 8 bits that is
-worth **+5.4…+26.1 dB** segmental SNR (median ≈ +15 dB ≈ 2.5 bits), because the attack transient stops
-setting the code range and the level travels as a curve instead. Carrying the loops in the same file is
-what lets a later stage store the region this run settled over the very audio it was settled on.
+worth **+5.4…+26.1 dB** segmental SNR (median ≈ +15 dB ≈ 2.5 bits) on the stored span, because the attack
+transient stops setting the code range and the level travels as a curve instead. Carrying the loops in the
+same file is what lets a later stage store the region this run settled over the very audio it was settled
+on.
+
+Read end to end — the waveform under the envelope that carries its level, against the recording, over 399
+of these containers — the same split is worth **+5.98 dB** against the recording stored at the same depth,
+and **+1.14 dB against the recording stored at 16 bits**: 93.5 % of recordings come within 1 dB of their
+own 16-bit copy while spending half the bytes. The reason is one number: **the eighth bit costs a carrier
+0.09 dB and a recording 3.32 dB.** A flat waveform is what makes a shallow grid cheap, because the
+quantizer stops fighting a decline the envelope states anyway.
 
 ### Reading the container back: clustered carrier instruments
 
