@@ -14,13 +14,13 @@ from optisample.artifacts.instruments.dump import (
 from optisample.artifacts.paths import instrument_files_dir
 from optisample.config.codec import EncodeConfig
 from optisample.config.tracker import TrackerFormat
-from optisample.dsp.levels import level_readings, peak_amplitude
+from optisample.dsp.level import level_readings, peak_amplitude
 from optisample.io.audio import write_wav
 from optisample.io.dataset import SourceDataset
 from optisample.io.note_extractor import NO_TEMPO, NoteRecord, dump_notes
+from optisample.io.tracker.envelope import played_gain
 from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.base import Signal
-from optisample.optimize.export.envelope import played_gain
 from optisample.progress import NO_PROGRESS
 from tests.artifacts.instruments.conftest import ROOT_PITCH, SR, TEMPO_BPM, Recorder
 from trackmod.core.instruments.unit import InstrumentUnit

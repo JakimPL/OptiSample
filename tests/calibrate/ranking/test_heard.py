@@ -5,7 +5,7 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.calibrate.ranking import heard_pair
-from optisample.dsp.levels import gain_to_db, peak_amplitude
+from optisample.dsp.level import gain_to_db, peak_amplitude
 from optisample.metrics.preprocess import integrated_loudness
 
 _RATE = 44_100

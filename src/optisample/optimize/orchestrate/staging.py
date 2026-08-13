@@ -1,5 +1,5 @@
 from optisample.config.codec import EncodeConfig
-from optisample.dsp.levels import peak_amplitude
+from optisample.dsp.level import peak_amplitude
 from optisample.io.tracker.target import ExportTarget
 from optisample.optimize.tasks import AudioMap
 

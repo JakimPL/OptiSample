@@ -5,12 +5,12 @@ import numpy as np
 
 from optisample.config.codec import EncodeConfig
 from optisample.dsp.surrogate import NO_LOOPS, EncodeContext, StoredSample, encode
+from optisample.io.tracker.envelope import NO_ENVELOPE, sounding_gain
 from optisample.io.tracker.target import ExportTarget, balanced_gains, sample_label
 from optisample.metrics.base import Signal
 from optisample.music import sounded_note
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.coverage import covered_routing
-from optisample.optimize.export.envelope import NO_ENVELOPE, sounding_gain
 from optisample.optimize.layers.slots import InstrumentSlot, SlotLayout
 from optisample.optimize.plans import SampleUnit, StrategyPlan
 from optisample.optimize.tasks import StoredRecordings

@@ -7,7 +7,7 @@ from numpy.typing import NDArray
 
 from optisample.config.codec import EncodeConfig
 from optisample.config.loop import GeometryConfig
-from optisample.dsp.levels import peak_amplitude
+from optisample.dsp.level import peak_amplitude
 from optisample.dsp.quantize import headroom_peak
 from optisample.dsp.surrogate import (
     NO_LOOPS,

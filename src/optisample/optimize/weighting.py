@@ -1,4 +1,4 @@
-from optisample.dsp.levels import mean_energy
+from optisample.dsp.level import mean_energy
 from optisample.metrics.base import Signal
 
 

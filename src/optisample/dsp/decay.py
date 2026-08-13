@@ -5,7 +5,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from optisample.dsp.envelope import LevelReading, local_level_over
-from optisample.dsp.levels import decay_trend
+from optisample.dsp.level import decay_trend
 from optisample.dsp.loop import Loop
 
 Signal = NDArray[np.float64]
@@ -52,7 +52,7 @@ def fit_linear_decay(signal: Signal, sample_rate: int, loop: Loop, reading: Leve
     the region holds is the one the material holds at its first frame
     (:func:`~optisample.dsp.envelope.local_level_over`), which is the very reading levelling pinned it to.
     Where a held note ends up is read off everything from ``loop.start`` on, as the line those readings make
-    in decibels (:func:`~optisample.dsp.levels.decay_trend`) -- the domain a ringing note falls straight in,
+    in decibels (:func:`~optisample.dsp.level.readings.decay_trend`) -- the domain a ringing note falls straight in,
     so the reading holds at the far end of a remainder however long the loop left it. The ratio of the two
     is how far the note is played down by the time the material runs out.
 

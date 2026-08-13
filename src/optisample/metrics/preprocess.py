@@ -3,7 +3,7 @@ from typing import Final
 import numpy as np
 import pyloudnorm as pyln
 
-from optisample.dsp.levels import db_to_gain
+from optisample.dsp.level import db_to_gain
 from optisample.metrics.base import MetricContext, Signal
 
 _MIN_LOUDNESS_SECONDS: Final = 0.4  # BS.1770 integrated-loudness block size

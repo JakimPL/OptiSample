@@ -9,7 +9,7 @@ from numpy.typing import NDArray
 
 from notebooks.utils.views import Row
 from optisample.config.spectral import StftParams
-from optisample.dsp.levels import decay_trend, level_readings
+from optisample.dsp.level import decay_trend, level_readings
 from optisample.dsp.piecewise import fit_piecewise
 from optisample.dsp.spectral import stft_magnitude
 from optisample.dsp.trajectory import reading_window_s

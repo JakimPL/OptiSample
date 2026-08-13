@@ -182,7 +182,7 @@ class ExportTarget:
 
         Impulse Tracker numbers twenty-five, FastTracker 2 twelve, and the shape an instrument is played
         down by takes every one of them the release does not
-        (:func:`~optisample.optimize.export.envelope.shape_nodes`).
+        (:func:`~optisample.io.tracker.envelope.shape_nodes`).
         """
         return self.limits.bound(Capability.ENVELOPE_POINTS)
 

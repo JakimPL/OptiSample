@@ -5,7 +5,7 @@ from numpy.typing import NDArray
 from scipy.signal import lfilter
 
 from optisample.config.dynamics import DynamicsConfig
-from optisample.dsp.levels import db_to_gain, gain_to_db, peak_amplitude
+from optisample.dsp.level import db_to_gain, gain_to_db, peak_amplitude
 
 Signal = NDArray[np.float64]
 

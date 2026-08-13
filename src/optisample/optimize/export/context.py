@@ -3,8 +3,8 @@ from dataclasses import dataclass
 from optisample.config.codec import EncodeConfig
 from optisample.config.export import EnvelopeConfig
 from optisample.config.render import PlaybackConfig
+from optisample.io.tracker.envelope import EnvelopeGrid, envelope_grid
 from optisample.io.tracker.target import ExportTarget
-from optisample.optimize.export.envelope import EnvelopeGrid, envelope_grid
 from optisample.seed import DEFAULT_SEED
 
 

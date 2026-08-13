@@ -12,9 +12,9 @@ from optisample.config.codec import EncodeConfig
 from optisample.config.tracker import TrackerFormat
 from optisample.io.audio import mono, read_wav
 from optisample.io.dataset import SourceDataset
+from optisample.io.tracker.envelope import EnvelopeGrid, envelope_grid
 from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.base import Signal
-from optisample.optimize.export.envelope import EnvelopeGrid, envelope_grid
 from optisample.progress import ProgressSink
 
 INSTRUMENT_LABEL: Final = "Writing instruments"

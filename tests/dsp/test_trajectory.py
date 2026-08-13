@@ -5,7 +5,7 @@ from collections.abc import Callable, Sequence
 import numpy as np
 import pytest
 
-from optisample.dsp.levels import level_readings
+from optisample.dsp.level import level_readings
 from optisample.dsp.piecewise import MOST_READINGS
 from optisample.dsp.series import Readings, Series
 from optisample.dsp.trajectory import (

@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from typing import Final
 
 from optisample.carrier.source import CarrierSource
-from optisample.dsp.levels import level_readings
+from optisample.dsp.level import level_readings
 from optisample.dsp.trajectory import SharedTrajectory, TrajectoryMember, fit_shared_trajectory, reading_window_s
 
 NO_SHAPE: Final = None  # what a set holding nothing long enough to read one whole window of leaves behind

@@ -14,7 +14,7 @@ from optisample.dsp.envelope import (
     power_kernel,
     reading_frequency,
 )
-from optisample.dsp.levels import db_to_gain, gain_to_db, peak_amplitude
+from optisample.dsp.level import db_to_gain, gain_to_db, peak_amplitude
 
 SR = 8_000
 FREQ = 200.0

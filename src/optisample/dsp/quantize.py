@@ -3,7 +3,7 @@ from typing import Final
 import numpy as np
 from numpy.typing import NDArray
 
-from optisample.dsp.levels import db_to_gain, peak_amplitude
+from optisample.dsp.level import db_to_gain, peak_amplitude
 from optisample.seed import SURROGATE_SEED
 
 Signal = NDArray[np.float64]

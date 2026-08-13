@@ -5,7 +5,7 @@ from typing import Final
 
 import numpy as np
 
-from optisample.dsp.levels import db_to_gain, gain_to_db, peak_amplitude
+from optisample.dsp.level import db_to_gain, gain_to_db, peak_amplitude
 from optisample.metrics.base import Signal
 from optisample.metrics.preprocess import integrated_loudness
 

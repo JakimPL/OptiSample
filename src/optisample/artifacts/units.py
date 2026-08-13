@@ -4,13 +4,13 @@ from dataclasses import dataclass
 from optisample.artifacts.context import DumpContext
 from optisample.artifacts.documents.plan import PlanDocument, plan_document
 from optisample.dsp.surrogate import StoredSample
+from optisample.io.tracker.envelope import shape_nodes
 from optisample.keys import SampleKey
 from optisample.model import NoteEvent
 from optisample.optimize.export import build_module
 from optisample.optimize.export.build import written_voices
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.coverage import key_coverage, played_keys
-from optisample.optimize.export.envelope import shape_nodes
 from optisample.optimize.export.samples import sample_gains
 from optisample.optimize.export.voices import PlayedVoices, WrittenInstruments, written_instruments
 from optisample.optimize.layers.bands import VelocityLayers

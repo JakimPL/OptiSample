@@ -6,10 +6,10 @@ import numpy as np
 import pytest
 
 from optisample.config import OptiConfig
+from optisample.io.tracker.envelope import EnvelopeGrid, envelope_grid
 from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.base import Signal
 from optisample.music import midi_to_freq
-from optisample.optimize.export.envelope import EnvelopeGrid, envelope_grid
 
 SR = 22_050
 ROOT_PITCH = 60

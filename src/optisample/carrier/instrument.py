@@ -10,10 +10,10 @@ from optisample.carrier.shape import NO_SHAPE, carrier_shape
 from optisample.carrier.source import CarrierSource
 from optisample.carrier.store import CarrierSettings, StoredCarrier, store_carrier
 from optisample.dsp.surrogate import StoredSample
+from optisample.io.tracker.envelope import NO_ENVELOPE, EnvelopeGrid, shape_nodes, volume_envelope
 from optisample.io.tracker.target import ExportTarget, balanced_gains, sample_label
 from optisample.music import sounded_note
 from optisample.optimize.export.coverage import covered_routing
-from optisample.optimize.export.envelope import NO_ENVELOPE, EnvelopeGrid, shape_nodes, volume_envelope
 from trackmod.core.envelopes.envelope import Envelope
 from trackmod.core.instruments.instrument import Instrument
 from trackmod.core.instruments.keymap import KeyAssignment, Keymap, routed_keymap

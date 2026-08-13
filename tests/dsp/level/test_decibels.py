@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from optisample.dsp.levels import db_to_gain, gain_to_db, peak_amplitude
+from optisample.dsp.level import db_to_gain, gain_to_db, peak_amplitude
 
 _DOUBLE_DB = 6.020599913279624  # the level change an exactly doubled amplitude reads as
 _SILENT_LEVEL_DB = -240.0  # what the floor under silence puts a zero amplitude at

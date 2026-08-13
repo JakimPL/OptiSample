@@ -23,7 +23,7 @@ from optisample.calibrate.ranking import (
     read_labels,
     settled,
 )
-from optisample.dsp.levels import peak_amplitude
+from optisample.dsp.level import peak_amplitude
 from optisample.io.audio import read_wav
 from optisample.model import InstrumentSpec, Manifest, ProjectSpec
 from optisample.optimize.orchestrate.audio import LoadedInstrument

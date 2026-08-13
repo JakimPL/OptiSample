@@ -5,7 +5,7 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.config.codec import QuantizeConfig
-from optisample.dsp.levels import db_to_gain
+from optisample.dsp.level import db_to_gain
 from optisample.dsp.quantize import (
     apply_gain,
     headroom_peak,

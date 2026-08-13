@@ -6,7 +6,7 @@ import numpy as np
 
 from optisample.carrier.store import NO_CURVE, StoredCarrier
 from optisample.dsp.envelope import Signal
-from optisample.optimize.export.envelope import sounding_gain
+from optisample.io.tracker.envelope import sounding_gain
 from trackmod.core.envelopes.envelope import Envelope
 
 HELD_ROUNDS: Final = 4  # rounds a loop is wrapped for, enough for a seam step to become a rhythm rather than a click

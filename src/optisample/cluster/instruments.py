@@ -31,17 +31,18 @@ from optisample.config.loop import FeatureConfig
 from optisample.dsp.envelope import decompose, level_reading
 from optisample.dsp.surrogate import NO_LOOPS, EncodingParams
 from optisample.io.audio import write_wav
+from optisample.io.tracker.envelope import envelope_grid
 from optisample.io.tracker.target import ExportTarget
 from optisample.model import NoteEvent
 from optisample.music import midi_to_freq
-from optisample.optimize.export.envelope import envelope_grid
 from optisample.optimize.layers.bands import VelocityBand, VelocityLayers, velocity_cells
-from optisample.progress import ProgressSink
+from optisample.progress import ProgressSink, ProgressStep, counting
 
 MANIFEST_SUFFIX: Final = ".clustered.json"
 AUDITIONS_DIR: Final = "auditions"
 
 _ALONE: Final = 1  # recordings a band holds while there is nothing to tell apart inside it
+_CUT_LABEL: Final = "Cutting velocity bands"
 _WRITE_LABEL: Final = "Writing clustered instruments"
 
 
@@ -239,11 +240,19 @@ def _write_instrument(built: CarrierInstrument, band: VelocityBand, samples_dir:
     return path
 
 
-def _write_auditions(built: CarrierInstrument, band: VelocityBand, out_dir: Path, *, tempo: int) -> int:
+def _write_auditions(
+    built: CarrierInstrument,
+    band: VelocityBand,
+    out_dir: Path,
+    *,
+    tempo: int,
+    step: ProgressStep,
+) -> int:
     """Each stored waveform played out under the curve above it, so the pair is heard rather than read.
 
     A folder per band holds one file per take, named by the key it stands for, which is what puts an
-    instrument's own dynamics side by side.
+    instrument's own dynamics side by side. ``step`` is taken as each file lands, so the run counts off the
+    waveforms it writes rather than the bands they are gathered into.
     """
     folder = out_dir / AUDITIONS_DIR / band.label
     folder.mkdir(parents=True, exist_ok=True)
@@ -254,11 +263,19 @@ def _write_auditions(built: CarrierInstrument, band: VelocityBand, out_dir: Path
             carrier_audition(carrier, envelope, tempo=tempo),
             carrier.stored.sample_rate,
         )
+        step()
 
     return len(built.stored)
 
 
-def write_band(described: DescribedCorpus, cut: BandCut, out_dir: Path, settings: ClusterSettings) -> WrittenBand:
+def write_band(
+    described: DescribedCorpus,
+    cut: BandCut,
+    out_dir: Path,
+    settings: ClusterSettings,
+    *,
+    step: ProgressStep,
+) -> WrittenBand:
     """One velocity band's chosen takes written as the single instrument that band's dynamics play."""
     band = cut.band
     read = [carrier_source(described.corpus.recordings[index], settings.encode) for index in cut.representatives]
@@ -272,28 +289,37 @@ def write_band(described: DescribedCorpus, cut: BandCut, out_dir: Path, settings
     return WrittenBand(
         record=layer_record(band, built, members=cut.members, files={path.suffix: str(path.relative_to(out_dir))}),
         path=path,
-        auditions=_write_auditions(built, band, out_dir, tempo=settings.tempo),
+        auditions=_write_auditions(built, band, out_dir, tempo=settings.tempo, step=step),
         calibrated=sum(calibrated for _, calibrated in read),
     )
 
 
-def _written_bands(
-    described: DescribedCorpus,
-    layers: VelocityLayers,
-    out_dir: Path,
-    settings: ClusterSettings,
-) -> list[WrittenBand]:
-    """Every band the corpus left a recording in, written as its own instrument.
+def _band_cuts(described: DescribedCorpus, layers: VelocityLayers, settings: ClusterSettings) -> list[BandCut]:
+    """Every band the corpus left a recording in, cut into the groups one waveform stands for each of.
 
     A band the corpus holds nothing for is passed over rather than written empty, since an instrument with
     no waveform sounds nothing and the dynamics it answers are already covered by the bands beside it.
     """
-    bands = settings.progress.track(layers.bands, label=_WRITE_LABEL, total=layers.count)
-    stood = [
-        (band, cut_band(described, band, groups=settings.cluster.partition.groups, config=settings.cluster))
-        for band in bands
+    bands = settings.progress.track(layers.bands, label=_CUT_LABEL, total=layers.count)
+    cuts = [
+        cut_band(described, band, groups=settings.cluster.partition.groups, config=settings.cluster) for band in bands
     ]
-    return [write_band(described, cut, out_dir, settings) for _, cut in stood if cut.representatives]
+    return [cut for cut in cuts if cut.representatives]
+
+
+def _written_bands(
+    described: DescribedCorpus,
+    cuts: Sequence[BandCut],
+    out_dir: Path,
+    settings: ClusterSettings,
+) -> list[WrittenBand]:
+    """Each cut band written as its own instrument, counted off in the waveforms the run stores.
+
+    The bar is bounded by the takes every band chose rather than by the bands themselves, so a run asked
+    for more groups states a longer stretch of work and reaches its bound as the last audition lands.
+    """
+    with counting(settings.progress, label=_WRITE_LABEL, total=sum(len(cut.representatives) for cut in cuts)) as step:
+        return [write_band(described, cut, out_dir, settings, step=step) for cut in cuts]
 
 
 def write_clustered(root: Path, out_dir: Path, settings: ClusterSettings) -> ClusteredArtifacts:
@@ -318,7 +344,7 @@ def write_clustered(root: Path, out_dir: Path, settings: ClusterSettings) -> Clu
         progress=settings.progress,
     )
     layers = velocity_layers(stage_material(root, settings.stage, settings.reading), settings.cluster.instrument.layers)
-    written = _written_bands(described, layers, out_dir, settings)
+    written = _written_bands(described, _band_cuts(described, layers, settings), out_dir, settings)
     manifest = out_dir / f"{settings.instrument_id}{MANIFEST_SUFFIX}"
     write_json(
         manifest,

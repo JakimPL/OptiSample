@@ -9,7 +9,7 @@ from numpy.typing import NDArray
 
 from optisample.config.loop import EnvelopeConfig, GeometryConfig, LoopConfig, SeamConfig
 from optisample.dsp.envelope import LevelReading, level_reading, local_level_over
-from optisample.dsp.levels import gain_to_db
+from optisample.dsp.level import gain_to_db
 from optisample.dsp.loop import (
     _QUALITY_FFT,
     Loop,

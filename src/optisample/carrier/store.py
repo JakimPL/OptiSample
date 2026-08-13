@@ -9,8 +9,8 @@ from optisample.carrier.source import CarrierSource
 from optisample.config.codec import EncodeConfig
 from optisample.dsp.envelope import Signal
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, StoredSample, encode
+from optisample.io.tracker.envelope import EnvelopeGrid, sounding_gain
 from optisample.io.tracker.target import ExportTarget
-from optisample.optimize.export.envelope import EnvelopeGrid, sounding_gain
 from trackmod.core.envelopes.envelope import Envelope
 
 NO_CURVE: Final = None  # what a set whose sources carry every level they play at hands a stored carrier
@@ -40,7 +40,7 @@ def carrier_signal(source: CarrierSource, envelope: Envelope | None, *, tempo: i
     This is the whole of the carrier idea in one line: the level a note moves through is handed to the
     envelope, so what the waveform keeps is the timbre, level-flat wherever the format's own thirty-six
     decibels of envelope reach and carrying the rest of the decline below that. The division is taken
-    against the quietest step that still sounds (:func:`~optisample.optimize.export.envelope.sounding_gain`),
+    against the quietest step that still sounds (:func:`~optisample.io.tracker.envelope.sounding_gain`),
     so a moment the curve silences leaves the waveform finite.
 
     A set carrying no curve keeps the recording as it stands, since there is no level to hand over.

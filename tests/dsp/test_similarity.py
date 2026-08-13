@@ -5,7 +5,7 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.config.loop import FeatureConfig
-from optisample.dsp.levels import gain_to_db
+from optisample.dsp.level import gain_to_db
 from optisample.dsp.similarity import change_rate, frame_series, settling_frame, window_frames
 
 SR = 8_000

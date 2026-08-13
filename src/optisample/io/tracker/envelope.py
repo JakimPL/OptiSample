@@ -5,9 +5,9 @@ from typing import Final
 
 import numpy as np
 
-from optisample.dsp.levels import db_to_gain, gain_to_db
+from optisample.dsp.level import Clock, Level, constant_level, db_to_gain, gain_to_db, read_level
 from optisample.dsp.piecewise import PiecewiseCurve
-from optisample.dsp.series import Series
+from optisample.dsp.series import Readings, Series
 from optisample.io.tracker.target import ExportTarget
 from trackmod.core.envelopes.curve import Breakpoint, placed_ticks, timed_envelope
 from trackmod.core.envelopes.envelope import Envelope
@@ -19,6 +19,7 @@ from trackmod.spec.levels import MAX_VOLUME, MIN_VOLUME
 NO_ENVELOPE: Final = None  # what an instrument whose samples carry every level they play at leaves behind
 
 _ONSET_S: Final = 0.0
+_UNITY_DB: Final = 0.0  # the level an instrument carrying no curve plays its voices at
 _RELEASE_POINTS: Final = 1  # points of a format's own budget the breakpoint carrying a note to silence spends
 _MOST_MOMENTS: Final = 2048  # moments a written curve is priced at, which bounds what one repair sweep reads
 _MOST_SWEEPS: Final = 8  # sweeps the nodes are given to settle onto their steps, which a couple of them spend
@@ -95,6 +96,31 @@ def sounding_gain(envelope: Envelope, *, tempo: int, frames: int, sample_rate: i
     """
     gain = played_gain(envelope, tempo=tempo, frames=frames, sample_rate=sample_rate)
     return np.maximum(gain, QUIETEST_STEP / MAX_VOLUME)
+
+
+def envelope_level(envelope: Envelope | None, *, tempo: int) -> Level:
+    """The level ``envelope`` plays a held voice down by, as the algebra carries it.
+
+    A tracker updates a voice's volume once a tick and walks straight between breakpoints in amplitude, so
+    the curve is read at every tick its shape spans -- which is every level the format actually applies,
+    rather than a continuous line standing in for them. The result is counted on
+    :attr:`~optisample.dsp.level.clock.Clock.PLAYED`, since a tracker walks the tick clock whatever key is
+    struck and the curve holds its shape while the material under it stretches.
+
+    An instrument carrying no envelope leaves its voices at the level their own material holds.
+    """
+    if envelope is NO_ENVELOPE:
+        return constant_level(_UNITY_DB, Clock.PLAYED)
+
+    shape = envelope.points[: envelope.length if envelope.sustain is None else envelope.sustain.begin + 1]
+    length = tick_seconds(tempo)
+    ticks = np.arange(shape[0].tick, shape[-1].tick + 1, dtype=np.float64)
+    moments = np.asarray([point.tick for point in shape], dtype=np.float64)
+    values = np.asarray([point.value / MAX_VOLUME for point in shape], dtype=np.float64)
+    return read_level(
+        Readings(values=gain_to_db(np.interp(ticks, moments, values)), seconds=ticks * length),
+        Clock.PLAYED,
+    )
 
 
 def _grid_value(level_db: float) -> int:

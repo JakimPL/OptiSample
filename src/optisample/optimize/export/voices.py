@@ -7,7 +7,7 @@ from typing import Final
 
 import numpy as np
 
-from optisample.dsp.levels import gain_to_db, level_readings
+from optisample.dsp.level import gain_to_db, level_readings
 from optisample.dsp.series import Readings, Series
 from optisample.dsp.surrogate import StoredSample
 from optisample.dsp.timebase import seconds_to_frames

@@ -6,7 +6,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from optisample.config.optimize import VelocityConfig
-from optisample.dsp.levels import db_to_gain
+from optisample.dsp.level import db_to_gain
 from optisample.metrics.base import Signal
 from optisample.metrics.preprocess import integrated_loudness
 from optisample.music import MIDI_MAX_VELOCITY
@@ -99,7 +99,7 @@ def _gains_to_volumes(
     """Turn per-velocity loudness (dB) into IT note volumes matched to the reference's amplitude.
 
     Note volume is linear in amplitude, so a velocity ``d`` dB below the reference (``d = loudness -
-    reference <= 0``) must play at the amplitude ratio :func:`~optisample.dsp.levels.db_to_gain`
+    reference <= 0``) must play at the amplitude ratio :func:`~optisample.dsp.level.decibels.db_to_gain`
     gives; that ratio scaled to ``max_volume`` and rounded is the volume written into the pattern.
     """
     gains = db_to_gain(loudness - reference)

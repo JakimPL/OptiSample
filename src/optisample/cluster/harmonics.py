@@ -7,7 +7,7 @@ from numpy.typing import NDArray
 
 from optisample.config.cluster import DescriptorConfig
 from optisample.config.spectral import StftParams
-from optisample.dsp.levels import db_to_gain, gain_to_db
+from optisample.dsp.level import db_to_gain, gain_to_db
 from optisample.dsp.spectral import stft_magnitude
 
 Signal = NDArray[np.float64]

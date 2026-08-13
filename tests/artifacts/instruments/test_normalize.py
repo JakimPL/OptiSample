@@ -15,11 +15,11 @@ from optisample.artifacts.instruments.normalize import (
 )
 from optisample.config.codec import EncodeConfig
 from optisample.config.tracker import TrackerFormat
-from optisample.dsp.levels import gain_to_db, level_readings, peak_amplitude
+from optisample.dsp.level import gain_to_db, level_readings, peak_amplitude
 from optisample.dsp.quantize import headroom_peak
+from optisample.io.tracker.envelope import EnvelopeGrid, envelope_grid, played_gain
 from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.base import Signal
-from optisample.optimize.export.envelope import EnvelopeGrid, envelope_grid, played_gain
 from tests.artifacts.instruments.conftest import ROOT_PITCH, Recorder
 from trackmod.core.instruments.unit import InstrumentUnit
 from trackmod.core.notes.pitch import Note

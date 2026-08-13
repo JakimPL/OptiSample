@@ -9,21 +9,21 @@ import numpy as np
 
 from optisample.config.codec import EncodeConfig
 from optisample.dsp.envelope import decompose, level_reading
-from optisample.dsp.levels import gain_to_db, level_readings
+from optisample.dsp.level import gain_to_db, level_readings
 from optisample.dsp.piecewise import PiecewiseCurve, fit_piecewise
 from optisample.dsp.quantize import headroom_peak, normalize_peak
 from optisample.dsp.series import Readings
 from optisample.dsp.trajectory import reading_window_s
-from optisample.io.tracker.target import ExportTarget
-from optisample.metrics.base import Signal
-from optisample.music import midi_to_freq, sounded_note
-from optisample.optimize.export.coverage import covered_routing
-from optisample.optimize.export.envelope import (
+from optisample.io.tracker.envelope import (
     EnvelopeGrid,
     shape_nodes,
     sounding_gain,
     volume_envelope,
 )
+from optisample.io.tracker.target import ExportTarget
+from optisample.metrics.base import Signal
+from optisample.music import midi_to_freq, sounded_note
+from optisample.optimize.export.coverage import covered_routing
 from trackmod.core.instruments.instrument import Instrument
 from trackmod.core.instruments.keymap import KeyAssignment, Keymap, routed_keymap
 from trackmod.core.instruments.unit import InstrumentUnit
@@ -89,7 +89,7 @@ def level_curve(recording: NormalizedRecording, target: ExportTarget) -> Piecewi
     """The curve ``target`` has room to state ``recording``'s own level as, in decibels on its played clock.
 
     A format numbers a fixed count of envelope breakpoints and the release spends one of them
-    (:func:`~optisample.optimize.export.envelope.shape_nodes`), so the shape is fitted to every corner
+    (:func:`~optisample.io.tracker.envelope.shape_nodes`), so the shape is fitted to every corner
     that leaves -- twenty-four for Impulse Tracker, eleven for FastTracker 2.
     """
     return fit_piecewise(recording.levels, nodes=shape_nodes(target.envelope_point_bound))
@@ -203,7 +203,7 @@ def recording_instrument(
     """``recording`` as the standalone instrument ``target`` writes: one waveform, played down by one curve.
 
     The level is fitted to the corners the format numbers and written onto its own tick and amplitude
-    grids (:func:`~optisample.optimize.export.envelope.volume_envelope`), against its own loudest moment,
+    grids (:func:`~optisample.io.tracker.envelope.volume_envelope`), against its own loudest moment,
     since an instrument written on its own carries the whole of its level and stands beside nothing to be
     balanced with. The waveform is then the recording divided by the gain that written curve applies
     (:func:`played_gain`), so the pair multiplies back to the recording and what the sample holds is the

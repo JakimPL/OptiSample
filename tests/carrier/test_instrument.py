@@ -10,12 +10,12 @@ from optisample.carrier.source import CarrierSource
 from optisample.carrier.store import CarrierSettings
 from optisample.config import OptiConfig
 from optisample.config.tracker import TrackerConfig, TrackerFormat
-from optisample.dsp.levels import gain_to_db
+from optisample.dsp.level import gain_to_db
 from optisample.dsp.loop import Loop
 from optisample.dsp.resample import resample_to
+from optisample.io.tracker.envelope import sounding_gain
 from optisample.io.tracker.target import ExportTarget, export_target
 from optisample.metrics.base import Signal
-from optisample.optimize.export.envelope import sounding_gain
 from tests.carrier.conftest import ROOT_PITCH, SR, TEMPO, Sourcer
 from trackmod.spec.levels import MAX_VOLUME
 

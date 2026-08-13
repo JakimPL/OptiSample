@@ -3,10 +3,10 @@ from dataclasses import dataclass
 from typing import Final
 
 from optisample.dsp.trajectory import SharedTrajectory
+from optisample.io.tracker.envelope import NO_ENVELOPE, shape_nodes, volume_envelope
 from optisample.model import NoteEvent
 from optisample.optimize.export.carriers import plan_trajectories
 from optisample.optimize.export.context import ExportContext
-from optisample.optimize.export.envelope import NO_ENVELOPE, shape_nodes, volume_envelope
 from optisample.optimize.export.material import CHANNELS, Voicing, material_patterns
 from optisample.optimize.export.samples import PlannedSamples, plan_samples
 from optisample.optimize.export.voices import NO_SHAPE, PlannedVoices, PlayedVoices, instrument_shapes
@@ -64,7 +64,7 @@ def slot_envelope(shape: SharedTrajectory | None, context: ExportContext, *, pea
     that point lives in the envelope rather than the waveform. The envelope belongs to the instrument and
     the slot answers several keys, so ``shape`` is the one trajectory fitted to all of them
     (:func:`~optisample.optimize.export.voices.instrument_shape`) and this writes it onto the format's own
-    grid (:func:`~optisample.optimize.export.envelope.volume_envelope`), against the level ``peak_db``
+    grid (:func:`~optisample.io.tracker.envelope.volume_envelope`), against the level ``peak_db``
     every instrument of the plan shares.
     """
     if shape is NO_SHAPE:

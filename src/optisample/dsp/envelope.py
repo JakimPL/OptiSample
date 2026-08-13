@@ -5,7 +5,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from optisample.config.loop import EnvelopeConfig
-from optisample.dsp.levels import db_to_gain, gain_to_db, peak_amplitude
+from optisample.dsp.level import db_to_gain, gain_to_db, peak_amplitude
 from optisample.dsp.series import hann_kernel, weighted_mean
 
 Signal = NDArray[np.float64]

@@ -8,7 +8,7 @@ from numpy.typing import NDArray
 
 from optisample.config.dynamics import DynamicsConfig
 from optisample.dsp.dynamics import compress
-from optisample.dsp.levels import peak_amplitude
+from optisample.dsp.level import peak_amplitude
 
 SR = 44_100
 _QUIET = 0.1  # the amplitude a scaled-down copy of a test signal peaks at

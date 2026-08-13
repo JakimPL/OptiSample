@@ -1,32 +1,25 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-
 import numpy as np
 import pytest
 
-from optisample.dsp.levels import gain_to_db
+from optisample.dsp.level import Clock, gain_to_db
 from optisample.dsp.piecewise import CurveNode, PiecewiseCurve
 from optisample.dsp.series import Series
-from optisample.dsp.trajectory import SharedTrajectory
-from optisample.optimize.export.build import loudest_db, slot_envelope
-from optisample.optimize.export.context import ExportContext
-from optisample.optimize.export.envelope import (
+from optisample.io.tracker.envelope import (
     NO_ENVELOPE,
     EnvelopeGrid,
+    envelope_level,
     played_gain,
     shape_nodes,
     sounding_gain,
     volume_envelope,
 )
-from optisample.optimize.export.voices import NO_SHAPE
-from optisample.optimize.plans import InstrumentPlan
 from trackmod.core.envelopes.curve import Breakpoint, timed_envelope
 from trackmod.core.envelopes.envelope import Envelope
 from trackmod.core.envelopes.span import EnvelopeSpan
 from trackmod.core.timing.clock import tick_seconds
 from trackmod.limits.bound import Bound
-from trackmod.module.protocol import TrackerModule
 from trackmod.spec.levels import MAX_VOLUME, MIN_VOLUME
 
 _TEMPO = 125
@@ -39,7 +32,6 @@ _XM_POINTS = Bound(minimum=1, maximum=12)
 _QUIETEST_STEP = 1  # the softest level a node states short of silencing the voice
 _FLOOR_DB = gain_to_db(_QUIETEST_STEP / MAX_VOLUME)  # how far under its peak any written curve reaches
 _MOMENTS = 4096  # moments a written curve is read back at, fine enough to price the runs between its corners
-_LOOPED_BUDGET_KB = 40.0  # tight enough that a plan buys the bytes a loop saves, and wide enough to be feasible
 
 # A struck note: a fast fall, a long ring, then the material running out.
 _STRUCK = PiecewiseCurve(
@@ -56,11 +48,6 @@ _DEEP = PiecewiseCurve(  # a note falling further than the grid's own floor reac
 _QUIET = PiecewiseCurve(  # a second instrument of the same plan, sitting well under the first
     nodes=(CurveNode(seconds=0.0, value=-18.0), CurveNode(seconds=1.0, value=-24.0))
 )
-
-
-def _shared(curve: PiecewiseCurve) -> SharedTrajectory:
-    """One instrument's fitted shape, which is all a plan-wide level is read off."""
-    return SharedTrajectory(curve=curve, offsets_db=((0.0,),), gaps_db=(0.0,))
 
 
 def _grid(ticks: Bound = _TICKS) -> EnvelopeGrid:
@@ -221,54 +208,6 @@ def test_a_corner_its_neighbours_leave_no_moment_between_keeps_the_step_it_was_r
     assert shape[2] == round(MAX_VOLUME * 10.0 ** (-13.0 / 20.0))
 
 
-# --- what one level for a whole plan keeps ---------------------------------------------------------------------
-
-
-def test_a_plan_is_written_against_the_loudest_moment_any_of_its_instruments_reaches() -> None:
-    """One level has to stand for the unity step, and it is the loudest the plan states anywhere."""
-    assert loudest_db((_shared(_STRUCK), _shared(_QUIET), NO_SHAPE)) == pytest.approx(_STRUCK.peak)
-
-
-def test_a_plan_whose_instruments_carry_no_shape_names_unity_itself() -> None:
-    assert loudest_db((NO_SHAPE,)) == pytest.approx(0.0)
-
-
-def test_two_instruments_written_against_one_level_stay_as_far_apart_as_their_shapes() -> None:
-    """Normalising each curve against its own peak would move two velocity layers together by their difference."""
-    peak_db = loudest_db((_shared(_STRUCK), _shared(_QUIET)))
-
-    louder, quieter = (_written(curve, peak_db=peak_db).points[0].value for curve in (_STRUCK, _QUIET))
-
-    assert gain_to_db(quieter / louder) == pytest.approx(_QUIET.peak - _STRUCK.peak, abs=0.2)
-
-
-# --- what the written module carries -------------------------------------------------------------------------
-
-
-def test_an_instrument_carrying_no_shape_is_written_without_an_envelope(export_context: ExportContext) -> None:
-    """A slot the material plays no recorded key of leaves its voices at the level their material carries."""
-    assert slot_envelope(NO_SHAPE, export_context, peak_db=0.0) is NO_ENVELOPE
-
-
-def test_the_written_module_plays_a_looped_note_down_rather_than_ringing(
-    build: Callable[..., tuple[InstrumentPlan, TrackerModule]],
-) -> None:
-    """The whole gap this closes: a looped sample holds one level, so the module has to state the decline.
-
-    The budget is tight enough that the bytes a loop saves are worth what holding a region at one level
-    costs, which is the trade the solver declines wherever the material fits whole. Every instrument the
-    material plays carries a curve, and the ones holding a loop are played down by theirs.
-    """
-    _, module = build(budget_kb=_LOOPED_BUDGET_KB)
-    song = module.song
-    envelopes = [instrument.volume_envelope for instrument in song.instruments]
-    loops = [sample.loop is not None for sample in song.samples]
-
-    assert any(loops), "the demo plan stores no loop, so this test would prove nothing"
-    assert all(envelope is not None for envelope in envelopes)
-    assert any(min(_shape_points(envelope)) < MAX_VOLUME for envelope in envelopes if envelope is not None)
-
-
 # --- what a written curve multiplies a held voice by ----------------------------------------------------------
 
 
@@ -336,3 +275,40 @@ def test_the_sounding_gain_stays_above_the_step_that_silences_a_voice() -> None:
     assert np.min(played) == pytest.approx(0.0)
     assert np.all(sounding >= _QUIETEST_STEP / MAX_VOLUME)
     assert np.all(np.isfinite(1.0 / sounding))
+
+
+# --- the written curve as the level algebra carries it ----------------------------------------------------
+
+
+def test_a_written_curve_is_read_on_the_clock_a_tracker_walks_it_on() -> None:
+    """A tracker walks ticks whatever key is struck, so the curve stands on the played clock."""
+    assert envelope_level(_written(_STRUCK), tempo=_TEMPO).clock is Clock.PLAYED
+
+
+def test_an_instrument_carrying_no_curve_leaves_its_voices_where_their_material_holds_them() -> None:
+    assert envelope_level(NO_ENVELOPE, tempo=_TEMPO).transparent
+
+
+def test_the_level_and_the_played_gain_agree_at_every_tick_the_curve_spans() -> None:
+    """A tracker sets a voice's volume once a tick, so both readings state the same level at each of them."""
+    envelope = _written(_STRUCK)
+    rate = 44_100
+    ticks = np.arange(envelope.points[0].tick, envelope.points[-1].tick + 1, dtype=np.float64)
+    seconds = ticks * _TICK_S
+    frames = round(float(seconds[-1]) * rate) + 1
+    walked = played_gain(envelope, tempo=_TEMPO, frames=frames, sample_rate=rate)
+    landed = np.asarray([walked[min(round(moment * rate), frames - 1)] for moment in seconds], dtype=np.float64)
+
+    assert envelope_level(envelope, tempo=_TEMPO).gain(seconds) == pytest.approx(landed, abs=1e-9)
+
+
+def test_between_two_ticks_the_two_readings_stay_inside_the_step_the_grid_moves_by() -> None:
+    """Both smooth a staircase the tracker climbs once a tick, so they part by less than one of its steps."""
+    envelope = _written(_STRUCK)
+    rate = 44_100
+    frames = round(envelope.points[-1].tick * _TICK_S * rate)
+    walked = played_gain(envelope, tempo=_TEMPO, frames=frames, sample_rate=rate)
+    carried = envelope_level(envelope, tempo=_TEMPO).frame_gains(frames, rate)
+    apart = np.abs(gain_to_db(np.maximum(walked, _QUIETEST_STEP / MAX_VOLUME)) - gain_to_db(carried))
+
+    assert float(np.max(apart)) < abs(gain_to_db(_QUIETEST_STEP / (_QUIETEST_STEP + 1)))

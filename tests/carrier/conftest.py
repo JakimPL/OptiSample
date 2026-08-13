@@ -11,11 +11,11 @@ from optisample.config import OptiConfig
 from optisample.dsp.envelope import Decomposition, decompose, level_reading
 from optisample.dsp.loop import Loop
 from optisample.dsp.surrogate import NO_LOOPS, EncodingParams, SettledLoop
+from optisample.io.tracker.envelope import envelope_grid
 from optisample.io.tracker.target import ExportTarget, export_target
 from optisample.keys import SampleKey
 from optisample.metrics.base import Signal
 from optisample.music import midi_to_freq
-from optisample.optimize.export.envelope import envelope_grid
 
 SR = 22_050
 TEMPO = 125

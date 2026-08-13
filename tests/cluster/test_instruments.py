@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 
 import numpy as np
@@ -14,6 +14,8 @@ from optisample.artifacts.documents.sample import SampleDocument
 from optisample.artifacts.serialize import write_msgpack
 from optisample.cluster.corpus import describe_corpus
 from optisample.cluster.instruments import (
+    _CUT_LABEL,
+    _WRITE_LABEL,
     AUDITIONS_DIR,
     MANIFEST_SUFFIX,
     ClusterSettings,
@@ -31,7 +33,7 @@ from optisample.io.tracker.target import export_target
 from optisample.keys import SampleKey
 from optisample.model import NoteEvent
 from optisample.optimize.layers.bands import VelocityBand
-from optisample.progress import NO_PROGRESS
+from optisample.progress import NO_PROGRESS, ProgressSink
 
 SR = 44_100
 PITCHES = (55, 58, 61, 64, 67, 70)
@@ -65,7 +67,13 @@ def run_root(tmp_path: Path, piano_note: Callable[..., NDArray[np.float64]]) -> 
 def cluster_settings(config: OptiConfig) -> Callable[..., ClusterSettings]:
     """Factory: what a clustered run over the tiny stage is carried out with."""
 
-    def _settings(*, groups: int = _GROUPS, layers: int = _LAYERS, depth: int = 8) -> ClusterSettings:
+    def _settings(
+        *,
+        groups: int = _GROUPS,
+        layers: int = _LAYERS,
+        depth: int = 8,
+        progress: ProgressSink = NO_PROGRESS,
+    ) -> ClusterSettings:
         cluster = config.cluster.model_dump()
         cluster["partition"]["groups"] = groups
         cluster["partition"]["max_groups"] = max(cluster["partition"]["max_groups"], groups)
@@ -80,7 +88,7 @@ def cluster_settings(config: OptiConfig) -> Callable[..., ClusterSettings]:
                 dedupe=config.reduce.dedupe,
                 trim=config.reduce.trim,
                 keep_tail=False,
-                progress=NO_PROGRESS,
+                progress=progress,
             ),
             cluster=type(config.cluster).model_validate(cluster),
             features=config.loop.features,
@@ -90,7 +98,7 @@ def cluster_settings(config: OptiConfig) -> Callable[..., ClusterSettings]:
             tempo_bpm=config.export.playback.tempo,
             seed=137,
             workers=1,
-            progress=NO_PROGRESS,
+            progress=progress,
         )
 
     return _settings
@@ -153,6 +161,62 @@ def test_the_velocity_axis_is_tiled_by_the_bands_it_is_cut_into() -> None:
     assert layers.bands[-1].highest == 127
     for lower, upper in zip(layers.bands, layers.bands[1:]):
         assert upper.lowest == lower.highest + 1
+
+
+# --- what the run says about itself while it runs -------------------------------------------------------------
+
+
+class _Counted:
+    """A sink recording what each bar was bounded by, and what had landed by the time it counted a step.
+
+    ``watch`` is read as every step is taken, so a test states not only how far a bar reached but whether
+    the work it stands for had actually happened by then.
+    """
+
+    def __init__(self, watch: Callable[[], int]) -> None:
+        self.totals: dict[str, int] = {}
+        self.watched: dict[str, list[int]] = {}
+        self.watch = watch
+
+    def track[ItemT](self, items: Iterable[ItemT], *, label: str, total: int) -> Iterator[ItemT]:
+        """Yield every item, recording the bound and what stood finished at each step."""
+        self.totals[label] = total
+        seen = self.watched.setdefault(label, [])
+        for item in items:
+            yield item
+            seen.append(self.watch())
+
+
+def test_the_writing_bar_is_bounded_by_the_waveforms_stored_rather_than_the_bands(
+    run_root: Path,
+    tmp_path: Path,
+    cluster_settings: Callable[..., ClusterSettings],
+) -> None:
+    """A run asked for more groups does more writing, so the bound follows the takes rather than the bands."""
+    out_dir = tmp_path / "clustered"
+    counted = _Counted(lambda: 0)
+
+    written = write_clustered(run_root, out_dir, cluster_settings(progress=counted))
+
+    assert counted.totals[_CUT_LABEL] == _LAYERS
+    assert counted.totals[_WRITE_LABEL] == written.auditions == _LAYERS * _GROUPS
+
+
+def test_the_writing_bar_counts_a_step_only_once_a_waveform_has_landed(
+    run_root: Path,
+    tmp_path: Path,
+    cluster_settings: Callable[..., ClusterSettings],
+) -> None:
+    """A bar reaching its bound before the files exist reports nothing, so each step follows its audition."""
+    out_dir = tmp_path / "clustered"
+    auditions = out_dir / AUDITIONS_DIR
+    counted = _Counted(lambda: len(list(auditions.rglob("*.wav"))))
+
+    write_clustered(run_root, out_dir, cluster_settings(progress=counted))
+
+    landed = counted.watched[_WRITE_LABEL]
+    assert landed[0] >= 1
+    assert landed == sorted(landed)
 
 
 # --- what a run writes ---------------------------------------------------------------------------------------

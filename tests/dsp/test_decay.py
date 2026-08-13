@@ -7,7 +7,7 @@ from numpy.typing import NDArray
 from optisample.config.loop import EnvelopeConfig
 from optisample.dsp.decay import LinearDecay, fit_linear_decay
 from optisample.dsp.envelope import LevelReading, level_reading
-from optisample.dsp.levels import db_to_gain
+from optisample.dsp.level import db_to_gain
 from optisample.dsp.loop import Loop
 
 SR = 8_000

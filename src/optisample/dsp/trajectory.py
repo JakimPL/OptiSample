@@ -29,7 +29,7 @@ def reading_window_s(frames: int, sample_rate: int) -> float:
     proportionally longer windows. A short one is read in :data:`_FINEST_WINDOW_S` windows, finer than the
     tick grid an envelope is written on, so the reading holds every corner the format has room to place.
 
-    The window spans whole frames, which is what :func:`~optisample.dsp.levels.level_readings` reads in,
+    The window spans whole frames, which is what :func:`~optisample.dsp.level.readings.level_readings` reads in,
     so the count it answers with stays inside the bound however long the stretch runs.
     """
     return max(_FINEST_WINDOW_S, ceil(frames / MOST_READINGS) / sample_rate)

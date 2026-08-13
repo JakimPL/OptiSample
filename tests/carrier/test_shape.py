@@ -7,8 +7,8 @@ import pytest
 
 from optisample.carrier.instrument import written_shape
 from optisample.carrier.shape import NO_SHAPE, carrier_shape, shared_rate
+from optisample.io.tracker.envelope import NO_ENVELOPE, envelope_grid, shape_nodes
 from optisample.io.tracker.target import ExportTarget
-from optisample.optimize.export.envelope import NO_ENVELOPE, envelope_grid, shape_nodes
 from tests.carrier.conftest import ROOT_PITCH, Sourcer
 
 _ALIKE_DB = 3.0  # how far apart a set declining together is allowed to read, which a shared curve follows

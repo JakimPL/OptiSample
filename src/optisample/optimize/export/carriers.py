@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from math import inf
 from typing import Final
 
-from optisample.dsp.levels import gain_to_db, level_readings
+from optisample.dsp.level import gain_to_db, level_readings
 from optisample.dsp.series import Readings
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.dsp.trajectory import SharedTrajectory, TrajectoryMember, fit_shared_trajectory, reading_window_s

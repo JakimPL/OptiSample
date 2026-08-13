@@ -12,7 +12,7 @@ from optisample.cluster.pooling import AnchorStack, Reached, anchor_stack, frame
 from optisample.config.cluster import DescriptorConfig, FrequencyBasis
 from optisample.config.loop import FeatureConfig
 from optisample.config.spectral import StftParams
-from optisample.dsp.levels import decay_trend, level_readings
+from optisample.dsp.level import decay_trend, level_readings
 from optisample.dsp.piecewise import fit_piecewise
 from optisample.dsp.similarity import FrameSeries, change_rate, frame_series, settling_frame, shape_travel
 from optisample.dsp.trajectory import reading_window_s

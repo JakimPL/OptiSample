@@ -8,7 +8,7 @@ from numpy.typing import NDArray
 from optisample.config.loop import GeometryConfig, LoopConfig, SeamConfig
 from optisample.config.spectral import StftParams
 from optisample.dsp.envelope import LevelReading, local_level_over
-from optisample.dsp.levels import gain_to_db
+from optisample.dsp.level import gain_to_db
 from optisample.dsp.loopability import FrontierBounds, LoopReach, loop_frontier
 from optisample.dsp.resample import resampled_frame_count
 from optisample.dsp.series import autocorrelation, refined_lag
