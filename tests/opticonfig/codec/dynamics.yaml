@@ -1,0 +1,6 @@
+# Soft-knee compression ahead of the quantizer (optisample.config.dynamics.DynamicsConfig).
+threshold_db: -18.0 # gain reduction starts this far under the clip's own peak
+ratio: 3.0 # a level past the threshold keeps a third of its excess
+knee_db: 6.0 # width of the bend the ratio arrives over
+rms_window_s: 0.01 # the level detector's averaging window
+gain_smoothing_s: 0.025 # how long the gain takes to follow the level

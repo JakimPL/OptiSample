@@ -19,6 +19,7 @@ from optisample.optimize.operating_points import (
     sweep_rates,
 )
 from optisample.synth import NoteSpec, synthesize
+from tests.conftest import TEST_CONFIG_DIR
 from trackmod.core.samples.depth import BitDepth
 
 SR = 44_100
@@ -28,7 +29,7 @@ SettleLoops = Callable[..., SettledLoops]
 _CHEAPEST = 0  # the offer a test reaches for: the shortest region the recording supports
 
 # synthesize is a test-signal generator here; its synth config is fixture-independent test data.
-_SYNTH = load_config().synth
+_SYNTH = load_config(TEST_CONFIG_DIR).synth
 
 
 def bright_piano(pitch: int = 84, velocity: int = 115, dur: float = 1.0) -> np.ndarray:

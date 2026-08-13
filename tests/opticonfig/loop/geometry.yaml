@@ -1,0 +1,8 @@
+# Where a loop may sit and how long it runs (optisample.config.loop.GeometryConfig).
+detune_semitones: 1.0    # how far either side of the played pitch the period is searched
+min_correlation: 0.3     # autocorrelation-peak floor a recording clears to count as periodic
+min_periods: 32          # a loop shorter than this beats/buzzes audibly
+min_loop_s: 0.1          # floor on loop length in seconds (spans several vibrato cycles)
+max_attack_s: 0.5        # latest the material counts as settled, which is the room a loop search reserves
+tail_skip_s: 0.02        # tail skipped at the end of the steady window
+max_estimation_s: 1.0    # cap on the autocorrelation window

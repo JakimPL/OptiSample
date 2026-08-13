@@ -1,0 +1,5 @@
+# How the level a recording holds is read off it (optisample.config.loop.EnvelopeConfig).
+# The weighting spans two periods of the recording's own pitch, held inside the band below.
+lowest_hz: 25.0 # deepest pitch the weighting is formed at, which caps how long it runs
+highest_hz: 100.0 # highest pitch it is formed at, so partial beating above it stays in the carrier
+floor_db: 72.0 # quietest level the reading states, that far under the recording's own peak

@@ -1,0 +1,2 @@
+# What a slice admits from its source (optisample.config.subset.SubsetConfig).
+min_duration_s: 0.0  # the suite records notes shorter than a run's floor, so a test stating no floor keeps them

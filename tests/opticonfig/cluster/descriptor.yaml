@@ -1,0 +1,9 @@
+# How one recording is read into the sample space (optisample.config.cluster.DescriptorConfig).
+frequency_basis: relative # the note's own partials, which reads timbre past the pitch it was played at
+anchor_depths_db: [0.0, 6.0, 12.0, 18.0, 24.0, 36.0, 48.0] # falls below a recording's own peak it is read at
+anchor_span_s: 0.08       # stretch of material each of those readings averages over
+harmonics: 16             # partials of the note's own pitch one frame's shape is read over
+harmonic_band_share: 0.5  # how far either side of h*f0 a partial is looked for, as a share of the pitch
+harmonic_range_db: 60.0   # range each frame states its harmonics across, under that frame's own loudest
+cepstral_coefficients: 12 # coefficients kept past the constant one, holding the smooth spectral envelope
+envelope_nodes: 6         # corners the level curve is fitted with, which its curvature is read against

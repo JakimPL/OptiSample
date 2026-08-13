@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from optisample.config import OptiConfig, load_config
 from optisample.config.spectral import StftParams
+from tests.conftest import TEST_CONFIG_DIR
 
 _YAML_SUFFIX: Final = ".yaml"
 _PRIVATE_PREFIX: Final = "_"  # dunder directories the package carries beside its settings
@@ -38,6 +39,38 @@ def _retune(directory: Path, *parts: str, **changes: Any) -> None:
     path = directory.joinpath(*parts[:-1], f"{parts[-1]}{_YAML_SUFFIX}")
     settings = {**yaml.safe_load(path.read_text(encoding="utf-8")), **changes}
     path.write_text(yaml.safe_dump(settings), encoding="utf-8")
+
+
+def _stated_keys(root: Traversable | Path) -> dict[str, set[str]]:
+    """Every group under ``root`` by its path, mapped to the settings that group states.
+
+    Reading the tree as paths and keys is what lets two layouts be compared as layouts, so a group or a
+    setting present in one and absent from the other is named in the failure.
+    """
+    stated: dict[str, set[str]] = {}
+
+    def walk(entry: Traversable | Path, prefix: str) -> None:
+        for child in entry.iterdir():
+            if child.name.startswith(_PRIVATE_PREFIX):
+                continue
+
+            if child.is_dir():
+                walk(child, f"{prefix}{child.name}/")
+            elif child.name.endswith(_YAML_SUFFIX):
+                stated[f"{prefix}{child.name}"] = set(yaml.safe_load(child.read_text(encoding="utf-8")))
+
+    walk(root, "")
+    return stated
+
+
+def test_the_suite_states_every_setting_the_bundled_layout_ships() -> None:
+    """The suite reads settings of its own, which hold the numbers its assertions are stated against.
+
+    Those settings answer the same groups and the same keys as the bundled layout, so a group added
+    beside the shipped ones is stated for the suite in the same change and every test keeps running
+    against a full configuration.
+    """
+    assert _stated_keys(TEST_CONFIG_DIR) == _stated_keys(resources.files("opticonfig"))
 
 
 def test_yaml_lists_coerce_to_tuples() -> None:

@@ -21,6 +21,7 @@ from optisample.optimize.plans import InstrumentPlan
 from optisample.optimize.tasks import StoredRecordings
 from optisample.progress import NO_PROGRESS
 from optisample.synth import NoteSpec, synthesize
+from tests.conftest import TEST_CONFIG_DIR
 
 Recordings = Callable[..., StoredRecordings]
 
@@ -29,7 +30,7 @@ PITCHES = (60, 67)
 VELOCITIES = (50, 100)
 
 # synthesize is a test-signal generator here; its synth config is fixture-independent test data.
-_CONFIG = load_config()
+_CONFIG = load_config(TEST_CONFIG_DIR)
 _SYNTH = _CONFIG.synth
 _REDUCE = _CONFIG.reduce
 _LOOP = _CONFIG.loop

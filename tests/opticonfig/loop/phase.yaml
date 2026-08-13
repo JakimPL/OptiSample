@@ -1,0 +1,3 @@
+# How a round is landed on the waveform's own phase (optisample.config.loop.PhaseConfig).
+snap_periods: 1.0  # periods either side of the named start an ascending zero crossing is looked for
+match_periods: 0.5 # periods either side of the whole count the end is matched over, which reaches every phase

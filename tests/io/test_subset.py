@@ -32,9 +32,10 @@ from optisample.io.subset import (
     write_subset,
 )
 from optisample.model import ProjectSpec
+from tests.conftest import TEST_CONFIG_DIR
 
 SR = 8_000
-_SUBSONIC = load_config().subsonic
+_SUBSONIC = load_config(TEST_CONFIG_DIR).subsonic
 _SILENT = 1.0e-300  # a floor keeping a band holding nothing off the logarithm
 _PITCHES = tuple(range(60, 72))
 _VELOCITIES = (20, 45, 70, 95, 120)

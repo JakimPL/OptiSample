@@ -1,0 +1,3 @@
+# Stored-span shaping (optisample.config.dsp.QuantizeConfig).
+headroom_db: 0.5      # store hot, this far under full scale so the dither has room
+release_fade_s: 0.01  # ramp to silence closing a stored span, so a cut mid-decay ends rather than steps

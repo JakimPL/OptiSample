@@ -1,0 +1,7 @@
+# How the blocks are scaled and weighed into one space (optisample.config.cluster.SpaceConfig).
+# Every block is scaled to a mean pairwise squared distance of one, so these weights are dimensionless.
+onset_weight: 1.0        # the attack timbre, the most telling stretch a struck string has
+sustain_weight: 1.0      # what the note sounds like at each depth of its own decline
+movement_weight: 0.5     # how far its timbre travels while it rings
+envelope_weight: 0.25    # the contour, held as a supplementary distinction beside the timbre
+min_reached_share: 0.8   # share of the corpus reaching a fall depth for that depth to be read as a column

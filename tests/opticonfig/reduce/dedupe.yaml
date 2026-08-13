@@ -1,0 +1,5 @@
+# How the recorded grid collapses to one representative per key (optisample.config.reduce.DedupeConfig).
+key: pitch_velocity              # pitch | pitch_velocity | pitch_velocity_cc
+cc_quantum: 1.0                  # bucket width turning cc averages into an identity
+transposition_headroom_semitones: 12 # upward transpose a kept recording must still cover in full
+representatives: nearest_loudest # nearest_loudest | all (every survivor at the pitch competes)

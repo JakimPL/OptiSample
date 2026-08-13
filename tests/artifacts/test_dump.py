@@ -29,6 +29,7 @@ from optisample.optimize.orchestrate.looping import run_loops
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.reduce.trim import NO_SCREEN
 from optisample.optimize.tasks import AudioMap, StoredRecordings
+from tests.conftest import TEST_CONFIG_DIR
 from trackmod.trackers.it.instrument_file import ITInstrumentFile
 
 Recordings = Callable[..., StoredRecordings]
@@ -42,7 +43,7 @@ MANIFEST = "bank.json"
 
 AudioFactory = Callable[..., dict[SampleKey, NDArray[np.float64]]]
 
-_CONFIG = load_config()
+_CONFIG = load_config(TEST_CONFIG_DIR)
 _STORED_CEILING_HZ = 5_000.0  # the band these fixtures store, which lands them on the 11 kHz rung
 
 

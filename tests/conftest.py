@@ -1,5 +1,7 @@
 import dataclasses
 from collections.abc import Callable, Mapping
+from pathlib import Path
+from typing import Final
 
 import numpy as np
 import pytest
@@ -57,6 +59,15 @@ from optisample.synth import NoteSpec, synthesize
 from trackmod.module.storage import Storage
 from trackmod.spec.levels import MAX_VOLUME
 
+TEST_CONFIG_DIR: Final = Path(__file__).parent / "opticonfig"
+"""The settings the suite runs under, held in the repository beside the tests that read them.
+
+Every value a test reads is stated here, so a run reproduces the same numbers whatever the bundled
+``opticonfig`` currently ships. A test needing another value states it through the group's own model
+(``SweepConfig.model_validate({**config.optimize.sweep.model_dump(), ...})``) or through the flag the
+command offers, which keeps the knob it is about beside the assertion it makes.
+"""
+
 _NOTE_SR = 44_100
 _MIDI_VELOCITIES = 128
 _ANCHORS = (VelocityAnchor(100, -10.0, MAX_VOLUME),)
@@ -81,8 +92,8 @@ def recorded(signal: NDArray[np.float64], seed: int = 0) -> NDArray[np.float64]:
 
 @pytest.fixture(scope="session")
 def config() -> OptiConfig:
-    """The bundled configuration, loaded once for the whole test session."""
-    return load_config()
+    """The suite's own configuration (:data:`TEST_CONFIG_DIR`), loaded once for the whole session."""
+    return load_config(TEST_CONFIG_DIR)
 
 
 @pytest.fixture

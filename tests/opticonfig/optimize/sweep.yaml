@@ -1,0 +1,7 @@
+# What a clip may be stored as (optisample.config.optimize.SweepConfig).
+rates: [8000, 11025, 16000, 22050, 28800, 32000, 37800, 44100] # ladder a rate is chosen from; a clip's own rate joins it
+depth: 16                    # bits every stored sample keeps
+dither: false
+noise_shaping: false
+compress: true               # offered beside the plain encoding where the depth is shallow enough to hear it
+carrier: true                # store timbre and let the envelope carry the level; the objective prices this yet

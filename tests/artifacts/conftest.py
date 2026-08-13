@@ -17,12 +17,13 @@ from optisample.optimize.orchestrate import optimize_instrument, prepare_run
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
 from optisample.optimize.tasks import AudioMap, StoredRecordings
+from tests.conftest import TEST_CONFIG_DIR
 
 Recordings = Callable[..., StoredRecordings]
 
 SR = 44_100
 PITCHES = (60, 62, 64)
-_CONFIG = load_config()
+_CONFIG = load_config(TEST_CONFIG_DIR)
 _STORED_CEILING_HZ = 5_000.0  # the band these fixtures store, which lands them on the 11 kHz rung
 
 

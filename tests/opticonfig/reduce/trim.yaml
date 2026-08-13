@@ -1,0 +1,4 @@
+# How much of a recording is worth keeping (optisample.config.reduce.TrimConfig).
+max_length_s: 5.0   # longest span a kept recording holds, however far the file runs on
+tail_floor: 1.0e-4  # amplitude a decay must still reach for the recording to carry it
+silence_floor: 1.0e-3 # peak a recording reaches somewhere to enter the dataset at all

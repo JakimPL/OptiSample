@@ -1,0 +1,74 @@
+# Synthetic-dataset generator (optisample.config.synth.SynthConfig).
+sample_rate: 44100
+nyquist_fraction: 0.45     # highest partial kept at this fraction of the sample rate (anti-alias)
+velocity_peak_floor: 0.1   # target peak = floor + scale * (velocity / 127)
+velocity_peak_scale: 0.85
+sustained:                 # strings/pad archetype
+  n_partials: 10
+  vibrato_hz: 5.2
+  vibrato_depth: 0.004
+  rolloff_base: 0.5        # spectral rolloff = (base + vel * norm_vel) * (1 + controller * cc)
+  rolloff_vel: 0.4
+  rolloff_controller: 0.002
+  evolution_depth: 0.2     # slow wax/wane of high partials so the sustain is not perfectly periodic
+  evolution_hz: 0.5
+  evolution_min_partial: 4
+  attack_s: 0.08
+  release_s: 0.25
+piano:                     # decaying one-shot archetype
+  n_partials: 12
+  base_tau_scale: 0.9      # base decay tau = clip(scale * (440/f)^exp, min, max)
+  base_tau_exp: 0.5
+  base_tau_min: 0.2
+  base_tau_max: 1.2
+  rolloff_base: 0.45
+  rolloff_vel: 0.45
+  rolloff_controller: 0.001
+  decay_partial_factor: 0.6 # tau_n = base_tau / (1 + factor * (n - 1)); high partials decay faster
+  inharmonicity: 0.0004     # freq_n = n*f * sqrt(1 + inharmonicity * n^2)
+  attack_s: 0.003
+presets:
+  - id: strings
+    archetype: sustained
+    pitches: [48, 55, 60, 67, 72]
+    velocities: [40, 80, 115]
+    sample_duration: 4.5         # >= the longest material note (4.0 s), so a real sustain exists to loop/match
+    budget_kb: 128.0
+    material:
+      - {pitch: 60, velocity: 80, duration_s: 2.5, count: 10}
+      - {pitch: 55, velocity: 80, duration_s: 3.0, count: 6}
+      - {pitch: 67, velocity: 115, duration_s: 1.5, count: 8}
+      - {pitch: 48, velocity: 40, duration_s: 4.0, count: 3}
+      - {pitch: 72, velocity: 115, duration_s: 1.0, count: 5}
+      - {pitch: 60, velocity: 40, duration_s: 2.0, count: 4}
+  - id: piano
+    archetype: piano
+    pitches: [48, 55, 60, 67, 72]
+    velocities: [50, 100]
+    sample_duration: 1.6
+    budget_kb: 96.0
+    material:
+      - {pitch: 60, velocity: 100, duration_s: 0.8, count: 12}
+      - {pitch: 48, velocity: 50, duration_s: 1.2, count: 5}
+      - {pitch: 67, velocity: 100, duration_s: 0.5, count: 10}
+      - {pitch: 55, velocity: 50, duration_s: 0.9, count: 7}
+      - {pitch: 72, velocity: 100, duration_s: 0.4, count: 6}
+  - id: dynamics             # every key played across four dynamics, so velocity layering has something to buy
+    archetype: piano
+    pitches: [48, 60, 72]
+    velocities: [20, 55, 90, 125]
+    sample_duration: 1.2
+    budget_kb: 192.0
+    material:
+      - {pitch: 48, velocity: 20, duration_s: 0.5, count: 2}
+      - {pitch: 48, velocity: 55, duration_s: 0.5, count: 2}
+      - {pitch: 48, velocity: 90, duration_s: 0.5, count: 2}
+      - {pitch: 48, velocity: 125, duration_s: 0.5, count: 2}
+      - {pitch: 60, velocity: 20, duration_s: 0.5, count: 2}
+      - {pitch: 60, velocity: 55, duration_s: 0.5, count: 2}
+      - {pitch: 60, velocity: 90, duration_s: 0.5, count: 2}
+      - {pitch: 60, velocity: 125, duration_s: 0.5, count: 2}
+      - {pitch: 72, velocity: 20, duration_s: 0.5, count: 2}
+      - {pitch: 72, velocity: 55, duration_s: 0.5, count: 2}
+      - {pitch: 72, velocity: 90, duration_s: 0.5, count: 2}
+      - {pitch: 72, velocity: 125, duration_s: 0.5, count: 2}

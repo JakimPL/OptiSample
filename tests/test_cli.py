@@ -24,6 +24,19 @@ from optisample.config.reduce import DedupeKey
 from optisample.config.tracker import TrackerFormat
 from optisample.io.audio import write_wav
 from optisample.io.note_extractor import NoteRecord, dump_notes
+from tests.conftest import TEST_CONFIG_DIR
+
+
+def run(argv: list[str]) -> None:
+    """One command carried out under the suite's own settings (:data:`~tests.conftest.TEST_CONFIG_DIR`).
+
+    Every command loads its configured values from the directory ``--config`` names, so pointing each run
+    at the repository's test settings is what makes the artifacts a test reads back reproduce whatever the
+    bundled ``opticonfig`` currently ships. A test about a configured knob states it through the command's
+    own flag, which leaves the flag beside the assertion it moves.
+    """
+    main([*argv, "--config", str(TEST_CONFIG_DIR)])
+
 
 SR = 44_100
 PITCHES = (60, 62, 64)
@@ -190,7 +203,7 @@ def test_optimize_command_writes_artifacts(
     tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     out = tmp_path / "artifacts"
-    main(
+    run(
         [
             "optimize",
             str(tiny_notes),
@@ -213,7 +226,7 @@ def test_optimize_command_writes_artifacts(
 
 def test_optimize_command_writes_the_format_it_was_asked_for(tmp_path: Path, tiny_notes: Path) -> None:
     out = tmp_path / "artifacts"
-    main(
+    run(
         [
             "optimize",
             str(tiny_notes),
@@ -237,7 +250,7 @@ def test_optimize_command_writes_the_format_it_was_asked_for(tmp_path: Path, tin
 
 def test_optimize_command_reports_timing(tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]) -> None:
     out = tmp_path / "artifacts"
-    main(
+    run(
         [
             "optimize",
             str(tiny_notes),
@@ -261,7 +274,7 @@ def test_optimize_command_profile_flag_still_writes_and_profiles(
     tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     out = tmp_path / "artifacts"
-    main(
+    run(
         [
             "optimize",
             str(tiny_notes),
@@ -286,7 +299,7 @@ def test_optimize_command_honors_single_strategy(
     tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     out = tmp_path / "artifacts"
-    main(
+    run(
         [
             "optimize",
             str(tiny_notes),
@@ -312,7 +325,7 @@ def test_reduce_command_writes_a_dataset_and_its_reduction(
     tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     out = tmp_path / "reduced"
-    main(["reduce", str(tiny_notes), "--budget-kb", "48", "--out", str(out), "--rate", "11025", "--depth", "8"])
+    run(["reduce", str(tiny_notes), "--budget-kb", "48", "--out", str(out), "--rate", "11025", "--depth", "8"])
     assert (out / "piano.notes.json").is_file()
     assert sorted(path.name for path in (out / "piano").glob("*.wav"))
     assert (out / "reduction" / "piano" / "reduction.json").is_file()
@@ -325,7 +338,7 @@ def test_listen_command_writes_a_blinded_set_and_its_answer_sheet(
     tmp_path: Path, held_notes: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     out = tmp_path / "listening"
-    main(["listen", str(held_notes), "--budget-kb", "48", "--out", str(out), "--pairs", "4"])
+    run(["listen", str(held_notes), "--budget-kb", "48", "--out", str(out), "--pairs", "4"])
     manifest = json.loads((out / "piano" / "pairs.json").read_text(encoding="utf-8"))
     assert manifest["pairs"]
     for record in manifest["pairs"]:
@@ -343,7 +356,7 @@ def test_listen_scales_the_configured_quota_to_the_listening_asked_for(tmp_path:
     asked = []
     for pairs in (4, 12):
         out = tmp_path / str(pairs)
-        main(["listen", str(held_notes), "--budget-kb", "48", "--out", str(out), "--pairs", str(pairs)])
+        run(["listen", str(held_notes), "--budget-kb", "48", "--out", str(out), "--pairs", str(pairs)])
         asked.append(len(json.loads((out / "piano" / "pairs.json").read_text(encoding="utf-8"))["pairs"]))
 
     assert asked[0] < asked[1]
@@ -352,7 +365,7 @@ def test_listen_scales_the_configured_quota_to_the_listening_asked_for(tmp_path:
 def test_listen_leaves_the_notes_too_short_to_judge_unasked(tmp_path: Path, tiny_notes: Path) -> None:
     out = tmp_path / "listening"
 
-    main(["listen", str(tiny_notes), "--budget-kb", "48", "--out", str(out), "--pairs", "4"])
+    run(["listen", str(tiny_notes), "--budget-kb", "48", "--out", str(out), "--pairs", "4"])
 
     assert json.loads((out / "piano" / "pairs.json").read_text(encoding="utf-8"))["pairs"] == []
 
@@ -361,7 +374,7 @@ def test_rank_command_reads_a_filled_in_sheet_and_writes_what_it_makes_of_the_me
     tmp_path: Path, held_notes: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     out = tmp_path / "listening"
-    main(["listen", str(held_notes), "--budget-kb", "48", "--out", str(out), "--pairs", "4"])
+    run(["listen", str(held_notes), "--budget-kb", "48", "--out", str(out), "--pairs", "4"])
     written = out / "piano"
     labels = written / "labels.csv"
     labels.write_text(
@@ -370,7 +383,7 @@ def test_rank_command_reads_a_filled_in_sheet_and_writes_what_it_makes_of_the_me
     )
     capsys.readouterr()
 
-    main(["rank", str(written)])
+    run(["rank", str(written)])
 
     report = json.loads((written / "report.json").read_text(encoding="utf-8"))
     assert [metric["name"] for metric in report["metrics"]][:2] == ["objective", "composite"]
@@ -380,10 +393,10 @@ def test_rank_command_reads_a_filled_in_sheet_and_writes_what_it_makes_of_the_me
 
 def test_rank_reports_on_what_a_part_filled_sheet_holds(tmp_path: Path, held_notes: Path) -> None:
     out = tmp_path / "listening"
-    main(["listen", str(held_notes), "--budget-kb", "48", "--out", str(out), "--pairs", "4"])
+    run(["listen", str(held_notes), "--budget-kb", "48", "--out", str(out), "--pairs", "4"])
     written = out / "piano"
 
-    main(["rank", str(written)])
+    run(["rank", str(written)])
 
     report = json.loads((written / "report.json").read_text(encoding="utf-8"))
     assert (report["answered"], report["metrics"]) == (0, [])
@@ -397,7 +410,7 @@ def test_reduce_reports_and_leaves_out_the_recordings_that_never_sound(
     silent = tmp_path / "piano" / f"0000_p{PITCHES[0]}_v100.wav"
     write_wav(silent, np.full(round(0.6 * SR), 1.0e-6), SR)
     out = tmp_path / "reduced"
-    main(["reduce", str(tiny_notes), "--budget-kb", "48", "--out", str(out), "--rate", "11025", "--depth", "8"])
+    run(["reduce", str(tiny_notes), "--budget-kb", "48", "--out", str(out), "--rate", "11025", "--depth", "8"])
     written = sorted(path.name for path in (out / "piano").glob("*.wav"))
     assert len(written) == len(PITCHES) - 1
     assert "carried no signal" in capsys.readouterr().out
@@ -410,9 +423,9 @@ def test_a_reduced_dataset_optimizes_to_the_same_plan_as_its_source(tmp_path: Pa
     """The round trip the reduce stage exists for: allocating from the dataset reaches the same plan."""
     reduced = tmp_path / "reduced"
     flags = ["--budget-kb", "48", "--rate", "11025", "--depth", "8"]
-    main(["reduce", str(tiny_notes), *flags, "--out", str(reduced)])
-    main(["optimize", str(tiny_notes), *flags, "--out", str(tmp_path / "direct"), "--no-render"])
-    main(["optimize", str(reduced / "piano.notes.json"), *flags, "--out", str(tmp_path / "again"), "--no-render"])
+    run(["reduce", str(tiny_notes), *flags, "--out", str(reduced)])
+    run(["optimize", str(tiny_notes), *flags, "--out", str(tmp_path / "direct"), "--no-render"])
+    run(["optimize", str(reduced / "piano.notes.json"), *flags, "--out", str(tmp_path / "again"), "--no-render"])
     direct = (tmp_path / "direct" / "piano" / "ungrouped" / "plan.json").read_text(encoding="utf-8")
     again = (tmp_path / "again" / "piano" / "ungrouped" / "plan.json").read_text(encoding="utf-8")
     assert direct == again
@@ -422,15 +435,13 @@ def test_subset_command_writes_a_dataset_the_other_commands_read(
     tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     out = tmp_path / "subset"
-    main(["subset", str(tiny_notes), "--fraction", "0.67", "--out", str(out)])
+    run(["subset", str(tiny_notes), "--fraction", "0.67", "--out", str(out)])
 
     assert (out / "piano.notes.json").is_file()
     assert len(list((out / "piano").glob("*.wav"))) == 2
     printed = capsys.readouterr().out
     assert "2 of 3 notes" in printed
-    main(
-        ["optimize", str(out / "piano.notes.json"), "--budget-kb", "48", "--out", str(tmp_path / "art"), "--no-render"]
-    )
+    run(["optimize", str(out / "piano.notes.json"), "--budget-kb", "48", "--out", str(tmp_path / "art"), "--no-render"])
     assert (tmp_path / "art" / "piano" / "ungrouped" / "plan.json").is_file()
 
 
@@ -438,7 +449,7 @@ def test_the_subset_command_states_what_sounded_too_briefly_to_slice(
     tmp_path: Path, ragged_notes: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     out = tmp_path / "subset"
-    main(
+    run(
         [
             "subset",
             str(ragged_notes),
@@ -459,13 +470,13 @@ def test_the_subset_command_states_what_sounded_too_briefly_to_slice(
 def test_the_subset_command_says_nothing_of_a_source_it_admits_whole(
     tmp_path: Path, ragged_notes: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    main(["subset", str(ragged_notes), "--fraction", "1.0", "--min-duration-s", "0.0", "--out", str(tmp_path / "s")])
+    run(["subset", str(ragged_notes), "--fraction", "1.0", "--min-duration-s", "0.0", "--out", str(tmp_path / "s")])
 
     assert "too briefly" not in capsys.readouterr().out
 
 
 def test_the_subset_command_names_its_output_after_the_instrument(tmp_path: Path, tiny_notes: Path) -> None:
-    main(["subset", str(tiny_notes), "--fraction", "1.0", "--instrument-id", "Grand", "--out", str(tmp_path / "s")])
+    run(["subset", str(tiny_notes), "--fraction", "1.0", "--instrument-id", "Grand", "--out", str(tmp_path / "s")])
 
     assert (tmp_path / "s" / "Grand.notes.json").is_file()
     assert len(list((tmp_path / "s" / "Grand").glob("*.wav"))) == len(PITCHES)
@@ -475,7 +486,7 @@ def test_a_directory_of_recordings_optimizes_with_no_manifest_naming_them(
     tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Pointing a command at the recordings alone is how a set of samples with no song behind it runs."""
-    main(
+    run(
         ["optimize", str(tiny_notes.parent / "piano"), "--budget-kb", "48", "--out", str(tmp_path / "a"), "--no-render"]
     )
 
@@ -488,7 +499,7 @@ def test_a_chained_run_takes_a_directory_of_recordings_the_whole_way(
 ) -> None:
     """The slice a directory takes is a directory, so every stage downstream reads the shape it was given."""
     out = tmp_path / "artifacts"
-    main(
+    run(
         [
             "pipeline",
             str(tiny_notes.parent / "piano"),
@@ -512,7 +523,7 @@ def test_a_chained_run_takes_a_directory_of_recordings_the_whole_way(
 
 def test_the_subset_command_slices_a_directory_of_recordings_into_a_directory(tmp_path: Path, tiny_notes: Path) -> None:
     out = tmp_path / "subset"
-    main(["subset", str(tiny_notes.parent / "piano"), "--fraction", "0.67", "--out", str(out)])
+    run(["subset", str(tiny_notes.parent / "piano"), "--fraction", "0.67", "--out", str(out)])
 
     assert len(list((out / "piano").glob("*.wav"))) == 2
     assert not (out / "piano.notes.json").exists()
@@ -522,7 +533,7 @@ def test_pipeline_command_writes_a_directory_per_stage_it_ran(
     tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     out = tmp_path / "artifacts"
-    main(
+    run(
         [
             "pipeline",
             str(tiny_notes),
@@ -557,7 +568,7 @@ def test_every_stage_of_a_chained_run_carries_its_recordings_as_instruments(
 ) -> None:
     """A stage's own audio is playable in a tracker, so what one stage did to it is audible against the next."""
     out = tmp_path / "artifacts"
-    main(
+    run(
         # fmt: off
         [
             "pipeline", str(tiny_notes), "--budget-kb", "48", "--fraction", "0.67", "--out", str(out),
@@ -575,7 +586,7 @@ def test_every_stage_of_a_chained_run_carries_its_recordings_as_instruments(
 def test_a_plans_own_samples_are_carried_as_instruments_beside_them(tmp_path: Path, tiny_notes: Path) -> None:
     """One instrument per stored sample is how a single voice out of a plan is auditioned on its own."""
     out = tmp_path / "artifacts"
-    main(
+    run(
         # fmt: off
         [
             "optimize", str(tiny_notes), "--budget-kb", "48", "--out", str(out),
@@ -595,10 +606,10 @@ def test_the_instruments_command_fills_in_a_dataset_that_was_already_written(
 ) -> None:
     """A tree written before is filled in from what it holds, which asks for no rerun of the stage that wrote it."""
     out = tmp_path / "subset"
-    main(["subset", str(tiny_notes), "--fraction", "1.0", "--out", str(out)])
+    run(["subset", str(tiny_notes), "--fraction", "1.0", "--out", str(out)])
     shutil.rmtree(instrument_files_dir(out / "piano", ".iti"))
 
-    main(["instruments", str(out / "piano.notes.json")])
+    run(["instruments", str(out / "piano.notes.json")])
 
     assert len(list(instrument_files_dir(out / "piano", ".iti").glob("*.iti"))) == len(PITCHES)
     assert "instruments -> ITI, XI" in capsys.readouterr().out
@@ -611,11 +622,11 @@ def test_the_pipeline_command_reaches_what_running_the_stages_one_at_a_time_reac
     flags = ["--budget-kb", "48", "--rate", "11025", "--depth", "8"]
     allocate = ["--no-render", "--strategy", "ungrouped"]
     chained, apart = tmp_path / "chained", tmp_path / "apart"
-    main(["pipeline", str(tiny_notes), *flags, *allocate, "--fraction", "0.67", "--out", str(chained)])
-    main(["subset", str(tiny_notes), "--fraction", "0.67", "--out", str(apart / "0_subset")])
-    main(["loop", str(apart / "0_subset" / "piano.notes.json"), *flags, "--out", str(apart / "1_looped")])
-    main(["reduce", str(apart / "1_looped" / "piano.notes.json"), *flags, "--out", str(apart / "2_reduced")])
-    main(["optimize", str(apart / "2_reduced" / "piano.notes.json"), *flags, *allocate, "--out", str(apart / "3")])
+    run(["pipeline", str(tiny_notes), *flags, *allocate, "--fraction", "0.67", "--out", str(chained)])
+    run(["subset", str(tiny_notes), "--fraction", "0.67", "--out", str(apart / "0_subset")])
+    run(["loop", str(apart / "0_subset" / "piano.notes.json"), *flags, "--out", str(apart / "1_looped")])
+    run(["reduce", str(apart / "1_looped" / "piano.notes.json"), *flags, "--out", str(apart / "2_reduced")])
+    run(["optimize", str(apart / "2_reduced" / "piano.notes.json"), *flags, *allocate, "--out", str(apart / "3")])
     plan = Path("piano") / "ungrouped" / "plan.json"
     assert (chained / "3_optimized" / plan).read_text(encoding="utf-8") == (apart / "3" / plan).read_text(
         encoding="utf-8"
@@ -627,7 +638,7 @@ def test_the_pipeline_command_reduces_its_source_when_no_fraction_names_a_slice(
 ) -> None:
     out = tmp_path / "artifacts"
     flags = ["--budget-kb", "48", "--rate", "11025", "--depth", "8", "--no-render", "--strategy", "ungrouped"]
-    main(["pipeline", str(tiny_notes), *flags, "--out", str(out)])
+    run(["pipeline", str(tiny_notes), *flags, "--out", str(out)])
     assert not (out / "0_subset").exists()
     assert (out / "3_optimized" / "piano" / "ungrouped" / "plan.json").is_file()
 
@@ -704,7 +715,7 @@ def test_the_demo_reads_the_same_fan_out_flag_as_a_run(config: OptiConfig) -> No
 
 
 def test_synth_command_generates_notes(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    main(["synth", str(tmp_path / "demo"), "--sample-rate", "22050"])
+    run(["synth", str(tmp_path / "demo"), "--sample-rate", "22050"])
     assert sorted((tmp_path / "demo").glob("*.notes.json"))
     assert "notes.json" in capsys.readouterr().out.lower()
 
@@ -716,14 +727,14 @@ def test_synth_command_generates_notes(tmp_path: Path, capsys: pytest.CaptureFix
 def clustered_run(tiny_notes: Path, tmp_path: Path) -> Path:
     """A run root whose first stage holds the tiny project, which is what a clustered run reads."""
     root = tmp_path / "run"
-    main(["subset", str(tiny_notes), "--fraction", "1.0", "--min-duration-s", "0.0", "--out", str(root / "0_subset")])
+    run(["subset", str(tiny_notes), "--fraction", "1.0", "--min-duration-s", "0.0", "--out", str(root / "0_subset")])
     return root
 
 
 def test_cluster_writes_one_instrument_per_velocity_band(clustered_run: Path, tmp_path: Path) -> None:
     """A keymap names no dynamic, so each band the corpus is cut into is written as its own file."""
     out_dir = tmp_path / "clustered"
-    main(
+    run(
         [
             "cluster",
             str(clustered_run),
@@ -752,7 +763,7 @@ def test_cluster_writes_one_instrument_per_velocity_band(clustered_run: Path, tm
 def test_cluster_states_the_depth_and_groups_it_was_asked_for(clustered_run: Path, tmp_path: Path) -> None:
     """The flags reach the nested config, so the manifest reports what the run was actually told to do."""
     out_dir = tmp_path / "clustered"
-    main(
+    run(
         [
             "cluster",
             str(clustered_run),
@@ -783,4 +794,4 @@ def test_cluster_asks_which_instrument_to_read_when_a_run_holds_several(clustere
     shutil.copy(clustered_run / "0_subset" / "piano.notes.json", clustered_run / "0_subset" / "other.notes.json")
 
     with pytest.raises(ValueError, match="--instrument-id"):
-        main(["cluster", str(clustered_run), "--stage", "subset", "--no-progress", "--out", str(tmp_path / "out")])
+        run(["cluster", str(clustered_run), "--stage", "subset", "--no-progress", "--out", str(tmp_path / "out")])

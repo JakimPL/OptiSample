@@ -1,0 +1,3 @@
+# The clock every tracker format shares (optisample.config.render.PlaybackConfig); speed+tempo set the row duration.
+speed: 6
+tempo: 125

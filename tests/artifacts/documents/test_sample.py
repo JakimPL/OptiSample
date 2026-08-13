@@ -26,6 +26,7 @@ from optisample.dsp.surrogate import SettledLoop
 from optisample.keys import SampleKey
 from optisample.loop.settle import StoredLoop
 from optisample.music import midi_to_freq
+from tests.conftest import TEST_CONFIG_DIR
 
 SR = 22_050
 _PITCH = 60
@@ -55,7 +56,7 @@ def signal() -> NDArray[np.float64]:
 
 @pytest.fixture
 def split(signal: NDArray[np.float64]) -> Decomposition:
-    return decompose(signal, level_reading(SR, load_config().loop.envelope, midi_to_freq(_PITCH)))
+    return decompose(signal, level_reading(SR, load_config(TEST_CONFIG_DIR).loop.envelope, midi_to_freq(_PITCH)))
 
 
 @pytest.fixture

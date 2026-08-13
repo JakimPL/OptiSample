@@ -1,0 +1,6 @@
+# Budget solver (optisample.config.optimize.BudgetConfig).
+method: exact # "exact" (pseudo-poly DP) or "lagrangian" (RD sweep)
+energy_exponent: 0.5 # power a note's energy is raised to before it scales the note's distortion cost
+# 0.0 prices every note alike | 0.5 follows amplitude | 1.0 follows energy | 0.3 follows perceived loudness
+max_samples: 24 # stored samples a grouped plan may keep, met by storing wider zones; 0 keeps what the format numbers
+resolution: 65536 # byte totals a partition walk resolves a budget into; null walks it to the byte

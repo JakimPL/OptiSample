@@ -1,0 +1,8 @@
+# How a recording is read as a series of timbre frames (optisample.config.loop.FeatureConfig).
+window_periods: 3      # periods of the note's own pitch one frame spans, so every note resolves its partials
+min_window_s: 0.023    # floor on that stretch, which keeps the highest notes' frames carrying a spectrum
+hop_share: 0.25        # step between one frame and the next, as a share of the window
+bands: 40              # mel bands one frame's shape is read over
+dynamic_range_db: 60.0 # range each frame states its shape across, under that frame's own loudest band
+change_span_s: 0.2     # stretch the shape's travel is read across, which divides the reading's own wobble out
+settle_db_per_s: 15.0  # rate the shape moves under for the material to count as settled

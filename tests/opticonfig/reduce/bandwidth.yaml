@@ -1,0 +1,4 @@
+# How the rate a sample is stored at follows from its own band (optisample.config.reduce.BandwidthConfig).
+ceiling_hz: 16000.0    # highest output frequency worth storing (capped at the analysis Nyquist)
+content_floor_db: 60.0 # how far under its loudest band a recording still carries content
+content_band_hz: 200.0 # width the spectrum is averaged into before that edge is read

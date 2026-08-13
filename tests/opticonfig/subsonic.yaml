@@ -1,0 +1,4 @@
+# The band under hearing every recording arrives without (optisample.config.subsonic.SubsonicConfig).
+cutoff_hz: 30.0    # where the roll-off takes hold, under the lowest note a keyboard sounds
+rejection_hz: 10.0 # the depth the curve is measured at
+rejection_db: 60.0 # how far under the passed band the curve stands there

@@ -1,0 +1,2 @@
+# How the material's note events collapse before they are scored (optisample.config.reduce.EventsConfig).
+duration_bucket_ratio: 1.25 # geometric bucket edges notes round up to; 1.0 keeps every duration

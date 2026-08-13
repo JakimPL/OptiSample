@@ -20,9 +20,10 @@ from optisample.io.sample_dir import (
     write_sample_dir_subset,
 )
 from optisample.model import ProjectSpec
+from tests.conftest import TEST_CONFIG_DIR
 
 SR = 8_000
-_SUBSONIC = load_config().subsonic
+_SUBSONIC = load_config(TEST_CONFIG_DIR).subsonic
 _INSTRUMENT = "Piano"
 _FRAMES = 1_600
 _TAKE_S = _FRAMES / SR
