@@ -18,9 +18,10 @@ from optisample.artifacts.documents.sample import (
 )
 from optisample.artifacts.serialize import write_msgpack
 from optisample.config import load_config
-from optisample.dsp.decay import LinearDecay
 from optisample.dsp.envelope import Decomposition, decompose, level_reading
+from optisample.dsp.level import Clock, read_level, unit_level
 from optisample.dsp.loop import Loop, LoopQuality
+from optisample.dsp.series import Readings
 from optisample.dsp.surrogate import SettledLoop
 from optisample.keys import SampleKey
 from optisample.loop.settle import StoredLoop
@@ -61,11 +62,15 @@ def split(signal: NDArray[np.float64]) -> Decomposition:
 def offered() -> tuple[StoredLoop, ...]:
     """Two offers, one playing out flat and one falling on a ramp, cheapest stored span first."""
     return (
-        StoredLoop(settled=SettledLoop(loop=Loop(start=512, end=1_024), decay=None), quality=_QUALITY),
+        StoredLoop(
+            settled=SettledLoop(loop=Loop(start=512, end=1_024), level=unit_level(Clock.RECORDED)), quality=_QUALITY
+        ),
         StoredLoop(
             settled=SettledLoop(
                 loop=Loop(start=512, end=2_048),
-                decay=LinearDecay(start_s=0.1, end_s=0.9, final_gain=0.25),
+                level=read_level(
+                    Readings(values=np.asarray([0.0, -12.0]), seconds=np.asarray([0.1, 0.9])), Clock.RECORDED
+                ),
             ),
             quality=_QUALITY,
         ),

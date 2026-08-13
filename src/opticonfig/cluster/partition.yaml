@@ -4,4 +4,4 @@ linkage: ward            # joins the pair adding the least spread, favouring gro
 groups: 8                # how many groups the space is cut into
 max_groups: 16           # how far the sweep climbs while it reports what each count is worth
 representative: medoid   # the member standing closest to the rest, which is a take a listener can play
-min_duration_s: 0.25     # how long a representative rings for at the least, which is a take one can shape
+min_duration_s: 1.0      # how long a representative rings for at the least, which is a take one can shape

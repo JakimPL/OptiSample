@@ -5,7 +5,7 @@ from typing import Any, Final
 
 from pydantic import SerializerFunctionWrapHandler, model_serializer
 
-from optisample.artifacts.documents.loops import DecayRecord, LoopRecord, decay_record, loop_record
+from optisample.artifacts.documents.loops import LevelRecord, LoopRecord, level_record, loop_record
 from optisample.artifacts.documents.reduction import ReductionDocument, reduction_document
 from optisample.artifacts.documents.velocity import VelocityMapDocument, velocity_map_document
 from optisample.artifacts.serialize import Frozen
@@ -54,9 +54,9 @@ class EncodingRecord(Frozen):
 
     ``loop_index`` names which of the loops the stage offered for this recording the allocation bought,
     counting from the cheapest stored span, and is absent for an item storing the span it plays -- so how
-    much of a note the budget paid to keep is readable beside what that cost. ``loop`` and ``decay`` are
+    much of a note the budget paid to keep is readable beside what that cost. ``loop`` and ``level`` are
     read off the sample as re-encoding actually stored it, so they state the loop a player wraps on and the
-    ramp it is brought down by rather than what the sweep asked for. The plan items
+    curve it is brought down by rather than what the sweep asked for. The plan items
     (:class:`PitchItemRecord`, :class:`ZoneItemRecord`) inherit these fields so the block appears once per
     item, flattened alongside the item's own leading fields.
     """
@@ -67,7 +67,7 @@ class EncodingRecord(Frozen):
     trim_s: float | None
     loop_index: int | None
     loop: LoopRecord | None
-    decay: DecayRecord | None
+    level: LevelRecord
     frames: int
     stored_bytes: int
     distortion: float
@@ -229,7 +229,7 @@ def _encoding_record(unit: SampleUnit, stored: StoredSample) -> EncodingRecord:
         trim_s=unit.params.trim_s,
         loop_index=unit.params.loop_index,
         loop=loop_record(stored.loop),
-        decay=decay_record(stored.decay),
+        level=level_record(stored.level),
         frames=unit.frames,
         stored_bytes=unit.stored_bytes,
         distortion=unit.distortion,

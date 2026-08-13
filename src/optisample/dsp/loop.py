@@ -9,10 +9,10 @@ from numpy.typing import NDArray
 from optisample.config.loop import GeometryConfig, LoopConfig, PhaseConfig, SeamConfig
 from optisample.config.spectral import StftParams
 from optisample.dsp.envelope import LevelReading, local_level_over
-from optisample.dsp.level import gain_to_db
+from optisample.dsp.level import UNITY_DB, Clock, Level, gain_to_db, level_readings, read_level, unit_level
 from optisample.dsp.loopability import FrontierBounds, LoopReach, holds_a_round, loop_frontier
 from optisample.dsp.resample import resampled_frame_count
-from optisample.dsp.series import autocorrelation, refined_lag
+from optisample.dsp.series import Readings, autocorrelation, refined_lag
 from optisample.dsp.similarity import FrameSeries, frame_series, settling_frame
 from optisample.dsp.spectral import split_bands, stft_magnitude
 from optisample.dsp.timebase import seconds_to_frames
@@ -30,6 +30,9 @@ _SPECTRUM_FLOOR: Final = 1e-10
 _STEP_FLOOR: Final = 1e-12
 _CORRELATION_FLOOR: Final = 1e-24  # product of two norms a silent stretch reaches, which correlates with nothing
 _MAX_LEVEL_GAIN: Final = 4.0  # +12 dB, the most holding a region at one level asks of the material
+_DECLINE_WINDOW_S: Final = 0.05  # stretch one reading of the decline past a stored region averages over
+_DECLINE_NODES: Final = 12  # corners a decline turns through, which follows a ringing note inside a node budget
+_DECLINE_READINGS: Final = 2  # readings a decline is stated from, which is what one straight run asks for
 _MAX_SEAM_GAIN: Final = 2.0  # +6 dB, the most holding a blend at one level asks of material that cancels
 
 
@@ -206,9 +209,8 @@ def _steady_region(
     """The window a loop may be placed in, together with the period it repeats at.
 
     Material that declines as it rings is placed in just as steady material is: the region is held at one
-    level (:func:`level_loop`) and brought down outside the PCM by
-    :class:`~optisample.dsp.decay.LinearDecay`, so a struck note is stored as attack plus loop and declines
-    from there.
+    level (:func:`level_loop`) and brought down outside the PCM by the level it carries
+    (:func:`loop_decline`), so a struck note is stored as attack plus loop and declines from there.
 
     Answers with the reading that came up short for material a loop has no purchase on:
     :attr:`Material.STEADY` for a window shorter than ``_MIN_STEADY_FRAMES``, and
@@ -518,9 +520,9 @@ def level_loop(signal: Signal, loop: Loop, reading: LevelReading) -> Signal:
     player wrapping it steps the level back up once per round and a held note pulses at the loop's rate.
     Dividing the region by the level its own material holds
     (:func:`~optisample.dsp.envelope.local_level_over`) holds it at one amplitude, pinned at the level it
-    starts on so the attack runs into the region continuously and the decline the region gives up is what a
-    fitted ramp restores (:func:`~optisample.dsp.decay.fit_linear_decay`). The reading follows the material
-    frame by frame, so a region that swells and falls again comes out as flat as one that only falls.
+    starts on so the attack runs into the region continuously and the decline the region gives up is what the
+    stored level credits back (:func:`loop_decline`). The reading follows the material frame by frame, so a
+    region that swells and falls again comes out as flat as one that only falls.
 
     The gain stays under ``_MAX_LEVEL_GAIN``, so a region ringing its way down to silence is lifted only as
     far as flattening it holds its own noise floor down, and what a region falling further keeps is the
@@ -530,6 +532,37 @@ def level_loop(signal: Signal, loop: Loop, reading: LevelReading) -> Signal:
     out = np.array(signal, dtype=np.float64)
     out[loop.start : loop.end] *= np.clip(level[0] / level, 0.0, _MAX_LEVEL_GAIN)
     return out
+
+
+def loop_decline(signal: Signal, sample_rate: int, loop: Loop, reading: LevelReading) -> Level:
+    """The level a note held on ``loop`` goes on sounding at, against the one level its region is stored at.
+
+    A looped sample keeps the recording up to ``loop.end`` and wraps the region for as long as the note is
+    held, so the one thing its PCM stops carrying is the recording's own decline past the level levelling
+    pinned that region to (:func:`level_loop`). This states that decline: unit gain up to ``loop.start``,
+    and from there the level the recording holds at each moment over the level the region is held at, which
+    is the very curve levelling divided out carried on past where the material stops being stored.
+
+    The decline is read straight off the recording's own windows and stated in the corners it turns through,
+    so a note that rings down, holds, and rings down again is followed as closely as one falling straight,
+    and what a format writes is a shape the material stated rather than one fitted to stand in for it.
+    Reading it over the whole recording rather than the searched stretch is what has the level at the far
+    end of a held note come from material the recording actually made.
+
+    A recording holding less than ``_DECLINE_READINGS`` windows past ``loop.start`` states unit gain, which
+    is a note sounding at the level its region holds for as long as it runs.
+    """
+    remaining = np.asarray(signal[loop.start :], dtype=np.float64)
+    readings = level_readings(remaining, sample_rate, window_s=_DECLINE_WINDOW_S)
+    if readings.count < _DECLINE_READINGS:
+        return unit_level(Clock.RECORDED)
+
+    held_db = gain_to_db(float(local_level_over(signal, reading, start=loop.start, end=loop.end)[0]))
+    decline = Readings(
+        values=np.concatenate(([UNITY_DB], readings.values - held_db)),
+        seconds=np.concatenate(([0.0], readings.seconds + loop.start / sample_rate)),
+    )
+    return read_level(decline, Clock.RECORDED).fitted(nodes=_DECLINE_NODES)
 
 
 def prepare_loop(signal: Signal, loop: Loop, sample_rate: int, seam: SeamConfig, reading: LevelReading) -> Signal:

@@ -6,7 +6,7 @@ import pytest
 from notebooks.utils import reports
 from notebooks.utils.reports import ComparedNote
 from optisample.artifacts.documents.loops import (
-    DecayRecord,
+    LevelRecord,
     LoopQualityRecord,
     LoopRecord,
     LoopsDocument,
@@ -53,7 +53,7 @@ _ENCODING = {
     "trim_s": 1.5,
     "loop_index": 1,
     "loop": LoopRecord(start=100, end=900),
-    "decay": DecayRecord(start_s=0.11, end_s=1.5, final_gain=0.2),
+    "level": LevelRecord(seconds=[0.11, 1.5], values_db=[0.0, -14.0]),
     "frames": 16_538,
     "stored_bytes": 16_538,
     "distortion": 2.5,
@@ -219,7 +219,7 @@ def _loops() -> LoopsDocument:
                         start_s=0.05,
                         end_s=0.55,
                         quality=_quality(1.25, 2.0, 3.5),
-                        decay=DecayRecord(start_s=0.55, end_s=2.0, final_gain=0.25),
+                        level=LevelRecord(seconds=[0.55, 2.0], values_db=[0.0, -12.0]),
                     ),
                     SettledLoopRecord(
                         start=400,
@@ -227,7 +227,7 @@ def _loops() -> LoopsDocument:
                         start_s=0.05,
                         end_s=1.05,
                         quality=_quality(1.1, 2.4, 2.0),
-                        decay=DecayRecord(start_s=1.05, end_s=2.0, final_gain=0.25),
+                        level=LevelRecord(seconds=[1.05, 2.0], values_db=[0.0, -12.0]),
                     ),
                 ],
                 rejected=[
@@ -425,7 +425,7 @@ def test_an_ungrouped_item_holds_the_one_pitch_it_was_recorded_at(instrument_dir
     assert (rows[0]["keys"], rows[0]["span"], rows[0]["note"]) == ("60", 1, "C4")
     assert (rows[0]["rate_hz"], rows[0]["depth"], rows[0]["comp"]) == (11_025, 8, "on")
     assert rows[0]["loop"] == 1  # the second-cheapest loop the stage offered is the one the budget bought
-    assert rows[0]["decay_to"] == 0.2  # the share of the loop's level the note is played down to
+    assert rows[0]["decline_db"] == -14.0  # how far under the loop's own level the note is played down
 
 
 def test_a_grouped_item_holds_the_whole_zone_its_representative_serves(instrument_dir: Path) -> None:

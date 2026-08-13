@@ -3,7 +3,8 @@ from __future__ import annotations
 import numpy as np
 
 from optisample.artifacts.documents.plan import plan_document
-from optisample.dsp.decay import LinearDecay
+from optisample.dsp.level import Clock, Level, read_level, unit_level
+from optisample.dsp.series import Readings
 from optisample.dsp.surrogate import StoredSample
 from optisample.optimize.export.coverage import KeyCoverage
 from optisample.optimize.export.voices import NO_DRIFT, WrittenInstruments
@@ -27,15 +28,15 @@ def _written(
     return WrittenInstruments(layout=layout, drifts=(drift_db,) * layout.count)
 
 
-def _encoded(plan: StrategyPlan, *, decay: LinearDecay | None = None) -> list[StoredSample]:
-    """One re-encoded sample per plan item, which is where the document reads a loop and a decay off."""
+def _encoded(plan: StrategyPlan, *, level: Level = unit_level(Clock.PLAYED)) -> list[StoredSample]:
+    """One re-encoded sample per plan item, which is where the document reads a loop and a level off."""
     return [
         StoredSample(
             pcm=np.zeros(unit.frames, dtype=np.float64),
             sample_rate=unit.params.target_rate,
             depth_bits=unit.params.depth_bits,
             root_pitch=unit.representative,
-            decay=decay,
+            level=level,
         )
         for unit in plan.sample_units()
     ]
@@ -86,17 +87,16 @@ def test_both_documents_state_the_weighting_their_objective_was_measured_under(
         assert "energy_exponent" in doc.model_dump()
 
 
-def test_an_item_states_the_ramp_its_looped_sample_is_played_down_by(grouped_plan: GroupedInstrumentPlan) -> None:
+def test_an_item_states_the_curve_its_looped_sample_is_played_down_by(grouped_plan: GroupedInstrumentPlan) -> None:
     """A looped sample holds one level, so the plan records what brings it down beside the loop itself."""
-    ramp = LinearDecay(start_s=0.6, end_s=3.0, final_gain=0.15)
+    ramp = read_level(Readings(values=np.asarray([0.0, -16.5]), seconds=np.asarray([0.6, 3.0])), Clock.PLAYED)
 
-    doc = plan_document(grouped_plan, _encoded(grouped_plan, decay=ramp), _SIZE, _COVERAGE, _written(grouped_plan))
+    doc = plan_document(grouped_plan, _encoded(grouped_plan, level=ramp), _SIZE, _COVERAGE, _written(grouped_plan))
     plain = plan_document(grouped_plan, _encoded(grouped_plan), _SIZE, _COVERAGE, _written(grouped_plan))
 
     zone = (doc.zones or [])[0]
-    assert zone.decay is not None
-    assert (zone.decay.start_s, zone.decay.end_s, zone.decay.final_gain) == (0.6, 3.0, 0.15)
-    assert (plain.zones or [])[0].decay is None  # a sample the recording states no decline for
+    assert (zone.level.seconds, zone.level.values_db) == ([0.6, 3.0], [0.0, -16.5])
+    assert (plain.zones or [])[0].level.values_db == [0.0]  # a sample the recording states no decline for
 
 
 def test_the_document_holds_one_record_per_written_instrument(grouped_plan: GroupedInstrumentPlan) -> None:

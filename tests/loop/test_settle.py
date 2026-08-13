@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import Final
 
 import numpy as np
+import pytest
 from numpy.typing import NDArray
 
 from optisample.config.loop import LoopConfig
@@ -14,6 +15,7 @@ from tests.conftest import recorded
 SR = 22_050
 _FREQ = 220.0
 _HELD_S = 3.0  # long enough for the frontier to lay out several candidates and still leave a tail
+_DECLINE_WINDOW_S: Final = 0.05  # the window a decline's last reading centres on, which bounds where it lands
 _BRIGHTENS_AT = round(_HELD_S / 2 * SR)  # the frame a brightening recording changes its timbre at
 
 LoopFactory = Callable[..., LoopConfig]
@@ -178,10 +180,10 @@ def test_a_struck_note_carries_the_decline_the_recording_goes_on_making(loop: Lo
 
     assert settlement.loops
     for stored in settlement.offered:
-        assert stored.decay is not None
-        assert stored.decay.final_gain < 1.0
-        # each offer holds one level from its own start, so each fits its own ramp
-        assert stored.decay.start_s == stored.loop.start / SR
+        assert not stored.level.transparent
+        assert stored.level.readings.values[-1] < 0.0
+        # each offer holds one level from its own start, so each reads its own decline from there
+        assert stored.level.db(np.asarray([stored.loop.start / SR])) == pytest.approx(0.0, abs=0.5)
 
 
 def test_a_region_falling_across_itself_is_offered_with_the_fall_it_states(loop: LoopFactory) -> None:
@@ -197,9 +199,8 @@ def test_the_decline_is_read_over_the_whole_recording_rather_than_the_span_searc
     settlement = settle_loop(_decaying(), SR, loop(quality=_WIDE_OPEN), root_hz=_FREQ, search_s=1.5)
 
     assert settlement.cheapest is not None
-    decay = settlement.cheapest.decay
-    assert decay is not None
-    assert decay.end_s == _HELD_S
+    reached = settlement.cheapest.level.readings.seconds[-1]
+    assert reached == pytest.approx(_HELD_S, abs=_DECLINE_WINDOW_S)
 
 
 def test_material_no_loop_has_purchase_on_settles_none_and_names_what_it_lacked(loop: LoopFactory) -> None:
@@ -250,7 +251,7 @@ def test_the_stored_loop_reads_its_region_and_its_decline_through_one_settled_va
 
     assert settlement.cheapest is not None
     assert settlement.cheapest.loop is settlement.cheapest.settled.loop
-    assert settlement.cheapest.decay is settlement.cheapest.settled.decay
+    assert settlement.cheapest.level is settlement.cheapest.settled.level
 
 
 def test_the_encoder_is_handed_every_offer_in_the_order_it_indexes_them(loop: LoopFactory) -> None:

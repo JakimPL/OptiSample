@@ -9,6 +9,7 @@ from optisample.carrier.source import CarrierSource
 from optisample.carrier.store import CarrierSettings
 from optisample.config import OptiConfig
 from optisample.dsp.envelope import Decomposition, decompose, level_reading
+from optisample.dsp.level import Clock, unit_level
 from optisample.dsp.loop import Loop
 from optisample.dsp.surrogate import NO_LOOPS, EncodingParams, SettledLoop
 from optisample.io.tracker.envelope import envelope_grid
@@ -79,7 +80,7 @@ def source(struck: Recorder, config: OptiConfig) -> Sourcer:
         loop: Loop | None = None,
     ) -> CarrierSource:
         signal = struck(pitch=pitch, seconds=seconds, decay_db=decay_db, peak=peak)
-        loops = NO_LOOPS if loop is None else (SettledLoop(loop=loop, decay=None),)
+        loops = NO_LOOPS if loop is None else (SettledLoop(loop=loop, level=unit_level(Clock.RECORDED)),)
         return CarrierSource(
             key=SampleKey(pitch=pitch, velocity=100),
             root_pitch=pitch,

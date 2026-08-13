@@ -216,14 +216,15 @@ def _encoding_cells(encoding: EncodingRecord) -> Row:
     """The stored-encoding block every plan item carries, as the cells a table shows it through.
 
     ``loop`` names which of the loops the stage offered this recording the budget bought, counting from
-    the cheapest, so reading it beside ``kib`` says how much of a note the plan paid to keep.
+    the cheapest, so reading it beside ``kib`` says how much of a note the plan paid to keep, and
+    ``decline_db`` is how far past the level its loop repeats a held note is finally played down.
     """
     return {
         "rate_hz": encoding.target_rate,
         "depth": encoding.depth_bits,
         "comp": _ON if encoding.compress else _OFF,
         "loop": _OFF if encoding.loop_index is None else encoding.loop_index,
-        "decay_to": _OFF if encoding.decay is None else round(encoding.decay.final_gain, 3),
+        "decline_db": round(encoding.level.values_db[-1], 1),
         "frames": encoding.frames,
         "kib": round(bytes_to_kib(encoding.stored_bytes), 3),
         "distortion": round(encoding.distortion, 4),

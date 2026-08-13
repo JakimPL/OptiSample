@@ -18,6 +18,7 @@ from optisample.dsp.loop import (
     crossfade_loop,
     level_loop,
     loop_at_rate,
+    loop_decline,
     loop_quality,
     loop_search,
     prepare_loop,
@@ -148,7 +149,7 @@ def test_the_cheapest_candidate_declines_on_noise(loop_config: LoopConfig) -> No
 
 def test_a_decaying_tone_loops_where_it_holds_a_period(loop_config: LoopConfig) -> None:
     # A struck note is pitched throughout its decay, and the level its loop settles on is brought down
-    # outside the PCM (optisample.dsp.decay), so it is stored as attack plus loop like any other tone.
+    # outside the PCM (optisample.dsp.loop.loop_decline), so it is stored as attack plus loop like any tone.
     decay = np.exp(-np.arange(2 * SR, dtype=np.float64) / (0.6 * SR))
     loop = _cheapest(decay * _sine(2 * SR), loop_config)
 
@@ -442,6 +443,103 @@ def test_a_region_carrying_no_sound_is_left_as_it_stands(loop: Loop, envelope_co
     signal = np.concatenate([np.zeros(SR), _sine(SR)])
 
     assert np.array_equal(level_loop(signal, loop, _reading(envelope_config)), signal)
+
+
+# --- the level a held note goes on sounding at ---------------------------------------------------------
+
+
+_DECLINE_WINDOW_S = 0.05  # the stretch one reading of a decline covers, which is where its last corner lands
+_RUNS_ON = 4 * SR  # frames of recording, which is longer than any region a test below stores of it
+
+
+def _fell_db(signal: NDArray[np.float64], frame: int) -> float:
+    """How far under the level at ``_LOOP.start`` the material sits at ``frame``, over one reading window."""
+    window = round(_DECLINE_WINDOW_S * SR)
+    held = _level_of(signal[_LOOP.start : _LOOP.start + window])
+    return gain_to_db(_level_of(signal[frame - window : frame]) / held)
+
+
+def test_a_struck_note_declines_to_the_level_its_recording_ends_on(envelope_config: EnvelopeConfig) -> None:
+    """What the PCM stops carrying is the recording's own fall past ``loop.start``, so the level states it."""
+    signal = _declining(_RUNS_ON, _STEEP_TAU_S)
+
+    decline = loop_decline(signal, SR, _LOOP, _reading(envelope_config))
+
+    ends_on = decline.db(np.asarray([_RUNS_ON / SR]))[0]
+    assert ends_on == pytest.approx(_fell_db(signal, _RUNS_ON), abs=1.0)
+
+
+def test_the_decline_holds_unit_gain_over_everything_the_sample_still_stores(
+    envelope_config: EnvelopeConfig,
+) -> None:
+    """The PCM up to ``loop.start`` carries every level it plays at, so nothing is put over it."""
+    signal = _declining(_RUNS_ON, _STEEP_TAU_S)
+
+    decline = loop_decline(signal, SR, _LOOP, _reading(envelope_config))
+
+    over_the_attack = decline.db(np.linspace(0.0, _LOOP.start / SR, 32))
+    assert float(np.max(np.abs(over_the_attack))) == pytest.approx(0.0, abs=0.5)
+
+
+def test_a_note_falling_further_is_played_further_down(envelope_config: EnvelopeConfig) -> None:
+    reads = np.asarray([_RUNS_ON / SR])
+
+    gentle = loop_decline(_declining(_RUNS_ON, _GENTLE_TAU_S), SR, _LOOP, _reading(envelope_config))
+    steep = loop_decline(_declining(_RUNS_ON, _STEEP_TAU_S), SR, _LOOP, _reading(envelope_config))
+
+    assert steep.db(reads)[0] < gentle.db(reads)[0] < 0.0
+
+
+def test_material_holding_its_level_is_played_as_it_stands(envelope_config: EnvelopeConfig) -> None:
+    """A recording that keeps its level states a decline of nothing, so the loop repeats at the level it holds."""
+    decline = loop_decline(_sine(_RUNS_ON), SR, _LOOP, _reading(envelope_config))
+
+    assert float(np.max(np.abs(decline.readings.values))) == pytest.approx(0.0, abs=0.5)
+
+
+def test_material_still_growing_past_the_region_is_played_up_the_way_it_grew(
+    envelope_config: EnvelopeConfig,
+) -> None:
+    """The level is what the recording did, so material louder past the loop than at its start reads above unity."""
+    signal = np.linspace(0.2, 1.0, _RUNS_ON) * _sine(_RUNS_ON)
+
+    decline = loop_decline(signal, SR, _LOOP, _reading(envelope_config))
+
+    assert decline.db(np.asarray([_RUNS_ON / SR]))[0] > 0.0
+
+
+def test_the_decline_follows_a_note_that_rings_down_and_then_holds(envelope_config: EnvelopeConfig) -> None:
+    """A curve turning where the material does reaches a knee no single straight run through it would."""
+    knee = _RUNS_ON // 4
+    envelope = np.concatenate([np.linspace(1.0, 0.2, knee), np.full(_RUNS_ON - knee, 0.2)])
+    signal = envelope * _sine(_RUNS_ON)
+
+    decline = loop_decline(signal, SR, _LOOP, _reading(envelope_config))
+
+    at_the_knee = decline.db(np.asarray([knee / SR]))[0]
+    assert at_the_knee == pytest.approx(_fell_db(signal, knee), abs=1.5)
+    assert decline.db(np.asarray([_RUNS_ON / SR]))[0] == pytest.approx(at_the_knee, abs=1.5)
+
+
+def test_the_decline_reads_the_level_where_the_region_starts_however_long_the_region_runs(
+    envelope_config: EnvelopeConfig,
+) -> None:
+    """Levelling pins a region at the level it opens on, so where it closes leaves the decline where it was."""
+    signal = _declining(_RUNS_ON, _STEEP_TAU_S)
+    reads = np.asarray([_RUNS_ON / SR])
+
+    brief = loop_decline(signal, SR, Loop(start=SR, end=SR + round(_DECLINE_WINDOW_S * SR)), _reading(envelope_config))
+    whole = loop_decline(signal, SR, Loop(start=SR, end=_RUNS_ON), _reading(envelope_config))
+
+    assert brief.db(reads)[0] == pytest.approx(whole.db(reads)[0], abs=0.5)
+
+
+def test_a_recording_holding_too_little_past_the_loop_states_no_decline(envelope_config: EnvelopeConfig) -> None:
+    """A remainder too short for one reading leaves the sample carrying every level it plays at."""
+    signal = _declining(_RUNS_ON, _STEEP_TAU_S)
+    reaches_the_end = Loop(start=_RUNS_ON - round(0.5 * _DECLINE_WINDOW_S * SR), end=_RUNS_ON)
+
+    assert loop_decline(signal, SR, reaches_the_end, _reading(envelope_config)).transparent
 
 
 @pytest.mark.parametrize(

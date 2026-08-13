@@ -1,6 +1,6 @@
 import numpy as np
 
-from optisample.dsp.decay import LinearDecay
+from optisample.dsp.level import Level
 from optisample.dsp.loop import Loop
 from optisample.dsp.quantize import apply_gain
 from optisample.dsp.resample import resample_num
@@ -82,16 +82,17 @@ def _sustain_with_loop(
     return np.concatenate([played[:end], tail])
 
 
-def _declining(played: Signal, decay: LinearDecay | None, out_rate: int) -> Signal:
-    """``played`` brought down by the ramp its stored sample declines on, where it carries one.
+def _declining(played: Signal, level: Level, out_rate: int) -> Signal:
+    """``played`` brought down by the level its stored sample declines on, where it carries one.
 
-    The ramp holds unit gain over the stored material and falls away past it, so what the loop repeats
-    declines the way the recording did while the stored frames sound exactly as they were stored.
+    The level holds unit gain over the stored material and falls away past it, so what the loop repeats
+    declines the way the recording did while the stored frames sound exactly as they were stored. A sample
+    whose own PCM holds every level it plays at reads transparent and is played as it stands.
     """
-    if decay is None:
+    if level.transparent:
         return played
 
-    return np.asarray(played * decay.envelope(played.size, out_rate), dtype=np.float64)
+    return np.asarray(played * level.frame_gains(played.size, out_rate), dtype=np.float64)
 
 
 def render(
@@ -109,7 +110,7 @@ def render(
     sample carries a loop and the note is held past the stored length, the loop region is repeated to
     sustain it (in the output domain, so it tracks the repitch); otherwise the note simply ends.
 
-    A sample carrying a decay (:class:`~optisample.dsp.decay.LinearDecay`) is played down by it, which is
+    A sample carrying a level (:class:`~optisample.dsp.level.Level`) is played down by it, which is
     what lets a held loop fall away the way the recording it stands for did. The note then sounds at
     :attr:`~optisample.dsp.surrogate.sample.StoredSample.playback_gain` times ``volume``: the first
     restores the level the recording was stored hot from, which is what a module reaches through its
@@ -121,7 +122,7 @@ def render(
         if target > played.size:
             played = _sustain_with_loop(played, stored.loop, scale, target)
 
-    rendered = apply_gain(_declining(played, stored.decay, out_rate), stored.playback_gain * volume / MAX_VOLUME)
+    rendered = apply_gain(_declining(played, stored.level, out_rate), stored.playback_gain * volume / MAX_VOLUME)
     if duration_s is not None:
         rendered = _fit_length(rendered, round(duration_s * out_rate))
 

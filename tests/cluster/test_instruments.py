@@ -9,7 +9,7 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.artifacts.documents.clustered import ClusteredDocument
-from optisample.artifacts.documents.loops import DecayRecord, LoopQualityRecord, SettledLoopRecord
+from optisample.artifacts.documents.loops import LevelRecord, LoopQualityRecord, SettledLoopRecord
 from optisample.artifacts.documents.sample import SampleDocument
 from optisample.artifacts.serialize import write_msgpack
 from optisample.cluster.corpus import describe_corpus
@@ -115,7 +115,7 @@ def _offer(start: int, spectral_distance: float) -> SettledLoopRecord:
         start_s=start / SR,
         end_s=(start + 1000) / SR,
         quality=_quality(spectral_distance),
-        decay=DecayRecord(start_s=0.0, end_s=1.0, final_gain=0.5),
+        level=LevelRecord(seconds=[0.0, 1.0], values_db=[0.0, -6.0]),
     )
 
 

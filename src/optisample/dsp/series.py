@@ -12,7 +12,7 @@ Series = NDArray[np.float64]
 _PEAK_CURVATURE: Final = 1e-12  # concavity a peak holds for a parabola to read a lag between points
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Readings:
     """A stretch read in windows: one value per window, beside the moment that window centres on.
 
@@ -30,6 +30,18 @@ class Readings:
     def count(self) -> int:
         """How many windows the stretch was read in, which is what a fit's own cost is counted in."""
         return int(self.values.size)
+
+    def __eq__(self, other: object) -> bool:
+        """Whether ``other`` is the same reading of the same stretch, value for value and moment for moment.
+
+        Readings travel inside the values a stage settles and a document reads back
+        (:class:`~optisample.dsp.level.Level`), so two of them compare as the series they are -- which is
+        what lets a settlement, a container and a run in another process be checked against each other.
+        """
+        if not isinstance(other, Readings):
+            return NotImplemented
+
+        return bool(np.array_equal(self.values, other.values) and np.array_equal(self.seconds, other.seconds))
 
 
 def hann_kernel(span: int) -> Series:

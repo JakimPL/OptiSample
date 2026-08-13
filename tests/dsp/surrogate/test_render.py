@@ -140,10 +140,10 @@ def test_a_held_loop_declines_the_way_the_recording_it_stands_for_did(
     stored = encode(
         source, SR, params, make_encode_ctx(_ROOT, settled=settle(source, SR, root_hz=_TONE_HZ, search_s=_TONE_S))
     )
-    assert stored.decay is not None
+    assert not stored.level.transparent
 
     held = render(stored, SR, pitch=_ROOT, duration_s=2.0)
-    ringing = render(replace(stored, decay=None), SR, pitch=_ROOT, duration_s=2.0)
+    ringing = render(replace(stored, level=unit_level(Clock.PLAYED)), SR, pitch=_ROOT, duration_s=2.0)
     assert stored.loop is not None
     attack_frames = output_frame(stored, stored.loop.start, SR, _ROOT)
 
@@ -152,7 +152,7 @@ def test_a_held_loop_declines_the_way_the_recording_it_stands_for_did(
     assert _end_level(ringing) > 5.0 * _end_level(source)  # the same loop, left to ring at its own level
 
 
-def test_a_sample_carrying_no_decay_plays_at_the_level_it_was_stored_at(
+def test_a_sample_stating_no_decline_plays_at_the_level_it_was_stored_at(
     sine: Callable[..., NDArray[np.float64]],
     make_encode_ctx: Callable[..., EncodeContext],
     settle: SettleLoops,
@@ -164,7 +164,7 @@ def test_a_sample_carrying_no_decay_plays_at_the_level_it_was_stored_at(
         recording, SR, params, make_encode_ctx(_ROOT, settled=settle(recording, SR, root_hz=_TONE_HZ, search_s=_TONE_S))
     )
 
-    assert stored.decay is None
+    assert stored.level.transparent
 
 
 # --- the ground truth a stored sample is measured against -------------------------------------------

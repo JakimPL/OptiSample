@@ -3,9 +3,12 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+import numpy as np
+
 from optisample.artifacts.serialize import Frozen
-from optisample.dsp.decay import NO_DECAY, LinearDecay
+from optisample.dsp.level import Clock, Level, read_level
 from optisample.dsp.loop import Loop, LoopQuality, Material
+from optisample.dsp.series import Readings
 from optisample.dsp.surrogate import SettledLoop, SettledLoops
 from optisample.keys import SampleKey
 from optisample.loop.settle import RejectedLoop, Settlement, StoredLoop
@@ -19,16 +22,17 @@ class LoopRecord(Frozen):
     end: int
 
 
-class DecayRecord(Frozen):
-    """The ramp a looped sample is played down by: when it falls, and how far.
+class LevelRecord(Frozen):
+    """The curve a looped sample is played down by, as the corners it turns through.
 
-    Seconds run from the note's onset, ``start_s`` sitting where the stored material ends, and
-    ``final_gain`` is the share of the loop's own level a note still sounds at once the ramp is through.
+    Seconds run from the note's onset and each value is decibels against the one level the stored region
+    holds, so the curve reads ``0.0`` over the material the PCM still carries and falls away past it. A pair
+    is one corner, and the curve runs straight between each pair and level past both ends -- which is what a
+    tracker envelope does with its own breakpoints.
     """
 
-    start_s: float
-    end_s: float
-    final_gain: float
+    seconds: list[float]
+    values_db: list[float]
 
 
 class LoopQualityRecord(Frozen):
@@ -48,7 +52,8 @@ class SettledLoopRecord(Frozen):
     """The loop one recording is stored around, in frames of the recording the stage wrote beside this.
 
     Frames are what a player wraps between and seconds are where a listener hears it, so both are stated.
-    ``decay`` is the ramp a note held past the stored span falls on, where the recording states one to make.
+    ``level`` is the curve a note held past the stored span sounds at, which the recording's own decline
+    states.
     """
 
     start: int
@@ -56,7 +61,7 @@ class SettledLoopRecord(Frozen):
     start_s: float
     end_s: float
     quality: LoopQualityRecord
-    decay: DecayRecord | None
+    level: LevelRecord
 
 
 class RejectedLoopRecord(Frozen):
@@ -114,12 +119,12 @@ def loop_record(loop: Loop | None) -> LoopRecord | None:
     return None if loop is None else LoopRecord(start=loop.start, end=loop.end)
 
 
-def decay_record(decay: LinearDecay | None) -> DecayRecord | None:
-    """The ramp a stored sample is played down by, where the recording states one to make."""
-    if decay is None:
-        return None
-
-    return DecayRecord(start_s=decay.start_s, end_s=decay.end_s, final_gain=decay.final_gain)
+def level_record(level: Level) -> LevelRecord:
+    """The curve a stored sample is played down by, as the corners the document states it in."""
+    return LevelRecord(
+        seconds=[float(moment) for moment in level.readings.seconds],
+        values_db=[float(value) for value in level.readings.values],
+    )
 
 
 def _loop_quality_record(quality: LoopQuality) -> LoopQualityRecord:
@@ -139,7 +144,7 @@ def settled_loop_record(stored: StoredLoop, sample_rate: int) -> SettledLoopReco
         start_s=stored.loop.start / sample_rate,
         end_s=stored.loop.end / sample_rate,
         quality=_loop_quality_record(stored.quality),
-        decay=decay_record(stored.decay),
+        level=level_record(stored.level),
     )
 
 
@@ -207,7 +212,7 @@ def settled_offers(offered: Sequence[SettledLoopRecord]) -> SettledLoops:
     -- the loops document and the calibrated ``.sample`` alike -- puts them back through here.
     """
     return tuple(
-        SettledLoop(loop=Loop(start=stored.start, end=stored.end), decay=_read_decay(stored.decay))
+        SettledLoop(loop=Loop(start=stored.start, end=stored.end), level=_read_level(stored.level))
         for stored in offered
     )
 
@@ -217,9 +222,12 @@ def settled_loops(document: LoopsDocument) -> dict[SampleKey, SettledLoops]:
     return {_settled_key(record): settled_offers(record.offered) for record in document.recordings}
 
 
-def _read_decay(record: DecayRecord | None) -> LinearDecay | None:
-    """The ramp one document entry states, where it states one."""
-    if record is None:
-        return NO_DECAY
-
-    return LinearDecay(start_s=record.start_s, end_s=record.end_s, final_gain=record.final_gain)
+def _read_level(record: LevelRecord) -> Level:
+    """The curve one document entry states, back on the recording's own clock."""
+    return read_level(
+        Readings(
+            values=np.asarray(record.values_db, dtype=np.float64),
+            seconds=np.asarray(record.seconds, dtype=np.float64),
+        ),
+        Clock.RECORDED,
+    )

@@ -57,7 +57,7 @@ _ENCODING = {
     "trim_s": _STORED_S,
     "loop_index": None,
     "loop": None,
-    "decay": None,
+    "level": {"seconds": [0.0], "values_db": [0.0]},
     "frames": round(_STORED_S * _STORED_RATE),
     "stored_bytes": round(_STORED_S * _STORED_RATE),
     "distortion": 2.5,

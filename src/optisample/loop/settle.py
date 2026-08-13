@@ -4,9 +4,9 @@ from dataclasses import dataclass
 from enum import StrEnum, unique
 
 from optisample.config.loop import LoopConfig, QualityConfig
-from optisample.dsp.decay import LinearDecay, fit_linear_decay
 from optisample.dsp.envelope import level_reading
-from optisample.dsp.loop import Loop, LoopQuality, LoopSearch, Material, loop_quality, loop_search
+from optisample.dsp.level import Level
+from optisample.dsp.loop import Loop, LoopQuality, LoopSearch, Material, loop_decline, loop_quality, loop_search
 from optisample.dsp.surrogate import SettledLoop, SettledLoops
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.metrics.base import Signal
@@ -38,9 +38,9 @@ class StoredLoop:
         return self.settled.loop
 
     @property
-    def decay(self) -> LinearDecay | None:
-        """The ramp a note held past the stored span falls on."""
-        return self.settled.decay
+    def level(self) -> Level:
+        """The curve a note held past the stored span sounds at, against the level its region holds."""
+        return self.settled.level
 
 
 @dataclass(frozen=True)
@@ -150,9 +150,9 @@ def settle_loop(
     a budget says which of them is worth its bytes. Where the material offered no candidate to measure,
     the search says what it lacked and the settlement carries that instead.
 
-    Each offer's decline is fitted over the whole recording rather than the searched stretch, so the ramp a
-    held note falls on is read off every level the recording states, and it is fitted per loop because
-    where a region starts is where the stored material stops following the recording's own envelope.
+    Each offer's decline is read over the whole recording rather than the searched stretch, so the curve a
+    held note falls on states every level the recording reached, and it is read per loop because where a
+    region starts is where the stored material stops following the recording's own envelope.
     """
     searched = signal[: seconds_to_frames(search_s, sample_rate)]
     reading = level_reading(sample_rate, config.envelope, root_hz)
@@ -163,8 +163,8 @@ def settle_loop(
         quality = loop_quality(searched, loop, sample_rate, config, reading)
         gate = _failed_gate(quality, config.quality)
         if gate is None:
-            decay = fit_linear_decay(signal, sample_rate, loop, reading)
-            offered.append(StoredLoop(settled=SettledLoop(loop=loop, decay=decay), quality=quality))
+            decline = loop_decline(signal, sample_rate, loop, reading)
+            offered.append(StoredLoop(settled=SettledLoop(loop=loop, level=decline), quality=quality))
         else:
             rejected.append(RejectedLoop(loop=loop, quality=quality, gate=gate))
 

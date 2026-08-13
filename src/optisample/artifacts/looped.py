@@ -16,8 +16,8 @@ from optisample.artifacts.instruments.dump import InstrumentSettings, WrittenIns
 from optisample.artifacts.paths import LoopedPaths, looped_paths
 from optisample.artifacts.serialize import write_json, write_msgpack
 from optisample.config.loop import LoopConfig, SeamConfig
-from optisample.dsp.decay import LinearDecay
 from optisample.dsp.envelope import LevelReading, decompose, level_reading
+from optisample.dsp.level import Level
 from optisample.dsp.loop import prepare_loop
 from optisample.io.audio import write_wav
 from optisample.io.dataset import SourceDataset
@@ -138,7 +138,7 @@ def held_audition(
     """The recording played out through its loop: the attack, the loop wrapped a few times, then the decline.
 
     The region is prepared first -- held at one level and blended at the seam -- so what is heard is the wrap
-    a player makes over the waveform a sample stores, and the fitted decay is put over the whole span, so the
+    a player makes over the waveform a sample stores, and the settled level is put over the whole span, so the
     audition carries the level a held note falls to as well as the seam it falls through. Wrapping
     :data:`_HELD_ROUNDS` times is enough for a seam step or a level pulse to become a rhythm a listener
     catches rather than a single click.
@@ -146,15 +146,15 @@ def held_audition(
     prepared = prepare_loop(signal, stored.loop, sample_rate, seam, reading)
     region = prepared[stored.loop.start : stored.loop.end]
     played = np.concatenate([prepared[: stored.loop.end], np.tile(region, _HELD_ROUNDS)])
-    return _declined(played, stored.decay, sample_rate)
+    return _declined(played, stored.level, sample_rate)
 
 
-def _declined(played: Signal, decay: LinearDecay | None, sample_rate: int) -> Signal:
-    """``played`` brought down by the ramp the recording states, where it states one to make."""
-    if decay is None:
+def _declined(played: Signal, level: Level, sample_rate: int) -> Signal:
+    """``played`` brought down by the curve the recording states, where it states one to make."""
+    if level.transparent:
         return played
 
-    return np.asarray(played * decay.envelope(played.size, sample_rate), dtype=np.float64)
+    return np.asarray(played * level.frame_gains(played.size, sample_rate), dtype=np.float64)
 
 
 def _write_key_auditions(

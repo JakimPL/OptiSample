@@ -4,7 +4,7 @@ from typing import Final
 import numpy as np
 
 from optisample.config.codec import EncodeConfig
-from optisample.dsp.decay import LinearDecay
+from optisample.dsp.level import Level
 from optisample.dsp.loop import Loop
 
 NO_LOOP: Final = None  # the loop of a stored sample that plays out rather than wrapping
@@ -17,12 +17,14 @@ class SettledLoop:
 
     Settled before any encoding runs, on the recording at the rate it was analysed at, so every copy of the
     clip reaches the same region of the material: :func:`~optisample.dsp.loop.loop_at_rate` scales the
-    bounds onto whatever rate a copy is stored at. ``decay`` is the ramp a note held past the stored span
-    falls on, which is how the level a loop repeats comes down outside the PCM.
+    bounds onto whatever rate a copy is stored at. ``level`` is the curve a note held past the stored span
+    sounds at (:func:`~optisample.dsp.loop.loop_decline`), which is how the level a loop repeats comes down
+    outside the PCM. It stands in seconds of the recording, so every copy reads the one curve whatever rate
+    it is stored at.
     """
 
     loop: Loop
-    decay: LinearDecay | None
+    level: Level
 
 
 SettledLoops = tuple[SettledLoop, ...]  # the loops one clip offers, cheapest stored span first
