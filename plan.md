@@ -16,6 +16,12 @@ The carrier is the mechanism that makes that conversion least damaging. It is wo
 even where an aggregate metric reads flat — so the work is *how well can 8 bits be made to work, and for
 which clips*, not *should we try 8 bits*.
 
+**Where this stands now.** Phases **I, B, C-i and D's first two steps are done and committed** on the
+`carrier` branch. The single most important thing a reader needs from this session is in Phase D:
+**the objective cannot see a volume envelope**, because `dsp/surrogate/render.render` applies none. That
+makes carrier storage unscoreable today and it reorders what is left — **the scorer is the critical path,
+ahead of D's remaining steps, E and F.**
+
 **What changed this session.** Before the large plan is touched, a new first phase is added: a **short
 route from a clustered cut straight to a playable instrument**, taking a given number of groups per
 velocity band and building the samples out of the group representatives, stored as **looped carriers**.
@@ -98,7 +104,7 @@ what gets executed.
 
 ---
 
-## Phase I — the clustered carrier instrument. **Done, uncommitted.**
+## Phase I — the clustered carrier instrument. **Done, `ff7e40e`.**
 
 `optisample cluster <run-root> --groups N --layers L --depth 8` writes a run's recordings as playable
 carrier instruments. The reusable half lives in **`src/optisample/carrier/`** (`source`, `shape`, `store`,
@@ -138,7 +144,7 @@ Proposed message: **_Added: the instrument a cut sample space is written as, car
 
 ---
 
-## Phase I — what it does (design)
+### Phase I — what it does, in full
 
 **One command:** a source, a group count and a layer count in; a playable, auditioned instrument out, whose
 samples are looped carriers and whose decline is carried by a shared volume envelope.
@@ -232,11 +238,21 @@ read, `--depth` so 8-bit is audible against 16-bit immediately. Config additions
 
 ---
 
-## Phase B — how much of 8 bits the carrier buys back. **Done, measured.**
+## Phase B — how much of 8 bits the carrier buys back. **Done, measured, `bdf4e58`.**
 
-Probes at `scratchpad/{carrier_worth,transposition}.py`, read-only, over **399 of the 401 `.sample`
-containers** at 22050 Hz, each cell scored end to end — what a player actually puts out, against the
-recording over the span the sample stores.
+Read-only probes over **399 of the 401 `.sample` containers** at 22050 Hz, each cell scored end to end —
+what a player actually puts out, against the recording over the span the sample stores.
+
+**The probes are not in the repo** — they were session scratch, exactly like the seam meter this plan spent
+a section failing to recover. So the method is stated here instead, in enough detail to rebuild: read each
+container into a `CarrierSource`; for the recording cells call `encode` directly on `source.recording` and
+play back through `stored.playback_gain`; for the carrier cells call `carrier_instrument([source], ...)` and
+play back through `sounding_gain(envelope) * playback_gain`; score both with
+`metrics.composite.evaluate(reference, played, rate, composite)` against the recording resampled to the
+stored rate and cut to the stored frames. The transposition reading pairs recordings within 8 velocity
+steps of each other, reads each one's level with `level_readings` at the window
+`reading_window_s(min(sizes))` gives, stands both at their own mean, and takes the widest gap between
+them.
 
 | kept as | median segSNR | median composite (lower is better) |
 |---|---|---|
@@ -280,7 +296,7 @@ Proposed message: **_Measured: what a carrier is worth at eight bits, and what t
 
 ---
 
-## Phase B — what the probe does (design)
+### Phase B — what the probe does, in full
 
 Read-only probe at `scratchpad/carrier_worth.py`. **No production code.** Material is on disk; read the
 `.sample` containers under `artifacts/1_looped` directly.
@@ -316,7 +332,11 @@ remaining gap sits, and Phase I says how it sounds.
 `crossfade_loop` (`dsp/loop.py:426-450`) already runs OpenMPT's direction, and the endpoint identity is
 *exact* (at `progress = 1.0` the gain is exactly 1). What is wrong is a component.
 
-**C-i — the meter was rebuilt, and it did not validate. Probe at `scratchpad/seam_loss.py`.**
+**C-i — the meter was rebuilt, and it did not validate.** No production change shipped, and the probe is
+not in the repo either. The method: take `_banded_seam(signal, loop, fade, rate, seam)` for the two sides,
+weight them by each law, and per band compare the blended level in sixteen windows against the equal-power
+interpolation of the two sides' own windowed levels, keeping the deepest ratio; leave out bands sitting
+more than 40 dB under the loudest.
 
 Rebuilt from the surviving description: per band, how far the blended level sits under the equal-power
 interpolation of the two sides' own levels, bands under −40 dB of the loudest left out. Read over **1159
@@ -371,7 +391,39 @@ the only level correction the seam needs, which is what lets the correlation-der
 
 ---
 
-## Phase D — carrier storage through the optimizer
+## Phase D — carrier storage through the optimizer. **Wired (`f0861df`, `e79d477`), blocked on the scorer.**
+
+**What shipped.** `sweep.carrier` (off) selects which way round the export runs, and `build.written_voices`
+is the one path both the written module and the artifact dumper re-encode through — so the bytes a module
+carries and the bytes an artifact reports are now the same bytes by construction rather than by two loops
+agreeing. `_levelled` is today's order; `_carried` fits each instrument's curve from its keys' own
+recordings first (`optimize/export/carriers.py`), writes it, and hands `plan_samples` the curve to divide
+each recording by. `voices.slot_voices` no longer needs a stored sample to name a slot's voices — how far a
+waveform reaches is asked of the caller, which is what let the shape move ahead of the encoding.
+
+**The default is untouched and verified**: the demo reproduces **0.176988** ungrouped / **0.177521**
+grouped at 70 644 B, clean **0.176837** both.
+
+**The blocker, which the handover did not see.** Turning the switch on makes the written module *worse* —
+the demo's clean objective goes from **0.1768 to 5.4626** at 16 bits, and every note of that run is at its
+own key, so transposition is not the cause. The cause is that **the objective cannot see a volume envelope
+at all**: `dsp/surrogate/render.render` repitches a stored sample, wraps its loop, applies the note volume
+and the fitted `LinearDecay`, and applies **no instrument envelope**. Storing recordings, that is a small
+approximation — the envelope only supplies a residual. Storing carriers, the envelope carries the *whole*
+decline, so the scorer measures a flat waveform against a declining reference and calls the difference
+distortion.
+
+So the mechanism is sound — Phase I writes it and the pair reconstructs at 21–34 dB — and the scorer is
+what has to move first. **The next piece of Phase D is making the surrogate renderer play the written
+curve**, on the played clock, per voice; only then can an allocation price a carrier, and only then do the
+depth axis and the blanket downcast mean anything. Note this also means every objective this project has
+recorded was measured in a world where instrument envelopes do not exist.
+
+Proposed message: **_Wired: the export to store carriers, and one path both the module and its artifacts re-encode through_**
+
+---
+
+### Phase D — the rest, once the scorer can see a curve
 
 Depends on B's triage, C's law, and what Phase I proves audibly. **This moves the freeze.**
 
@@ -408,7 +460,32 @@ duplication is a cheap win.
 
 ---
 
-## Phase E — one instrument per sample
+## Phase E — one instrument per sample. **Not started; surface assessed.**
+
+**Read this first: the order of the remaining plan changed.** Phase D's blocker moves the critical path.
+Until `dsp/surrogate/render.render` plays a written volume envelope, an allocation cannot price a carrier,
+and E's whole argument under carriers — that one instrument per sample makes the level compensation exact
+— cannot be scored either. **Fix the scorer, then E, then F.** E is still measurable today through
+`SharedTrajectory.dispersion_db` (which is how 8b measured it and how Phase I reports it), just not through
+the objective.
+
+**The surface, as it actually stands.** The routing half is one argument: `plan_slots`
+(`optimize/layers/slots.py:163-169`) passes `target.max_samples_per_instrument` to `pack_slots`, and a
+config knob replacing it is the whole change. The byte half is the real work and it moves the freeze:
+`reserved_slots` (`:172-181`) reserves one instrument per key played per band *before* the solve, which at
+one sample per instrument reserves 183 on a 61-key 3-layer slice and **264 on 88 keys, past the 255 the
+format numbers** — so the pessimistic reserve breaks before the real count does. Replacing it with the byte
+reserve `solve_grouping(..., reserve=int)` already charges (`optimize/grouping/solve.py:50-60`) means
+changing what `_Layering.instruments()` reports to `allocate_layers`, which is what `fits_format` rejects a
+layering on. That is a change to the allocation search itself, not a parameter.
+
+Phase B's transposition reading is the sharpest argument for doing it: the gap one unscaled envelope leaves
+between two keys is **5.22 dB at a single semitone**, so narrowing a zone cannot get under roughly 5 dB
+while one sample serves several keys. One instrument per sample removes that floor outright.
+
+---
+
+### Phase E — the original note
 
 `pack_slots(units, layers, per_instrument)` (`optimize/layers/slots.py:140`) already cuts a band into
 instruments owning ascending key runs; `plan_slots` (`:164-170`) passes `target.max_samples_per_instrument`.
