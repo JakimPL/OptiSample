@@ -9,12 +9,12 @@ from numpy.typing import NDArray
 
 from optisample.config.optimize import SweepConfig
 from optisample.dsp.level import gain_to_db
-from optisample.io.tracker.envelope import NO_ENVELOPE
+from optisample.io.tracker.envelope import NO_ENVELOPE, carried_signal
 from optisample.keys import SampleKey
 from optisample.optimize.export.build import written_voices
 from optisample.optimize.export.carriers import plan_trajectories, planned_reach_s
 from optisample.optimize.export.context import ExportContext
-from optisample.optimize.export.samples import carried_signal, unit_envelopes
+from optisample.optimize.export.samples import unit_envelopes
 from optisample.optimize.export.voices import NO_SHAPE, PlannedVoices
 from optisample.optimize.layers.slots import plan_slots
 from optisample.optimize.orchestrate import optimize_instrument

@@ -9,7 +9,7 @@ import numpy as np
 
 from optisample.config.codec import EncodeConfig
 from optisample.dsp.envelope import decompose, level_reading
-from optisample.dsp.level import gain_to_db, level_readings
+from optisample.dsp.level import Clock, curve_level, gain_to_db, level_readings, written_level
 from optisample.dsp.piecewise import PiecewiseCurve, fit_piecewise
 from optisample.dsp.quantize import headroom_peak, normalize_peak
 from optisample.dsp.series import Readings
@@ -217,8 +217,8 @@ def recording_instrument(
     sounds at the amplitude the recording holds and two instruments written from one dataset stand exactly
     as far apart as their recordings do.
     """
-    curve = level_curve(recording, target)
-    envelope = volume_envelope(curve, grid, peak_db=curve.peak)
+    shape = curve_level(level_curve(recording, target), Clock.PLAYED)
+    envelope = volume_envelope(written_level(shape, reference_db=shape.peak_db), grid)
     sounding = sounding_gain(
         envelope,
         tempo=grid.tempo,

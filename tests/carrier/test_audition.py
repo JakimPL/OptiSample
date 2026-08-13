@@ -8,8 +8,9 @@ import pytest
 from optisample.carrier.audition import HELD_ROUNDS, carrier_audition
 from optisample.carrier.instrument import written_shape
 from optisample.carrier.source import CarrierSource
-from optisample.carrier.store import NO_CURVE, CarrierSettings, StoredCarrier, store_carrier
+from optisample.carrier.store import CarrierSettings, StoredCarrier, store_carrier
 from optisample.dsp.loop import Loop
+from optisample.io.tracker.envelope import NO_ENVELOPE
 from tests.carrier.conftest import ROOT_PITCH, SR, TEMPO, Sourcer
 from trackmod.core.envelopes.envelope import Envelope
 
@@ -18,7 +19,7 @@ Settings = Callable[..., CarrierSettings]
 _LOOP = Loop(start=SR // 4, end=SR // 2)
 
 
-def _stored(one: CarrierSource, settings: CarrierSettings, envelope: Envelope | None = NO_CURVE) -> StoredCarrier:
+def _stored(one: CarrierSource, settings: CarrierSettings, envelope: Envelope | None = NO_ENVELOPE) -> StoredCarrier:
     return store_carrier(one, envelope, settings=settings, rng=np.random.default_rng(0))
 
 
@@ -29,7 +30,7 @@ def test_a_looped_waveform_is_wrapped_past_the_span_it_stores(
     """A wrap is heard over rounds, so the audition plays the region several times past the stored span."""
     settings = carrier_settings()
     carrier = _stored(source(loop=_LOOP), settings)
-    played = carrier_audition(carrier, NO_CURVE, tempo=TEMPO)
+    played = carrier_audition(carrier, NO_ENVELOPE, tempo=TEMPO)
 
     stored = carrier.stored
     region = stored.loop.end - stored.loop.start
@@ -40,7 +41,7 @@ def test_a_waveform_stored_whole_plays_out_as_it_stands(source: Sourcer, carrier
     """There is no region to wrap, so the audition is the stored span itself."""
     settings = carrier_settings()
     carrier = _stored(source(), settings)
-    played = carrier_audition(carrier, NO_CURVE, tempo=TEMPO)
+    played = carrier_audition(carrier, NO_ENVELOPE, tempo=TEMPO)
 
     assert played.size == carrier.stored.frames
     assert played == pytest.approx(carrier.stored.pcm)

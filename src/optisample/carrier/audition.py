@@ -4,9 +4,9 @@ from typing import Final
 
 import numpy as np
 
-from optisample.carrier.store import NO_CURVE, StoredCarrier
+from optisample.carrier.store import StoredCarrier
 from optisample.dsp.envelope import Signal
-from optisample.io.tracker.envelope import sounding_gain
+from optisample.io.tracker.envelope import sounded_signal
 from trackmod.core.envelopes.envelope import Envelope
 
 HELD_ROUNDS: Final = 4  # rounds a loop is wrapped for, enough for a seam step to become a rhythm rather than a click
@@ -34,8 +34,4 @@ def carrier_audition(
         region = stored.pcm[stored.loop.start : stored.loop.end]
         played = np.concatenate([stored.pcm, np.tile(region, rounds)])
 
-    if envelope is NO_CURVE:
-        return played
-
-    gain = sounding_gain(envelope, tempo=tempo, frames=int(played.size), sample_rate=stored.sample_rate)
-    return np.asarray(played * gain, dtype=np.float64)
+    return sounded_signal(played, envelope, tempo=tempo, sample_rate=stored.sample_rate)

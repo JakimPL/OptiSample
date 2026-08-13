@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from optisample.dsp.level import Clock, gain_to_db
+from optisample.dsp.level import Clock, curve_level, gain_to_db, written_level
 from optisample.dsp.piecewise import CurveNode, PiecewiseCurve
 from optisample.dsp.series import Series
 from optisample.io.tracker.envelope import (
@@ -54,8 +54,9 @@ def _grid(ticks: Bound = _TICKS) -> EnvelopeGrid:
     return EnvelopeGrid(tempo=_TEMPO, release_s=_RELEASE_S, tick_bound=ticks, value_bound=_VOLUME)
 
 
-def _written(curve: PiecewiseCurve, *, ticks: Bound = _TICKS, peak_db: float | None = None) -> Envelope:
-    return volume_envelope(curve, _grid(ticks), peak_db=curve.peak if peak_db is None else peak_db)
+def _written(curve: PiecewiseCurve, *, ticks: Bound = _TICKS) -> Envelope:
+    level = curve_level(curve, Clock.PLAYED)
+    return volume_envelope(written_level(level, reference_db=level.peak_db), _grid(ticks))
 
 
 def _rounded(curve: PiecewiseCurve) -> Envelope:

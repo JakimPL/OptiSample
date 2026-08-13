@@ -5,8 +5,7 @@ from typing import Final
 
 import numpy as np
 
-from optisample.dsp.level import Clock, Level, constant_level, db_to_gain, gain_to_db, read_level
-from optisample.dsp.piecewise import PiecewiseCurve
+from optisample.dsp.level import Clock, Level, Signal, WrittenLevel, constant_level, db_to_gain, gain_to_db, read_level
 from optisample.dsp.series import Readings, Series
 from optisample.io.tracker.target import ExportTarget
 from trackmod.core.envelopes.curve import Breakpoint, placed_ticks, timed_envelope
@@ -96,6 +95,40 @@ def sounding_gain(envelope: Envelope, *, tempo: int, frames: int, sample_rate: i
     """
     gain = played_gain(envelope, tempo=tempo, frames=frames, sample_rate=sample_rate)
     return np.maximum(gain, QUIETEST_STEP / MAX_VOLUME)
+
+
+def carried_signal(signal: Signal, envelope: Envelope | None, *, tempo: int, sample_rate: int) -> Signal:
+    """``signal`` divided by the gain ``envelope`` plays every voice it starts down by.
+
+    This is the whole of the carrier idea in one line: the level a note moves through is handed to the
+    envelope, so what the waveform keeps is the timbre -- level-flat wherever the format's own thirty-six
+    decibels of envelope reach, and carrying the rest of the decline below that. The division is taken
+    against the quietest step that still sounds (:func:`sounding_gain`), so a moment the curve silences
+    leaves the waveform finite.
+
+    An instrument carrying no curve keeps its material as it stands, since there is no level to hand over.
+    """
+    if envelope is NO_ENVELOPE:
+        return signal
+
+    gain = sounding_gain(envelope, tempo=tempo, frames=int(signal.size), sample_rate=sample_rate)
+    return np.asarray(signal / gain, dtype=np.float64)
+
+
+def sounded_signal(signal: Signal, envelope: Envelope | None, *, tempo: int, sample_rate: int) -> Signal:
+    """``signal`` played back through ``envelope``, which is what :func:`carried_signal` divided out.
+
+    A voice is heard as the waveform times the curve above it, so putting the two back together states
+    what a player actually puts out. The pair multiplies back to the material a carrier was taken from
+    wherever the curve stays above the quietest step that still sounds.
+
+    An instrument carrying no curve sounds its material as it stands.
+    """
+    if envelope is NO_ENVELOPE:
+        return signal
+
+    gain = sounding_gain(envelope, tempo=tempo, frames=int(signal.size), sample_rate=sample_rate)
+    return np.asarray(signal * gain, dtype=np.float64)
 
 
 def envelope_level(envelope: Envelope | None, *, tempo: int) -> Level:
@@ -198,29 +231,30 @@ def _settled_values(ticks: Series, values: Series, target_db: Series, moments: S
     return settled
 
 
-def _shape_points(curve: PiecewiseCurve, peak_db: float) -> tuple[Breakpoint, ...]:
-    """``curve``'s corners as breakpoints, stated against ``peak_db`` and read from the onset.
+def _shape_points(shape: Level) -> tuple[Breakpoint, ...]:
+    """``shape``'s corners as breakpoints on the format's own amplitude grid, read from the onset.
 
-    A volume envelope multiplies, so the loudest moment written anywhere in a plan is the unity step and
-    every other moment attenuates from it. Stating every instrument against that one level is what keeps
-    the balance the gains staged: two curves normalised each against its own peak would move apart by
-    exactly the difference between them. The first corner sits at the onset, since the curve holds its
-    opening value for everything before it.
+    A written shape already stands against the level holding the unity step
+    (:func:`~optisample.dsp.level.written.written_level`), so every corner attenuates from it and each one
+    rounds onto the step nearest it. The first corner sits at the onset, since the shape holds its opening
+    value for everything before it.
     """
-    levels_db = curve.values - peak_db
-    seconds = (_ONSET_S, *(float(moment) for moment in curve.seconds[1:]))
+    seconds = (_ONSET_S, *(float(moment) for moment in shape.readings.seconds[1:]))
     return tuple(
-        Breakpoint(seconds=moment, value=_grid_value(float(level))) for moment, level in zip(seconds, levels_db)
+        Breakpoint(seconds=moment, value=_grid_value(float(level)))
+        for moment, level in zip(seconds, shape.readings.values)
     )
 
 
-def volume_envelope(curve: PiecewiseCurve, grid: EnvelopeGrid, *, peak_db: float) -> Envelope:
-    """``curve`` written as the envelope an instrument plays its voices down by, on ``grid``.
+def volume_envelope(written: WrittenLevel, grid: EnvelopeGrid) -> Envelope:
+    """``written`` as the envelope an instrument plays its voices down by, on ``grid``.
 
-    The shape arrives in decibels on the played clock (:func:`~optisample.dsp.piecewise.fit_piecewise`)
-    and the format stores whole ticks and 0-64 amplitude steps, so writing it is two roundings: each
-    corner onto the tick it falls on, each level onto the step nearest it. What those roundings cost is
-    then repaired by moving one node at a time onto the step running the played curve closest to the
+    The shape arrives in decibels on the played clock, already stated against the reference holding the
+    unity step. That reference is what keeps the balance the sample gains staged: every instrument of a
+    plan is written against the one level, so two curves stand exactly as far apart as their recordings
+    do. The format stores whole ticks and 0-64 amplitude steps, so writing the shape is two roundings:
+    each corner onto the tick it falls on, each level onto the step nearest it. What those roundings cost
+    is then repaired by moving one node at a time onto the step running the played curve closest to the
     shape (:func:`_settled_values`), which also answers the straight runs a tracker walks in amplitude
     where the shape turns in decibels.
 
@@ -240,18 +274,19 @@ def volume_envelope(curve: PiecewiseCurve, grid: EnvelopeGrid, *, peak_db: float
     Raises:
         ValueError: when the corners and the release outnumber the ticks ``grid`` counts.
     """
-    shape = _shape_points(curve, peak_db)
-    release = Breakpoint(seconds=float(curve.seconds[-1]) + grid.release_s, value=MIN_VOLUME)
+    corners = written.shape.readings
+    shape = _shape_points(written.shape)
+    release = Breakpoint(seconds=float(corners.seconds[-1]) + grid.release_s, value=MIN_VOLUME)
     placed = placed_ticks((*shape, release), tempo=grid.tempo, bound=grid.tick_bound)
     ticks = np.asarray(placed, dtype=np.float64)[: len(shape)]
     moments = _moments(ticks)
-    target_db = np.maximum(curve.at(moments * tick_seconds(grid.tempo)) - peak_db, _FLOOR_DB)
+    target_db = np.maximum(written.shape.db(moments * tick_seconds(grid.tempo)), _FLOOR_DB)
     settled = _settled_values(
         ticks,
         np.asarray([point.value for point in shape], dtype=np.float64),
         target_db,
         moments,
-        loudest=int(np.argmax(curve.values)),
+        loudest=int(np.argmax(corners.values)),
     )
     held = len(shape) - 1
     return timed_envelope(

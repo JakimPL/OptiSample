@@ -1,19 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Final
 
 import numpy as np
 
 from optisample.carrier.source import CarrierSource
 from optisample.config.codec import EncodeConfig
-from optisample.dsp.envelope import Signal
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, StoredSample, encode
-from optisample.io.tracker.envelope import EnvelopeGrid, sounding_gain
+from optisample.io.tracker.envelope import EnvelopeGrid, carried_signal
 from optisample.io.tracker.target import ExportTarget
 from trackmod.core.envelopes.envelope import Envelope
-
-NO_CURVE: Final = None  # what a set whose sources carry every level they play at hands a stored carrier
 
 
 @dataclass(frozen=True)
@@ -32,24 +28,6 @@ class StoredCarrier:
     def playback_gain(self) -> float:
         """What playback multiplies this waveform by to sound at the level it was stored from."""
         return self.stored.playback_gain
-
-
-def carrier_signal(source: CarrierSource, envelope: Envelope | None, *, tempo: int) -> Signal:
-    """``source``'s recording divided by the gain the instrument's envelope applies to every voice it starts.
-
-    This is the whole of the carrier idea in one line: the level a note moves through is handed to the
-    envelope, so what the waveform keeps is the timbre, level-flat wherever the format's own thirty-six
-    decibels of envelope reach and carrying the rest of the decline below that. The division is taken
-    against the quietest step that still sounds (:func:`~optisample.io.tracker.envelope.sounding_gain`),
-    so a moment the curve silences leaves the waveform finite.
-
-    A set carrying no curve keeps the recording as it stands, since there is no level to hand over.
-    """
-    if envelope is NO_CURVE:
-        return source.recording
-
-    gain = sounding_gain(envelope, tempo=tempo, frames=source.frames, sample_rate=source.sample_rate)
-    return np.asarray(source.recording / gain, dtype=np.float64)
 
 
 @dataclass(frozen=True)
@@ -79,15 +57,20 @@ def store_carrier(
     """``source`` stored the way a tracker keeps it: the carrier, at the rate, depth and loop asked for.
 
     The waveform reaches the encoder already divided by what the envelope plays it down by
-    (:func:`carrier_signal`), so the span it resamples, wraps and quantizes is the flattened one -- which
-    is what spends the whole of a shallow grid on timbre rather than on a decline the envelope states
-    anyway. Which loop is stored is the source's own choice, so the params a caller states hold for every
-    source of a set while each keeps the region settled over it.
+    (:func:`~optisample.io.tracker.envelope.carried_signal`), so the span it resamples, wraps and quantizes
+    is the flattened one -- which is what spends the whole of a shallow grid on timbre rather than on a
+    decline the envelope states anyway. Which loop is stored is the source's own choice, so the params a
+    caller states hold for every source of a set while each keeps the region settled over it.
     """
     return StoredCarrier(
         source=source,
         stored=encode(
-            carrier_signal(source, envelope, tempo=settings.grid.tempo),
+            carried_signal(
+                source.recording,
+                envelope,
+                tempo=settings.grid.tempo,
+                sample_rate=source.sample_rate,
+            ),
             source.sample_rate,
             replace(settings.params, loop_index=source.loop_index),
             EncodeContext(

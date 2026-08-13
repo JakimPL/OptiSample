@@ -4,11 +4,11 @@ from collections.abc import Callable
 
 import pytest
 
-from optisample.dsp.level import gain_to_db
+from optisample.dsp.level import Clock, curve_level, gain_to_db, loudest_db, written_level
 from optisample.dsp.piecewise import CurveNode, PiecewiseCurve
 from optisample.dsp.trajectory import SharedTrajectory
 from optisample.io.tracker.envelope import NO_ENVELOPE, EnvelopeGrid, volume_envelope
-from optisample.optimize.export.build import loudest_db, slot_envelope
+from optisample.optimize.export.build import slot_envelope, slot_level
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.voices import NO_SHAPE
 from optisample.optimize.plans import InstrumentPlan
@@ -48,8 +48,8 @@ def _grid() -> EnvelopeGrid:
     return EnvelopeGrid(tempo=_TEMPO, release_s=_RELEASE_S, tick_bound=_TICKS, value_bound=_VOLUME)
 
 
-def _written(curve: PiecewiseCurve, *, peak_db: float) -> Envelope:
-    return volume_envelope(curve, _grid(), peak_db=peak_db)
+def _written(curve: PiecewiseCurve, *, reference_db: float) -> Envelope:
+    return volume_envelope(written_level(curve_level(curve, Clock.PLAYED), reference_db=reference_db), _grid())
 
 
 def _shape_points(envelope: Envelope) -> list[int]:
@@ -63,18 +63,21 @@ def _shape_points(envelope: Envelope) -> list[int]:
 
 def test_a_plan_is_written_against_the_loudest_moment_any_of_its_instruments_reaches() -> None:
     """One level has to stand for the unity step, and it is the loudest the plan states anywhere."""
-    assert loudest_db((_shared(_STRUCK), _shared(_QUIET), NO_SHAPE)) == pytest.approx(_STRUCK.peak)
+    levels = [slot_level(shape) for shape in (_shared(_STRUCK), _shared(_QUIET), NO_SHAPE)]
+
+    assert loudest_db([level for level in levels if level is not NO_SHAPE]) == pytest.approx(_STRUCK.peak)
 
 
 def test_a_plan_whose_instruments_carry_no_shape_names_unity_itself() -> None:
-    assert loudest_db((NO_SHAPE,)) == pytest.approx(0.0)
+    assert slot_level(NO_SHAPE) is NO_SHAPE
+    assert loudest_db([]) == pytest.approx(0.0)
 
 
 def test_two_instruments_written_against_one_level_stay_as_far_apart_as_their_shapes() -> None:
     """Normalising each curve against its own peak would move two velocity layers together by their difference."""
-    peak_db = loudest_db((_shared(_STRUCK), _shared(_QUIET)))
+    reference_db = loudest_db([curve_level(curve, Clock.PLAYED) for curve in (_STRUCK, _QUIET)])
 
-    louder, quieter = (_written(curve, peak_db=peak_db).points[0].value for curve in (_STRUCK, _QUIET))
+    louder, quieter = (_written(curve, reference_db=reference_db).points[0].value for curve in (_STRUCK, _QUIET))
 
     assert gain_to_db(quieter / louder) == pytest.approx(_QUIET.peak - _STRUCK.peak, abs=0.2)
 
@@ -84,7 +87,7 @@ def test_two_instruments_written_against_one_level_stay_as_far_apart_as_their_sh
 
 def test_an_instrument_carrying_no_shape_is_written_without_an_envelope(export_context: ExportContext) -> None:
     """A slot the material plays no recorded key of leaves its voices at the level their material carries."""
-    assert slot_envelope(NO_SHAPE, export_context, peak_db=0.0) is NO_ENVELOPE
+    assert slot_envelope(NO_SHAPE, export_context, reference_db=0.0) is NO_ENVELOPE
 
 
 def test_the_written_module_plays_a_looped_note_down_rather_than_ringing(

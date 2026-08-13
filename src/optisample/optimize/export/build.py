@@ -2,6 +2,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
 
+from optisample.dsp.level import Clock, Level, curve_level, loudest_db, written_level
 from optisample.dsp.trajectory import SharedTrajectory
 from optisample.io.tracker.envelope import NO_ENVELOPE, shape_nodes, volume_envelope
 from optisample.model import NoteEvent
@@ -22,7 +23,6 @@ from trackmod.module.protocol import TrackerModule
 
 _NAME_CHARS: Final = 22  # the narrowest instrument-name field a target format keeps, FastTracker 2's
 _SHORTEST_ID: Final = 1  # instrument-id characters a name keeps however long the axes it states are
-_UNITY_DB: Final = 0.0  # the level a shape is written against while the plan states no louder moment
 
 
 def _axes(layout: SlotLayout, index: int) -> str:
@@ -57,30 +57,33 @@ def instrument_name(instrument_id: str, layout: SlotLayout, index: int) -> str:
     return f"{instrument_id[: max(_SHORTEST_ID, _NAME_CHARS - len(axes) - 1)]} {axes}"
 
 
-def slot_envelope(shape: SharedTrajectory | None, context: ExportContext, *, peak_db: float) -> Envelope | None:
-    """The volume curve one written instrument plays every voice it starts down by.
+def slot_level(shape: SharedTrajectory | None) -> Level | None:
+    """The level one written instrument plays every voice it starts down by.
 
     A looped sample holds one level for as long as a note is held, so the decline the recording made past
     that point lives in the envelope rather than the waveform. The envelope belongs to the instrument and
     the slot answers several keys, so ``shape`` is the one trajectory fitted to all of them
-    (:func:`~optisample.optimize.export.voices.instrument_shape`) and this writes it onto the format's own
-    grid (:func:`~optisample.io.tracker.envelope.volume_envelope`), against the level ``peak_db``
-    every instrument of the plan shares.
+    (:func:`~optisample.optimize.export.voices.instrument_shape`), carried here as the level the algebra
+    composes. It stands on the played clock, which is the clock a tracker walks its envelope on.
     """
     if shape is NO_SHAPE:
+        return NO_SHAPE
+
+    return curve_level(shape.curve, Clock.PLAYED)
+
+
+def slot_envelope(level: Level | None, context: ExportContext, *, reference_db: float) -> Envelope | None:
+    """``level`` written onto the format's own grid, against the reference every instrument shares.
+
+    A volume envelope only attenuates, so the level is stated relative to ``reference_db``
+    (:func:`~optisample.dsp.level.written.written_level`) before it reaches the format
+    (:func:`~optisample.io.tracker.envelope.volume_envelope`). An instrument carrying no level leaves its
+    voices at the level their own waveforms hold.
+    """
+    if level is NO_SHAPE:
         return NO_ENVELOPE
 
-    return volume_envelope(shape.curve, context.envelope_grid, peak_db=peak_db)
-
-
-def loudest_db(shapes: Sequence[SharedTrajectory | None]) -> float:
-    """The loudest moment any of a plan's instruments reaches, which every one of them is written against.
-
-    A volume envelope only attenuates, so one level has to stand for the unity step; taking it across the
-    whole plan is what keeps two velocity layers exactly as far apart as their gains and recordings put
-    them. A plan whose instruments carry no shape names unity itself, there being nothing to stand under.
-    """
-    return max((shape.curve.peak for shape in shapes if shape is not NO_SHAPE), default=_UNITY_DB)
+    return volume_envelope(written_level(level, reference_db=reference_db), context.envelope_grid)
 
 
 def _slot_instruments(
@@ -109,9 +112,16 @@ class WrittenVoices:
 
 
 def _written(shapes: Sequence[SharedTrajectory | None], context: ExportContext) -> tuple[Envelope | None, ...]:
-    """Each shape written onto the format's grid, all against the one level the plan states as unity."""
-    peak_db = loudest_db(shapes)
-    return tuple(slot_envelope(shape, context, peak_db=peak_db) for shape in shapes)
+    """Each shape written onto the format's grid, all against the one level the plan states as unity.
+
+    Taking the reference across the whole plan is what keeps two velocity layers exactly as far apart as
+    their gains and recordings put them: each shape stated against its own peak would move the pair by
+    exactly the difference between those peaks. A plan whose instruments carry no shape names unity itself,
+    there being nothing to stand under.
+    """
+    levels = tuple(slot_level(shape) for shape in shapes)
+    reference_db = loudest_db([level for level in levels if level is not NO_SHAPE])
+    return tuple(slot_envelope(level, context, reference_db=reference_db) for level in levels)
 
 
 def _carried(

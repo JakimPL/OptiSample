@@ -5,7 +5,7 @@ import numpy as np
 
 from optisample.config.codec import EncodeConfig
 from optisample.dsp.surrogate import NO_LOOPS, EncodeContext, StoredSample, encode
-from optisample.io.tracker.envelope import NO_ENVELOPE, sounding_gain
+from optisample.io.tracker.envelope import NO_ENVELOPE, carried_signal
 from optisample.io.tracker.target import ExportTarget, balanced_gains, sample_label
 from optisample.metrics.base import Signal
 from optisample.music import sounded_note
@@ -37,26 +37,6 @@ class PlannedSamples:
     keymaps: tuple[Keymap, ...]
     stored: tuple[StoredSample, ...]
     gains: tuple[int, ...]
-
-
-def carried_signal(
-    representative: Signal,
-    envelope: Envelope | None,
-    *,
-    tempo: int,
-    sample_rate: int,
-) -> Signal:
-    """``representative`` divided by the gain the instrument's own curve plays it down by.
-
-    This is what a stored carrier holds: the timbre, with the level handed to the envelope above it, so a
-    shallow grid spends itself on sound rather than on a decline the curve states anyway. A slot carrying
-    no curve leaves its recording as it stands.
-    """
-    if envelope is NO_ENVELOPE:
-        return representative
-
-    gain = sounding_gain(envelope, tempo=tempo, frames=int(representative.size), sample_rate=sample_rate)
-    return np.asarray(representative / gain, dtype=np.float64)
 
 
 @dataclass(frozen=True)

@@ -9,6 +9,7 @@ import numpy as np
 from optisample.carrier.shape import NO_SHAPE, carrier_shape
 from optisample.carrier.source import CarrierSource
 from optisample.carrier.store import CarrierSettings, StoredCarrier, store_carrier
+from optisample.dsp.level import Clock, curve_level, written_level
 from optisample.dsp.surrogate import StoredSample
 from optisample.io.tracker.envelope import NO_ENVELOPE, EnvelopeGrid, shape_nodes, volume_envelope
 from optisample.io.tracker.target import ExportTarget, balanced_gains, sample_label
@@ -102,8 +103,9 @@ def written_shape(sources: Sequence[CarrierSource], *, target: ExportTarget, gri
     if shape is NO_SHAPE:
         return WrittenShape(envelope=NO_ENVELOPE, dispersion_db=NO_DISPERSION)
 
+    level = curve_level(shape.curve, Clock.PLAYED)
     return WrittenShape(
-        envelope=volume_envelope(shape.curve, grid, peak_db=shape.curve.peak),
+        envelope=volume_envelope(written_level(level, reference_db=level.peak_db), grid),
         dispersion_db=shape.dispersion_db,
     )
 
