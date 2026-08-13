@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
+from optisample.dsp.level import Clock, unit_level
 from optisample.dsp.surrogate import (
     NO_LOOPS,
     UNLOOPED,
@@ -117,6 +118,7 @@ def _decaying(sine: Callable[..., NDArray[np.float64]], *, half_life_s: float) -
 
 
 _END_WINDOW_S = 0.05  # one level reading, the window the ramp's own final level is fitted on
+_FLAT_DB = 0.1  # how far a decline read off steady material wanders, which is below what a listener hears
 
 
 def _end_level(signal: NDArray[np.float64]) -> float:
@@ -152,19 +154,20 @@ def test_a_held_loop_declines_the_way_the_recording_it_stands_for_did(
     assert _end_level(ringing) > 5.0 * _end_level(source)  # the same loop, left to ring at its own level
 
 
-def test_a_sample_stating_no_decline_plays_at_the_level_it_was_stored_at(
+def test_a_steady_recording_is_played_at_the_level_its_loop_was_stored_at(
     sine: Callable[..., NDArray[np.float64]],
     make_encode_ctx: Callable[..., EncodeContext],
     settle: SettleLoops,
 ) -> None:
-    """A steady recording states no decline, so nothing is put over the loop that sustains it."""
+    """A recording holding one level states a flat decline, so its loop goes on sounding where it was stored."""
     recording = sine(_TONE_HZ, dur=_TONE_S)
     params = EncodingParams(target_rate=SR, depth_bits=16, loop_index=_CHEAPEST)
     stored = encode(
         recording, SR, params, make_encode_ctx(_ROOT, settled=settle(recording, SR, root_hz=_TONE_HZ, search_s=_TONE_S))
     )
 
-    assert stored.level.transparent
+    assert stored.level.peak_db == pytest.approx(0.0, abs=_FLAT_DB)
+    assert min(stored.level.readings.values) == pytest.approx(0.0, abs=_FLAT_DB)
 
 
 # --- the ground truth a stored sample is measured against -------------------------------------------

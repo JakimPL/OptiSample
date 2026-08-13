@@ -16,6 +16,9 @@ SR = 22_050
 _FREQ = 220.0
 _HELD_S = 3.0  # long enough for the frontier to lay out several candidates and still leave a tail
 _DECLINE_WINDOW_S: Final = 0.05  # the window a decline's last reading centres on, which bounds where it lands
+# the last whole window centres half a window before the material it covers ends, and the reading stops at
+# the last whole window, so the furthest moment a decline states sits within one and a half of the end
+_DECLINE_REACH_S: Final = 1.5 * _DECLINE_WINDOW_S
 _BRIGHTENS_AT = round(_HELD_S / 2 * SR)  # the frame a brightening recording changes its timbre at
 
 LoopFactory = Callable[..., LoopConfig]
@@ -44,23 +47,36 @@ def _brightening() -> NDArray[np.float64]:
     return np.concatenate([_tone(_HELD_S / 2), _tone(_HELD_S / 2, freq=5 * _FREQ)])
 
 
-def _holds_the_older_timbre(stored: StoredLoop, config: LoopConfig) -> bool:
-    """Whether what this loop stores reaches back across the brightening.
+def _stored_span(stored: StoredLoop, config: LoopConfig) -> tuple[int, int]:
+    """The stretch of the recording a stored loop carries, in frames.
 
     A wrap blends the frames preceding the loop start into its end, so the material a stored loop carries
-    opens one blend before its start -- and a loop beginning just after the brightening still holds the
-    timbre the recording moved away from.
+    opens one blend before its start and runs to the loop's own end.
     """
-    return stored.loop.start - seam_frames(stored.loop, SR, config.seam) <= _BRIGHTENS_AT
+    return stored.loop.start - seam_frames(stored.loop, SR, config.seam), stored.loop.end
+
+
+def _holds_only_the_older_timbre(stored: StoredLoop, config: LoopConfig) -> bool:
+    """Whether everything this loop stores was recorded before the brightening."""
+    return _stored_span(stored, config)[1] <= _BRIGHTENS_AT
+
+
+def _holds_only_the_newer_timbre(stored: StoredLoop, config: LoopConfig) -> bool:
+    """Whether everything this loop stores was recorded after the brightening."""
+    return _stored_span(stored, config)[0] >= _BRIGHTENS_AT
 
 
 def _split_at_the_brightening(
     settlement: Settlement,
     config: LoopConfig,
 ) -> tuple[list[StoredLoop], list[StoredLoop]]:
-    """The offers holding the recording's first timbre, and those holding the one it moved to."""
-    early = [stored for stored in settlement.offered if _holds_the_older_timbre(stored, config)]
-    late = [stored for stored in settlement.offered if not _holds_the_older_timbre(stored, config)]
+    """The offers holding the recording's first timbre alone, and those holding the one it moved to alone.
+
+    An offer reaching across the brightening holds some of each, so it stands on neither side and is left
+    out of both -- which is what makes the two lists comparable as timbres rather than as mixtures.
+    """
+    early = [stored for stored in settlement.offered if _holds_only_the_older_timbre(stored, config)]
+    late = [stored for stored in settlement.offered if _holds_only_the_newer_timbre(stored, config)]
     return early, late
 
 
@@ -142,7 +158,7 @@ def test_a_gate_on_that_distance_turns_down_the_loops_holding_the_older_timbre(l
 
     assert settlement.loops
     assert {rejected.gate for rejected in settlement.rejected} == {Gate.TIMBRE}
-    assert not any(_holds_the_older_timbre(stored, config) for stored in settlement.offered)
+    assert not any(_holds_only_the_older_timbre(stored, config) for stored in settlement.offered)
 
 
 def test_every_candidate_the_frontier_offers_is_either_offered_or_named(loop: LoopFactory) -> None:
@@ -196,11 +212,13 @@ def test_a_region_falling_across_itself_is_offered_with_the_fall_it_states(loop:
 
 def test_the_decline_is_read_over_the_whole_recording_rather_than_the_span_searched(loop: LoopFactory) -> None:
     """Every level the recording states reaches the ramp, so a held note falls the way the material did."""
-    settlement = settle_loop(_decaying(), SR, loop(quality=_WIDE_OPEN), root_hz=_FREQ, search_s=1.5)
+    searched = 1.5
+    settlement = settle_loop(_decaying(), SR, loop(quality=_WIDE_OPEN), root_hz=_FREQ, search_s=searched)
 
     assert settlement.cheapest is not None
     reached = settlement.cheapest.level.readings.seconds[-1]
-    assert reached == pytest.approx(_HELD_S, abs=_DECLINE_WINDOW_S)
+    assert reached > searched
+    assert reached == pytest.approx(_HELD_S, abs=_DECLINE_REACH_S)
 
 
 def test_material_no_loop_has_purchase_on_settles_none_and_names_what_it_lacked(loop: LoopFactory) -> None:

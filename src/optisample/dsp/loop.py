@@ -539,9 +539,11 @@ def loop_decline(signal: Signal, sample_rate: int, loop: Loop, reading: LevelRea
 
     A looped sample keeps the recording up to ``loop.end`` and wraps the region for as long as the note is
     held, so the one thing its PCM stops carrying is the recording's own decline past the level levelling
-    pinned that region to (:func:`level_loop`). This states that decline: unit gain up to ``loop.start``,
-    and from there the level the recording holds at each moment over the level the region is held at, which
-    is the very curve levelling divided out carried on past where the material stops being stored.
+    pinned that region to (:func:`level_loop`). This states that decline: unit gain through the attack, and
+    from ``loop.start`` on, the level the recording holds at each moment over the level the region is held
+    at, which is the very curve levelling divided out carried on past where the material stops being stored.
+    A level holds its end values past both ends, so the one corner standing at ``loop.start`` is what leaves
+    everything the PCM plays before the loop sounding as it was stored.
 
     The decline is read straight off the recording's own windows and stated in the corners it turns through,
     so a note that rings down, holds, and rings down again is followed as closely as one falling straight,
@@ -557,10 +559,11 @@ def loop_decline(signal: Signal, sample_rate: int, loop: Loop, reading: LevelRea
     if readings.count < _DECLINE_READINGS:
         return unit_level(Clock.RECORDED)
 
+    opens_at = loop.start / sample_rate
     held_db = gain_to_db(float(local_level_over(signal, reading, start=loop.start, end=loop.end)[0]))
     decline = Readings(
         values=np.concatenate(([UNITY_DB], readings.values - held_db)),
-        seconds=np.concatenate(([0.0], readings.seconds + loop.start / sample_rate)),
+        seconds=np.concatenate(([opens_at], readings.seconds + opens_at)),
     )
     return read_level(decline, Clock.RECORDED).fitted(nodes=_DECLINE_NODES)
 
