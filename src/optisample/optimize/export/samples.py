@@ -10,10 +10,12 @@ from optisample.metrics.base import Signal
 from optisample.music import sounded_note
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.coverage import covered_routing
+from optisample.optimize.export.envelope import NO_ENVELOPE, sounding_gain
 from optisample.optimize.layers.slots import InstrumentSlot, SlotLayout
 from optisample.optimize.plans import SampleUnit, StrategyPlan
 from optisample.optimize.tasks import StoredRecordings
 from optisample.optimize.velocity_map import VelocityVolumeMap
+from trackmod.core.envelopes.envelope import Envelope
 from trackmod.core.instruments.keymap import KeyAssignment, Keymap, routed_keymap
 from trackmod.core.notes.pitch import Note
 from trackmod.core.samples.loop import Loop
@@ -37,11 +39,46 @@ class PlannedSamples:
     gains: tuple[int, ...]
 
 
+def carried_signal(
+    representative: Signal,
+    envelope: Envelope | None,
+    *,
+    tempo: int,
+    sample_rate: int,
+) -> Signal:
+    """``representative`` divided by the gain the instrument's own curve plays it down by.
+
+    This is what a stored carrier holds: the timbre, with the level handed to the envelope above it, so a
+    shallow grid spends itself on sound rather than on a decline the curve states anyway. A slot carrying
+    no curve leaves its recording as it stands.
+    """
+    if envelope is NO_ENVELOPE:
+        return representative
+
+    gain = sounding_gain(envelope, tempo=tempo, frames=int(representative.size), sample_rate=sample_rate)
+    return np.asarray(representative / gain, dtype=np.float64)
+
+
+@dataclass(frozen=True)
+class EncodeOrder:
+    """What re-encoding one plan's units is carried out with, beyond the units and the recordings.
+
+    ``envelopes`` names the curve the instrument each unit belongs to plays it down by, one per unit in
+    plan order, and ``tempo`` the clock those curves were written on -- the pair a run storing carriers
+    divides its recordings by. ``seed`` starts the one generator every unit's dither is drawn from, so the
+    byte layout reproduces the plan exactly.
+    """
+
+    config: EncodeConfig
+    envelopes: Sequence[Envelope | None]
+    tempo: int
+    seed: int
+
+
 def encode_plan_units(
     units: Sequence[SampleUnit],
     recordings: StoredRecordings,
-    encode_config: EncodeConfig,
-    seed: int,
+    order: EncodeOrder,
 ) -> Iterator[tuple[SampleUnit, StoredSample]]:
     """Re-encode each unit's representative recording in plan order from one seeded RNG.
 
@@ -49,13 +86,22 @@ def encode_plan_units(
     the written module and the inspection WAVs. One RNG advances once per unit in iteration order, so
     every stored sample's dither is reproducible from ``seed``. ``recordings`` supplies the loop each one was
     offers, of which a unit asking to be stored looped names the one it was priced against.
+
+    ``envelopes`` names the curve the instrument each unit belongs to will play it down by, one per unit in
+    the same order, so a run storing carriers hands the encoder the recording already divided by it. A run
+    storing recordings passes no curves and the signal reaches the encoder as it was played.
     """
-    rng = np.random.default_rng(seed)
-    for unit in units:
-        representative: Signal = recordings.audio[unit.representative_key]
+    rng = np.random.default_rng(order.seed)
+    for position, unit in enumerate(units):
+        representative: Signal = carried_signal(
+            recordings.audio[unit.representative_key],
+            order.envelopes[position],
+            tempo=order.tempo,
+            sample_rate=recordings.sample_rate,
+        )
         encode_context = EncodeContext(
             root_pitch=unit.representative,
-            config=encode_config,
+            config=order.config,
             settled=recordings.settled.get(unit.representative_key, NO_LOOPS),
             rng=rng,
         )
@@ -142,11 +188,23 @@ def _slot_keymaps(layout: SlotLayout, target: ExportTarget) -> tuple[Keymap, ...
     return tuple(routed_keymap(covered_routing(_slot_routing(slot, target), target)) for slot in layout.slots)
 
 
+def unit_envelopes(layout: SlotLayout, envelopes: Sequence[Envelope | None], units: int) -> tuple[Envelope | None, ...]:
+    """The curve each stored sample's own instrument plays it down by, one per unit in plan order."""
+    by_sample: dict[int, Envelope | None] = {}
+    for index, slot in enumerate(layout.slots):
+        for sample in slot.samples:
+            by_sample[sample] = envelopes[index]
+
+    return tuple(by_sample.get(sample, NO_ENVELOPE) for sample in range(units))
+
+
 def plan_samples(
     plan: StrategyPlan,
     layout: SlotLayout,
     recordings: StoredRecordings,
     context: ExportContext,
+    *,
+    envelopes: Sequence[Envelope | None],
 ) -> PlannedSamples:
     """Re-encode each unit's representative and map every key it serves onto the resulting sample.
 
@@ -156,12 +214,17 @@ def plan_samples(
     same plan writes into the patterns. The routings come back one per slot of ``layout``, in the order
     the module numbers its instruments, so the caller writes one instrument for each.
     """
+    units = plan.sample_units()
     encoded = list(
         encode_plan_units(
-            plan.sample_units(),
+            units,
             recordings,
-            context.encode,
-            context.seed,
+            EncodeOrder(
+                config=context.encode,
+                envelopes=unit_envelopes(layout, envelopes, len(units)),
+                tempo=context.envelope_grid.tempo,
+                seed=context.seed,
+            ),
         )
     )
     gains = sample_gains(encoded, plan.velocity_map, context.target)

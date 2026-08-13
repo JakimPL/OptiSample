@@ -3,4 +3,5 @@ rates: [8000, 11025, 16000, 22050, 28800, 32000, 37800, 44100] # ladder a rate i
 depth: 16                    # bits every stored sample keeps
 dither: true
 noise_shaping: false
-compress: true               # applied where the depth is shallow enough to hear the headroom it buys
+compress: true               # offered beside the plain encoding where the depth is shallow enough to hear it
+carrier: false               # store timbre and let the envelope carry the level; the objective prices this yet

@@ -15,12 +15,17 @@ class ExportContext:
     ``envelope`` states how a released note is let go, which is the one part of the curve an instrument
     plays its voices down by that a recording never states. ``seed`` seeds the per-sample dither so
     re-encoding a plan reproduces the exact bytes it budgeted.
+
+    ``carrier`` states what a stored sample holds, and with it which way round the export runs: set, the
+    shape is fitted from the recordings and each waveform is what that written curve leaves; unset, each
+    waveform holds its recording and the shape is fitted to what the stored levels leave.
     """
 
     encode: EncodeConfig
     playback: PlaybackConfig
     target: ExportTarget
     envelope: EnvelopeConfig
+    carrier: bool
     seed: int = DEFAULT_SEED
 
     @property

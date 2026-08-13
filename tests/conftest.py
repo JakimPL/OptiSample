@@ -279,6 +279,7 @@ def export_context(config: OptiConfig, target: ExportTarget) -> ExportContext:
         playback=config.export.playback,
         target=target,
         envelope=config.export.envelope,
+        carrier=config.optimize.sweep.carrier,
     )
 
 

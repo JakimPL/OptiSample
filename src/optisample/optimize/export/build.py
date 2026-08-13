@@ -1,13 +1,15 @@
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Final
 
 from optisample.dsp.trajectory import SharedTrajectory
 from optisample.model import NoteEvent
+from optisample.optimize.export.carriers import plan_trajectories
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.envelope import NO_ENVELOPE, shape_nodes, volume_envelope
 from optisample.optimize.export.material import CHANNELS, Voicing, material_patterns
-from optisample.optimize.export.samples import plan_samples
-from optisample.optimize.export.voices import NO_SHAPE, PlayedVoices, instrument_shapes
+from optisample.optimize.export.samples import PlannedSamples, plan_samples
+from optisample.optimize.export.voices import NO_SHAPE, PlannedVoices, PlayedVoices, instrument_shapes
 from optisample.optimize.layers.slots import ONE_SLOT, SlotLayout, plan_slots
 from optisample.optimize.plans import SINGLE_LAYER, StrategyPlan
 from optisample.optimize.tasks import StoredRecordings
@@ -85,19 +87,103 @@ def _slot_instruments(
     plan: StrategyPlan,
     layout: SlotLayout,
     keymaps: Sequence[Keymap],
-    shapes: Sequence[SharedTrajectory | None],
-    context: ExportContext,
+    envelopes: Sequence[Envelope | None],
 ) -> tuple[Instrument, ...]:
     """One instrument per written slot, so a note's dynamic and pitch name the one it plays."""
-    peak_db = loudest_db(shapes)
     return tuple(
         Instrument(
             name=instrument_name(plan.instrument_id, layout, index),
             keymap=keymap,
-            volume_envelope=slot_envelope(shapes[index], context, peak_db=peak_db),
+            volume_envelope=envelopes[index],
         )
         for index, keymap in enumerate(keymaps)
     )
+
+
+@dataclass(frozen=True)
+class WrittenVoices:
+    """What a plan is written as: the stored samples, and the curve each instrument plays them down by."""
+
+    planned: PlannedSamples
+    envelopes: tuple[Envelope | None, ...]
+
+
+def _written(shapes: Sequence[SharedTrajectory | None], context: ExportContext) -> tuple[Envelope | None, ...]:
+    """Each shape written onto the format's grid, all against the one level the plan states as unity."""
+    peak_db = loudest_db(shapes)
+    return tuple(slot_envelope(shape, context, peak_db=peak_db) for shape in shapes)
+
+
+def _carried(
+    plan: StrategyPlan,
+    layout: SlotLayout,
+    recordings: StoredRecordings,
+    material: Sequence[NoteEvent],
+    context: ExportContext,
+) -> WrittenVoices:
+    """The carrier order: fit each instrument's curve from its recordings, write it, then store what it leaves.
+
+    The shape is settled before anything is encoded (:func:`~optisample.optimize.export.carriers.plan_trajectories`),
+    so each waveform can be its recording divided by the gain that written curve applies. Nothing iterates:
+    the level the curve cannot state is exactly what stays in the waveform.
+    """
+    shapes = plan_trajectories(
+        layout,
+        PlannedVoices(recordings=recordings, material=material, velocity_map=plan.velocity_map),
+        nodes=shape_nodes(context.target.envelope_point_bound),
+    )
+    envelopes = _written(shapes, context)
+    return WrittenVoices(
+        planned=plan_samples(plan, layout, recordings, context, envelopes=envelopes),
+        envelopes=envelopes,
+    )
+
+
+def _levelled(
+    plan: StrategyPlan,
+    layout: SlotLayout,
+    recordings: StoredRecordings,
+    material: Sequence[NoteEvent],
+    context: ExportContext,
+) -> WrittenVoices:
+    """The order a run has always used: store each recording as it was played, then fit what its level leaves.
+
+    The stored waveform carries its own decline, so the curve an instrument plays is fitted to the residual
+    the encoder and the written levels left behind
+    (:func:`~optisample.optimize.export.voices.instrument_shapes`).
+    """
+    planned = plan_samples(plan, layout, recordings, context, envelopes=(NO_ENVELOPE,) * layout.count)
+    sources = PlayedVoices(
+        recordings=recordings,
+        material=material,
+        velocity_map=plan.velocity_map,
+        gains=planned.gains,
+    )
+    shapes = instrument_shapes(
+        layout,
+        planned.stored,
+        sources,
+        nodes=shape_nodes(context.target.envelope_point_bound),
+    )
+    return WrittenVoices(planned=planned, envelopes=_written(shapes, context))
+
+
+def written_voices(
+    plan: StrategyPlan,
+    layout: SlotLayout,
+    recordings: StoredRecordings,
+    material: Sequence[NoteEvent],
+    context: ExportContext,
+) -> WrittenVoices:
+    """The stored samples a plan is written as, beside the curve each instrument plays them down by.
+
+    Which way round the two settle is what ``context.carrier`` states, and every caller re-encoding a plan
+    goes through here, so the bytes a module carries and the bytes an artifact reports are the same bytes.
+    """
+    if context.carrier:
+        return _carried(plan, layout, recordings, material, context)
+
+    return _levelled(plan, layout, recordings, material, context)
 
 
 def build_song(
@@ -111,24 +197,13 @@ def build_song(
     The plan supplies the stored samples and the keys they serve; the format decides how many instruments
     those samples are written as (:func:`~optisample.optimize.layers.slots.pack_slots`); the material
     supplies the patterns that audition them and, beside the recordings, the trajectory each instrument's
-    own envelope is fitted to (:func:`~optisample.optimize.export.voices.instrument_shapes`). Everything
-    else -- the song name, the single channel, the clock -- is the same for both strategies, so it lives
-    here once.
+    own envelope is fitted to. Which way round those two settle is what ``context.carrier`` states:
+    :func:`_carried` fits the curve first and stores what it leaves, :func:`_levelled` stores the recording
+    and fits what its level leaves. Everything else -- the song name, the single channel, the clock -- is
+    the same for both strategies, so it lives here once.
     """
     layout = plan_slots(plan, context.target)
-    planned = plan_samples(plan, layout, recordings, context)
-    sources = PlayedVoices(
-        recordings=recordings,
-        material=material,
-        velocity_map=plan.velocity_map,
-        gains=planned.gains,
-    )
-    shapes = instrument_shapes(
-        layout,
-        planned.stored,
-        sources,
-        nodes=shape_nodes(context.target.envelope_point_bound),
-    )
+    written = written_voices(plan, layout, recordings, material, context)
     voicing = Voicing(layout=layout, velocity_map=plan.velocity_map)
     patterns, order = material_patterns(material, voicing, context.playback, context.target)
     return Song(
@@ -136,8 +211,8 @@ def build_song(
         channels=CHANNELS,
         patterns=patterns,
         order=order,
-        instruments=_slot_instruments(plan, layout, planned.keymaps, shapes, context),
-        samples=planned.samples,
+        instruments=_slot_instruments(plan, layout, written.planned.keymaps, written.envelopes),
+        samples=written.planned.samples,
         playback=Playback(speed=context.playback.speed, tempo=context.playback.tempo),
     )
 

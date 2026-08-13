@@ -24,6 +24,17 @@ class SweepConfig(ConfigModel):
     What the sweep then prices per sample is the stored span: keeping the played length against keeping the
     attack plus the loop the loop stage settled, which
     :func:`~optisample.optimize.reduce.bandwidth.stored_encodings` enumerates in that order.
+
+    ``carrier`` states what a stored sample holds. Set, each waveform is its recording divided by the gain
+    the instrument's own volume envelope applies, so the sample keeps the timbre and the envelope carries
+    the level -- which is what lets a shallow grid spend itself on sound rather than on a decline the curve
+    states anyway. Left unset, each waveform holds the recording as it was played, level and all.
+
+    What the allocation scores a carrier by is the open piece: the surrogate renderer
+    (:func:`~optisample.dsp.surrogate.render.render`) puts out a stored sample repitched, wrapped and
+    levelled, and applies no volume envelope, so a waveform whose whole decline lives in that envelope is
+    scored as though it had none. Until the renderer plays a written curve, this states how a module is
+    written rather than something an objective may choose.
     """
 
     rates: Annotated[tuple[int, ...], Field(min_length=1)]
@@ -31,6 +42,7 @@ class SweepConfig(ConfigModel):
     dither: bool
     noise_shaping: bool
     compress: bool
+    carrier: bool
 
 
 class BudgetConfig(ConfigModel):

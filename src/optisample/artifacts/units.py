@@ -7,10 +7,11 @@ from optisample.dsp.surrogate import StoredSample
 from optisample.keys import SampleKey
 from optisample.model import NoteEvent
 from optisample.optimize.export import build_module
+from optisample.optimize.export.build import written_voices
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.coverage import key_coverage, played_keys
 from optisample.optimize.export.envelope import shape_nodes
-from optisample.optimize.export.samples import encode_plan_units, sample_gains
+from optisample.optimize.export.samples import sample_gains
 from optisample.optimize.export.voices import PlayedVoices, WrittenInstruments, written_instruments
 from optisample.optimize.layers.bands import VelocityLayers
 from optisample.optimize.layers.slots import SlotLayout, plan_slots
@@ -80,13 +81,15 @@ def build_units(plan: StrategyPlan, dump_context: DumpContext) -> tuple[Unit, ..
     """
     units: list[Unit] = []
     tasks = dump_context.layer_tasks(plan.layers)
-    encoded = encode_plan_units(
-        plan.sample_units(),
+    export_context = _export_context(dump_context)
+    written = written_voices(
+        plan,
+        plan_slots(plan, export_context.target),
         dump_context.recordings,
-        dump_context.eval_context.encode,
-        dump_context.settings.optimize.seed,
+        list(dump_context.material),
+        export_context,
     )
-    for unit, stored in encoded:
+    for unit, stored in zip(plan.sample_units(), written.planned.stored):
         units.append(
             Unit(
                 label=unit.label,
@@ -107,6 +110,7 @@ def _export_context(dump_context: DumpContext) -> ExportContext:
         playback=settings.playback,
         target=settings.optimize.target,
         envelope=settings.envelope,
+        carrier=settings.optimize.sweep.carrier,
         seed=settings.optimize.seed,
     )
 
