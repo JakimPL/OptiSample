@@ -131,12 +131,25 @@ def sounded_signal(signal: Signal, envelope: Envelope | None, *, tempo: int, sam
     return np.asarray(signal * gain, dtype=np.float64)
 
 
+def _tick_readings(envelope: Envelope, *, tempo: int) -> Readings:
+    """The level ``envelope`` applies at each tick its shape spans, in decibels on the clock ``tempo`` runs.
+
+    A tracker updates a voice's volume once a tick and walks straight between breakpoints in amplitude, so
+    reading every tick states every level the format actually applies rather than a continuous line
+    standing in for them.
+    """
+    shape = envelope.points[: envelope.length if envelope.sustain is None else envelope.sustain.begin + 1]
+    length = tick_seconds(tempo)
+    ticks = np.arange(shape[0].tick, shape[-1].tick + 1, dtype=np.float64)
+    moments = np.asarray([point.tick for point in shape], dtype=np.float64)
+    values = np.asarray([point.value / MAX_VOLUME for point in shape], dtype=np.float64)
+    return Readings(values=gain_to_db(np.interp(ticks, moments, values)), seconds=ticks * length)
+
+
 def envelope_level(envelope: Envelope | None, *, tempo: int) -> Level:
     """The level ``envelope`` plays a held voice down by, as the algebra carries it.
 
-    A tracker updates a voice's volume once a tick and walks straight between breakpoints in amplitude, so
-    the curve is read at every tick its shape spans -- which is every level the format actually applies,
-    rather than a continuous line standing in for them. The result is counted on
+    The curve is read at every tick its shape spans (:func:`_tick_readings`) and counted on
     :attr:`~optisample.dsp.level.clock.Clock.PLAYED`, since a tracker walks the tick clock whatever key is
     struck and the curve holds its shape while the material under it stretches.
 
@@ -145,13 +158,25 @@ def envelope_level(envelope: Envelope | None, *, tempo: int) -> Level:
     if envelope is NO_ENVELOPE:
         return constant_level(_UNITY_DB, Clock.PLAYED)
 
-    shape = envelope.points[: envelope.length if envelope.sustain is None else envelope.sustain.begin + 1]
-    length = tick_seconds(tempo)
-    ticks = np.arange(shape[0].tick, shape[-1].tick + 1, dtype=np.float64)
-    moments = np.asarray([point.tick for point in shape], dtype=np.float64)
-    values = np.asarray([point.value / MAX_VOLUME for point in shape], dtype=np.float64)
+    return read_level(_tick_readings(envelope, tempo=tempo), Clock.PLAYED)
+
+
+def sounding_level(envelope: Envelope | None, *, tempo: int) -> Level:
+    """:func:`envelope_level` held at the quietest step that still sounds, which is what a carrier is played by.
+
+    A waveform that handed its level to an envelope was divided by :func:`sounding_gain`, so multiplying it
+    by this states the very curve that division removed and the pair comes back out at the level the
+    recording held -- including the moments the curve silences, where the division was taken against the
+    quietest step and the multiplication is taken against it too.
+
+    An instrument carrying no envelope leaves its voices at the level their own material holds.
+    """
+    if envelope is NO_ENVELOPE:
+        return constant_level(_UNITY_DB, Clock.PLAYED)
+
+    readings = _tick_readings(envelope, tempo=tempo)
     return read_level(
-        Readings(values=gain_to_db(np.interp(ticks, moments, values)), seconds=ticks * length),
+        Readings(values=np.maximum(readings.values, _FLOOR_DB), seconds=readings.seconds),
         Clock.PLAYED,
     )
 

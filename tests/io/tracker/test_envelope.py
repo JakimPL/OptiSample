@@ -9,10 +9,12 @@ from optisample.dsp.series import Series
 from optisample.io.tracker.envelope import (
     NO_ENVELOPE,
     EnvelopeGrid,
+    carried_signal,
     envelope_level,
     played_gain,
     shape_nodes,
     sounding_gain,
+    sounding_level,
     volume_envelope,
 )
 from trackmod.core.envelopes.curve import Breakpoint, timed_envelope
@@ -32,6 +34,9 @@ _XM_POINTS = Bound(minimum=1, maximum=12)
 _QUIETEST_STEP = 1  # the softest level a node states short of silencing the voice
 _FLOOR_DB = gain_to_db(_QUIETEST_STEP / MAX_VOLUME)  # how far under its peak any written curve reaches
 _MOMENTS = 4096  # moments a written curve is read back at, fine enough to price the runs between its corners
+# a run reaching the quietest step turns several decibels over its last tick, which is the widest the
+# amplitude walk a tracker makes and the decibel walk a level makes stand apart anywhere
+_ONE_TICK_DB = 0.5
 
 # A struck note: a fast fall, a long ring, then the material running out.
 _STRUCK = PiecewiseCurve(
@@ -57,6 +62,17 @@ def _grid(ticks: Bound = _TICKS) -> EnvelopeGrid:
 def _written(curve: PiecewiseCurve, *, ticks: Bound = _TICKS) -> Envelope:
     level = curve_level(curve, Clock.PLAYED)
     return volume_envelope(written_level(level, reference_db=level.peak_db), _grid(ticks))
+
+
+def _silencing() -> Envelope:
+    """A curve running to the step that silences a voice outright, which no division may be taken against."""
+    return timed_envelope(
+        (Breakpoint(seconds=0.0, value=MAX_VOLUME), Breakpoint(seconds=4 * _TICK_S, value=MIN_VOLUME)),
+        tempo=_TEMPO,
+        tick_bound=_TICKS,
+        value_bound=_VOLUME,
+        sustain=EnvelopeSpan(begin=1, end=1),
+    )
 
 
 def _rounded(curve: PiecewiseCurve) -> Envelope:
@@ -262,13 +278,7 @@ def test_a_curve_written_for_a_faster_clock_falls_over_less_time() -> None:
 def test_the_sounding_gain_stays_above_the_step_that_silences_a_voice() -> None:
     """A moment the curve silences plays as silence, so dividing a recording by it stays finite."""
     rate = 1000
-    silencing = timed_envelope(
-        (Breakpoint(seconds=0.0, value=MAX_VOLUME), Breakpoint(seconds=4 * _TICK_S, value=MIN_VOLUME)),
-        tempo=_TEMPO,
-        tick_bound=_TICKS,
-        value_bound=_VOLUME,
-        sustain=EnvelopeSpan(begin=1, end=1),
-    )
+    silencing = _silencing()
     frames = round(8 * _TICK_S * rate)
     played = played_gain(silencing, tempo=_TEMPO, frames=frames, sample_rate=rate)
     sounding = sounding_gain(silencing, tempo=_TEMPO, frames=frames, sample_rate=rate)
@@ -313,3 +323,38 @@ def test_between_two_ticks_the_two_readings_stay_inside_the_step_the_grid_moves_
     apart = np.abs(gain_to_db(np.maximum(walked, _QUIETEST_STEP / MAX_VOLUME)) - gain_to_db(carried))
 
     assert float(np.max(apart)) < abs(gain_to_db(_QUIETEST_STEP / (_QUIETEST_STEP + 1)))
+
+
+def test_the_sounding_level_stays_above_the_step_that_silences_a_voice() -> None:
+    """A carrier was divided against that step, so the level playing it back stands against it too."""
+    silencing = _silencing()
+
+    assert envelope_level(silencing, tempo=_TEMPO).readings.values.min() < _FLOOR_DB
+    assert sounding_level(silencing, tempo=_TEMPO).readings.values.min() == pytest.approx(_FLOOR_DB)
+
+
+def test_an_instrument_carrying_no_curve_sounds_its_voices_where_their_material_holds_them() -> None:
+    assert sounding_level(NO_ENVELOPE, tempo=_TEMPO).transparent
+
+
+@pytest.mark.parametrize("curve", [_STRUCK, _DEEP])
+def test_a_carrier_played_back_through_its_own_level_is_the_material_it_was_taken_from(
+    curve: PiecewiseCurve,
+) -> None:
+    """The round trip step 4 rests on: what the division handed to the envelope, the level hands back.
+
+    A stored carrier travels with this level and the surrogate renderer plays it through, so the two
+    standing inverse is what has a carrier scored as the recording it stands for rather than as the
+    level-flat waveform it is stored as. The pair walks the ticks between two nodes in amplitude on the
+    dividing side and in decibels on the returning one, so the material comes back within the decibels a
+    single tick turns through.
+    """
+    envelope = _written(curve)
+    rate = 22_050
+    frames = round(envelope.points[-1].tick * _TICK_S * rate)
+    material = np.cos(np.arange(frames, dtype=np.float64) * 0.05) * np.linspace(1.0, 0.2, frames)
+
+    carrier = carried_signal(material, envelope, tempo=_TEMPO, sample_rate=rate)
+    sounded = carrier * sounding_level(envelope, tempo=_TEMPO).frame_gains(frames, rate)
+
+    assert float(np.max(np.abs(gain_to_db(np.abs(sounded)) - gain_to_db(np.abs(material))))) < _ONE_TICK_DB

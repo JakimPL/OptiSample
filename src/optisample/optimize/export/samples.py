@@ -1,11 +1,11 @@
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
 from optisample.config.codec import EncodeConfig
 from optisample.dsp.surrogate import NO_LOOPS, EncodeContext, StoredSample, encode
-from optisample.io.tracker.envelope import NO_ENVELOPE, carried_signal
+from optisample.io.tracker.envelope import NO_ENVELOPE, carried_signal, sounding_level
 from optisample.io.tracker.target import ExportTarget, balanced_gains, sample_label
 from optisample.metrics.base import Signal
 from optisample.music import sounded_note
@@ -55,6 +55,24 @@ class EncodeOrder:
     seed: int
 
 
+def _played_through(stored: StoredSample, envelope: Envelope | None, *, tempo: int) -> StoredSample:
+    """``stored`` carrying the level the module plays it back through, where a curve carries one for it.
+
+    A waveform that handed its level to an instrument's envelope holds none of that level itself, so what a
+    note sounds at is the stored material times the very curve it was divided by
+    (:func:`~optisample.io.tracker.envelope.sounding_level`). Carrying that curve on the sample is what
+    lets the surrogate renderer (:func:`~optisample.dsp.surrogate.render.render`) put out what the module
+    puts out, so a carrier is scored as it is heard rather than as the level-flat waveform it is stored as.
+
+    A waveform stored as it was played keeps the level it was encoded with, its own PCM already holding
+    every level it sounds at up to the loop it wraps on.
+    """
+    if envelope is NO_ENVELOPE:
+        return stored
+
+    return replace(stored, level=sounding_level(envelope, tempo=tempo))
+
+
 def encode_plan_units(
     units: Sequence[SampleUnit],
     recordings: StoredRecordings,
@@ -68,14 +86,16 @@ def encode_plan_units(
     offers, of which a unit asking to be stored looped names the one it was priced against.
 
     ``envelopes`` names the curve the instrument each unit belongs to will play it down by, one per unit in
-    the same order, so a run storing carriers hands the encoder the recording already divided by it. A run
+    the same order, so a run storing carriers hands the encoder the recording already divided by it and
+    hands the stored sample the same curve back to be played through (:func:`_played_through`). A run
     storing recordings passes no curves and the signal reaches the encoder as it was played.
     """
     rng = np.random.default_rng(order.seed)
     for position, unit in enumerate(units):
+        envelope = order.envelopes[position]
         representative: Signal = carried_signal(
             recordings.audio[unit.representative_key],
-            order.envelopes[position],
+            envelope,
             tempo=order.tempo,
             sample_rate=recordings.sample_rate,
         )
@@ -85,11 +105,10 @@ def encode_plan_units(
             settled=recordings.settled.get(unit.representative_key, NO_LOOPS),
             rng=rng,
         )
-        yield unit, encode(
-            representative,
-            recordings.sample_rate,
-            unit.params,
-            encode_context,
+        yield unit, _played_through(
+            encode(representative, recordings.sample_rate, unit.params, encode_context),
+            envelope,
+            tempo=order.tempo,
         )
 
 

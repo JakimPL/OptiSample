@@ -30,11 +30,12 @@ class SweepConfig(ConfigModel):
     the level -- which is what lets a shallow grid spend itself on sound rather than on a decline the curve
     states anyway. Left unset, each waveform holds the recording as it was played, level and all.
 
-    What the allocation scores a carrier by is the open piece: the surrogate renderer
-    (:func:`~optisample.dsp.surrogate.render.render`) puts out a stored sample repitched, wrapped and
-    levelled, and applies no volume envelope, so a waveform whose whole decline lives in that envelope is
-    scored as though it had none. Until the renderer plays a written curve, this states how a module is
-    written rather than something an objective may choose.
+    A carrier travels with the curve it was divided by
+    (:attr:`~optisample.dsp.surrogate.sample.StoredSample.level`), so the surrogate renderer
+    (:func:`~optisample.dsp.surrogate.render.render`) puts one out at the level the module plays it at and
+    every reading taken from a written plan is taken on what a listener hears. The sweep itself prices each
+    clip against the curve that clip alone states, so what a plan's own readings stand above the sweep's is
+    what one shared envelope costs the keys written under it.
     """
 
     rates: Annotated[tuple[int, ...], Field(min_length=1)]

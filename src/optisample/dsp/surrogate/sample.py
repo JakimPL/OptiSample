@@ -19,11 +19,12 @@ class StoredSample:
     """An encoded, tracker-ready sample: its PCM, stored rate/depth, natural pitch, gain, and how it ends.
 
     ``release_frames`` is how many of its last frames the ramp closing it covers, which the encoder
-    applies and a score against its source puts over the source as well. ``level`` is the curve a looped
-    sample is played down by: the loop holds one level for as long as a note runs, and the level is what
-    brings that down the way the recording's own did. It belongs to the slot rather than the waveform, so
-    the PCM stays the material as it was stored, and it is counted on the played clock -- the timeline a
-    tracker walks whatever key is struck.
+    applies and a score against its source puts over the source as well. ``level`` is the curve the sample
+    is played down by, and it says what the PCM leaves to something else to supply: for a looped sample,
+    the decline the recording went on making past the one level its loop repeats at; for a carrier, the
+    whole level its instrument's volume envelope carries. It belongs to the slot rather than the waveform,
+    so the PCM stays the material as it was stored, and it is counted on the played clock -- the timeline
+    a tracker walks whatever key is struck.
     """
 
     pcm: Signal

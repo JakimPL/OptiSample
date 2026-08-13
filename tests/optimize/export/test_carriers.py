@@ -9,6 +9,8 @@ from numpy.typing import NDArray
 
 from optisample.config.optimize import SweepConfig
 from optisample.dsp.level import gain_to_db
+from optisample.dsp.surrogate import render
+from optisample.dsp.surrogate.sample import CARRIES_ITS_LEVEL
 from optisample.io.tracker.envelope import NO_ENVELOPE, carried_signal
 from optisample.keys import SampleKey
 from optisample.optimize.export.build import written_voices
@@ -27,6 +29,11 @@ Recordings = Callable[..., StoredRecordings]
 
 _TEMPO = 125
 _FLATTER_DB = 1.0  # how much closer to level a divided waveform has to read before the split has done anything
+_BLOCKS = 8  # equal stretches a span's level is read over, enough to follow a note's decline across one
+_HELD_S = 0.5  # the longest note the demo material holds, which is the stretch a stored sample is heard over
+# what the two roundings of a written curve and the codec together leave between a carrier played back
+# and the recording it was taken from, the whole of which the measured reading sits an order under
+_WRITTEN_DB = 0.5
 
 
 @pytest.fixture
@@ -114,6 +121,23 @@ def test_a_shape_states_a_level_for_every_sample_its_instrument_holds(
 # --- what a stored carrier holds -----------------------------------------------------------------------------
 
 
+def _block_levels(values: NDArray[np.float64]) -> NDArray[np.float64]:
+    """The level a span holds over each of :data:`_BLOCKS` equal stretches of it, in decibels."""
+    blocks = values[: values.size // _BLOCKS * _BLOCKS].reshape(_BLOCKS, -1)
+    return gain_to_db(np.sqrt(np.mean(blocks**2, axis=1)))
+
+
+def _travel_db(values: NDArray[np.float64]) -> float:
+    """How far a span's level moves between the loudest stretch of it and the quietest."""
+    levels = _block_levels(values)
+    return float(np.max(levels) - np.min(levels))
+
+
+def _apart_db(played: NDArray[np.float64], reference: NDArray[np.float64]) -> float:
+    """How far two spans stand apart in level, at the stretch they stand furthest apart on."""
+    return float(np.max(np.abs(_block_levels(played) - _block_levels(reference))))
+
+
 def test_a_slot_carrying_no_curve_stores_its_recording_as_it_stands(
     demo_audio: dict[SampleKey, NDArray[np.float64]],
 ) -> None:
@@ -138,12 +162,7 @@ def test_dividing_by_the_written_curve_leaves_a_flatter_waveform(
 
     flattened = carried_signal(signal, envelope, tempo=export_context.envelope_grid.tempo, sample_rate=SR)
 
-    def travel(values: NDArray[np.float64]) -> float:
-        blocks = values[: values.size // 8 * 8].reshape(8, -1)
-        levels = gain_to_db(np.sqrt(np.mean(blocks**2, axis=1)))
-        return float(np.max(levels) - np.min(levels))
-
-    assert travel(flattened) < travel(signal) - _FLATTER_DB
+    assert _travel_db(flattened) < _travel_db(signal) - _FLATTER_DB
 
 
 def test_each_sample_is_handed_the_curve_of_the_instrument_holding_it(
@@ -160,6 +179,32 @@ def test_each_sample_is_handed_the_curve_of_the_instrument_holding_it(
     for index, slot in enumerate(layout.slots):
         for sample in slot.samples:
             assert handed[sample] == index
+
+
+def test_a_stored_carrier_is_rendered_where_the_recording_it_stands_for_sounded(
+    planned: tuple[InstrumentPlan, StoredRecordings],
+    export_context: ExportContext,
+) -> None:
+    """The whole of the wiring: a waveform holding no level is scored through the curve that carries it.
+
+    The stored PCM travels level-flat, so playing it as it stands puts a note out nowhere near the level
+    its recording held. Playing it through the very curve it was divided by
+    (:func:`~optisample.optimize.export.samples._played_through`) is what puts the decline back, and the
+    surrogate renderer reads that curve off the sample -- which is what lets the objective price a carrier
+    at all.
+    """
+    plan, held = planned
+    layout = plan_slots(plan, export_context.target)
+    carried = written_voices(plan, layout, held, demo_material(), dataclasses.replace(export_context, carrier=True))
+    unit = next(iter(plan.sample_units()))
+    stored = carried.planned.stored[0]
+    reference = held.audio[unit.representative_key][: round(_HELD_S * SR)]
+
+    played = render(stored, SR, duration_s=_HELD_S)
+    flat = render(dataclasses.replace(stored, level=CARRIES_ITS_LEVEL), SR, duration_s=_HELD_S)
+
+    assert _apart_db(played, reference) < _WRITTEN_DB
+    assert _apart_db(flat, reference) > _apart_db(played, reference)
 
 
 # --- which way round the export runs -------------------------------------------------------------------------
