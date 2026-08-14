@@ -68,6 +68,16 @@ def test_one_key_is_drawn_the_same_colour_wherever_it_is_read() -> None:
     )
 
 
+def test_two_sets_holding_a_take_of_one_name_are_told_apart(gathered: Clustered) -> None:
+    """A file stem is unique inside its own set alone, so the name a table uses across sets leads with the set."""
+    recordings = gathered.described.recordings
+    named = [clusters.sample_name(recording) for recording in recordings]
+
+    assert len({recording.label for recording in recordings}) < len(recordings)
+    assert len(set(named)) == len(recordings)
+    assert all(name.startswith(recording.source.label) for name, recording in zip(named, recordings, strict=True))
+
+
 def test_groups_stood_for_by_one_key_are_told_apart_by_their_names(clustered: Clustered) -> None:
     """A corpus can place two renditions of a note apart, and a panel still needs one word per group."""
     doubled = clustered.groups + clustered.groups
@@ -101,8 +111,17 @@ def test_every_recording_gets_one_row_naming_the_group_it_fell_into(clustered: C
     assert {str(row["group"]) for row in rows} == {group.name for group in clustered.named}
     for row, recording in zip(rows, clustered.described.recordings, strict=True):
         assert row["sample"] == recording.label
+        assert row["set"] == recording.source.label
         assert row["pitch"] == recording.key.pitch
         assert row["playing_s"] == pytest.approx(recording.weight)
+
+
+def test_a_gathered_space_reads_every_point_back_to_the_set_it_came_from(gathered: Clustered) -> None:
+    """One field holds several sets, so every point carries the column a reader colours and filters them by."""
+    rows = clusters.point_rows(gathered.described, gathered.named, gathered.distances)
+
+    assert len(rows) == gathered.described.size
+    assert {str(row["set"]) for row in rows} == {source.label for source in gathered.described.corpus.sources}
 
 
 def test_the_take_standing_for_a_group_is_the_one_its_row_names_a_representative(clustered: Clustered) -> None:
@@ -133,7 +152,18 @@ def test_a_group_row_spans_the_pitches_and_the_playing_time_its_members_carry(cl
         pitches = [clustered.described.recordings[member].key.pitch for member in group.members.tolist()]
         assert row["pitch_lo"] == min(pitches)
         assert row["pitch_hi"] == max(pitches)
-        assert row["stands_for_it"] == clustered.described.recordings[group.representative].label
+        assert row["stands_for_it"] == clusters.sample_name(clustered.described.recordings[group.representative])
+
+
+def test_a_group_counts_the_sets_its_members_were_gathered_from(gathered: Clustered) -> None:
+    """A group holding takes of two sets is a sound they share, which is what one shared space is read for."""
+    rows = clusters.group_rows(gathered.described, gathered.named)
+    recordings = gathered.described.recordings
+
+    for row, group in zip(rows, gathered.groups, strict=True):
+        assert row["sets"] == len({recordings[member].source for member in group.members.tolist()})
+
+    assert max(int(row["sets"]) for row in rows) == len(gathered.described.corpus.sources)
 
 
 def test_members_are_listed_from_the_medoid_outwards(clustered: Clustered) -> None:
@@ -200,7 +230,7 @@ def test_one_take_states_its_own_readings_on_a_single_line(clustered: Clustered)
     rows = clusters.descriptor_rows(clustered.described.descriptors[0], clustered.described.recordings[0])
 
     assert len(rows) == 1
-    assert rows[0]["sample"] == clustered.described.recordings[0].label
+    assert rows[0]["sample"] == clusters.sample_name(clustered.described.recordings[0])
     assert rows[0]["columns"] == clustered.described.descriptors[0].columns
 
 
@@ -214,6 +244,26 @@ def test_a_take_reads_its_distance_to_every_group_and_owns_exactly_one(clustered
     assert owned["to_nearest"] == pytest.approx(0.0)
 
 
+def test_a_reach_row_names_the_take_standing_for_each_group_by_its_own_set(gathered: Clustered) -> None:
+    """The company a take nearly kept is named across sets, so the take it would answer to is unambiguous."""
+    rows = clusters.reach_rows(0, gathered.described, gathered.named, gathered.distances)
+
+    for row, named in zip(rows, gathered.named, strict=True):
+        assert row["stands_for_it"] == clusters.sample_name(gathered.described.recordings[named.group.representative])
+
+
+def test_a_pick_names_the_set_its_dataset_is_written_out_of(gathered: Clustered) -> None:
+    """A selection cut across sets is written one dataset apiece, so each row says which one it lands in."""
+    chosen = selection(gathered.described.corpus, gathered.groups)
+    rows = clusters.pick_rows(chosen, gathered.named)
+
+    for row, pick in zip(rows, chosen.picks, strict=True):
+        assert row["set"] == pick.source.label
+        assert row["sample"] == pick.recording.label
+
+    assert {str(row["set"]) for row in rows} <= {source.label for source in gathered.described.corpus.sources}
+
+
 def test_a_chosen_take_is_listed_beside_the_share_of_the_corpus_it_stands_for(clustered: Clustered) -> None:
     """A written selection reads as one row per take, so what is about to be written is what is shown."""
     chosen = selection(clustered.described.corpus, clustered.groups)
@@ -223,8 +273,11 @@ def test_a_chosen_take_is_listed_beside_the_share_of_the_corpus_it_stands_for(cl
     assert sum(int(row["members"]) for row in rows) == clustered.described.size
     assert sum(float(row["playing_s"]) for row in rows) == pytest.approx(clustered.described.corpus.weights.sum())
     for row, named in zip(rows, clustered.named, strict=True):
+        standing = clustered.described.recordings[named.group.representative]
+
         assert row["group"] == named.name
-        assert row["sample"] == clustered.described.recordings[named.group.representative].label
+        assert row["sample"] == standing.label
+        assert row["set"] == standing.source.label
 
 
 def test_a_selection_read_against_another_cut_is_rejected(clustered: Clustered) -> None:
@@ -247,4 +300,4 @@ def test_a_representative_rule_names_the_member_the_rows_stand_by(clustered: Clu
     rows = clusters.group_rows(clustered.described, clusters.named_groups(clustered.described, regrouped))
 
     for row, group in zip(rows, regrouped, strict=True):
-        assert row["stands_for_it"] == clustered.described.recordings[group.weighted_medoid].label
+        assert row["stands_for_it"] == clusters.sample_name(clustered.described.recordings[group.weighted_medoid])

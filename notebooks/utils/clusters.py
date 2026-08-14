@@ -46,6 +46,17 @@ def group_name(key: SampleKey) -> str:
     return f"p{key.pitch:03d}_v{key.velocity:03d}"
 
 
+def sample_name(recording: StageRecording) -> str:
+    """How a table names one recording across sets: the set it came from, then the file holding it.
+
+    A file stem is unique inside its own set alone, so two sets of one run can each hold a take spelled the
+    same way. Leading with the set is what keeps them apart wherever a row points at a recording it is not
+    itself about -- the take standing for a group, the one a reach row measures to -- and reads that take
+    back to the dataset it is played and written out of.
+    """
+    return f"{recording.source.label} · {recording.label}"
+
+
 def group_colour(key: SampleKey) -> str:
     """The colour a group is drawn in, turned and filled by the key the take standing for it plays.
 
@@ -121,7 +132,9 @@ def point_rows(described: DescribedCorpus, groups: Sequence[NamedGroup], distanc
     """One row per recording: where it sits, which group it fell into, and how far it stands from that group.
 
     These are the rows the scatter hovers and the member tables list, so a point picked off the picture and
-    a line read out of a table say the same things about the same take.
+    a line read out of a table say the same things about the same take. ``set`` names the source the take
+    came from, which is what colours a gathered space by the sets it holds and tells two of them apart on a
+    field they now share.
     """
     placed = _group_of(groups, described.size)
     return [_point_row(described, index, groups[placed[index]], reach) for index, reach in enumerate(distances)]
@@ -135,6 +148,7 @@ def _point_row(described: DescribedCorpus, index: int, named: NamedGroup, reach:
     representative = group.representative
     return {
         "sample": recording.label,
+        "set": recording.source.label,
         "note": recording.note,
         "pitch": recording.key.pitch,
         "velocity": recording.key.velocity,
@@ -153,28 +167,33 @@ def group_rows(described: DescribedCorpus, groups: Sequence[NamedGroup]) -> list
     """One row per group: how big it is, what it spans, and which takes stand for it.
 
     ``spread_mean`` and ``spread_max`` say how far the group reaches from its medoid, so a representative
-    is read beside the amount of sound it is being asked to cover.
+    is read beside the amount of sound it is being asked to cover. ``sets`` counts the sources its members
+    were gathered from, which is what says a sound several sets hold in common.
     """
-    recordings = described.recordings
-    return [
-        {
-            "group": named.name,
-            "size": named.group.size,
-            "pitch_lo": min(recordings[member].key.pitch for member in named.group.members.tolist()),
-            "pitch_hi": max(recordings[member].key.pitch for member in named.group.members.tolist()),
-            "vel_lo": min(recordings[member].key.velocity for member in named.group.members.tolist()),
-            "vel_hi": max(recordings[member].key.velocity for member in named.group.members.tolist()),
-            "playing_s": sum(recordings[member].weight for member in named.group.members.tolist()),
-            "spread_mean": named.group.spread_mean,
-            "spread_max": named.group.spread_max,
-            "stands_for_it": recordings[named.group.representative].label,
-            "medoid": recordings[named.group.medoid].label,
-            "weighted_medoid": recordings[named.group.weighted_medoid].label,
-            "nearest_centroid": recordings[named.group.nearest_centroid].label,
-            "farthest": recordings[named.group.farthest].label,
-        }
-        for named in groups
-    ]
+    return [_group_row(described.recordings, named) for named in groups]
+
+
+def _group_row(recordings: Sequence[StageRecording], named: NamedGroup) -> Row:
+    """One group as the line the tables read it through, its members gathered once for every reading."""
+    group = named.group
+    members = [recordings[member] for member in group.members.tolist()]
+    return {
+        "group": named.name,
+        "size": group.size,
+        "sets": len({member.source for member in members}),
+        "pitch_lo": min(member.key.pitch for member in members),
+        "pitch_hi": max(member.key.pitch for member in members),
+        "vel_lo": min(member.key.velocity for member in members),
+        "vel_hi": max(member.key.velocity for member in members),
+        "playing_s": sum(member.weight for member in members),
+        "spread_mean": group.spread_mean,
+        "spread_max": group.spread_max,
+        "stands_for_it": sample_name(recordings[group.representative]),
+        "medoid": sample_name(recordings[group.medoid]),
+        "weighted_medoid": sample_name(recordings[group.weighted_medoid]),
+        "nearest_centroid": sample_name(recordings[group.nearest_centroid]),
+        "farthest": sample_name(recordings[group.farthest]),
+    }
 
 
 def pick_rows(chosen: Selection, groups: Sequence[NamedGroup]) -> list[Row]:
@@ -182,7 +201,8 @@ def pick_rows(chosen: Selection, groups: Sequence[NamedGroup]) -> list[Row]:
 
     ``members`` and ``playing_s`` are what the group behind a pick holds, so a written selection is read
     beside the share of the material each of its recordings answers for. A selection is chosen group by
-    group in the order they were cut, so every pick reads under the word its own group goes by.
+    group in the order they were cut, so every pick reads under the word its own group goes by. ``set``
+    names the source the take is cut of, which is the dataset writing the selection lands it in.
 
     Raises:
         ValueError: when ``chosen`` and ``groups`` state different counts of groups.
@@ -191,6 +211,7 @@ def pick_rows(chosen: Selection, groups: Sequence[NamedGroup]) -> list[Row]:
         {
             "group": named.name,
             "sample": pick.recording.label,
+            "set": pick.source.label,
             "note": pick.recording.note,
             "pitch": pick.recording.key.pitch,
             "velocity": pick.recording.key.velocity,
@@ -289,7 +310,7 @@ def reach_rows(
             "own": place in named.group.members.tolist(),
             "to_representative": float(reach[named.group.representative]),
             "to_nearest": float(min(reach[member] for member in named.group.members.tolist())),
-            "stands_for_it": described.recordings[named.group.representative].label,
+            "stands_for_it": sample_name(described.recordings[named.group.representative]),
         }
         for named in groups
     ]
@@ -300,7 +321,7 @@ def descriptor_rows(descriptor: SampleDescriptor, recording: StageRecording) -> 
     envelope = descriptor.envelope
     return [
         {
-            "sample": recording.label,
+            "sample": sample_name(recording),
             "columns": descriptor.columns,
             "depths_reached": int(descriptor.reached.sum()),
             "attack_s": envelope.attack_s,

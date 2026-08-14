@@ -665,7 +665,6 @@ dev = [
     { name = "types-pyyaml" },
     { name = "umap-learn" },
     { name = "xmodits-py" },
-    { name = "yamlfmt" },
 ]
 
 [package.metadata]
@@ -699,7 +698,6 @@ dev = [
     { name = "types-pyyaml", specifier = "==6.0.12.20260518" },
     { name = "umap-learn", specifier = ">=0.5.12" },
     { name = "xmodits-py", specifier = ">=0.3.5" },
-    { name = "yamlfmt", specifier = "==1.1.1" },
 ]
 
 [[package]]
@@ -1114,15 +1112,6 @@ wheels = [
 ]
 
 [[package]]
-name = "ruamel-yaml"
-version = "0.17.40"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/d1/d6/eb2833ccba5ea36f8f4de4bcfa0d1a91eb618f832d430b70e3086821f251/ruamel.yaml-0.17.40.tar.gz", hash = "sha256:6024b986f06765d482b5b07e086cc4b4cd05dd22ddcbc758fa23d54873cf313d", size = 137672, upload-time = "2023-10-20T12:53:56.073Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/35/79/5e2cffa1c77432f11cd93a5351f30732c997a239d3a3090856a72d6d8ba7/ruamel.yaml-0.17.40-py3-none-any.whl", hash = "sha256:b16b6c3816dff0a93dca12acf5e70afd089fa5acb80604afd1ffa8b465b7722c", size = 113666, upload-time = "2023-10-20T12:53:52.628Z" },
-]
-
-[[package]]
 name = "scikit-learn"
 version = "1.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1380,12 +1369,3 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/04/95/5918a946e922b8b4519daa93dff2b29d08b8f3953d758dbc3b8cfcb6e00c/xmodits_py-0.3.5-cp37-abi3-win32.whl", hash = "sha256:f5c16b752338a0dbc8f7011da27ec705104c03bf68f5594d54ca5b9306f6e4c8", size = 177892, upload-time = "2024-08-26T20:09:50.69Z" },
     { url = "https://files.pythonhosted.org/packages/bc/2c/e8b26d72ac1fce5a3a4b0f40825a61ffdbec55b408e8b89cd03ae7c60cfe/xmodits_py-0.3.5-cp37-abi3-win_amd64.whl", hash = "sha256:bee3c483e29c660870e1ed439b980fdb285331fca6f44421b1ad01f68d385451", size = 189309, upload-time = "2024-08-26T20:09:52.26Z" },
 ]
-
-[[package]]
-name = "yamlfmt"
-version = "1.1.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "ruamel-yaml" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/93/eb/338ba863682a00f1ce89e8160354ce61b403c1e5f538e009baea62f2b53c/yamlfmt-1.1.1.tar.gz", hash = "sha256:5d7352cf9c779d4afd58b119571c17a6f41f3e1fd8ad5eae2e11a926ac3de60f", size = 14394, upload-time = "2023-01-05T03:42:37.35Z" }

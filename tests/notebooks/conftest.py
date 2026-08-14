@@ -33,6 +33,8 @@ _DURATION_S = 1.2
 _NOISE_FLOOR = 1e-5
 _GROUPS = 3
 _ALONE = 1  # the caller's own process, which carries a fixture's reading as it stands
+_INSTRUMENT = "Piano"
+_SETS = (Stage.SUBSET, Stage.REDUCED)  # two steps of one run, whose takes are filed under the very same names
 
 
 def _ringing(root_hz: float, seed: int) -> NDArray[np.float64]:
@@ -59,24 +61,33 @@ class Clustered:
     cutting: PartitionConfig
 
 
-@pytest.fixture
-def clustered(config: OptiConfig) -> Clustered:
-    """A handful of synthesised takes carried the whole way a notebook carries them, ready to draw."""
-    source = RecordingSource(root=Path("run"), instrument_id="Piano", stage=Stage.SUBSET)
-    corpus = RecordingCorpus(
-        sources=(source,),
-        recordings=tuple(
-            StageRecording(
-                source=source,
-                file=Path(f"{pitch:03d}.wav"),
-                key=SampleKey(pitch=pitch, velocity=_VELOCITY),
-                signal=_ringing(midi_to_freq(pitch), index),
-                sample_rate=SR,
-                weight=float(index + 1),
-            )
-            for index, pitch in enumerate(_PITCHES)
-        ),
+def _source(stage: Stage) -> RecordingSource:
+    """One set of a run, named the way a chain that had left it there would name it."""
+    return RecordingSource(root=Path("run"), instrument_id=_INSTRUMENT, stage=stage)
+
+
+def _recordings(source: RecordingSource, *, seeded_from: int) -> tuple[StageRecording, ...]:
+    """One set's takes, filed under names saying nothing about which set they came from.
+
+    Two sets of a run carry one instrument a step apart, so their takes share a grid of keys and a set of
+    file names; seeding the noise apart leaves the two sets standing a hair from each other rather than on
+    top of one another, which is how a run's own stages relate.
+    """
+    return tuple(
+        StageRecording(
+            source=source,
+            file=Path(f"{pitch:03d}.wav"),
+            key=SampleKey(pitch=pitch, velocity=_VELOCITY),
+            signal=_ringing(midi_to_freq(pitch), seeded_from + index),
+            sample_rate=SR,
+            weight=float(index + 1),
+        )
+        for index, pitch in enumerate(_PITCHES)
     )
+
+
+def _clustered(corpus: RecordingCorpus, config: OptiConfig) -> Clustered:
+    """A corpus carried the whole way a notebook carries one: read into blocks, placed and cut."""
     described = describe_corpus(
         corpus,
         features=config.loop.features,
@@ -95,6 +106,30 @@ def clustered(config: OptiConfig) -> Clustered:
         named=clusters.named_groups(described, groups),
         distances=pairwise_distances(space.coordinates),
         cutting=cutting,
+    )
+
+
+@pytest.fixture
+def clustered(config: OptiConfig) -> Clustered:
+    """A handful of synthesised takes carried the whole way a notebook carries them, ready to draw."""
+    source = _source(Stage.SUBSET)
+    return _clustered(RecordingCorpus(sources=(source,), recordings=_recordings(source, seeded_from=0)), config)
+
+
+@pytest.fixture
+def gathered(config: OptiConfig) -> Clustered:
+    """Two sets of one run read into a single space, which is what a cross-set panel draws from."""
+    sources = tuple(_source(stage) for stage in _SETS)
+    return _clustered(
+        RecordingCorpus(
+            sources=sources,
+            recordings=tuple(
+                recording
+                for place, source in enumerate(sources)
+                for recording in _recordings(source, seeded_from=place * len(_PITCHES))
+            ),
+        ),
+        config,
     )
 
 
