@@ -7,7 +7,7 @@ from typing import Final
 from optisample.cluster.descriptor import SampleDescriptor, describe
 from optisample.cluster.representative import MemberReadings
 from optisample.cluster.space import SampleSpace, sample_space
-from optisample.cluster.stages import StageCorpus, StageRecording
+from optisample.cluster.stages import RecordingCorpus, StageRecording
 from optisample.config.cluster import DescriptorConfig, SpaceConfig
 from optisample.config.loop import FeatureConfig
 from optisample.parallel import map_workers
@@ -33,7 +33,7 @@ def _described(recording: StageRecording, *, features: FeatureConfig, config: De
 
 @dataclass(frozen=True)
 class DescribedCorpus:
-    """A stage's recordings beside the blocks each was read into, held in one order.
+    """A gathered corpus beside the blocks each of its recordings was read into, held in one order.
 
     ``recordings`` and ``descriptors`` stand at matching positions, so an index answers in both: a point
     picked out of a space names the take it came from, the file that take is stored in, and the playing
@@ -42,7 +42,7 @@ class DescribedCorpus:
     weights.
     """
 
-    corpus: StageCorpus
+    corpus: RecordingCorpus
     descriptors: tuple[SampleDescriptor, ...]
 
     @property
@@ -70,7 +70,7 @@ class DescribedCorpus:
 
 
 def describe_corpus(
-    corpus: StageCorpus,
+    corpus: RecordingCorpus,
     *,
     features: FeatureConfig,
     config: DescriptorConfig,

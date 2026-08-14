@@ -24,12 +24,12 @@ from optisample.cluster.partition import partition
 from optisample.cluster.representative import MemberReadings, grouping
 from optisample.cluster.space import sample_space
 from optisample.cluster.stages import (
-    Stage,
-    StageCorpus,
+    ReadingSettings,
+    RecordingCorpus,
+    RecordingSource,
     StageRecording,
-    StageSettings,
+    source_recordings,
     stage_material,
-    stage_recordings,
 )
 from optisample.config.cluster import ClusterConfig
 from optisample.config.codec import EncodeConfig
@@ -56,14 +56,14 @@ _WRITE_LABEL: Final = "Writing clustered instruments"
 class ClusterSettings:
     """What writing a clustered set of recordings as carrier instruments is carried out with.
 
-    ``reading`` states how the stage's recordings are decoded and named, ``cluster`` how the space they
-    make is built, cut and written, and ``target`` which format the instruments are held to. ``tempo_bpm``
-    is the clock the volume envelopes are counted in ticks of, which travels in the manifest since an
-    instrument file carries no clock of its own.
+    ``source`` names the set of recordings the run reads, ``reading`` states how they are decoded and named,
+    ``cluster`` how the space they make is built, cut and written, and ``target`` which format the
+    instruments are held to. ``tempo_bpm`` is the clock the volume envelopes are counted in ticks of, which
+    travels in the manifest since an instrument file carries no clock of its own.
     """
 
-    stage: Stage
-    reading: StageSettings
+    source: RecordingSource
+    reading: ReadingSettings
     cluster: ClusterConfig
     features: FeatureConfig
     encode: EncodeConfig
@@ -77,7 +77,7 @@ class ClusterSettings:
     @property
     def instrument_id(self) -> str:
         """The instrument the run carried from stage to stage, which every artifact is filed under."""
-        return self.reading.instrument_id
+        return self.source.instrument_id
 
     @property
     def tempo(self) -> int:
@@ -155,7 +155,7 @@ def velocity_layers(material: Sequence[NoteEvent], layers: int) -> VelocityLayer
     return VelocityLayers(velocity_cells(material, layers).cells)
 
 
-def _band_positions(corpus: StageCorpus, band: VelocityBand) -> tuple[int, ...]:
+def _band_positions(corpus: RecordingCorpus, band: VelocityBand) -> tuple[int, ...]:
     """Where in the corpus the recordings this band answers for stand."""
     return tuple(index for index, recording in enumerate(corpus.recordings) if band.covers(recording.key.velocity))
 
@@ -315,7 +315,7 @@ def _written_bands(
         return [write_band(described, cut, out_dir, settings, step=step) for cut in cuts]
 
 
-def write_clustered(root: Path, out_dir: Path, settings: ClusterSettings) -> ClusteredArtifacts:
+def write_clustered(out_dir: Path, settings: ClusterSettings) -> ClusteredArtifacts:
     """Write one clustered set of recordings as the carrier instruments a tracker loads.
 
     The velocity axis is cut first, since a keymap names no dynamic and one band is therefore one
@@ -326,9 +326,9 @@ def write_clustered(root: Path, out_dir: Path, settings: ClusterSettings) -> Clu
     its whole grid on sound.
 
     Raises:
-        ValueError: when the stage holds what an allocation stored, which names no material to cut on.
+        ValueError: when the source names what an allocation stored, which holds no material to cut on.
     """
-    corpus = stage_recordings(root, settings.stage, settings.reading)
+    corpus = source_recordings(settings.source, settings.reading)
     described = describe_corpus(
         corpus,
         features=settings.features,
@@ -336,14 +336,15 @@ def write_clustered(root: Path, out_dir: Path, settings: ClusterSettings) -> Clu
         workers=settings.workers,
         progress=settings.progress,
     )
-    layers = velocity_layers(stage_material(root, settings.stage, settings.reading), settings.cluster.instrument.layers)
+    material = stage_material(settings.source, settings.reading)
+    layers = velocity_layers(material, settings.cluster.instrument.layers)
     written = _written_bands(described, _band_cuts(described, layers, settings), out_dir, settings)
     manifest = out_dir / f"{settings.instrument_id}{MANIFEST_SUFFIX}"
     write_json(
         manifest,
         clustered_document(
             settings.instrument_id,
-            stage=settings.stage.value,
+            stage=settings.source.stage.value,
             tempo=settings.tempo,
             groups=settings.cluster.partition.groups,
             layers=[band.record for band in written],

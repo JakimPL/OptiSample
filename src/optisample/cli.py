@@ -26,7 +26,7 @@ from optisample.calibrate.ranking import (
     RankingSettings,
 )
 from optisample.cluster.instruments import ClusterSettings, write_clustered
-from optisample.cluster.stages import Stage, StageSettings, available_instruments
+from optisample.cluster.stages import ReadingSettings, RecordingSource, Stage, available_instruments
 from optisample.config import OptiConfig, load_config
 from optisample.config.cluster import ClusterConfig
 from optisample.config.layers import LayersConfig
@@ -851,9 +851,12 @@ def _cluster_settings(config: OptiConfig, args: argparse.Namespace) -> ClusterSe
     """What writing a run's recordings as clustered carrier instruments is carried out with."""
     progress = _progress(args)
     return ClusterSettings(
-        stage=Stage(args.stage),
-        reading=StageSettings(
+        source=RecordingSource(
+            root=args.run_root,
             instrument_id=_clustered_instrument(args),
+            stage=Stage(args.stage),
+        ),
+        reading=ReadingSettings(
             strategy=_DATASET_STRATEGY,
             dedupe=config.reduce.dedupe,
             trim=config.reduce.trim,
@@ -873,7 +876,7 @@ def _cluster_settings(config: OptiConfig, args: argparse.Namespace) -> ClusterSe
 
 
 def _run_cluster(config: OptiConfig, args: argparse.Namespace) -> None:
-    written = write_clustered(args.run_root, args.out, _cluster_settings(config, args))
+    written = write_clustered(args.out, _cluster_settings(config, args))
     print_clustered(written)
 
 

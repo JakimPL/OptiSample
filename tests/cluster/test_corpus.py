@@ -8,7 +8,7 @@ import pytest
 
 from optisample.cluster.corpus import DescribedCorpus, describe_corpus
 from optisample.cluster.space import Block
-from optisample.cluster.stages import Stage, StageCorpus, StageRecording
+from optisample.cluster.stages import RecordingCorpus, RecordingSource, Stage, StageRecording
 from optisample.config.cluster import DescriptorConfig, SpaceConfig
 from optisample.config.loop import FeatureConfig
 from optisample.keys import SampleKey
@@ -23,10 +23,13 @@ _SHARED = 2  # processes the fan-out is read across, which is what puts the work
 _ALONE = 1  # the caller's own process, which carries the work as it stands
 _SILENT = 0.0  # the say a block left out of the space carries
 
+_SOURCE = RecordingSource(root=Path("run"), instrument_id=_INSTRUMENT, stage=Stage.SUBSET)
+
 
 def _recording(pitch: int, signal: Signal, *, weight: float) -> StageRecording:
     """One take of ``pitch`` as the corpus lists it, carrying the playing time its notes ask of it."""
     return StageRecording(
+        source=_SOURCE,
         file=Path(f"{pitch:03d}.wav"),
         key=SampleKey(pitch=pitch, velocity=_VELOCITY),
         signal=signal,
@@ -35,11 +38,10 @@ def _recording(pitch: int, signal: Signal, *, weight: float) -> StageRecording:
     )
 
 
-def _corpus(ringing_note: Callable[..., Signal], pitches: Sequence[int] = _PITCHES) -> StageCorpus:
-    """A stage's worth of takes, one per pitch, each carrying a playing time of its own."""
-    return StageCorpus(
-        stage=Stage.SUBSET,
-        instrument_id=_INSTRUMENT,
+def _corpus(ringing_note: Callable[..., Signal], pitches: Sequence[int] = _PITCHES) -> RecordingCorpus:
+    """A set's worth of takes, one per pitch, each carrying a playing time of its own."""
+    return RecordingCorpus(
+        sources=(_SOURCE,),
         recordings=tuple(
             _recording(pitch, ringing_note(midi_to_freq(pitch)), weight=float(index + 1))
             for index, pitch in enumerate(pitches)
@@ -48,7 +50,7 @@ def _corpus(ringing_note: Callable[..., Signal], pitches: Sequence[int] = _PITCH
 
 
 def _described(
-    corpus: StageCorpus,
+    corpus: RecordingCorpus,
     features_config: FeatureConfig,
     descriptor_config: DescriptorConfig,
     *,

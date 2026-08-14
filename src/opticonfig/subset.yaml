@@ -1,2 +1,2 @@
 # What a slice admits from its source (optisample.config.subset.SubsetConfig).
-min_duration_s: 1.0  # shortest a note may sound and still be carried, onset through the end of its release
+min_duration_s: 0.9  # shortest a note may sound and still be carried, onset through the end of its release

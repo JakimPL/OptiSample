@@ -21,12 +21,15 @@ from optisample.artifacts.documents.velocity import VelocityMapDocument
 from optisample.artifacts.paths import pipeline_paths, plan_paths
 from optisample.artifacts.serialize import write_json
 from optisample.cluster.stages import (
+    ReadingSettings,
+    RecordingSource,
     Stage,
-    StageSettings,
     available_instruments,
+    available_sources,
     available_stages,
+    gathered_recordings,
+    source_recordings,
     stage_dir,
-    stage_recordings,
 )
 from optisample.config import OptiConfig
 from optisample.io.audio import write_wav
@@ -65,20 +68,25 @@ _ENCODING = {
 }
 
 
+def _source(root: Path, stage: Stage, instrument_id: str) -> RecordingSource:
+    """One set of recordings as a reader addresses it: the run, the instrument and the stage."""
+    return RecordingSource(root=root, instrument_id=instrument_id, stage=stage)
+
+
 def _take(pitch: int, duration_s: float = _TAKE_S, sample_rate: int = SR) -> np.ndarray:
     """A recording of one note: a tone at its own pitch, loud enough to clear any silence floor."""
     times = np.arange(round(duration_s * sample_rate), dtype=np.float64) / sample_rate
     return np.asarray(0.5 * np.sin(2.0 * np.pi * midi_to_freq(pitch) * times), dtype=np.float64)
 
 
-def _write_dataset(directory: Path, notes: list[NoteRecord], takes: dict[int, np.ndarray]) -> None:
+def _write_dataset(directory: Path, notes: list[NoteRecord], takes: dict[int, np.ndarray], instrument_id: str) -> None:
     """One stage's dataset: the recordings it wrote, beside the manifest naming the notes they answer."""
-    samples_dir = directory / _INSTRUMENT
+    samples_dir = directory / instrument_id
     samples_dir.mkdir(parents=True, exist_ok=True)
     for index, take in takes.items():
         write_wav(samples_dir / f"{index:04d}_p{index:03d}_v{_VELOCITY:03d}.wav", take, SR)
 
-    dump_notes(notes, directory / f"{_INSTRUMENT}{NOTES_SUFFIX}")
+    dump_notes(notes, directory / f"{instrument_id}{NOTES_SUFFIX}")
 
 
 def _with_post_roll(notes_json: Path, post_roll_s: float) -> None:
@@ -94,6 +102,11 @@ def _plain_notes() -> list[NoteRecord]:
         NoteRecord(index=index, pitch=pitch, velocity=_VELOCITY, duration_s=_HELD_S)
         for index, pitch in enumerate(_PITCHES)
     ]
+
+
+def _plain_takes() -> dict[int, np.ndarray]:
+    """One recording per note of the grid, each a tone at the pitch its own note plays."""
+    return {index: _take(pitch) for index, pitch in enumerate(_PITCHES)}
 
 
 def _plan_document(strategy: str) -> PlanDocument:
@@ -185,10 +198,9 @@ def _write_plan(root: Path, strategy: str) -> None:
 
 
 @pytest.fixture
-def settings(config: OptiConfig) -> StageSettings:
-    """What a reading of a stage is carried out with, on the terms the pipeline's own stages read by."""
-    return StageSettings(
-        instrument_id=_INSTRUMENT,
+def settings(config: OptiConfig) -> ReadingSettings:
+    """What a reading of a set is carried out with, on the terms the pipeline's own stages read by."""
+    return ReadingSettings(
         strategy=_STRATEGY,
         dedupe=config.reduce.dedupe,
         trim=config.reduce.trim,
@@ -201,9 +213,8 @@ def settings(config: OptiConfig) -> StageSettings:
 def run(tmp_path: Path) -> Path:
     """A whole chained run as it lands on disk: three datasets and one allocation, under one root."""
     paths = pipeline_paths(tmp_path)
-    takes = {index: _take(pitch) for index, pitch in enumerate(_PITCHES)}
     for directory in (paths.subset_dir, paths.looped_dir, paths.reduced_dir):
-        _write_dataset(directory, _plain_notes(), takes)
+        _write_dataset(directory, _plain_notes(), _plain_takes(), _INSTRUMENT)
 
     _write_plan(tmp_path, _STRATEGY)
     return tmp_path
@@ -220,16 +231,33 @@ def test_the_stage_directories_are_the_ones_a_chained_run_files_its_steps_in(tmp
     ]
 
 
-def test_a_whole_run_offers_every_stage_it_left_behind(run: Path, settings: StageSettings) -> None:
-    assert available_stages(run, settings) == tuple(Stage)
+def test_a_set_is_named_by_the_instrument_and_the_stage_behind_it(tmp_path: Path) -> None:
+    assert _source(tmp_path, Stage.SUBSET, _INSTRUMENT).label == f"{_INSTRUMENT} · {Stage.SUBSET.value}"
 
 
-def test_a_stage_a_run_never_reached_is_left_out(tmp_path: Path, settings: StageSettings) -> None:
+def test_a_whole_run_offers_every_stage_it_left_behind(run: Path, settings: ReadingSettings) -> None:
+    assert available_stages(run, _INSTRUMENT, settings) == tuple(Stage)
+
+
+def test_a_stage_a_run_never_reached_is_left_out(tmp_path: Path, settings: ReadingSettings) -> None:
     """A chain begun from an already-sliced dataset writes no subset, and a reader offers what is there."""
-    paths = pipeline_paths(tmp_path)
-    _write_dataset(paths.looped_dir, _plain_notes(), {index: _take(pitch) for index, pitch in enumerate(_PITCHES)})
+    _write_dataset(pipeline_paths(tmp_path).looped_dir, _plain_notes(), _plain_takes(), _INSTRUMENT)
 
-    assert available_stages(tmp_path, settings) == (Stage.LOOPED,)
+    assert available_stages(tmp_path, _INSTRUMENT, settings) == (Stage.LOOPED,)
+
+
+def test_a_run_offers_every_set_it_left_readable(run: Path, settings: ReadingSettings) -> None:
+    """Every instrument the run carried, paired with each stage that instrument was left at."""
+    _write_dataset(pipeline_paths(run).looped_dir, _plain_notes(), _plain_takes(), _OTHER_INSTRUMENT)
+
+    assert available_sources(run, settings) == (
+        *(_source(run, stage, _INSTRUMENT) for stage in Stage),
+        _source(run, Stage.LOOPED, _OTHER_INSTRUMENT),
+    )
+
+
+def test_a_root_no_run_ever_wrote_under_offers_no_set(tmp_path: Path, settings: ReadingSettings) -> None:
+    assert available_sources(tmp_path / "never-run", settings) == ()
 
 
 def test_a_run_offers_every_instrument_it_carried_once(run: Path) -> None:
@@ -263,21 +291,23 @@ def test_a_root_no_run_ever_wrote_under_offers_no_instrument(tmp_path: Path) -> 
 
 @pytest.mark.parametrize("stage", _DATASET_STAGES)
 def test_a_dataset_stage_offers_one_recording_per_file_it_holds(
-    stage: Stage, run: Path, settings: StageSettings
+    stage: Stage, run: Path, settings: ReadingSettings
 ) -> None:
-    corpus = stage_recordings(run, stage, settings)
+    source = _source(run, stage, _INSTRUMENT)
 
-    assert corpus.stage == stage
-    assert corpus.instrument_id == _INSTRUMENT
+    corpus = source_recordings(source, settings)
+
+    assert corpus.sources == (source,)
     assert corpus.size == len(_PITCHES)
+    assert [recording.source for recording in corpus.recordings] == [source] * len(_PITCHES)
     assert [recording.key.pitch for recording in corpus.recordings] == list(_PITCHES)
     assert [recording.note for recording in corpus.recordings] == [note_name(pitch) for pitch in _PITCHES]
     assert [recording.root_hz for recording in corpus.recordings] == [midi_to_freq(pitch) for pitch in _PITCHES]
 
 
-def test_a_recording_is_read_over_the_span_its_note_sounds(run: Path, settings: StageSettings) -> None:
+def test_a_recording_is_read_over_the_span_its_note_sounds(run: Path, settings: ReadingSettings) -> None:
     """The decode a run gives its survivors, so a point stands for the audio the pipeline worked from."""
-    corpus = stage_recordings(run, Stage.SUBSET, settings)
+    corpus = source_recordings(_source(run, Stage.SUBSET, _INSTRUMENT), settings)
 
     for recording in corpus.recordings:
         assert recording.sample_rate == SR
@@ -286,60 +316,90 @@ def test_a_recording_is_read_over_the_span_its_note_sounds(run: Path, settings: 
 
 
 def test_the_playing_time_a_recording_earns_is_what_the_material_gives_its_notes(
-    run: Path, settings: StageSettings
+    run: Path, settings: ReadingSettings
 ) -> None:
-    corpus = stage_recordings(run, Stage.SUBSET, settings)
+    corpus = source_recordings(_source(run, Stage.SUBSET, _INSTRUMENT), settings)
 
     assert [recording.weight for recording in corpus.recordings] == [pytest.approx(_HELD_S)] * len(_PITCHES)
 
 
 def test_a_recording_answering_several_notes_is_offered_once_carrying_all_of_their_time(
-    tmp_path: Path, settings: StageSettings
+    tmp_path: Path, settings: ReadingSettings
 ) -> None:
     """A stage storing one recording for a run of notes names it once per note; the space places one point."""
-    paths = pipeline_paths(tmp_path)
     served = _PITCHES[0]
     notes = [
         NoteRecord(index=0, pitch=served, velocity=_VELOCITY, duration_s=_HELD_S),
         NoteRecord(index=0, pitch=served, velocity=_VELOCITY, duration_s=_HELD_S),
     ]
-    _write_dataset(paths.looped_dir, notes, {0: _take(served)})
+    _write_dataset(pipeline_paths(tmp_path).looped_dir, notes, {0: _take(served)}, _INSTRUMENT)
 
-    corpus = stage_recordings(tmp_path, Stage.LOOPED, settings)
+    corpus = source_recordings(_source(tmp_path, Stage.LOOPED, _INSTRUMENT), settings)
 
     assert corpus.size == 1
     assert corpus.recordings[0].weight == pytest.approx(2.0 * _HELD_S)
 
 
-def test_a_recording_carrying_no_signal_holds_no_point_to_place(tmp_path: Path, settings: StageSettings) -> None:
-    paths = pipeline_paths(tmp_path)
-    takes = {index: _take(pitch) for index, pitch in enumerate(_PITCHES)}
+def test_a_recording_carrying_no_signal_holds_no_point_to_place(tmp_path: Path, settings: ReadingSettings) -> None:
+    takes = _plain_takes()
     takes[0] = np.full(round(_TAKE_S * SR), _SILENT)
-    _write_dataset(paths.subset_dir, _plain_notes(), takes)
+    _write_dataset(pipeline_paths(tmp_path).subset_dir, _plain_notes(), takes, _INSTRUMENT)
 
-    corpus = stage_recordings(tmp_path, Stage.SUBSET, settings)
+    corpus = source_recordings(_source(tmp_path, Stage.SUBSET, _INSTRUMENT), settings)
 
     assert [recording.key.pitch for recording in corpus.recordings] == list(_PITCHES[1:])
 
 
-def test_a_recording_is_read_through_the_trim_a_run_stores_by(tmp_path: Path, settings: StageSettings) -> None:
+def test_a_recording_is_read_through_the_trim_a_run_stores_by(tmp_path: Path, settings: ReadingSettings) -> None:
     """The reading is the decode a run gives its survivors, so the length bound it stores under holds here."""
-    paths = pipeline_paths(tmp_path)
-    _write_dataset(paths.subset_dir, _plain_notes(), {index: _take(pitch) for index, pitch in enumerate(_PITCHES)})
+    _write_dataset(pipeline_paths(tmp_path).subset_dir, _plain_notes(), _plain_takes(), _INSTRUMENT)
     bounded = replace(settings, trim=settings.trim.model_copy(update={"max_length_s": _BOUND_S}))
 
-    corpus = stage_recordings(tmp_path, Stage.SUBSET, bounded)
+    corpus = source_recordings(_source(tmp_path, Stage.SUBSET, _INSTRUMENT), bounded)
 
     for recording in corpus.recordings:
         assert recording.duration_s == pytest.approx(_BOUND_S)
 
 
-def test_the_allocated_stage_offers_the_samples_the_module_actually_plays(run: Path, settings: StageSettings) -> None:
+def test_several_sets_are_gathered_into_the_one_corpus_a_space_is_built_across(
+    run: Path, settings: ReadingSettings
+) -> None:
+    """Two sets read together stand end to end, each recording naming the set it came from."""
+    _write_dataset(pipeline_paths(run).looped_dir, _plain_notes(), _plain_takes(), _OTHER_INSTRUMENT)
+    sources = (_source(run, Stage.SUBSET, _INSTRUMENT), _source(run, Stage.LOOPED, _OTHER_INSTRUMENT))
+
+    corpus = gathered_recordings(sources, settings)
+
+    assert corpus.sources == sources
+    assert corpus.size == 2 * len(_PITCHES)
+    assert [recording.source for recording in corpus.recordings] == [sources[0]] * 3 + [sources[1]] * 3
+    assert corpus.weights.size == corpus.size
+    assert corpus.durations_s.size == corpus.size
+
+
+def test_one_instrument_read_at_two_stages_is_gathered_as_two_sets(run: Path, settings: ReadingSettings) -> None:
+    """The same instrument at two steps of a run places twice, which is what compares a step to the one before."""
+    sources = (_source(run, Stage.SUBSET, _INSTRUMENT), _source(run, Stage.REDUCED, _INSTRUMENT))
+
+    corpus = gathered_recordings(sources, settings)
+
+    assert corpus.size == 2 * len(_PITCHES)
+    assert {recording.source.stage for recording in corpus.recordings} == {Stage.SUBSET, Stage.REDUCED}
+
+
+def test_a_corpus_gathered_from_no_set_has_nothing_to_place(settings: ReadingSettings) -> None:
+    with pytest.raises(ValueError, match="at least one set"):
+        gathered_recordings((), settings)
+
+
+def test_the_allocated_stage_offers_the_samples_the_module_actually_plays(run: Path, settings: ReadingSettings) -> None:
     """A stored sample stands at the rate the budget could afford, which is the audio a player hears."""
-    corpus = stage_recordings(run, Stage.OPTIMIZED, settings)
+    source = _source(run, Stage.OPTIMIZED, _INSTRUMENT)
+
+    corpus = source_recordings(source, settings)
     (stored,) = corpus.recordings
 
-    assert corpus.stage == Stage.OPTIMIZED
+    assert corpus.sources == (source,)
     assert stored.key.pitch == _PITCHES[1]
     assert stored.key.velocity == _VELOCITY
     assert stored.sample_rate == _STORED_RATE
@@ -348,35 +408,29 @@ def test_the_allocated_stage_offers_the_samples_the_module_actually_plays(run: P
 
 
 def test_an_ungrouped_allocation_is_read_through_the_naming_that_wrote_it(
-    tmp_path: Path, settings: StageSettings
+    tmp_path: Path, settings: ReadingSettings
 ) -> None:
     """Both strategies name a stored sample after the pitch it is rooted at, so either plan reads back."""
     _write_plan(tmp_path, "ungrouped")
-    ungrouped = StageSettings(
-        instrument_id=_INSTRUMENT,
-        strategy="ungrouped",
-        dedupe=settings.dedupe,
-        trim=settings.trim,
-        keep_tail=settings.keep_tail,
-        progress=settings.progress,
-    )
+    ungrouped = replace(settings, strategy="ungrouped")
 
-    corpus = stage_recordings(tmp_path, Stage.OPTIMIZED, ungrouped)
+    corpus = source_recordings(_source(tmp_path, Stage.OPTIMIZED, _INSTRUMENT), ungrouped)
     (stored,) = corpus.recordings
 
-    assert available_stages(tmp_path, ungrouped) == (Stage.OPTIMIZED,)
+    assert available_stages(tmp_path, _INSTRUMENT, ungrouped) == (Stage.OPTIMIZED,)
     assert stored.key.pitch == _PITCHES[1]
     assert stored.label == _stored_label("ungrouped")
 
 
-def test_the_tail_past_a_release_is_read_where_a_reader_asks_for_it(tmp_path: Path, settings: StageSettings) -> None:
+def test_the_tail_past_a_release_is_read_where_a_reader_asks_for_it(tmp_path: Path, settings: ReadingSettings) -> None:
     """A run stores the span its material plays, and a decline is read as far as the reading was kept."""
     paths = pipeline_paths(tmp_path)
-    _write_dataset(paths.subset_dir, _plain_notes(), {index: _take(pitch) for index, pitch in enumerate(_PITCHES)})
+    _write_dataset(paths.subset_dir, _plain_notes(), _plain_takes(), _INSTRUMENT)
     _with_post_roll(paths.subset_dir / f"{_INSTRUMENT}{NOTES_SUFFIX}", _TAKE_S - _HELD_S)
+    source = _source(tmp_path, Stage.SUBSET, _INSTRUMENT)
 
-    stopping = stage_recordings(tmp_path, Stage.SUBSET, settings).recordings
-    tailing = stage_recordings(tmp_path, Stage.SUBSET, replace(settings, keep_tail=True)).recordings
+    stopping = source_recordings(source, settings).recordings
+    tailing = source_recordings(source, replace(settings, keep_tail=True)).recordings
 
     assert [recording.duration_s for recording in stopping] == [pytest.approx(_HELD_S)] * len(_PITCHES)
     assert [recording.duration_s for recording in tailing] == [pytest.approx(_TAKE_S)] * len(_PITCHES)

@@ -11,7 +11,7 @@ from optisample.cluster.corpus import DescribedCorpus, describe_corpus
 from optisample.cluster.partition import partition
 from optisample.cluster.representative import Group, grouping
 from optisample.cluster.space import Coordinates, SampleSpace, pairwise_distances
-from optisample.cluster.stages import Stage, StageCorpus, StageRecording
+from optisample.cluster.stages import RecordingCorpus, RecordingSource, Stage, StageRecording
 from optisample.config import OptiConfig
 from optisample.config.cluster import PartitionConfig
 from optisample.config.metrics import MetricsConfig
@@ -62,11 +62,12 @@ class Clustered:
 @pytest.fixture
 def clustered(config: OptiConfig) -> Clustered:
     """A handful of synthesised takes carried the whole way a notebook carries them, ready to draw."""
-    corpus = StageCorpus(
-        stage=Stage.SUBSET,
-        instrument_id="Piano",
+    source = RecordingSource(root=Path("run"), instrument_id="Piano", stage=Stage.SUBSET)
+    corpus = RecordingCorpus(
+        sources=(source,),
         recordings=tuple(
             StageRecording(
+                source=source,
                 file=Path(f"{pitch:03d}.wav"),
                 key=SampleKey(pitch=pitch, velocity=_VELOCITY),
                 signal=_ringing(midi_to_freq(pitch), index),
