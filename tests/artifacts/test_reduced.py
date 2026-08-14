@@ -9,12 +9,23 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.artifacts import DumpSettings, ReducedInstrument, dump_reduced
-from optisample.artifacts.paths import reduced_paths
-from optisample.artifacts.reduced import reduce_project, stored_frames
+from optisample.artifacts.documents.sample import (
+    SampleDocument,
+    faithful_loop,
+    read_sample,
+    sample_decomposition,
+    sample_loops,
+)
+from optisample.artifacts.paths import calibrated_path, instrument_files_dir, reduced_paths
+from optisample.artifacts.reduced import held_loops, reduce_project, stored_frames
 from optisample.config.reduce import DedupeKey
+from optisample.dsp.level import Clock, unit_level
+from optisample.dsp.loop import Loop, LoopQuality
+from optisample.dsp.surrogate import SettledLoop
 from optisample.io.audio import read_wav
 from optisample.io.note_extractor import IngestSettings, load_notes
 from optisample.keys import SampleKey
+from optisample.loop.settle import Settlement, StoredLoop
 from optisample.model import (
     InstrumentSpec,
     Manifest,
@@ -29,12 +40,15 @@ from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.reduce.summary import KeptRecording
 from optisample.optimize.reduce.trim import NO_SCREEN
 from optisample.optimize.tasks import AudioMap, StoredRecordings
+from trackmod.limits.compliance import Compliance
+from trackmod.trackers.it.instrument_file import ITInstrumentFile
 
 Recordings = Callable[..., StoredRecordings]
 
 SR = 44_100
 PITCHES = (60, 62, 64)
 VELOCITIES = (60, 100)
+_IT_EXTENSION = ".iti"
 _TRIMMED_ONLY = 1  # the encodings a pitch offering no loop is swept at, which is the trimmed span alone
 
 
@@ -78,18 +92,16 @@ def graded_instrument() -> InstrumentSpec:
 
 
 @pytest.fixture
-def reduced(
-    graded_instrument: InstrumentSpec,
-    graded_audio: AudioMap,
-    no_render_settings: DumpSettings,
-    tmp_path: Path,
-) -> ReducedInstrument:
-    return dump_reduced(
-        _looped(graded_instrument, graded_audio, no_render_settings.optimize),
-        tmp_path,
-        no_render_settings.optimize,
-        no_render_settings.instruments,
-    )
+def settled(
+    graded_instrument: InstrumentSpec, graded_audio: AudioMap, no_render_settings: DumpSettings
+) -> LoopedInstrument:
+    """The loops the stage settled over the recordings a reduce run reads, which its containers carry."""
+    return _looped(graded_instrument, graded_audio, no_render_settings.optimize)
+
+
+@pytest.fixture
+def reduced(settled: LoopedInstrument, no_render_settings: DumpSettings, tmp_path: Path) -> ReducedInstrument:
+    return dump_reduced(settled, tmp_path, no_render_settings.optimize, no_render_settings.instruments)
 
 
 def _document(reduced: ReducedInstrument) -> dict[str, object]:
@@ -131,6 +143,79 @@ def test_the_written_notes_start_at_the_onset(reduced: ReducedInstrument) -> Non
     """The survivors are already onset-aligned, so a reload trims no lead-in from them."""
     written = json.loads(reduced.paths.notes_json.read_text(encoding="utf-8"))["notes"]
     assert all(note["render"]["start_seconds"] == 0.0 for note in written)
+
+
+# --- the containers a survivor is carried on ---------------------------------------------------------
+
+
+def _carried(reduced: ReducedInstrument, sample: dict[str, object]) -> SampleDocument:
+    """The container written beside one survivor's WAV, which shares its stem."""
+    return read_sample(calibrated_path(reduced.paths.samples_dir, Path(str(sample["file"])).stem))
+
+
+def test_every_survivor_is_carried_as_a_calibrated_sample_beside_its_own_wav(
+    reduced: ReducedInstrument, graded_audio: AudioMap
+) -> None:
+    """The pair a container holds puts the survivor back together as the trim wrote it, ready to store from."""
+    for sample in _document(reduced)["samples"]:  # type: ignore[attr-defined]
+        document = _carried(reduced, sample)
+        key = SampleKey(*_key_parts(sample["key"]))
+        assert (document.root_pitch, document.sample_rate) == (key.pitch, SR)
+        assert (document.provenance.stage, document.provenance.index) == ("reduce", sample["index"])
+        assert document.frames == sample["frames"]
+        held = graded_audio[key][: document.frames]
+        assert sample_decomposition(document).recombined() == pytest.approx(held, abs=1e-6)
+
+
+def test_the_loops_a_survivor_still_reaches_travel_in_its_container(
+    reduced: ReducedInstrument, settled: LoopedInstrument
+) -> None:
+    """What the loop stage settled reaches the reduced tree, so its instruments wrap where it decided."""
+    carried = 0
+    for sample in _document(reduced)["samples"]:  # type: ignore[attr-defined]
+        document = _carried(reduced, sample)
+        settlement = settled.settlements[SampleKey(*_key_parts(sample["key"]))]
+        offered = held_loops(settlement, document.frames)
+        assert sample_loops(document) == tuple(stored.settled for stored in offered)
+        carried += bool(offered)
+
+    assert (carried, reduced.survivors) == (reduced.looped, len(PITCHES) * len(VELOCITIES))
+
+
+def test_the_instruments_a_reduced_dataset_writes_wrap_where_its_containers_say(
+    reduced: ReducedInstrument,
+) -> None:
+    """The point of carrying the containers: a survivor sustains a held note off the reduced tree as it stands."""
+    stem = Path(str(_document(reduced)["samples"][0]["file"])).stem  # type: ignore[index]
+    region = faithful_loop(_carried(reduced, _document(reduced)["samples"][0]))  # type: ignore[index]
+    written = instrument_files_dir(reduced.paths.samples_dir, _IT_EXTENSION) / f"{stem}{_IT_EXTENSION}"
+    unit = ITInstrumentFile.parse(written.read_bytes(), compliance=Compliance.CANONICAL).unit
+
+    assert region is not None
+    assert unit.samples[0].loop is not None
+    assert (unit.samples[0].loop.begin, unit.samples[0].loop.end) == (region.start, region.end)
+
+
+def _offer(end: int) -> StoredLoop:
+    """One settled offer ending at ``end``, which is the frame a written span has to reach to hold it."""
+    return StoredLoop(
+        settled=SettledLoop(loop=Loop(start=end // 2, end=end), level=unit_level(Clock.RECORDED)),
+        quality=LoopQuality(seam_step=0.4, level_drift_db=1.25, spectral_distance=3.5),
+    )
+
+
+def test_a_loop_reaching_past_the_written_span_is_left_out_of_the_container() -> None:
+    """A trimmed survivor states the regions its own audio holds, so the trim settles which offers travel."""
+    settlement = Settlement(
+        offered=tuple(_offer(end) for end in (4_000, 8_000, 12_000)), rejected=(), lacking=None, search_s=1.0
+    )
+
+    assert [stored.loop.end for stored in held_loops(settlement, 8_000)] == [4_000, 8_000]
+
+
+def test_a_survivor_no_loop_was_settled_for_states_none() -> None:
+    """A run storing no loops still carries every survivor, on a container offering nothing to wrap on."""
+    assert held_loops(None, 8_000) == ()
 
 
 # --- what the run reports ---------------------------------------------------------------------------

@@ -83,6 +83,7 @@ def print_reduced(result: ReducedInstrument) -> None:
     """State where one instrument's reduced dataset landed and what the stage left it holding."""
     print(f"{result.instrument_id}: {result.paths.notes_json}  [{result.elapsed_s:.1f}s]")
     print(f"  {result.survivors} samples, {result.notes} notes -> {result.paths.samples_dir}")
+    print(f"  {result.looped} of them offer a loop the written span holds")
     print_screen(result.screen)
     print_instruments(result.instruments)
     print(f"  {result.auditions} auditions -> {result.paths.auditions_dir}")

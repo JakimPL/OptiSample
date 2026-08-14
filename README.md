@@ -150,6 +150,7 @@ It takes every ingest and reduction flag `optimize` takes, and writes:
 reduced/
   Piano.notes.json                 # one entry per played note, pointing at the survivor serving it
   Piano/0000_p060_C4_v100.wav      # one WAV per surviving recording, onset-aligned at the analysis rate
+  Piano/0000_p060_C4_v100.sample   # the same survivor calibrated: level, carrier and the loops it still reaches
   reduction/Piano/
     reduction.json                 # the whole summary, plus the dedupe key it was produced under
     auditions/p060_C4/             # reference.wav beside every encoding the sweep runs, rendered
@@ -164,6 +165,11 @@ in fidelity. The auditions make the stored format audible before the sweep is pa
 A dataset reproduces its survivors exactly under the key it was reduced with; reducing it again under a
 coarser key projects several identities onto one survivor, which then reports the identity of the first
 note that reaches it.
+
+Each survivor carries its own `.sample` too, holding the loops the loop stage settled over it that the
+trimmed span still reaches, so the standalone instruments written beside the WAVs wrap where the stage
+decided and a note held past the end of a survivor sustains. A loop sitting past where the trim ends is
+left out, which keeps a container stating the regions the audio beside it holds.
 
 ### Running the stages in a row
 

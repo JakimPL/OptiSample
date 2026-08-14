@@ -51,6 +51,17 @@ def pipeline_paths(out_dir: Path) -> PipelinePaths:
     )
 
 
+def calibrated_path(samples_dir: Path, stem: str) -> Path:
+    """The calibrated container one recording is carried as, beside the WAV of the same stem.
+
+    A ``.sample`` holds the recording split into the level it moves through and the carrier that level
+    scales, together with the loops settled over it, so the pair sits with the audio it was measured from
+    the way a bank's manifest sits with the waveforms it names. Every stage writing containers puts them
+    here, so a dataset carried off from any of them reads the same way.
+    """
+    return samples_dir / f"{stem}{SAMPLE_EXTENSION}"
+
+
 def instrument_files_dir(samples_dir: Path, extension: str) -> Path:
     """Where the instruments of one format land beside the recordings they were written from.
 
@@ -68,23 +79,15 @@ class LoopedPaths:
 
     ``notes_json`` and ``samples_dir`` are the sibling pair a later ingest resolves by default, so the
     output root is itself a NoteExtractor dataset -- the recordings as the stage analysed them, onset
-    aligned and at one rate, which is what makes the frames a loop names index into them. What the stage
-    decided sits apart under ``loops_json``, and ``auditions_dir`` holds each loop played out.
+    aligned and at one rate, which is what makes the frames a loop names index into them, each beside the
+    container carrying it (:func:`calibrated_path`). What the stage decided sits apart under
+    ``loops_json``, and ``auditions_dir`` holds each loop played out.
     """
 
     notes_json: Path
     samples_dir: Path
     loops_json: Path
     auditions_dir: Path
-
-    def calibrated(self, stem: str) -> Path:
-        """The calibrated container one recording is carried as, beside the WAV of the same stem.
-
-        A ``.sample`` holds the recording split into the level it moves through and the carrier that
-        level scales, together with the loops settled over it, so the pair sits with the audio it was
-        measured from the way a bank's manifest sits with the waveforms it names.
-        """
-        return self.samples_dir / f"{stem}{SAMPLE_EXTENSION}"
 
 
 def looped_paths(out_dir: Path, instrument_id: str) -> LoopedPaths:

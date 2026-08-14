@@ -8,15 +8,15 @@ from typing import Final
 
 import numpy as np
 
-from optisample.artifacts.dataset import note_records, recording_stem, tracked_ccs, write_recording
+from optisample.artifacts.calibrated import CalibratedRecording, CalibratedRun, write_calibrated
+from optisample.artifacts.dataset import note_records, tracked_ccs, write_recording
 from optisample.artifacts.documents.loops import LoopsDocument, loops_document
 from optisample.artifacts.documents.reduction import WrittenSampleRecord
-from optisample.artifacts.documents.sample import ProvenanceRecord, SampleDocument, sample_document
 from optisample.artifacts.instruments.dump import InstrumentSettings, WrittenInstruments, write_dataset_instruments
 from optisample.artifacts.paths import LoopedPaths, looped_paths
-from optisample.artifacts.serialize import write_json, write_msgpack
+from optisample.artifacts.serialize import write_json
 from optisample.config.loop import LoopConfig, SeamConfig
-from optisample.dsp.envelope import LevelReading, decompose, level_reading
+from optisample.dsp.envelope import LevelReading, level_reading
 from optisample.dsp.level import Level
 from optisample.dsp.loop import prepare_loop
 from optisample.io.audio import write_wav
@@ -38,6 +38,7 @@ _LOOPED_STEM: Final = "looped"  # suffixed with the offer's own index, which is 
 _HELD_ROUNDS: Final = 4  # times an audition wraps the loop, enough to hear a seam and a level step repeat
 _STAGE: Final = "loop"  # the run behind every container this stage writes, stamped into its provenance
 _NO_SETTLEMENT: Final = None  # what a run storing no loops leaves a recording with, which offers none
+_NOTHING_OFFERED: Final = ()  # the loops a recording no settlement was reached for hands its container
 
 
 @dataclass(frozen=True)
@@ -68,64 +69,44 @@ class _Written:
     indices: dict[SampleKey, int]
 
 
-def _write_recordings(looped: LoopedInstrument, samples_dir: Path) -> _Written:
+def _write_recordings(recordings: Sequence[CalibratedRecording], sample_rate: int, samples_dir: Path) -> _Written:
     """Write each recording as the stage analysed it, so the frames a loop names index into the file.
 
     The audio written here is what the ingest produced: onset aligned, at the run's one rate, and trimmed
-    to the span worth storing. Recordings are numbered in key order, so the same dataset reduces to the same
-    filenames on every run.
+    to the span worth storing.
     """
     samples_dir.mkdir(parents=True, exist_ok=True)
-    loaded = looped.loaded
-    records: list[WrittenSampleRecord] = []
-    indices: dict[SampleKey, int] = {}
-    for index, key in enumerate(sorted(loaded.audio)):
-        records.append(write_recording(loaded.audio[key], key, index, loaded.sample_rate, samples_dir))
-        indices[key] = index
-
-    return _Written(records=tuple(records), indices=indices)
-
-
-def _calibrated_sample(
-    loaded: LoadedInstrument,
-    key: SampleKey,
-    index: int,
-    settlement: Settlement | None,
-    config: LoopConfig,
-) -> SampleDocument:
-    """One recording as the calibrated unit it is carried on: its split, its loops and where it came from.
-
-    The level is read at the pitch the key sounds, which is the reading the loop stage settled this
-    recording's loops under, so the split a container carries is the one every measurement of that
-    recording was taken through. A run storing no loops leaves the container stating none, and the pair it
-    holds still puts the recording back together.
-    """
-    reading = level_reading(loaded.sample_rate, config.envelope, midi_to_freq(key.pitch))
-    return sample_document(
-        decompose(loaded.audio[key], reading),
-        settlement.offered if settlement is not None else (),
-        key=key,
-        sample_rate=loaded.sample_rate,
-        provenance=ProvenanceRecord(
-            stage=_STAGE,
-            instrument_id=loaded.instrument.id,
-            index=index,
-            source=f"{recording_stem(key, index)}.wav",
-        ),
+    records = tuple(
+        write_recording(recording.signal, recording.key, recording.index, sample_rate, samples_dir)
+        for recording in recordings
     )
+    return _Written(records=records, indices={recording.key: recording.index for recording in recordings})
 
 
-def _write_calibrated(looped: LoopedInstrument, written: _Written, paths: LoopedPaths, config: LoopConfig) -> None:
-    """Write every recording as a ``.sample`` beside the WAV of the same stem.
+def _offered(settlement: Settlement | None) -> tuple[StoredLoop, ...]:
+    """The loops one settlement offers, which is none where the run stored no loops for that recording."""
+    if settlement is None:
+        return _NOTHING_OFFERED
 
-    A container states the recording split into the level it moves through and the carrier that level
-    scales, so a stage reading one back stores the carrier over the whole depth of its grid and plays the
-    level as a curve. Its loops travel with it, which is what carries the stage's decision forward in the
-    company of the very audio it was measured over.
+    return settlement.offered
+
+
+def _analysed_recordings(looped: LoopedInstrument) -> tuple[CalibratedRecording, ...]:
+    """Every recording the stage analysed, each carrying the loops it settled over that recording.
+
+    Recordings are numbered in key order, so the same dataset reduces to the same filenames on every run
+    and the WAV, the container and the instruments of one recording all share a stem.
     """
-    for key, index in sorted(written.indices.items()):
-        document = _calibrated_sample(looped.loaded, key, index, looped.settlements.get(key, _NO_SETTLEMENT), config)
-        write_msgpack(paths.calibrated(recording_stem(key, index)), document)
+    loaded = looped.loaded
+    return tuple(
+        CalibratedRecording(
+            key=key,
+            index=index,
+            signal=loaded.audio[key],
+            offered=_offered(looped.settlements.get(key, _NO_SETTLEMENT)),
+        )
+        for index, key in enumerate(sorted(loaded.audio))
+    )
 
 
 def held_audition(
@@ -238,8 +219,18 @@ def dump_looped(
     loaded = looped.loaded
     paths = looped_paths(Path(out_dir), loaded.instrument.id)
     material = loaded.instrument.material
-    written = _write_recordings(looped, paths.samples_dir)
-    _write_calibrated(looped, written, paths, settings.loop)
+    recordings = _analysed_recordings(looped)
+    written = _write_recordings(recordings, loaded.sample_rate, paths.samples_dir)
+    write_calibrated(
+        recordings,
+        CalibratedRun(
+            samples_dir=paths.samples_dir,
+            instrument_id=loaded.instrument.id,
+            stage=_STAGE,
+            sample_rate=loaded.sample_rate,
+            config=settings.loop,
+        ),
+    )
     dump_notes(
         note_records(material, loaded.audio, written.indices),
         paths.notes_json,

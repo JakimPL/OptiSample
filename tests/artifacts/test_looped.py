@@ -13,6 +13,7 @@ from optisample.artifacts.documents.loops import read_loops, settled_loops
 from optisample.artifacts.documents.sample import read_sample, sample_decomposition, sample_loops
 from optisample.artifacts.instruments import InstrumentSettings
 from optisample.artifacts.looped import dump_looped, loop_project
+from optisample.artifacts.paths import calibrated_path
 from optisample.config.tracker import TrackerFormat
 from optisample.io.audio import read_wav
 from optisample.io.note_extractor import IngestSettings, load_notes
@@ -119,7 +120,7 @@ def test_every_recording_is_carried_as_a_calibrated_sample_beside_its_own_wav(
     written = dump_looped(looped, tmp_path, settings, instrument_settings)
 
     for index, key in enumerate(sorted(looped.loaded.audio)):
-        document = read_sample(written.paths.calibrated(recording_stem(key, index)))
+        document = read_sample(calibrated_path(written.paths.samples_dir, recording_stem(key, index)))
         assert (document.root_pitch, document.sample_rate, document.provenance.index) == (key.pitch, SR, index)
         assert document.provenance.instrument_id == "pad"
         assert sample_decomposition(document).recombined() == pytest.approx(looped.loaded.audio[key], abs=1e-6)
@@ -133,7 +134,10 @@ def test_the_loops_a_recording_offers_travel_in_the_container_holding_its_audio(
     key = SampleKey(_LOOPABLE, 100)
     index = sorted(looped.loaded.audio).index(key)
 
-    assert sample_loops(read_sample(written.paths.calibrated(recording_stem(key, index)))) == looped.settled[key]
+    assert (
+        sample_loops(read_sample(calibrated_path(written.paths.samples_dir, recording_stem(key, index))))
+        == looped.settled[key]
+    )
 
 
 def test_a_run_storing_no_loops_carries_every_recording_as_a_container_stating_none(
@@ -150,7 +154,7 @@ def test_a_run_storing_no_loops_carries_every_recording_as_a_container_stating_n
     written = dump_looped(unlooped, tmp_path, settings, instrument_settings)
 
     for index, key in enumerate(sorted(audio)):
-        document = read_sample(written.paths.calibrated(recording_stem(key, index)))
+        document = read_sample(calibrated_path(written.paths.samples_dir, recording_stem(key, index)))
         assert document.loops == []
         assert sample_decomposition(document).recombined() == pytest.approx(audio[key], abs=1e-6)
 
