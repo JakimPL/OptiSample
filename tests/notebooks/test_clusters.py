@@ -78,6 +78,16 @@ def test_two_sets_holding_a_take_of_one_name_are_told_apart(gathered: Clustered)
     assert all(name.startswith(recording.source.label) for name, recording in zip(named, recordings, strict=True))
 
 
+def test_a_title_states_every_set_one_space_was_gathered_from(gathered: Clustered) -> None:
+    """A spinner, a picture and a summary line all say which sets they answer for, in the order they were read."""
+    sources = gathered.described.corpus.sources
+    label = clusters.sources_label(sources)
+
+    assert clusters.sources_label(sources[:1]) == sources[0].label
+    assert all(source.label in label for source in sources)
+    assert label.index(sources[0].label) < label.index(sources[1].label)
+
+
 def test_groups_stood_for_by_one_key_are_told_apart_by_their_names(clustered: Clustered) -> None:
     """A corpus can place two renditions of a note apart, and a panel still needs one word per group."""
     doubled = clustered.groups + clustered.groups

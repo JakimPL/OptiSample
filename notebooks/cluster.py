@@ -29,13 +29,7 @@ def _():
     from optisample.cluster.representative import grouping
     from optisample.cluster.selection import selection, write_selection
     from optisample.cluster.space import pairwise_distances
-    from optisample.cluster.stages import (
-        StageSettings,
-        available_instruments,
-        available_stages,
-        stage_dataset,
-        stage_recordings,
-    )
+    from optisample.cluster.stages import ReadingSettings, available_sources, gathered_recordings
     from optisample.config.cluster import (
         DescriptorConfig,
         FrequencyBasis,
@@ -54,19 +48,17 @@ def _():
         NO_PROGRESS,
         PartitionAlgorithm,
         PartitionConfig,
+        ReadingSettings,
         Representative,
         SpaceConfig,
-        StageSettings,
-        available_instruments,
-        available_stages,
+        available_sources,
         describe_corpus,
+        gathered_recordings,
         grouping,
         hierarchy,
         pairwise_distances,
         partition,
         selection,
-        stage_dataset,
-        stage_recordings,
         sweep,
         write_selection,
     )
@@ -83,8 +75,10 @@ def _(mo):
     mo.md("""
         # OptiSample — sample space
 
-        Every recording of one pipeline stage placed as a point in a space built from **what it sounds
-        like**, cut into groups, and each group stood for by a real take you can play.
+        Every recording of the sets you pick placed as a point in a space built from **what it sounds
+        like**, cut into groups, and each group stood for by a real take you can play. A run leaves
+        several sets behind — an instrument at two stages, or two instruments at one — and as many of
+        them as you name are gathered into a single space.
 
         Two things are held out of the geometry on purpose. **Level**: every reading is taken past its own
         frame's mean, so a note at v020 and the same note at v100 differ by their timbre alone. **Length**:
@@ -101,63 +95,74 @@ def _(mo):
 
         Each block is scaled to a mean pairwise squared distance of one and then weighed, so the weights
         below are dimensionless and plain distance in the space is the weighted distance across the blocks.
+        That standardizing and that scaling are taken across the whole gathered corpus, so several sets
+        placed in one space are read under a single frame: each set's coordinates answer for the company
+        it was read beside, and differ from what that same set would hold read on its own.
         """)
     return
 
 
 @app.cell
 def _(mo, root):
-    run_root = mo.ui.text(
-        value=str(root / "artifacts"), label="run root — the stage directories sit here", full_width=True
-    )
-    mo.vstack([mo.md("## The run"), run_root])
-    return (run_root,)
-
-
-@app.cell
-def _(Path, available_instruments, mo, run_root):
-    instruments = available_instruments(Path(run_root.value))
-    mo.stop(
-        not instruments,
-        mo.md("*No dataset under that run root yet — run `optisample pipeline` and point the root at its `--out`.*"),
-    )
-    instrument = mo.ui.dropdown(
-        options=list(instruments), value=instruments[0], label="dataset — the instrument this run carried"
+    _artifacts = root / "artifacts"
+    browsing_from = _artifacts if _artifacts.is_dir() else root
+    run_root = mo.ui.file_browser(
+        initial_path=browsing_from,
+        selection_mode="directory",
+        multiple=False,
+        label="run root — the stage directories sit here",
     )
     strategy = mo.ui.dropdown(["grouped", "ungrouped"], value="grouped", label="strategy — the allocated stage's plan")
-    mo.hstack([instrument, strategy], justify="start", gap=2)
-    return instrument, strategy
+    mo.vstack([mo.md("## The run"), run_root, strategy])
+    return browsing_from, run_root, strategy
 
 
 @app.cell
-def _(NO_PROGRESS, Path, StageSettings, available_stages, instrument, notebook, run_root, strategy):
-    listing = StageSettings(
-        instrument_id=instrument.value,
+def _(NO_PROGRESS, ReadingSettings, notebook, strategy):
+    listing = ReadingSettings(
         strategy=strategy.value,
         dedupe=notebook.config.reduce.dedupe,
         trim=notebook.config.reduce.trim,
         keep_tail=False,
         progress=NO_PROGRESS,
     )
-    stages = available_stages(Path(run_root.value), listing)
-    return listing, stages
+    return (listing,)
 
 
 @app.cell
-def _(mo, notebook, stages):
+def _(available_sources, browsing_from, listing, run_root):
+    picked_root = run_root.path(0) or browsing_from
+    offered_sets = available_sources(picked_root, listing)
+    return offered_sets, picked_root
+
+
+@app.cell
+def _(mo, notebook, offered_sets):
     mo.stop(
-        not stages,
-        mo.md(
-            "*No stage directory under that run root yet — run `optisample pipeline` and point the root at its `--out`.*"
-        ),
+        not offered_sets,
+        mo.md("*No dataset under that run root yet — run `optisample pipeline` and point the root at its `--out`.*"),
     )
-    stage = mo.ui.dropdown(options={found.value: found for found in stages}, value=stages[0].value, label="stage")
+    sets = mo.ui.multiselect(
+        options={source.label: source for source in offered_sets},
+        value=[offered_sets[0].label],
+        label="sets — every one named here is read into the same space",
+    )
     keep_tail = mo.ui.checkbox(
         value=False, label="read past each note's release — deepens the falls the subset stage reaches"
     )
     workers = mo.ui.slider(1, 16, value=max(1, notebook.config.runtime.workers), label="workers", show_value=True)
-    mo.vstack([mo.md("## The stage"), mo.hstack([stage, keep_tail, workers], justify="start", gap=2)])
-    return keep_tail, stage, workers
+    mo.vstack([mo.md("## The sets"), sets, mo.hstack([keep_tail, workers], justify="start", gap=2)])
+    return keep_tail, sets, workers
+
+
+@app.cell
+def _(mo, offered_sets, sets):
+    chosen_sets = tuple(source for source in offered_sets if source in sets.value)
+    mo.stop(
+        not chosen_sets,
+        mo.md("*Name at least one set — a space is gathered from the recordings of one at the least.*"),
+    )
+    return (chosen_sets,)
 
 
 @app.cell
@@ -214,30 +219,28 @@ def _(DescriptorConfig, anchor_depths, anchor_span_s, cepstral_coefficients, fre
 @app.cell
 def _(
     NO_PROGRESS,
-    Path,
-    StageSettings,
+    ReadingSettings,
+    chosen_sets,
+    clusters,
     describe_corpus,
-    instrument,
+    gathered_recordings,
     keep_tail,
     mo,
     notebook,
     reading,
-    run_root,
-    stage,
-    stage_recordings,
     strategy,
     workers,
 ):
-    settings = StageSettings(
-        instrument_id=instrument.value,
+    settings = ReadingSettings(
         strategy=strategy.value,
         dedupe=notebook.config.reduce.dedupe,
         trim=notebook.config.reduce.trim,
         keep_tail=bool(keep_tail.value),
         progress=NO_PROGRESS,
     )
-    with mo.status.spinner(title=f"reading {stage.value}: decoding recordings, then reading each into its blocks..."):
-        corpus = stage_recordings(Path(run_root.value), stage.value, settings)
+    gathered = clusters.sources_label(chosen_sets)
+    with mo.status.spinner(title=f"reading {gathered}: decoding recordings, then reading each into its blocks..."):
+        corpus = gathered_recordings(chosen_sets, settings)
         described = describe_corpus(
             corpus,
             features=notebook.config.loop.features,
@@ -246,12 +249,16 @@ def _(
             progress=NO_PROGRESS,
         )
 
+    mo.stop(
+        not described.size,
+        mo.md("*Those sets left no recording to place — every take they hold stayed under the silence floor.*"),
+    )
     mo.md(
-        f"**{corpus.instrument_id}** at `{stage.value}` — **{described.size}** recordings carrying "
+        f"**{gathered}** — **{described.size}** recordings carrying "
         f"**{described.corpus.weights.sum():.1f}s** of playing time, read at "
         f"`{reading.frequency_basis.value}` over {len(reading.anchor_depths_db)} fall depths."
     )
-    return corpus, described, settings
+    return corpus, described, gathered, settings
 
 
 @app.cell
@@ -409,7 +416,19 @@ def _(layouts, mo):
     )
     components = mo.ui.dropdown(options={"2D": 2, "3D": 3}, value="2D", label="components")
     colour_by = mo.ui.dropdown(
-        options=["group", "note", "role", "pitch", "velocity", "dur_s", "playing_s", "rate", "depths", "to_medoid"],
+        options=[
+            "group",
+            "set",
+            "note",
+            "role",
+            "pitch",
+            "velocity",
+            "dur_s",
+            "playing_s",
+            "rate",
+            "depths",
+            "to_medoid",
+        ],
         value="group",
         label="colour by",
     )
@@ -440,13 +459,13 @@ def _(components, layout, layouts, mo, points, space):
 
 
 @app.cell
-def _(colour_by, colouring, layout, mo, placement, points, representatives, scatter, set_examined, stage):
+def _(colour_by, colouring, gathered, layout, mo, placement, points, representatives, scatter, set_examined):
     _picture = scatter.field(
         placement,
         points,
         colouring=colouring,
         representatives=representatives,
-        title=f"{stage.value} — {layout.value}, coloured by {colour_by.value}",
+        title=f"{gathered} — {layout.value}, coloured by {colour_by.value}",
     )
     space_plot = mo.ui.plotly(
         _picture.figure,
@@ -463,8 +482,9 @@ def _(colour_by, colouring, layout, mo, placement, points, representatives, scat
         _said.append(
             mo.md(
                 "This is the corpus as the keyboard holds it: the note across, the velocity it was struck at "
-                "up, and in three dimensions how long the take rings. It says which keys this stage kept a "
-                "recording of and how a group sits across them; takes sharing a key stand on one point."
+                "up, and in three dimensions how long the take rings. It says which keys the sets kept a "
+                "recording of and how a group sits across them; takes sharing a key stand on one point, "
+                "whichever set each of them came from."
             )
         )
     elif not layout.value.preserves_distance:
@@ -489,7 +509,7 @@ def _(colour_by, colouring, layout, mo, placement, points, representatives, scat
 
 
 @app.cell
-def _(described, examined, mo, panels, play_on_click, points):
+def _(clusters, described, examined, mo, panels, play_on_click, points):
     mo.stop(
         not play_on_click.value,
         mo.md(
@@ -500,7 +520,10 @@ def _(described, examined, mo, panels, play_on_click, points):
     panels.player(
         _heard.signal,
         _heard.sample_rate,
-        label=f"{points[examined]['group']} · {_heard.label} — {_heard.note} at velocity {_heard.key.velocity}",
+        label=(
+            f"{points[examined]['group']} · {clusters.sample_name(_heard)} — "
+            f"{_heard.note} at velocity {_heard.key.velocity}"
+        ),
         normalize=True,
         autoplay=True,
     )
@@ -568,7 +591,7 @@ def _(clusters, group_pick, named, panels, points):
 
 @app.cell
 def _(mo, points, set_examined):
-    _options = {str(row["sample"]): index for index, row in enumerate(points)}
+    _options = {f"{row['set']} · {row['sample']}": index for index, row in enumerate(points)}
     examined_pick = mo.ui.dropdown(
         options=_options,
         value=next(iter(_options)),
@@ -613,9 +636,9 @@ def _(
     mo.vstack(
         [
             mo.md(
-                f"### `{_recording.label}` — {_recording.note} at velocity {_recording.key.velocity}, "
-                f"{_recording.duration_s:.2f}s at {_recording.sample_rate} Hz, carrying "
-                f"{_recording.weight:.2f}s of playing time · `{_recording.file}`"
+                f"### `{clusters.sample_name(_recording)}` — {_recording.note} at velocity "
+                f"{_recording.key.velocity}, {_recording.duration_s:.2f}s at {_recording.sample_rate} Hz, "
+                f"carrying {_recording.weight:.2f}s of playing time · `{_recording.file}`"
             ),
             panels.player(
                 _recording.signal,
@@ -656,7 +679,7 @@ def _(
 
 
 @app.cell
-def _(described, mo, panels, points, preview_normalize, representatives):
+def _(clusters, described, mo, panels, points, preview_normalize, representatives):
     mo.vstack(
         [
             mo.md("## Representatives — every group's take, auditioned in one row"),
@@ -665,7 +688,7 @@ def _(described, mo, panels, points, preview_normalize, representatives):
                     panels.player(
                         described.recordings[place].signal,
                         described.recordings[place].sample_rate,
-                        label=f"{points[place]['group']} — {described.recordings[place].label}",
+                        label=f"{points[place]['group']} — {clusters.sample_name(described.recordings[place])}",
                         normalize=bool(preview_normalize.value),
                         autoplay=False,
                     )
@@ -681,20 +704,16 @@ def _(described, mo, panels, points, preview_normalize, representatives):
 
 
 @app.cell
-def _(Path, mo, run_root, stage):
-    selection_dir = mo.ui.text(
-        value=str(Path(run_root.value) / "selection" / stage.value.value),
-        label="write to",
-        full_width=True,
-    )
+def _(chosen_sets, mo, picked_root):
+    selection_dir = mo.ui.text(value=str(picked_root / "selection"), label="write to", full_width=True)
     write_now = mo.ui.run_button(label="write the selection as a dataset")
     _offered = (
         [selection_dir, write_now]
-        if stage.value.is_dataset
+        if all(source.stage.is_dataset for source in chosen_sets)
         else [
             mo.md(
                 "*The allocated stage holds what one plan stored, which a run reads back through that "
-                "plan — pick a dataset stage to write a selection out of.*"
+                "plan — name dataset sets alone to write a selection out of.*"
             )
         ]
     )
@@ -703,10 +722,12 @@ def _(Path, mo, run_root, stage):
             mo.md("""
                 ## Feed the selection back
 
-                The takes standing for their groups, written out as a NoteExtractor dataset: every note
-                those recordings answer for, carried over exactly as this stage states it, beside a copy of
-                each recording. That makes a set chosen by **what it sounds like** something `loop`,
-                `reduce` and `optimize` read the way they read a subset.
+                The takes standing for their groups, written out as NoteExtractor datasets: every note
+                those recordings answer for, carried over exactly as its own set states it, beside a copy
+                of each recording. That makes a choice made by **what it sounds like** something `loop`,
+                `reduce` and `optimize` read the way they read a subset. Each set the picks came from
+                lands as a dataset of its own, under `<write to>/<instrument>/<stage>/`, so a selection
+                gathered across sets feeds each of them back on its own terms.
                 """),
             *_offered,
         ]
@@ -720,15 +741,11 @@ def _(
     clusters,
     described,
     groups,
-    instrument,
     mo,
     named,
     panels,
-    run_root,
     selection,
     selection_dir,
-    stage,
-    stage_dataset,
     write_now,
     write_selection,
 ):
@@ -738,29 +755,31 @@ def _(
     )
     _chosen = selection(described.corpus, groups)
     with mo.status.spinner(title=f"writing {_chosen.size} recordings to {selection_dir.value}..."):
-        _written = write_selection(
-            stage_dataset(Path(run_root.value), stage.value, instrument.value),
-            _chosen,
-            Path(selection_dir.value),
-        )
+        _written = write_selection(_chosen, Path(selection_dir.value))
 
-    _dataset = _written.dataset
     mo.vstack(
         [
             mo.md(
-                f"Wrote **{_dataset.recordings}** recordings and the **{_dataset.kept_notes}** of this "
-                f"stage's **{_dataset.source_notes}** notes they answer for, spanning pitches "
-                f"**{_dataset.pitches[0]}–{_dataset.pitches[1]}** and velocities "
-                f"**{_dataset.velocities[0]}–{_dataset.velocities[1]}**. That written material is what a "
+                f"Wrote **{_written.recordings}** recordings and the **{_written.kept_notes}** notes they "
+                f"answer for, one dataset per set the picks came from. That written material is what a "
                 f"later stage weighs its allocation by; back in the space these same takes stand for "
                 f"**{_written.selection.covered}** recordings carrying "
                 f"**{_written.selection.playing_s:.1f}s** of playing time, which is the reach the table "
                 f"below reads each of them by."
             ),
-            mo.md(
-                f"Run the rest of the pipeline over it:\n```\nuv run optisample pipeline {_dataset.source.path} "
-                f"--budget-kb 512 --out artifacts-selection\n```"
-            ),
+            *[
+                mo.md(
+                    f"**{entry.source.label}** — **{entry.dataset.recordings}** recordings and the "
+                    f"**{entry.dataset.kept_notes}** of that set's **{entry.dataset.source_notes}** notes "
+                    f"they answer for, spanning pitches "
+                    f"**{entry.dataset.pitches[0]}–{entry.dataset.pitches[1]}** and velocities "
+                    f"**{entry.dataset.velocities[0]}–{entry.dataset.velocities[1]}**. Run the rest of the "
+                    f"pipeline over it:\n```\nuv run optisample pipeline {entry.dataset.source.path} "
+                    f"--budget-kb 512 --out artifacts-selection/{entry.source.instrument_id}/"
+                    f"{entry.source.stage.value}\n```"
+                )
+                for entry in _written.written
+            ],
             panels.table(clusters.pick_rows(_written.selection, named)),
         ]
     )

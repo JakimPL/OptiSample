@@ -20,7 +20,7 @@ from optisample.cluster.space import (
     SampleSpace,
     mean_pairwise_square,
 )
-from optisample.cluster.stages import StageRecording
+from optisample.cluster.stages import RecordingSource, StageRecording
 from optisample.keys import SampleKey
 from optisample.music import MIDI_HIGHEST_PITCH, MIDI_MAX_VELOCITY
 
@@ -55,6 +55,15 @@ def sample_name(recording: StageRecording) -> str:
     back to the dataset it is played and written out of.
     """
     return f"{recording.source.label} · {recording.label}"
+
+
+def sources_label(sources: Sequence[RecordingSource]) -> str:
+    """How a title names the sets one space was gathered from, in the order their recordings stand.
+
+    A picture, a spinner and a summary line all state which sets they answer for, so a space holding two
+    of them says so wherever it is read.
+    """
+    return " + ".join(source.label for source in sources)
 
 
 def group_colour(key: SampleKey) -> str:
