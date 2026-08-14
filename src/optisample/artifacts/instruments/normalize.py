@@ -10,6 +10,7 @@ import numpy as np
 from optisample.config.codec import EncodeConfig
 from optisample.dsp.envelope import decompose, level_reading
 from optisample.dsp.level import Clock, curve_level, gain_to_db, level_readings, written_level
+from optisample.dsp.loop import Loop
 from optisample.dsp.piecewise import PiecewiseCurve, fit_piecewise
 from optisample.dsp.quantize import headroom_peak, normalize_peak
 from optisample.dsp.series import Readings
@@ -20,6 +21,7 @@ from optisample.io.tracker.envelope import (
     sounding_gain,
     volume_envelope,
 )
+from optisample.io.tracker.loop import stored_loop
 from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.base import Signal
 from optisample.music import midi_to_freq, sounded_note
@@ -33,11 +35,27 @@ from trackmod.limits.bound import Bound
 
 STORED_DEPTH: Final = BitDepth.SIXTEEN  # the depth a reference rendering of a recording keeps its timbre at
 
-_WHOLE_RECORDING: Final = None  # the loop a sample holding its material end to end states
 _WHOLE_WAVEFORM: Final = 1.0  # the share a waveform keeps where the step beside it states the whole level
 _EXACTLY_RESTORED: Final = 0.0  # the gap a pair sounding its recording at the level it was captured at leaves
 _FIRST_SAMPLE: Final = 0  # the position the one waveform a written recording holds takes in its own unit
 _SOUNDING_STEP: Final = 1  # the lowest step a level field states that still sounds the note it multiplies
+
+
+@dataclass(frozen=True)
+class Recording:
+    """One recording an instrument is written from: what it is called, what it plays, and the audio itself.
+
+    ``name`` is the stem every file about this recording shares, so an instrument stands beside the WAV it
+    was written from and the two read as one recording in two forms. ``loop`` is the region a held note
+    wraps on, in frames of ``signal``, which a recording the loop stage settled a span over carries into
+    the instrument written from it; a recording offering none is sounded end to end.
+    """
+
+    name: str
+    root_pitch: int
+    sample_rate: int
+    signal: Signal
+    loop: Loop | None
 
 
 @dataclass(frozen=True)
@@ -48,7 +66,8 @@ class NormalizedRecording:
     (:func:`~optisample.dsp.envelope.level_reading`) and gathered into the windows a curve is placed
     across, which is what an instrument's volume envelope is fitted to. The recording travels with it
     because what a sample stores is the recording divided by the curve the format ends up playing, so
-    the two are settled together.
+    the two are settled together. ``loop`` is the region a held note wraps on, counted in frames of
+    ``signal``, which the waveform keeps since the division scales each frame where it stands.
     """
 
     name: str
@@ -56,17 +75,11 @@ class NormalizedRecording:
     sample_rate: int
     signal: Signal
     levels: Readings
+    loop: Loop | None
 
 
-def normalized_recording(
-    signal: Signal,
-    sample_rate: int,
-    *,
-    name: str,
-    root_pitch: int,
-    encode: EncodeConfig,
-) -> NormalizedRecording:
-    """``signal`` beside the level a volume envelope has to reproduce for it.
+def normalized_recording(recording: Recording, encode: EncodeConfig) -> NormalizedRecording:
+    """``recording`` beside the level a volume envelope has to reproduce for it.
 
     The level is read through the split every calibrated measurement of a recording is taken through
     (:func:`~optisample.dsp.envelope.decompose`), so the weighting spans two periods of the pitch the
@@ -74,14 +87,16 @@ def normalized_recording(
     into windows the recording's own length settles (:func:`~optisample.dsp.trajectory.reading_window_s`),
     which is the stretch a curve of a few dozen corners is placed across.
     """
-    reading = level_reading(sample_rate, encode.envelope, midi_to_freq(root_pitch))
+    signal, sample_rate = recording.signal, recording.sample_rate
+    reading = level_reading(sample_rate, encode.envelope, midi_to_freq(recording.root_pitch))
     window_s = reading_window_s(int(signal.size), sample_rate)
     return NormalizedRecording(
-        name=name,
-        root_pitch=root_pitch,
+        name=recording.name,
+        root_pitch=recording.root_pitch,
         sample_rate=sample_rate,
         signal=signal,
         levels=level_readings(decompose(signal, reading).level, sample_rate, window_s=window_s),
+        loop=recording.loop,
     )
 
 
@@ -202,6 +217,10 @@ def recording_instrument(
 ) -> RecordingInstrument:
     """``recording`` as the standalone instrument ``target`` writes: one waveform, played down by one curve.
 
+    The waveform wraps on the region the recording carries, which a held note sustains on past the end of
+    the material. A carrier is level-flat wherever the envelope reaches, so the region repeats at one
+    level and the curve goes on stating the decline over it.
+
     The level is fitted to the corners the format numbers and written onto its own tick and amplitude
     grids (:func:`~optisample.io.tracker.envelope.volume_envelope`), against its own loudest moment,
     since an instrument written on its own carries the whole of its level and stands beside nothing to be
@@ -244,7 +263,7 @@ def recording_instrument(
                     depth=STORED_DEPTH,
                     volume=levels.volume,
                     gain=levels.gain,
-                    loop=_WHOLE_RECORDING,
+                    loop=stored_loop(recording.loop),
                 ),
             ),
         ),

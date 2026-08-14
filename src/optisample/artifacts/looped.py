@@ -228,7 +228,8 @@ def dump_looped(
     frames already index into. Each recording is written a second time as a ``.sample`` of the same stem,
     the calibrated unit carrying its level/carrier split and the loops settled over it, and a third time as
     the standalone instruments of every format (:func:`~optisample.artifacts.instruments.dump
-    .write_dataset_instruments`), so the stage's own audio is playable in a tracker as it stands. Beside
+    .write_dataset_instruments`), which read those containers back for the region each recording wraps on,
+    so the stage's own decisions are playable in a tracker as they stand. Beside
     them, ``loops.json`` states the loops each recording offers and the candidates turned down, and
     ``auditions/`` holds each of those loops played out against the recording it was taken from, which is
     what makes the stage judgeable by ear on its own.

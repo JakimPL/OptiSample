@@ -6,6 +6,7 @@ import numpy as np
 from optisample.config.codec import EncodeConfig
 from optisample.dsp.surrogate import NO_LOOPS, EncodeContext, StoredSample, encode
 from optisample.io.tracker.envelope import NO_ENVELOPE, carried_signal, sounding_level
+from optisample.io.tracker.loop import stored_loop
 from optisample.io.tracker.target import ExportTarget, balanced_gains, sample_label
 from optisample.metrics.base import Signal
 from optisample.music import sounded_note
@@ -18,7 +19,6 @@ from optisample.optimize.velocity_map import VelocityVolumeMap
 from trackmod.core.envelopes.envelope import Envelope
 from trackmod.core.instruments.keymap import KeyAssignment, Keymap, routed_keymap
 from trackmod.core.notes.pitch import Note
-from trackmod.core.samples.loop import Loop
 from trackmod.core.samples.sample import Sample
 from trackmod.spec.levels import MAX_VOLUME
 
@@ -110,11 +110,6 @@ def encode_plan_units(
             envelope,
             tempo=order.tempo,
         )
-
-
-def _stored_loop(stored: StoredSample) -> Loop | None:
-    """The stored sample's loop as the half-open frame range a tracker repeats."""
-    return None if stored.loop is None else Loop(begin=stored.loop.start, end=stored.loop.end)
 
 
 def _makeup(unit: SampleUnit, stored: StoredSample, velocity_map: VelocityVolumeMap) -> float:
@@ -234,7 +229,7 @@ def plan_samples(
             rate=stored.sample_rate,
             depth=stored.depth,
             gain=gain,
-            loop=_stored_loop(stored),
+            loop=stored_loop(stored.loop),
         )
         for (unit, stored), gain in zip(encoded, gains)
     )

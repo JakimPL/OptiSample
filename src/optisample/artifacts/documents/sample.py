@@ -14,6 +14,7 @@ from optisample.artifacts.documents.loops import (
 )
 from optisample.artifacts.serialize import Frozen, read_msgpack
 from optisample.dsp.envelope import Decomposition, Signal
+from optisample.dsp.loop import Loop
 from optisample.dsp.surrogate import SettledLoops
 from optisample.keys import SampleKey
 from optisample.loop.settle import StoredLoop
@@ -122,3 +123,29 @@ def sample_decomposition(document: SampleDocument) -> Decomposition:
 def sample_loops(document: SampleDocument) -> SettledLoops:
     """The loops a container states, in the shape every encode reads them through."""
     return settled_offers(document.loops)
+
+
+def faithful_offer(document: SampleDocument) -> int | None:
+    """Which of a recording's settled loops stands closest to the material it stands in for.
+
+    The offers a container holds are ordered by the span each stores, cheapest first, so the one a listener
+    would pick is named by its timbre distance rather than by its position. A recording the loop stage
+    settled nothing over answers with nothing, which stores the span it plays.
+    """
+    if not document.loops:
+        return None
+
+    return min(range(len(document.loops)), key=lambda index: document.loops[index].quality.spectral_distance)
+
+
+def faithful_loop(document: SampleDocument) -> Loop | None:
+    """The region a player wraps on to hold a note the container's recording sounds past its own end.
+
+    This is :func:`faithful_offer` as the frames it names, which is what a reading of the recording whole
+    -- one waveform, at the rate the stage analysed it -- repeats to sustain the note.
+    """
+    offer = faithful_offer(document)
+    if offer is None:
+        return None
+
+    return sample_loops(document)[offer].loop

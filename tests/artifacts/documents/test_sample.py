@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -11,6 +12,8 @@ from optisample.artifacts.documents.sample import (
     PAYLOAD_DTYPE,
     ProvenanceRecord,
     SampleDocument,
+    faithful_loop,
+    faithful_offer,
     read_sample,
     sample_decomposition,
     sample_document,
@@ -123,6 +126,36 @@ def test_the_loops_a_container_states_read_back_as_the_encoder_receives_them(
 
 def test_a_recording_the_stage_found_no_loop_for_is_carried_stating_none(split: Decomposition, key: SampleKey) -> None:
     assert sample_document(split, (), key=key, sample_rate=SR, provenance=_PROVENANCE).loops == []
+
+
+def _offered(spectral_distances: Sequence[float]) -> tuple[StoredLoop, ...]:
+    """One offer per distance, widening span by span, which is the order a container holds them in."""
+    return tuple(
+        StoredLoop(
+            settled=SettledLoop(loop=Loop(start=512, end=1_024 + 512 * position), level=unit_level(Clock.RECORDED)),
+            quality=LoopQuality(seam_step=0.4, level_drift_db=1.25, spectral_distance=distance),
+        )
+        for position, distance in enumerate(spectral_distances)
+    )
+
+
+def test_the_offer_standing_closest_to_the_material_is_the_one_a_reading_wraps_on(
+    split: Decomposition, key: SampleKey
+) -> None:
+    """Offers are ordered by the span each stores, so the faithful one is named by its timbre distance."""
+    document = sample_document(split, _offered([7.2, 3.1, 5.0]), key=key, sample_rate=SR, provenance=_PROVENANCE)
+
+    assert faithful_offer(document) == 1
+    assert faithful_loop(document) == Loop(start=512, end=1_536)
+
+
+def test_a_recording_the_stage_settled_nothing_over_names_no_region_to_wrap_on(
+    split: Decomposition, key: SampleKey
+) -> None:
+    """A recording with no offer sounds the span it plays, which naming no region is how it is said."""
+    document = sample_document(split, (), key=key, sample_rate=SR, provenance=_PROVENANCE)
+
+    assert (faithful_offer(document), faithful_loop(document)) == (None, None)
 
 
 def test_a_payload_holding_other_than_the_frames_stated_is_refused(document: SampleDocument) -> None:

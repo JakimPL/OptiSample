@@ -10,8 +10,8 @@ from optisample.carrier.shape import NO_SHAPE, carrier_shape
 from optisample.carrier.source import CarrierSource
 from optisample.carrier.store import CarrierSettings, StoredCarrier, store_carrier
 from optisample.dsp.level import Clock, curve_level, written_level
-from optisample.dsp.surrogate import StoredSample
 from optisample.io.tracker.envelope import NO_ENVELOPE, EnvelopeGrid, shape_nodes, volume_envelope
+from optisample.io.tracker.loop import stored_loop
 from optisample.io.tracker.target import ExportTarget, balanced_gains, sample_label
 from optisample.music import sounded_note
 from optisample.optimize.export.coverage import covered_routing
@@ -20,7 +20,6 @@ from trackmod.core.instruments.instrument import Instrument
 from trackmod.core.instruments.keymap import KeyAssignment, Keymap, routed_keymap
 from trackmod.core.instruments.unit import InstrumentUnit
 from trackmod.core.notes.pitch import Note
-from trackmod.core.samples.loop import Loop
 from trackmod.core.samples.sample import Sample
 
 NO_DISPERSION: Final = 0.0  # what one envelope costs a set carrying none
@@ -63,11 +62,6 @@ class CarrierInstrument:
     def stored_bytes(self) -> int:
         """What the waveforms occupy, which is what this many samples cost before any record is counted."""
         return sum(carrier.stored.frames * carrier.stored.depth_bits // _BITS_PER_BYTE for carrier in self.stored)
-
-
-def _stored_loop(stored: StoredSample) -> Loop | None:
-    """The stored sample's loop as the half-open frame range a tracker repeats."""
-    return None if stored.loop is None else Loop(begin=stored.loop.start, end=stored.loop.end)
 
 
 def _routing(sources: Sequence[CarrierSource], target: ExportTarget) -> dict[Note, KeyAssignment]:
@@ -143,7 +137,7 @@ def carrier_instrument(
             rate=carrier.stored.sample_rate,
             depth=carrier.stored.depth,
             gain=gain,
-            loop=_stored_loop(carrier.stored),
+            loop=stored_loop(carrier.stored.loop),
         )
         for carrier, gain in zip(stored, gains)
     )

@@ -21,7 +21,6 @@ from optisample.cluster.instruments import (
     ClusterSettings,
     carrier_source,
     cut_band,
-    faithful_offer,
     velocity_layers,
     write_clustered,
 )
@@ -117,35 +116,6 @@ def _offer(start: int, spectral_distance: float) -> SettledLoopRecord:
         quality=_quality(spectral_distance),
         level=LevelRecord(seconds=[0.0, 1.0], values_db=[0.0, -6.0]),
     )
-
-
-def _document(offers: list[SettledLoopRecord]) -> SampleDocument:
-    payload = np.ones(8, dtype="<f4").tobytes()
-    return SampleDocument(
-        key="p060_C4_v100",
-        root_pitch=60,
-        sample_rate=SR,
-        frames=8,
-        carrier=payload,
-        level=payload,
-        loops=offers,
-        provenance={"stage": "loop", "instrument_id": INSTRUMENT, "index": 0, "source": "x.wav"},
-    )
-
-
-# --- which loop a representative is stored around ---------------------------------------------------------
-
-
-def test_the_offer_standing_closest_to_the_material_is_the_one_stored() -> None:
-    """Offers are ordered by the span each stores, so the faithful one is named by its timbre distance."""
-    document = _document([_offer(100, 7.2), _offer(200, 3.1), _offer(300, 5.0)])
-
-    assert faithful_offer(document) == 1
-
-
-def test_a_recording_the_stage_settled_nothing_over_names_no_loop() -> None:
-    """A recording with no offer stores the span it plays, which asking for no loop is how it is said."""
-    assert faithful_offer(_document([])) is None
 
 
 # --- how the dynamics are cut -------------------------------------------------------------------------------

@@ -8,6 +8,7 @@ import pytest
 from optisample.artifacts.instruments.normalize import (
     STORED_DEPTH,
     NormalizedRecording,
+    Recording,
     level_curve,
     normalized_recording,
     recording_instrument,
@@ -16,6 +17,7 @@ from optisample.artifacts.instruments.normalize import (
 from optisample.config.codec import EncodeConfig
 from optisample.config.tracker import TrackerFormat
 from optisample.dsp.level import gain_to_db, level_readings, peak_amplitude
+from optisample.dsp.loop import Loop
 from optisample.dsp.quantize import headroom_peak
 from optisample.io.tracker.envelope import EnvelopeGrid, envelope_grid, played_gain
 from optisample.io.tracker.target import ExportTarget
@@ -33,16 +35,17 @@ _LATTICE_TOLERANCE_DB = -0.2  # how far under its headroom a waveform lands wher
 Grids = Callable[[ExportTarget], EnvelopeGrid]
 
 
+def _recording(
+    signal: Signal, sample_rate: int, *, root_pitch: int = ROOT_PITCH, loop: Loop | None = None
+) -> Recording:
+    """``signal`` as the recording an instrument is written from, at the pitch it was played at."""
+    return Recording(name=NAME, root_pitch=root_pitch, sample_rate=sample_rate, signal=signal, loop=loop)
+
+
 @pytest.fixture
 def normalized(recorded: Recorder, sample_rate: int, encode_config: EncodeConfig) -> NormalizedRecording:
     """A struck note read for playing back, at the pitch it was recorded at."""
-    return normalized_recording(
-        recorded(),
-        sample_rate,
-        name=NAME,
-        root_pitch=ROOT_PITCH,
-        encode=encode_config,
-    )
+    return normalized_recording(_recording(recorded(), sample_rate), encode_config)
 
 
 def _unit(
@@ -111,6 +114,24 @@ def test_the_written_pair_plays_the_recording_back(
     assert _quietest_gap_db(played, normalized) < _PLAYED_BACK_TOLERANCE_DB
 
 
+def test_the_region_a_recording_wraps_on_indexes_the_waveform_written_from_it(
+    recorded: Recorder,
+    sample_rate: int,
+    encode_config: EncodeConfig,
+    target: ExportTarget,
+    grid_for: Grids,
+) -> None:
+    """The curve scales each frame where it stands, so a stage's frames name the same material after it."""
+    region = Loop(start=sample_rate // 4, end=sample_rate // 2)
+    recording = normalized_recording(_recording(recorded(), sample_rate, loop=region), encode_config)
+
+    sample = _unit(recording, target, grid_for, encode_config).samples[0]
+
+    assert sample.pcm.size == recording.signal.size
+    assert sample.loop is not None
+    assert (sample.loop.begin, sample.loop.end) == (region.start, region.end)
+
+
 @pytest.mark.parametrize("decay_db", [12.0, 36.0, 90.0])
 def test_a_fall_past_what_the_envelope_grid_states_is_carried_by_the_waveform(
     decay_db: float,
@@ -120,13 +141,7 @@ def test_a_fall_past_what_the_envelope_grid_states_is_carried_by_the_waveform(
     target: ExportTarget,
     grid_for: Grids,
 ) -> None:
-    recording = normalized_recording(
-        recorded(decay_db=decay_db),
-        sample_rate,
-        name=NAME,
-        root_pitch=ROOT_PITCH,
-        encode=encode_config,
-    )
+    recording = normalized_recording(_recording(recorded(decay_db=decay_db), sample_rate), encode_config)
     unit = _unit(recording, target, grid_for, encode_config)
     played = _played_back(unit, recording, grid_for(target))
     assert _quietest_gap_db(played, recording) < _PLAYED_BACK_TOLERANCE_DB
@@ -173,9 +188,7 @@ def test_a_format_stating_its_level_across_two_grids_stores_every_recording_at_i
 ) -> None:
     """A lattice fine enough to meet the level asked leaves the waveform nothing to give up reaching it."""
     target = retarget(TrackerFormat.IT)
-    recording = normalized_recording(
-        recorded(peak=peak), sample_rate, name=NAME, root_pitch=ROOT_PITCH, encode=encode_config
-    )
+    recording = normalized_recording(_recording(recorded(peak=peak), sample_rate), encode_config)
     sample = _unit(recording, target, grid_for, encode_config).samples[0]
 
     stored = peak_amplitude(sample.pcm) / headroom_peak(encode_config.headroom_db)
@@ -271,13 +284,7 @@ def test_the_level_read_off_a_recording_states_the_decline_it_makes(
     sample_rate: int,
     encode_config: EncodeConfig,
 ) -> None:
-    recording = normalized_recording(
-        recorded(decay_db=decay_db),
-        sample_rate,
-        name=NAME,
-        root_pitch=ROOT_PITCH,
-        encode=encode_config,
-    )
+    recording = normalized_recording(_recording(recorded(decay_db=decay_db), sample_rate), encode_config)
     assert np.ptp(recording.levels.values) == pytest.approx(decay_db, abs=1.0)
 
 
@@ -288,8 +295,8 @@ def test_the_level_is_read_at_the_pitch_the_recording_is_declared_at(
 ) -> None:
     """The weighting spans two periods of the declared pitch, so the same audio reads differently under two."""
     signal = recorded(pitch=29)
-    deep = normalized_recording(signal, sample_rate, name=NAME, root_pitch=29, encode=encode_config)
-    high = normalized_recording(signal, sample_rate, name=NAME, root_pitch=84, encode=encode_config)
+    deep = normalized_recording(_recording(signal, sample_rate, root_pitch=29), encode_config)
+    high = normalized_recording(_recording(signal, sample_rate, root_pitch=84), encode_config)
     assert not np.allclose(deep.levels.values, high.levels.values)
 
 
@@ -300,13 +307,7 @@ def test_a_silent_recording_states_a_curve_that_writes(
     grid_for: Grids,
 ) -> None:
     """A take that never sounded still writes, so a dataset holding one is carried through whole."""
-    recording = normalized_recording(
-        np.zeros(sample_rate, dtype=np.float64),
-        sample_rate,
-        name=NAME,
-        root_pitch=ROOT_PITCH,
-        encode=encode_config,
-    )
+    recording = normalized_recording(_recording(np.zeros(sample_rate, dtype=np.float64), sample_rate), encode_config)
     written = target.instrument_file(_unit(recording, target, grid_for, encode_config))
     assert written.violations() == ()
 
@@ -404,13 +405,7 @@ def test_a_recording_captured_at_full_scale_reports_the_level_it_falls_short_of(
 ) -> None:
     """A levelled waveform asking for more than full scale is stored as hot as it can be and says so."""
     written = recording_instrument(
-        normalized_recording(
-            recorded(peak=1.0),
-            sample_rate,
-            name=NAME,
-            root_pitch=ROOT_PITCH,
-            encode=encode_config,
-        ),
+        normalized_recording(_recording(recorded(peak=1.0), sample_rate), encode_config),
         target=target,
         grid=grid_for(target),
         headroom_db=encode_config.headroom_db,

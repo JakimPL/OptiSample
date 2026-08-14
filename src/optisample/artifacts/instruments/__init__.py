@@ -1,7 +1,6 @@
 from optisample.artifacts.instruments.dump import (
     INSTRUMENT_LABEL,
     InstrumentSettings,
-    Recording,
     WrittenInstruments,
     write_dataset_instruments,
     write_instruments,
@@ -9,6 +8,7 @@ from optisample.artifacts.instruments.dump import (
 from optisample.artifacts.instruments.normalize import (
     STORED_DEPTH,
     NormalizedRecording,
+    Recording,
     RecordingInstrument,
     StoredLevel,
     level_curve,

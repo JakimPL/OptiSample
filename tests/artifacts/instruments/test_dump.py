@@ -5,22 +5,26 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from optisample.artifacts.instruments.dump import (
-    InstrumentSettings,
-    Recording,
-    write_dataset_instruments,
-    write_instruments,
-)
-from optisample.artifacts.paths import instrument_files_dir
+from optisample.artifacts.documents.sample import ProvenanceRecord, sample_document
+from optisample.artifacts.instruments.dump import InstrumentSettings, write_dataset_instruments, write_instruments
+from optisample.artifacts.instruments.normalize import Recording
+from optisample.artifacts.paths import SAMPLE_EXTENSION, instrument_files_dir
+from optisample.artifacts.serialize import write_msgpack
 from optisample.config.codec import EncodeConfig
 from optisample.config.tracker import TrackerFormat
-from optisample.dsp.level import level_readings, peak_amplitude
-from optisample.io.audio import write_wav
+from optisample.dsp.envelope import decompose, level_reading
+from optisample.dsp.level import Clock, level_readings, peak_amplitude, unit_level
+from optisample.dsp.loop import Loop, LoopQuality
+from optisample.dsp.surrogate import SettledLoop
+from optisample.io.audio import mono, read_wav, write_wav
 from optisample.io.dataset import SourceDataset
 from optisample.io.note_extractor import NO_TEMPO, NoteRecord, dump_notes
 from optisample.io.tracker.envelope import played_gain
 from optisample.io.tracker.target import ExportTarget
+from optisample.keys import SampleKey
+from optisample.loop.settle import StoredLoop
 from optisample.metrics.base import Signal
+from optisample.music import midi_to_freq
 from optisample.progress import NO_PROGRESS
 from tests.artifacts.instruments.conftest import ROOT_PITCH, SR, TEMPO_BPM, Recorder
 from trackmod.core.instruments.unit import InstrumentUnit
@@ -52,7 +56,7 @@ def settings(target: ExportTarget, encode_config: EncodeConfig, release_s: float
 @pytest.fixture
 def recording(recorded: Recorder, sample_rate: int) -> Recording:
     """One struck note as the recording an instrument is written from."""
-    return Recording(name=NAME, root_pitch=ROOT_PITCH, sample_rate=sample_rate, signal=recorded())
+    return Recording(name=NAME, root_pitch=ROOT_PITCH, sample_rate=sample_rate, signal=recorded(), loop=None)
 
 
 def _read_back(path: Path, tracker_format: TrackerFormat) -> InstrumentUnit:
@@ -146,6 +150,7 @@ def test_a_recording_played_above_a_formats_keyboard_reaches_the_formats_that_na
         root_pitch=_ABOVE_EVERY_XM_KEY,
         sample_rate=sample_rate,
         signal=recorded(pitch=_ABOVE_EVERY_XM_KEY),
+        loop=None,
     )
 
     written = write_instruments([recording], tmp_path, settings=settings, recorded_tempo_bpm=NO_TEMPO)
@@ -208,6 +213,63 @@ def test_a_written_dataset_is_carried_beside_the_recordings_it_holds(
             assert _written_file(dataset.recordings_dir, tracker_format, f"{index:04d}_p{pitch}_v100").is_file()
 
 
+@pytest.fixture
+def settled_region() -> Loop:
+    """The region a stage settled over each recording, which a held note wraps on."""
+    return Loop(start=SR // 4, end=SR // 2)
+
+
+@pytest.fixture
+def calibrated(dataset: SourceDataset, encode_config: EncodeConfig, settled_region: Loop) -> SourceDataset:
+    """``dataset`` with the ``.sample`` the loop stage leaves beside each WAV, each stating one offer."""
+    offered = (
+        StoredLoop(
+            settled=SettledLoop(loop=settled_region, level=unit_level(Clock.RECORDED)),
+            quality=LoopQuality(seam_step=0.4, level_drift_db=1.25, spectral_distance=3.5),
+        ),
+    )
+    for index, wav in enumerate(sorted(dataset.recordings_dir.glob("*.wav"))):
+        signal, sample_rate = read_wav(wav)
+        pitch = ROOT_PITCH + 12 * index
+        reading = level_reading(sample_rate, encode_config.envelope, midi_to_freq(pitch))
+        write_msgpack(
+            wav.with_suffix(SAMPLE_EXTENSION),
+            sample_document(
+                decompose(mono(signal), reading),
+                offered,
+                key=SampleKey(pitch, 100),
+                sample_rate=sample_rate,
+                provenance=ProvenanceRecord(stage="loop", instrument_id="piano", index=index, source=wav.name),
+            ),
+        )
+
+    return dataset
+
+
+def test_a_dataset_carrying_its_containers_wraps_each_instrument_where_the_stage_settled(
+    calibrated: SourceDataset, settings: InstrumentSettings, settled_region: Loop
+) -> None:
+    """A stage's own decision reaches the file a player loads, so a note held past the recording sustains."""
+    write_dataset_instruments(calibrated, settings=settings)
+
+    for tracker_format in TrackerFormat:
+        written = _written_file(calibrated.recordings_dir, tracker_format, f"0000_p{ROOT_PITCH}_v100")
+        loop = _read_back(written, tracker_format).samples[0].loop
+
+        assert loop is not None
+        assert (loop.begin, loop.end) == (settled_region.start, settled_region.end)
+
+
+def test_a_dataset_written_before_any_loop_was_settled_sounds_each_recording_end_to_end(
+    dataset: SourceDataset, settings: InstrumentSettings
+) -> None:
+    """A tree carrying no container names no region, so its instruments hold their recordings as they stand."""
+    write_dataset_instruments(dataset, settings=settings)
+    written = _written_file(dataset.recordings_dir, TrackerFormat.IT, f"0000_p{ROOT_PITCH}_v100")
+
+    assert _read_back(written, TrackerFormat.IT).samples[0].loop is None
+
+
 def test_a_dataset_roots_each_instrument_at_the_pitch_its_own_recording_plays(
     dataset: SourceDataset, settings: InstrumentSettings
 ) -> None:
@@ -229,7 +291,7 @@ def test_a_directory_of_takes_is_written_on_the_clock_the_export_plays_at(
     write_wav(takes / f"p{ROOT_PITCH}_v100.wav", recorded(), SR)
     configured = tmp_path / "configured"
     write_instruments(
-        [Recording(name=f"p{ROOT_PITCH}_v100", root_pitch=ROOT_PITCH, sample_rate=SR, signal=recorded())],
+        [Recording(name=f"p{ROOT_PITCH}_v100", root_pitch=ROOT_PITCH, sample_rate=SR, signal=recorded(), loop=None)],
         configured,
         settings=settings,
         recorded_tempo_bpm=NO_TEMPO,

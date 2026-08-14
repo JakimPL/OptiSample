@@ -20,7 +20,8 @@ from optisample.artifacts.documents.metrics import (
     metrics_document,
     note_record,
 )
-from optisample.artifacts.instruments.dump import Recording, WrittenInstruments, write_instruments
+from optisample.artifacts.instruments.dump import WrittenInstruments, write_instruments
+from optisample.artifacts.instruments.normalize import Recording
 from optisample.artifacts.paths import PlanPaths, plan_paths
 from optisample.artifacts.serialize import write_json, write_text
 from optisample.artifacts.units import PlanKind, Unit, make_kind
@@ -124,7 +125,9 @@ def _plan_recordings(kind: PlanKind) -> tuple[Recording, ...]:
     """Every stored sample as the recording an instrument of its own is written from.
 
     A unit is rooted at the pitch its recording was played at, which is the key the instrument written
-    from it sounds, and carries the label the plan files all of its artifacts under.
+    from it sounds, and carries the label the plan files all of its artifacts under. The loop is the
+    encoder's own, in frames of the stored waveform, so a voice auditioned on its own wraps exactly where
+    the plan's own bank wraps it.
     """
     return tuple(
         Recording(
@@ -132,6 +135,7 @@ def _plan_recordings(kind: PlanKind) -> tuple[Recording, ...]:
             root_pitch=unit.representative,
             sample_rate=unit.stored.sample_rate,
             signal=unit.stored.pcm,
+            loop=unit.stored.loop,
         )
         for unit in kind.units
     )

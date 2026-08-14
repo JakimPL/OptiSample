@@ -6,7 +6,13 @@ from pathlib import Path
 from typing import Final
 
 from optisample.artifacts.documents.clustered import CarrierLayerRecord, clustered_document, layer_record
-from optisample.artifacts.documents.sample import SampleDocument, read_sample, sample_decomposition, sample_loops
+from optisample.artifacts.documents.sample import (
+    SampleDocument,
+    faithful_offer,
+    read_sample,
+    sample_decomposition,
+    sample_loops,
+)
 from optisample.artifacts.paths import SAMPLE_EXTENSION, instrument_files_dir
 from optisample.artifacts.serialize import write_json
 from optisample.carrier.audition import carrier_audition
@@ -93,19 +99,6 @@ class ClusteredArtifacts:
     bands: tuple[CarrierLayerRecord, ...]
     recordings: int
     calibrated: int
-
-
-def faithful_offer(document: SampleDocument) -> int | None:
-    """Which of a recording's settled loops stands closest to the material it stands in for.
-
-    The offers a container holds are ordered by the span each stores, cheapest first, so the one a listener
-    would pick is named by its timbre distance rather than by its position. A recording the loop stage
-    settled nothing over answers with nothing, which stores the span it plays.
-    """
-    if not document.loops:
-        return None
-
-    return min(range(len(document.loops)), key=lambda index: document.loops[index].quality.spectral_distance)
 
 
 def _calibrated_source(recording: StageRecording, document: SampleDocument) -> CarrierSource:

@@ -5,36 +5,24 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Final
 
-from optisample.artifacts.instruments.normalize import normalized_recording, recording_instrument
+from optisample.artifacts.documents.sample import faithful_loop, read_sample
+from optisample.artifacts.instruments.normalize import Recording, normalized_recording, recording_instrument
 from optisample.artifacts.instruments.sources import RecordingSource, dataset_recordings
-from optisample.artifacts.paths import instrument_files_dir
+from optisample.artifacts.paths import SAMPLE_EXTENSION, instrument_files_dir
 from optisample.config.codec import EncodeConfig
 from optisample.config.tracker import TrackerFormat
+from optisample.dsp.loop import Loop
 from optisample.io.audio import mono, read_wav
 from optisample.io.dataset import SourceDataset
 from optisample.io.tracker.envelope import EnvelopeGrid, envelope_grid
 from optisample.io.tracker.target import ExportTarget
-from optisample.metrics.base import Signal
 from optisample.progress import ProgressSink
 
 INSTRUMENT_LABEL: Final = "Writing instruments"
 
 _EVERY_FORMAT: Final = tuple(TrackerFormat)  # the formats a written recording is carried as, which is all of them
 _NOTHING_STATED: Final = ()
-
-
-@dataclass(frozen=True)
-class Recording:
-    """One recording an instrument is written from: what it is called, what it plays, and the audio itself.
-
-    ``name`` is the stem every file about this recording shares, so an instrument stands beside the WAV it
-    was written from and the two read as one recording in two forms.
-    """
-
-    name: str
-    root_pitch: int
-    sample_rate: int
-    signal: Signal
+_WHOLE_RECORDING: Final = None  # the region a recording offering no loop leaves an instrument sounding
 
 
 @dataclass(frozen=True)
@@ -130,13 +118,7 @@ def _write_recording(
     format.
     """
     reachable = [written for written in formats if written.target.names(recording.root_pitch)]
-    normalized = normalized_recording(
-        recording.signal,
-        recording.sample_rate,
-        name=recording.name,
-        root_pitch=recording.root_pitch,
-        encode=encode,
-    )
+    normalized = normalized_recording(recording, encode)
     understated = False
     for written in reachable:
         instrument = recording_instrument(
@@ -190,9 +172,11 @@ def write_instruments(
 
     Each instrument holds the whole recording as one sample, played down by the volume envelope its own
     level was fitted to, so a player loading one sounds the recording the way it was captured -- at the
-    amplitude it was captured at, and reaching five octaves either way of the key it was played on. The
-    files land in a directory per format (:func:`~optisample.artifacts.paths.instrument_files_dir`), so
-    the recordings and the instruments written from them read as one set.
+    amplitude it was captured at, and reaching five octaves either way of the key it was played on. A
+    recording carrying the region a stage settled over it wraps there, so a note held past the end of the
+    recording sustains rather than stopping. The files land in a directory per format
+    (:func:`~optisample.artifacts.paths.instrument_files_dir`), so the recordings and the instruments
+    written from them read as one set.
 
     ``recorded_tempo_bpm`` is the clock the material was played at, which the envelopes are counted in
     ticks of; a set recorded away from a clock is written on the one the export plays at.
@@ -203,6 +187,22 @@ def write_instruments(
         settings=settings,
         total=len(recordings),
     )
+
+
+def _settled_loop(wav: Path) -> Loop | None:
+    """The region the loop stage settled for the recording at ``wav``, read from the container beside it.
+
+    The loop stage writes a ``.sample`` next to every WAV it lands, stating every loop that recording
+    offers, so a dataset carrying its containers hands the instruments written from it the very regions
+    the stage settled -- and the one a listener would pick, since the offers are read through
+    :func:`~optisample.artifacts.documents.sample.faithful_loop`. A dataset written before any loop was
+    settled sounds each recording end to end.
+    """
+    container = wav.with_suffix(SAMPLE_EXTENSION)
+    if container.is_file():
+        return faithful_loop(read_sample(container))
+
+    return _WHOLE_RECORDING
 
 
 def _read_recordings(sources: Iterable[RecordingSource]) -> Iterator[Recording]:
@@ -218,6 +218,7 @@ def _read_recordings(sources: Iterable[RecordingSource]) -> Iterator[Recording]:
             root_pitch=source.root_pitch,
             sample_rate=sample_rate,
             signal=mono(signal),
+            loop=_settled_loop(source.file),
         )
 
 
@@ -227,7 +228,8 @@ def write_dataset_instruments(source: SourceDataset, *, settings: InstrumentSett
     The dataset states which pitch each recording was played at and the clock the material was played on
     (:func:`~optisample.artifacts.instruments.sources.dataset_recordings`), so a tree written by any stage
     is filled in from what it already holds and a dataset carried off on its own keeps saying what its
-    instruments were written from.
+    instruments were written from. Where a stage left a ``.sample`` beside a WAV, the region it settled
+    over that recording is read back with it (:func:`_settled_loop`) and the instrument wraps on it.
     """
     dataset = dataset_recordings(source)
     samples_dir = source.recordings_dir
