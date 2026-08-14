@@ -11,7 +11,7 @@ From the repo root:
 
 ```bash
 uv run marimo edit notebooks/pipeline.py    # the CLI as controls, its output as an explorer
-uv run marimo edit notebooks/cluster.py     # a stage's recordings as a space you can hover and play
+uv run marimo edit notebooks/cluster.py     # a run's sets as one space you can hover and play
 uv run marimo edit notebooks/explore.py     # samples and the metric layer
 uv run marimo run  notebooks/pipeline.py    # read-only app
 ```
@@ -56,8 +56,9 @@ in a shell can be inspected here without re-running it.
 
 ## `cluster.py` — sample space
 
-Every recording of one pipeline stage placed as a point in a space built from what it sounds like, cut
-into groups, and each group stood for by a real take you can play. Three things are held out of the
+Every recording of as many of a run's sets as you name — one instrument at one stage, the same instrument
+at two, or two instruments side by side — placed as a point in one space built from what it sounds like,
+cut into groups, and each group stood for by a real take you can play. Three things are held out of the
 geometry on purpose. **The inaudible depth**: the first stage writes its recordings past a 30 Hz roll-off
 that is 60 dB down by 10 Hz, so every stage read here holds what a listener has — rumble keeps its level
 while a note decays, which is exactly where the deep anchors read.
@@ -66,17 +67,21 @@ the same note at v100 differ by their timbre alone. **Length**: time is anchored
 decline — anchor *k* is the moment that note had fallen *k* dB below its own peak — so a two-second take
 and an eight-second take of one sound are read at the same points.
 
-**Controls** — the run root, then the dataset: the instruments that run carried are listed as they stand on
-disk, so one is picked rather than spelled out. Then the strategy; which stage to read, whether to read past each
-note's release, and how many workers share the reading; the frequency axis (the note's own partials, or
-the mel bands the optimizer scores with), the fall depths, the harmonic count, the cepstral coefficients
-and the anchor span; the four block weights and the share of the corpus a depth must reach to be read at
-all; the algorithm, linkage, group count and which member stands for its group; then the layout, 2D or
-3D, and what to colour by.
+**Controls** — the run root, browsed for rather than spelled out, beside the strategy an allocated stage's
+plan is read under. Every set that run left under it is then listed, one line per instrument and stage, and
+as many of them as you name are read into a single space. The blocks are standardized and scaled across the
+whole gathered corpus, so several sets are read under one frame: each set's coordinates answer for the
+company it was read beside, and differ from what that same set would hold read on its own. Then whether to
+read past each note's release, and how many workers share the reading; the frequency axis (the note's own
+partials, or the mel bands the optimizer scores with), the fall depths, the harmonic count, the cepstral
+coefficients and the anchor span; the four block weights and the share of the corpus a depth must reach to
+be read at all; the algorithm, linkage, group count and which member stands for its group; then the layout,
+2D or 3D, and what to colour by — the set a take came from among the choices, which is what tells several of
+them apart by eye.
 
 The reading of the recordings is the expensive half and is done once — moving a weight or a group count
-re-reads the geometry off blocks already read, so those controls respond immediately while changing the
-stage or the frequency axis re-reads the audio.
+re-reads the geometry off blocks already read, so those controls respond immediately while naming another
+set or another frequency axis re-reads the audio.
 
 **The space** — every recording where the layout placed it, hovering everything it was read for. A column
 holding names (the group, the note) draws one colour and one legend entry apiece, so clicking the legend
@@ -98,16 +103,19 @@ a group reads as a cluster while the room between clusters follows the neighbour
 layout list when scikit-learn and umap-learn are installed; without them the notebook draws the pair that
 stands on the space's own distances. **Keys** leaves the space aside and lays the corpus out as the keyboard
 holds it: the note across, the velocity it was struck at up, and in three dimensions how long each take
-rings. That says which keys the stage kept a recording of and how a group sits across them — coloured,
-ringed and clicked exactly as the space is, since it is the same field drawn on other axes. Every number the
-panels report is the space's own whichever layout is on screen.
+rings. That says which keys the sets kept a recording of and how a group sits across them, takes sharing a
+key standing on one point whichever set each of them came from — coloured, ringed and clicked exactly as
+the space is, since it is the same field drawn on other axes. Every number the panels report is the
+space's own whichever layout is on screen.
 
 **How many groups** — the silhouette against the number of groups, with the count on screen ringed, and
 the top of the tree with the height the cut reads it at drawn across it.
 
 **Groups and members** — what each group gathered (size, pitch and velocity range, playing time, spread
-from its medoid) and how tightly it holds together block by block, which says where the grouping came
-from. Then one group's recordings, ordered from its medoid outwards.
+from its medoid, and how many sets it drew on, which is what names a sound several of them share) and how
+tightly it holds together block by block, which says where the grouping came from. Then one group's
+recordings, ordered from its medoid outwards. Every take is named by the set it came from, so two sets
+holding a recording of one file stem stay apart wherever they are read.
 
 **Examine and play** — the picked recording, from either picture or by name, heard and seen: a player, its
 waveform, its spectrogram, the
@@ -118,16 +126,18 @@ stands from every group — the company it nearly kept.
 **Representatives** — every group's take in one row of players, so a whole selection is auditioned at
 once.
 
-**Feed the selection back** — those same takes written out as a dataset, holding every note they answer
-for, each carried over exactly as the stage states it, beside a copy of each recording. What lands is a
-NoteExtractor dataset like any other, so `optisample pipeline <written>/<instrument>.notes.json` runs the
-rest of the pipeline over a set chosen for what it sounds like — a selection rule the pipeline's own
-stages have none of, since dedup keeps a recording by the identity and the length it carries. The button
-writes only when pressed, and the three dataset stages are the ones a selection comes out of; what an
-allocation stored is read back through its own plan.
+**Feed the selection back** — those same takes written out, holding every note they answer for, each
+carried over exactly as the stage states it, beside a copy of each recording. Each set the picks came from
+lands as a dataset of its own, under `<write to>/<instrument>/<stage>/`, so a selection gathered across
+sets feeds each of them back on its own terms. What lands is a NoteExtractor dataset like any other, so
+`optisample pipeline <written>/<instrument>/<stage>/<instrument>.notes.json` runs the rest of the pipeline
+over a set chosen for what it sounds like — a selection rule the pipeline's own stages have none of, since
+dedup keeps a recording by the identity and the length it carries. The button writes only when pressed,
+and the panel is offered when every named set is one of the three dataset stages; what an allocation
+stored is read back through its own plan.
 
-Point the run root at a `optisample pipeline --out` directory; the stage list reads whichever of
-`0_subset`, `1_looped`, `2_reduced` and `3_optimized` are on disk.
+Point the run root at a `optisample pipeline --out` directory; the set list reads whichever of `0_subset`,
+`1_looped`, `2_reduced` and `3_optimized` that run wrote, one entry per instrument each of them holds.
 
 ## `explore.py` — sample & metric inspector
 
