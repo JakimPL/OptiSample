@@ -125,28 +125,36 @@ class StoredFormat:
     compress: bool
 
 
-def _lowest_rung(rates: Sequence[int], useful_rate: float) -> int:
-    """The lowest rung of ``rates`` reaching ``useful_rate``, which is the cheapest rate carrying the band.
+def _lowest_rung(rates: Sequence[int], useful_rate: float, floor_hz: float) -> int:
+    """The lowest rung of ``rates`` reaching both ``useful_rate`` and ``floor_hz``, the cheapest rate kept.
 
     Rounding up keeps the stored band as wide as the recording's own, so every frequency the material still
-    plays survives storage. The clip's own rate is the ladder's top rung and every bound lands at or under
-    it (:func:`_audible_rate_hz` caps at the analysis Nyquist), so a rung always answers.
+    plays survives storage. ``floor_hz`` raises that demand to the quality floor the run holds, which lifts
+    a recording whose own content asked for less. The clip's own rate is the ladder's top rung and every
+    bound lands at or under it (:func:`_audible_rate_hz` caps at the analysis Nyquist); the floor is read
+    against that top rung for the same reason, so a rung always answers and a recording made below the
+    floor is stored as it stands.
     """
-    return min(rate for rate in rates if rate >= useful_rate)
+    reached = max(useful_rate, min(floor_hz, max(rates)))
+    return min(rate for rate in rates if rate >= reached)
 
 
 def format_from_band(content_hz: float, demand: ClipDemand, context: FormatInputs) -> StoredFormat:
     """The format a recording of band ``content_hz`` is stored at under ``demand``, by arithmetic alone.
 
     The demand enters here and nowhere else: the interval the sample is transposed by lowers the rate
-    that stays audible, and the ladder's lowest rung reaching what remains is the rate the sample is kept
-    at. So the second zone to ask the same recording for the same stored length is answered from the band
-    already measured.
+    that stays audible, and the ladder's lowest rung reaching what remains, held at or above
+    ``min_rate_hz``, is the rate the sample is kept at. So the second zone to ask the same recording for
+    the same stored length is answered from the band already measured.
     """
     useful_rate = _audible_rate_hz(content_hz, demand.delta_semitones, context.sample_rate, context.bandwidth)
     depth_bits = context.sweep.depth
     return StoredFormat(
-        target_rate=_lowest_rung(sweep_rates(context.sweep, context.sample_rate), useful_rate),
+        target_rate=_lowest_rung(
+            sweep_rates(context.sweep, context.sample_rate),
+            useful_rate,
+            context.bandwidth.min_rate_hz,
+        ),
         depth_bits=depth_bits,
         compress=compresses(context.sweep, depth_bits),
     )

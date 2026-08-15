@@ -99,11 +99,20 @@ class BandwidthConfig(ConfigModel):
     averaged into bands that wide. Together they name the rate a clip asks to be stored at
     (:func:`~optisample.optimize.reduce.bandwidth.useful_rate_hz`), and the ladder's lowest rung reaching
     it is what the sample is kept at, so ``content_floor_db`` decides how much band the run stores.
+
+    ``min_rate_hz`` is the rate every stored sample reaches regardless of what its own content asked for,
+    which is what states a floor on stored quality. The measured band is relative to a recording's loudest
+    band, so material tilted steeply downward -- a bass, whose energy sits near its fundamental -- reads a
+    narrow band and settles on a low rung however much room the budget has. Holding a floor here spends
+    those bytes on band, and the allocation answers by storing fewer and wider samples, each at the rate
+    the floor names. It is read against the ladder a clip reaches, so a recording made below the floor is
+    stored as it stands (:func:`~optisample.optimize.reduce.bandwidth.format_from_band`).
     """
 
     ceiling_hz: Annotated[float, Field(gt=0.0)]
     content_floor_db: Annotated[float, Field(gt=0.0)]
     content_band_hz: Annotated[float, Field(gt=0.0)]
+    min_rate_hz: Annotated[float, Field(gt=0.0)]
 
 
 class ZoneConfig(ConfigModel):

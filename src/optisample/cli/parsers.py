@@ -144,6 +144,12 @@ def _ingest_parser() -> argparse.ArgumentParser:
         help="How far under its loudest band a recording still carries content, which decides its stored rate",
     )
     ingest.add_argument(
+        "--min-rate-hz",
+        type=float,
+        default=None,
+        help="Lowest rate a stored sample lands on, trading sample count for band (default: the config's)",
+    )
+    ingest.add_argument(
         "--seed",
         type=int,
         default=DEFAULT_SEED,
