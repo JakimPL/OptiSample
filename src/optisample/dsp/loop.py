@@ -136,17 +136,48 @@ def _searched_lags(sample_rate: int, config: GeometryConfig, root_hz: float) -> 
     return max(1, floor(sample_rate / (root_hz * spread))), ceil(sample_rate * spread / root_hz)
 
 
+def _octave_peaks(
+    correlation: Signal,
+    size: int,
+    sample_rate: int,
+    config: GeometryConfig,
+    root_hz: float,
+) -> list[tuple[int, float]]:
+    """The lag each octave from the played pitch downward peaks at, beside the peak it reaches there.
+
+    One band per octave, each searched over the lags that octave's own pitch makes
+    (:func:`_searched_lags`), so the readings arrive shallowest first and a band the signal is too short to
+    reach is left out. The bands stand an octave apart while each spans a semitone either side of its
+    centre, so they stay disjoint and the shallowest reading is the one at the smallest lag.
+    """
+    found: list[tuple[int, float]] = []
+    for octave in range(config.octaves_below + 1):
+        low, widest = _searched_lags(sample_rate, config, root_hz / (1 << octave))
+        high = min(size - 1, widest)
+        if high < low:
+            continue
+
+        lag = int(np.argmax(correlation[low : high + 1])) + low
+        found.append((lag, float(correlation[lag])))
+
+    return found
+
+
 def _estimate_period(
     signal: Signal,
     sample_rate: int,
     config: GeometryConfig,
     root_hz: float,
 ) -> float | None:
-    """Fundamental period in frames, from the strongest autocorrelation peak near the pitch the note was played at.
+    """Fundamental period in frames, from the autocorrelation peaks the played pitch and its octaves make.
 
     The pitch is known from the key the recording sounds, so the search runs over the lags that pitch makes
-    (:func:`_searched_lags`) and the peak found there is read between frames
-    (:func:`~optisample.dsp.series.refined_lag`).
+    and the lags of each octave under it (:func:`_octave_peaks`), which is what reads a set recorded to
+    sound below the key it is filed under. Material repeats at every multiple of its own period, so the
+    reading that names the fundamental is the **shallowest** octave measuring as periodic as the best of
+    them -- within ``config.octave_margin`` of that best peak. Taking the strongest instead would read a
+    tone at twice or four times its own period, since a periodic signal correlates just as closely there.
+    The peak the choice lands on is then read between frames (:func:`~optisample.dsp.series.refined_lag`).
 
     Returns ``None`` when the signal spans fewer than ``_MIN_STEADY_FRAMES``, holds less than one period of
     its own pitch, or peaks below ``config.min_correlation`` -- material a loop has no purchase on, either
@@ -156,16 +187,17 @@ def _estimate_period(
         return None
 
     correlation = autocorrelation(signal)
-    low, widest = _searched_lags(sample_rate, config, root_hz)
-    high = min(signal.size - 1, widest)
-    if high < low:
+    peaks = _octave_peaks(correlation, signal.size, sample_rate, config, root_hz)
+    if not peaks:
         return None
 
-    lag = int(np.argmax(correlation[low : high + 1])) + low
-    if correlation[lag] < config.min_correlation:
+    strongest = max(peak for _, peak in peaks)
+    accepted = max(config.octave_margin * strongest, config.min_correlation)
+    shallowest = [lag for lag, peak in peaks if peak >= accepted]
+    if not shallowest:
         return None
 
-    return refined_lag(correlation, lag)
+    return refined_lag(correlation, min(shallowest))
 
 
 def _snap_ascending_zero(signal: Signal, index: int, radius: int) -> int:

@@ -12,7 +12,17 @@ class GeometryConfig(ConfigModel):
     ``detune_semitones`` is how far either side of the pitch a recording was played at its period is
     searched for, which leaves room for the tuning the instrument was recorded at and for the stretch a
     piano's own strings carry; ``min_correlation`` is the autocorrelation peak a recording clears to count
-    as periodic at all, and together the two say which material a loop has purchase on. ``max_attack_s`` and
+    as periodic at all, and together the two say which material a loop has purchase on.
+
+    ``octaves_below`` widens that search to the octaves under the played pitch, which is what reads a set
+    recorded to sound below the key it is filed under -- a bass patch sounding an octave down states one
+    pitch on the keyboard and repeats at twice the period. Material repeats at every multiple of its own
+    period, so the reading that names the fundamental is the shallowest octave measuring as periodic as the
+    best of them: ``octave_margin`` is the share of that best peak a shallower octave clears to be taken,
+    which keeps a tone read at its own period while a set an octave down is read at the period it truly
+    holds. Asking for no octaves reads every recording at the pitch its key names.
+
+    ``max_attack_s`` and
     ``tail_skip_s`` bound the steady window the rounds of
     :class:`FrontierConfig` are looked for inside: the window opens where the recording's
     own material settles (:func:`~optisample.dsp.similarity.settling_frame`) and ``max_attack_s`` holds that
@@ -29,6 +39,8 @@ class GeometryConfig(ConfigModel):
 
     detune_semitones: Annotated[float, Field(gt=0.0)]
     min_correlation: float
+    octaves_below: Annotated[int, Field(ge=0)]
+    octave_margin: Annotated[float, Field(gt=0.0, le=1.0)]
     min_periods: Annotated[int, Field(ge=1)]
     min_loop_s: Annotated[float, Field(gt=0.0)]
     max_attack_s: Annotated[float, Field(ge=0.0)]

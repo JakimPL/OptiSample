@@ -124,6 +124,33 @@ def test_the_pitch_it_is_handed_says_which_repeat_of_the_material_is_read(geomet
     assert _estimate_period(signal, SR, geometry_config, FREQ / 2) == pytest.approx(2 * PERIOD, abs=1)
 
 
+def test_a_recording_sounding_below_its_key_is_read_at_the_period_it_holds(
+    geometry_config: GeometryConfig,
+) -> None:
+    """A set filed an octave over what it sounds repeats at twice the period its key names."""
+    sounding = _sine(SR, freq=FREQ / 2)
+
+    assert _estimate_period(sounding, SR, geometry_config, FREQ) == pytest.approx(2 * PERIOD, abs=1)
+
+
+def test_a_tone_is_read_at_its_own_period_rather_than_a_multiple_of_it(
+    geometry_config: GeometryConfig,
+) -> None:
+    """Material repeats at every multiple of its period, so the shallowest octave is the fundamental."""
+    assert _estimate_period(_sine(SR), SR, geometry_config, FREQ) == pytest.approx(PERIOD, abs=1)
+
+
+def test_the_octaves_searched_are_what_reaches_a_recording_sounding_below_its_key(
+    geometry_config: GeometryConfig,
+) -> None:
+    """Asking for no octaves holds the search to the played pitch, which a set sounding lower falls outside."""
+    sounding = _sine(SR, freq=FREQ / 2)
+    nominal = GeometryConfig.model_validate({**geometry_config.model_dump(), "octaves_below": 0})
+
+    assert _estimate_period(sounding, SR, nominal, FREQ) is None
+    assert _estimate_period(sounding, SR, geometry_config, FREQ) is not None
+
+
 def test_a_period_falling_between_frames_is_read_between_them(geometry_config: GeometryConfig) -> None:
     """The parabola through the peak is what states a lag a whole number of frames lands beside."""
     period = _estimate_period(_sine(SR, freq=UNEVEN_FREQ), SR, geometry_config, UNEVEN_FREQ)
