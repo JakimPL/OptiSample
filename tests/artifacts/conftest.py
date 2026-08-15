@@ -37,7 +37,7 @@ def _narrow_band_reduce() -> ReduceConfig:
     return ReduceConfig.model_validate({**raw, "bandwidth": {**raw["bandwidth"], "ceiling_hz": _STORED_CEILING_HZ}})
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def tiny_settings() -> OptimizeSettings:
     """Cheap swept settings straight from the bundled config (dither off → the re-encode is deterministic)."""
     grid = SweepConfig.model_validate(
@@ -59,7 +59,7 @@ def tiny_settings() -> OptimizeSettings:
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def instrument_settings(tiny_settings: OptimizeSettings) -> InstrumentSettings:
     """What every stage of these fixtures carries its recordings as standalone instruments with."""
     return InstrumentSettings(
@@ -71,7 +71,7 @@ def instrument_settings(tiny_settings: OptimizeSettings) -> InstrumentSettings:
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def no_render_settings(tiny_settings: OptimizeSettings) -> DumpSettings:
     """Dump settings that skip the openmpt123 ground-truth render (fast, deterministic)."""
     return DumpSettings(
@@ -83,19 +83,19 @@ def no_render_settings(tiny_settings: OptimizeSettings) -> DumpSettings:
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def demo_audio(piano_note: Callable[..., NDArray[np.float64]]) -> AudioMap:
     return {SampleKey(pitch, 100): piano_note(pitch, 100, 0.6, seed=pitch * 137 + 100) for pitch in PITCHES}
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def demo_instrument() -> InstrumentSpec:
     samples = [SourceSample(file=f"{pitch}.wav", pitch=pitch, velocity=100) for pitch in PITCHES]
     material = [NoteEvent(pitch=pitch, velocity=100, duration_s=0.5, count=4) for pitch in PITCHES]
     return InstrumentSpec(id="piano", budget_kb=48.0, samples=samples, material=material)
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def dump_context(
     demo_instrument: InstrumentSpec,
     demo_audio: AudioMap,
@@ -111,7 +111,7 @@ def dump_context(
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def ungrouped_plan(
     demo_instrument: InstrumentSpec,
     demo_audio: AudioMap,
@@ -121,7 +121,7 @@ def ungrouped_plan(
     return optimize_instrument(demo_instrument, recordings(demo_audio, SR), no_render_settings.optimize)
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def grouped_plan(
     demo_instrument: InstrumentSpec,
     demo_audio: AudioMap,

@@ -46,22 +46,27 @@ _BRIEF_S = 0.25  # a note ringing for less than the floor a slice is asked for
 _ADMITS_BOTH = 0.5  # a floor standing between the two, so a ragged source loses exactly its short notes
 
 
-@pytest.fixture
-def tiny_notes(tmp_path: Path, piano_note: Callable[..., NDArray[np.float64]]) -> Path:
-    """A minimal on-disk NoteExtractor project: three piano notes + a .notes.json referencing them.
+def _tiny_project(root: Path, piano_note: Callable[..., NDArray[np.float64]]) -> Path:
+    """A minimal on-disk NoteExtractor project under ``root``: three piano notes and the manifest naming them.
 
     The WAVs live in the sibling ``piano/`` directory the ``optimize`` command resolves by default, so the
     instrument id defaults to ``piano`` and its artifacts land under ``<out>/piano/``.
     """
-    samples_dir = tmp_path / "piano"
+    samples_dir = root / "piano"
     samples_dir.mkdir()
     records = []
     for index, pitch in enumerate(PITCHES):
         write_wav(samples_dir / f"{index:04d}_p{pitch}_v100.wav", piano_note(pitch, 100, 0.6, seed=pitch), SR)
         records.append(NoteRecord(index=index, pitch=pitch, velocity=100, duration_s=0.5))
-    notes_json = tmp_path / "piano.notes.json"
+    notes_json = root / "piano.notes.json"
     dump_notes(records, notes_json)
     return notes_json
+
+
+@pytest.fixture
+def tiny_notes(tmp_path: Path, piano_note: Callable[..., NDArray[np.float64]]) -> Path:
+    """The minimal project (:func:`_tiny_project`), written fresh for one test to run commands over."""
+    return _tiny_project(tmp_path, piano_note)
 
 
 @pytest.fixture
@@ -562,21 +567,26 @@ def test_pipeline_command_writes_a_directory_per_stage_it_ran(
     assert "ungrouped: objective" in printed and "total:" in printed
 
 
-@pytest.mark.parametrize("stage", ["0_subset/piano", "1_looped/piano", "2_reduced/piano"])
-def test_every_stage_of_a_chained_run_carries_its_recordings_as_instruments(
-    stage: str, tmp_path: Path, tiny_notes: Path
-) -> None:
-    """A stage's own audio is playable in a tracker, so what one stage did to it is audible against the next."""
-    out = tmp_path / "artifacts"
+@pytest.fixture(scope="module")
+def chained_run(tmp_path_factory: pytest.TempPathFactory, piano_note: Callable[..., NDArray[np.float64]]) -> Path:
+    """One chained run every stage of it is read off, since each stage's reading asks the same run of it."""
+    root = tmp_path_factory.mktemp("chained")
+    out = root / "artifacts"
     run(
         # fmt: off
         [
-            "pipeline", str(tiny_notes), "--budget-kb", "48", "--fraction", "0.67", "--out", str(out),
-            "--rate", "11025", "--depth", "8", "--no-render", "--strategy", "ungrouped",
+            "pipeline", str(_tiny_project(root, piano_note)), "--budget-kb", "48", "--fraction", "0.67",
+            "--out", str(out), "--rate", "11025", "--depth", "8", "--no-render", "--strategy", "ungrouped",
         ]
         # fmt: on
     )
-    samples_dir = out / stage
+    return out
+
+
+@pytest.mark.parametrize("stage", ["0_subset/piano", "1_looped/piano", "2_reduced/piano"])
+def test_every_stage_of_a_chained_run_carries_its_recordings_as_instruments(stage: str, chained_run: Path) -> None:
+    """A stage's own audio is playable in a tracker, so what one stage did to it is audible against the next."""
+    samples_dir = chained_run / stage
 
     for extension in (".iti", ".xi"):
         written = list(instrument_files_dir(samples_dir, extension).glob(f"*{extension}"))
