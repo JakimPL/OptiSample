@@ -128,22 +128,8 @@ so a ladder wants rungs where its material lands. `32000` is on the shipped ladd
 reason: it is where a 16 kHz ceiling lands, and storing there rather than at 37800 saves 18 % of every
 such sample.
 
-**A floor states the trade directly.** `content_floor_db` is measured *relative to a recording's own
-loudest band*, which makes it a cliff rather than a dial on material tilted steeply downward. A bass whose
-energy sits near its fundamental reads a narrow band at any floor the noise stays out of, and lands on the
-cheapest rung however much room the budget has: on the Jamzz set, 60 dB puts every Bass zone at 8 kHz, 70
-scatters them between 8 and 28.8, and 80 sends them all to 32. There is no value in between that simply
-asks for *more band*.
-
-`min_rate_hz` (`reduce/bandwidth.yaml`, `--min-rate-hz`) states it as a floor instead: every stored sample
-reaches at least that rung, whatever its own content asked for. It is read against the ladder a clip
-reaches, so a recording made below the floor is stored as it stands. This is the knob that turns
-"fewer samples, better ones" into configuration — raising the floor raises the price of every sample, and
-the allocation answers by storing fewer and wider zones, each carrying the band the floor names. Pair it
-with `--max-samples` when the zone count matters more than the count the solver would pick.
-
-**Levers.** `--content-floor-db` and `--min-rate-hz` per run; `optimize/sweep.yaml: rates` is the ladder
-itself and `--rate` (repeatable) replaces it for one run.
+**Levers.** `--content-floor-db` per run; `optimize/sweep.yaml: rates` is the ladder itself and `--rate`
+(repeatable) replaces it for one run.
 
 ## 4. Bit depth: what 8 bits costs, and how to refuse it
 
@@ -533,7 +519,6 @@ as the format numbers. Each extra sample is charged a reserve, so the run states
 | `sweep.rates` | `optimize/sweep.yaml` | Reshaping the ladder itself — its floor is what long samples land on. |
 | `quantize.release_fade_s` | `codec/quantize.yaml` | Samples click at their end, or 10 ms of ramp is audible. |
 | `--content-floor-db` | CLI (`reduce/bandwidth.yaml`) | The stored band is duller than the budget can afford, or a budget will not fit. |
-| `--min-rate-hz` | CLI (`reduce/bandwidth.yaml`) | A whole instrument sits on the cheapest rung because its content tilts down — hold a floor and let the allocation buy it with fewer, wider zones. |
 | `--max-samples` | CLI (`optimize/budget.yaml`) | Trading sample count against per-sample quality. |
 | `reduce.grouping.max_zone_semitones` | `reduce/grouping.yaml` | Repitching artefacts across a zone. |
 | `--max-layers` | CLI (`optimize/layers.yaml`) | Dynamics matter more (or less) than fidelity per note. |

@@ -2,4 +2,3 @@
 ceiling_hz: 16000.0    # highest output frequency worth storing (capped at the analysis Nyquist)
 content_floor_db: 60.0 # how far under its loudest band a recording still carries content
 content_band_hz: 200.0 # width the spectrum is averaged into before that edge is read
-min_rate_hz: 22050.0   # lowest rung a stored sample lands on, whatever its own band asked for

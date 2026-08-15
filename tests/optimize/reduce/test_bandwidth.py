@@ -128,31 +128,6 @@ def test_a_clip_carrying_nothing_is_stored_at_the_cheapest_rung(make_context: Ca
     assert stored_format(silence, UNTRANSPOSED, make_context()).target_rate == _CHEAPEST_RUNG
 
 
-def test_a_rate_floor_lifts_a_clip_whose_own_band_asked_for_less(make_context: Callable[..., _Context]) -> None:
-    """The floor names the rung a narrow clip is kept at, which is what buys band with the run's bytes."""
-    muffled = bandlimit(broadband(), SR, 0.0, 1_800.0)
-    assert stored_format(muffled, UNTRANSPOSED, make_context(bandwidth={"min_rate_hz": 8_000.0})).target_rate == 8_000
-    assert stored_format(muffled, UNTRANSPOSED, make_context(bandwidth={"min_rate_hz": 9_000.0})).target_rate == 16_000
-
-
-def test_a_rate_floor_under_what_the_content_asks_for_leaves_the_rung_alone(
-    make_context: Callable[..., _Context],
-) -> None:
-    """A clip already reaching past the floor is stored at the rung its own band settled."""
-    bright = bandlimit(broadband(), SR, 0.0, 5_000.0)
-    settled = stored_format(bright, UNTRANSPOSED, make_context()).target_rate
-
-    assert stored_format(bright, UNTRANSPOSED, make_context(bandwidth={"min_rate_hz": 4_000.0})).target_rate == settled
-
-
-def test_a_rate_floor_past_every_rung_stores_the_recording_as_it_stands(
-    make_context: Callable[..., _Context],
-) -> None:
-    """The floor is read against the ladder a clip reaches, so its top rung is as far as the floor lifts."""
-    silence = np.zeros(_FRAMES, dtype=np.float64)
-    assert stored_format(silence, UNTRANSPOSED, make_context(bandwidth={"min_rate_hz": 1e6})).target_rate == SR
-
-
 def test_a_band_reaching_past_every_rung_is_stored_as_recorded(make_context: Callable[..., _Context]) -> None:
     """The recording's own rate joins the ladder as its top rung, so a wide band is stored untouched."""
     context = make_context(bandwidth={"ceiling_hz": 1e6})

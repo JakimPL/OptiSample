@@ -39,7 +39,7 @@ def _reduce_config(config: OptiConfig, args: argparse.Namespace) -> ReduceConfig
     """The reduction config with the flags that vary per run applied over the loaded values.
 
     Each flag reaches a nested section, so the override goes through a dump-and-revalidate: the schema
-    settles what a key, a content floor or a rate floor may be, in one place, whichever side supplied it.
+    settles what a key or a content floor may be, in one place, whichever side supplied it.
     """
     data = config.reduce.model_dump()
     if args.dedupe_key is not None:
@@ -47,9 +47,6 @@ def _reduce_config(config: OptiConfig, args: argparse.Namespace) -> ReduceConfig
 
     if args.content_floor_db is not None:
         data["bandwidth"]["content_floor_db"] = args.content_floor_db
-
-    if args.min_rate_hz is not None:
-        data["bandwidth"]["min_rate_hz"] = args.min_rate_hz
 
     return ReduceConfig.model_validate(data)
 
