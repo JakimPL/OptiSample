@@ -3,8 +3,9 @@ repos:
     rev: v6.0.0
     hooks:
       - id: trailing-whitespace
-      - id: check-yaml
         types: [text]
+      - id: check-yaml
+        types: [yaml]
 
   - repo: https://github.com/timothycrosley/isort
     rev: 9.0.0a3
@@ -25,6 +26,8 @@ repos:
           "--line-length", "120"
         ]
 
+  - repo: local
+    hooks:
       - id: mypy
         name: mypy
         entry: uv run mypy

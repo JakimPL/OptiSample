@@ -866,6 +866,7 @@ def _cluster_settings(config: OptiConfig, args: argparse.Namespace) -> ClusterSe
         cluster=_cluster_config(config, args),
         features=config.loop.features,
         encode=config.encode,
+        instruments=config.export.instruments,
         target=_export_target(config, args),
         release_s=config.export.envelope.release_s,
         tempo_bpm=config.export.playback.tempo,

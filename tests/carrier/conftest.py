@@ -9,7 +9,7 @@ from optisample.carrier.source import CarrierSource
 from optisample.carrier.store import CarrierSettings
 from optisample.config import OptiConfig
 from optisample.dsp.envelope import Decomposition, decompose, level_reading
-from optisample.dsp.level import Clock, unit_level
+from optisample.dsp.level import Clock, db_to_gain, unit_level
 from optisample.dsp.loop import Loop
 from optisample.dsp.surrogate import NO_LOOPS, EncodingParams, SettledLoop
 from optisample.io.tracker.envelope import envelope_grid
@@ -23,8 +23,10 @@ TEMPO = 125
 ROOT_PITCH = 60
 SEED = 137
 RECORDED_PEAK = 0.3  # where a captured note sits under full scale, which is the room its flattened form needs
+NO_SPIKE = 0.0  # what a recording declining as evenly as a written curve states carries over its decline
 
 _DB_PER_DECADE = 20.0
+_SPIKE_SHARE = 0.02  # how much of a recording a burst too short for a written curve to follow lasts
 
 Recorder = Callable[..., Signal]
 Sourcer = Callable[..., CarrierSource]
@@ -52,9 +54,12 @@ def struck() -> Recorder:
         seconds: float = 1.5,
         decay_db: float = 30.0,
         peak: float = RECORDED_PEAK,
+        spike_db: float = NO_SPIKE,
     ) -> Signal:
         moments = np.arange(round(seconds * SR), dtype=np.float64) / SR
         fall = 10.0 ** (-decay_db * moments / (_DB_PER_DECADE * seconds))
+        burst = slice(moments.size // 2, moments.size // 2 + round(_SPIKE_SHARE * moments.size))
+        fall[burst] *= db_to_gain(spike_db)
         tone = np.sin(2 * np.pi * midi_to_freq(pitch) * moments)
         return np.asarray(peak * tone * fall, dtype=np.float64)
 
@@ -78,8 +83,9 @@ def source(struck: Recorder, config: OptiConfig) -> Sourcer:
         peak: float = RECORDED_PEAK,
         weight: float = 1.0,
         loop: Loop | None = None,
+        spike_db: float = NO_SPIKE,
     ) -> CarrierSource:
-        signal = struck(pitch=pitch, seconds=seconds, decay_db=decay_db, peak=peak)
+        signal = struck(pitch=pitch, seconds=seconds, decay_db=decay_db, peak=peak, spike_db=spike_db)
         loops = NO_LOOPS if loop is None else (SettledLoop(loop=loop, level=unit_level(Clock.RECORDED)),)
         return CarrierSource(
             key=SampleKey(pitch=pitch, velocity=100),
@@ -98,13 +104,21 @@ def source(struck: Recorder, config: OptiConfig) -> Sourcer:
 def carrier_settings(config: OptiConfig, target: ExportTarget) -> Callable[..., CarrierSettings]:
     """Factory: what writing a set of carriers is carried out with, at the depth a caller asks for."""
 
-    def _settings(*, depth: int = 16, rate: int = SR, written: ExportTarget | None = None) -> CarrierSettings:
+    def _settings(
+        *,
+        depth: int = 16,
+        rate: int = SR,
+        written: ExportTarget | None = None,
+        ratio: float | None = None,
+    ) -> CarrierSettings:
         chosen = target if written is None else written
+        held = config.export.instruments.compression
         return CarrierSettings(
             target=chosen,
             grid=envelope_grid(chosen, tempo=TEMPO, release_s=config.export.envelope.release_s),
             params=EncodingParams(target_rate=rate, depth_bits=depth),
             config=config.encode,
+            compression=held if ratio is None else held.model_copy(update={"ratio": ratio}),
             seed=SEED,
         )
 

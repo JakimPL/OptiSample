@@ -73,32 +73,32 @@ def _(context):
 @app.cell
 def _(mo):
     mo.md("""
-        # OptiSample — sample space
+    # OptiSample — sample space
 
-        Every recording of the sets you pick placed as a point in a space built from **what it sounds
-        like**, cut into groups, and each group stood for by a real take you can play. A run leaves
-        several sets behind — an instrument at two stages, or two instruments at one — and as many of
-        them as you name are gathered into a single space.
+    Every recording of the sets you pick placed as a point in a space built from **what it sounds
+    like**, cut into groups, and each group stood for by a real take you can play. A run leaves
+    several sets behind — an instrument at two stages, or two instruments at one — and as many of
+    them as you name are gathered into a single space.
 
-        Two things are held out of the geometry on purpose. **Level**: every reading is taken past its own
-        frame's mean, so a note at v020 and the same note at v100 differ by their timbre alone. **Length**:
-        time is anchored to each recording's own decline — anchor *k* is the moment that note had fallen
-        *k* dB below its own peak — so a two-second take and an eight-second take of one sound are read at
-        the same points.
+    Two things are held out of the geometry on purpose. **Level**: every reading is taken past its own
+    frame's mean, so a note at v020 and the same note at v100 differ by their timbre alone. **Length**:
+    time is anchored to each recording's own decline — anchor *k* is the moment that note had fallen
+    *k* dB below its own peak — so a two-second take and an eight-second take of one sound are read at
+    the same points.
 
-        | block | reads |
-        |---|---|
-        | `onset` | the attack timbre, up to the frame the recording settles at |
-        | `sustain` | the timbre held at each fall depth of its own decline |
-        | `movement` | how far that timbre travels while the note rings |
-        | `envelope` | the contour — how long it took to reach each depth, and how straight it falls |
+    | block | reads |
+    |---|---|
+    | `onset` | the attack timbre, up to the frame the recording settles at |
+    | `sustain` | the timbre held at each fall depth of its own decline |
+    | `movement` | how far that timbre travels while the note rings |
+    | `envelope` | the contour — how long it took to reach each depth, and how straight it falls |
 
-        Each block is scaled to a mean pairwise squared distance of one and then weighed, so the weights
-        below are dimensionless and plain distance in the space is the weighted distance across the blocks.
-        That standardizing and that scaling are taken across the whole gathered corpus, so several sets
-        placed in one space are read under a single frame: each set's coordinates answer for the company
-        it was read beside, and differ from what that same set would hold read on its own.
-        """)
+    Each block is scaled to a mean pairwise squared distance of one and then weighed, so the weights
+    below are dimensionless and plain distance in the space is the weighted distance across the blocks.
+    That standardizing and that scaling are taken across the whole gathered corpus, so several sets
+    placed in one space are read under a single frame: each set's coordinates answer for the company
+    it was read beside, and differ from what that same set would hold read on its own.
+    """)
     return
 
 
@@ -197,11 +197,26 @@ def _(FrequencyBasis, mo, notebook):
             mo.hstack([harmonics, cepstral_coefficients, anchor_span_s], justify="start", gap=2),
         ]
     )
-    return anchor_depths, anchor_span_s, cepstral_coefficients, frequency_basis, harmonics
+    return (
+        anchor_depths,
+        anchor_span_s,
+        cepstral_coefficients,
+        frequency_basis,
+        harmonics,
+    )
 
 
 @app.cell
-def _(DescriptorConfig, anchor_depths, anchor_span_s, cepstral_coefficients, frequency_basis, harmonics, mo, notebook):
+def _(
+    DescriptorConfig,
+    anchor_depths,
+    anchor_span_s,
+    cepstral_coefficients,
+    frequency_basis,
+    harmonics,
+    mo,
+    notebook,
+):
     mo.stop(not anchor_depths.value, mo.md("*Pick at least one fall depth — a recording is read at one at the least.*"))
     reading = DescriptorConfig.model_validate(
         {
@@ -258,7 +273,7 @@ def _(
         f"**{described.corpus.weights.sum():.1f}s** of playing time, read at "
         f"`{reading.frequency_basis.value}` over {len(reading.anchor_depths_db)} fall depths."
     )
-    return corpus, described, gathered, settings
+    return described, gathered
 
 
 @app.cell
@@ -287,7 +302,13 @@ def _(mo, notebook):
             min_reached_share,
         ]
     )
-    return envelope_weight, min_reached_share, movement_weight, onset_weight, sustain_weight
+    return (
+        envelope_weight,
+        min_reached_share,
+        movement_weight,
+        onset_weight,
+        sustain_weight,
+    )
 
 
 @app.cell
@@ -310,11 +331,18 @@ def _(
     )
     space = described.space(weighing)
     distances = pairwise_distances(space.coordinates)
-    return distances, space, weighing
+    return distances, space
 
 
 @app.cell
-def _(LinkageMethod, PartitionAlgorithm, Representative, described, mo, notebook):
+def _(
+    LinkageMethod,
+    PartitionAlgorithm,
+    Representative,
+    described,
+    mo,
+    notebook,
+):
     _cutting = notebook.config.cluster.partition
     _ceiling = max(3, min(_cutting.max_groups * 2, described.size - 1))
     algorithm = mo.ui.dropdown(
@@ -347,7 +375,14 @@ def _(LinkageMethod, PartitionAlgorithm, Representative, described, mo, notebook
             mo.hstack([representative, min_duration_s], justify="start", gap=2),
         ]
     )
-    return algorithm, groups_wanted, linkage_method, min_duration_s, representative, sweep_to
+    return (
+        algorithm,
+        groups_wanted,
+        linkage_method,
+        min_duration_s,
+        representative,
+        sweep_to,
+    )
 
 
 @app.cell
@@ -454,12 +489,22 @@ def _(components, layout, layouts, mo, points, space):
         placement = layouts.place(
             space.coordinates, points, layout=layout.value, components=int(components.value), seed=0
         )
-
     return (placement,)
 
 
 @app.cell
-def _(colour_by, colouring, gathered, layout, mo, placement, points, representatives, scatter, set_examined):
+def _(
+    colour_by,
+    colouring,
+    gathered,
+    layout,
+    mo,
+    placement,
+    points,
+    representatives,
+    scatter,
+    set_examined,
+):
     _picture = scatter.field(
         placement,
         points,
@@ -531,7 +576,18 @@ def _(clusters, described, examined, mo, panels, play_on_click, points):
 
 
 @app.cell
-def _(PartitionAlgorithm, climbed, clusters, cut_now, cutting, hierarchy, mo, panels, scatter, space):
+def _(
+    PartitionAlgorithm,
+    climbed,
+    clusters,
+    cut_now,
+    cutting,
+    hierarchy,
+    mo,
+    panels,
+    scatter,
+    space,
+):
     _swept = clusters.sweep_rows(climbed, chosen=cut_now.groups)
     _best = max(climbed, key=lambda found: found.silhouette)
     _drawn = [
@@ -679,7 +735,15 @@ def _(
 
 
 @app.cell
-def _(clusters, described, mo, panels, points, preview_normalize, representatives):
+def _(
+    clusters,
+    described,
+    mo,
+    panels,
+    points,
+    preview_normalize,
+    representatives,
+):
     mo.vstack(
         [
             mo.md("## Representatives — every group's take, auditioned in one row"),

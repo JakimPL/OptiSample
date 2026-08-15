@@ -121,6 +121,38 @@ def test_the_instrument_writes_as_a_standalone_file(source: Sourcer, carrier_set
     assert len(file.to_bytes()) == file.size().total
 
 
+def _crest_db(signal: Signal) -> float:
+    """How far a stored waveform's peak stands over the body it holds, which is depth spent on nothing."""
+    return gain_to_db(float(np.max(np.abs(signal))) / float(np.sqrt(np.mean(signal**2))))
+
+
+def test_what_the_shared_curve_had_no_room_for_stops_setting_the_stored_peak(
+    source: Sourcer, carrier_settings: Settings
+) -> None:
+    """What the second pass is for: a take standing apart spends less of its depth on its own crest.
+
+    The set is stored end to end here, since a waveform wrapped on an early region never reaches the
+    stretch the burst stands in.
+    """
+    sources = [source(pitch=ROOT_PITCH, spike_db=18.0)] + [source(pitch=ROOT_PITCH + step) for step in (2, 4)]
+    held = _build(sources, carrier_settings(depth=8))
+    plain = _build(sources, carrier_settings(depth=8, ratio=1.0))
+
+    assert _crest_db(held.stored[0].stored.pcm) < _crest_db(plain.stored[0].stored.pcm)
+
+
+def test_a_set_the_curve_already_states_is_stored_as_the_one_pass_answer(
+    source: Sourcer, carrier_settings: Settings
+) -> None:
+    """The hold opens over the body, so recordings a shared curve follows closely reach the encoder untouched."""
+    sources = [source(pitch=ROOT_PITCH + step, loop=_LOOP) for step in (0, 2, 4)]
+    held = _build(sources, carrier_settings(depth=8))
+    plain = _build(sources, carrier_settings(depth=8, ratio=1.0))
+
+    for one, other in zip(held.stored, plain.stored):
+        assert one.stored.pcm == pytest.approx(other.stored.pcm)
+
+
 def test_the_bytes_a_set_is_written_as_reproduce(source: Sourcer, carrier_settings: Settings) -> None:
     """One seeded generator advances once per source, so a set written twice lands identically."""
     sources = [source(pitch=ROOT_PITCH + step, loop=_LOOP) for step in (0, 3)]

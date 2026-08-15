@@ -6,6 +6,7 @@ import numpy as np
 
 from optisample.carrier.source import CarrierSource
 from optisample.config.codec import EncodeConfig
+from optisample.config.dynamics import HoldConfig
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, StoredSample, encode
 from optisample.io.tracker.envelope import EnvelopeGrid, carried_signal
 from optisample.io.tracker.target import ExportTarget
@@ -36,14 +37,16 @@ class CarrierSettings:
 
     ``grid`` states the clock and the two grids a volume envelope is written on, ``params`` the rate and
     depth every waveform is stored at, and ``config`` how a span is resampled, wrapped and quantized on the
-    way there. ``seed`` starts the one generator the set's dither is drawn from, so the bytes a set is
-    written as reproduce.
+    way there. ``compression`` is the curve the level a written envelope has no room to state is held back
+    along (:func:`~optisample.carrier.compress.held_sources`). ``seed`` starts the one generator the set's
+    dither is drawn from, so the bytes a set is written as reproduce.
     """
 
     target: ExportTarget
     grid: EnvelopeGrid
     params: EncodingParams
     config: EncodeConfig
+    compression: HoldConfig
     seed: int
 
 

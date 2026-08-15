@@ -6,6 +6,7 @@ from typing import Final
 
 import numpy as np
 
+from optisample.carrier.compress import held_sources
 from optisample.carrier.shape import NO_SHAPE, carrier_shape
 from optisample.carrier.source import CarrierSource
 from optisample.carrier.store import CarrierSettings, StoredCarrier, store_carrier
@@ -113,12 +114,16 @@ def carrier_instrument(
 ) -> CarrierInstrument:
     """``sources`` written as one instrument whose samples hold timbre and whose envelope holds the level.
 
-    The order the work runs in is the point of it. The shape is fitted first, from the levels the
-    recordings themselves hold (:func:`written_shape`); each waveform is then the recording divided by what
-    that written curve plays it down by (:func:`~optisample.carrier.store.store_carrier`); and the balance
-    between the waveforms is restored last, on the step the format keeps beside each sample
-    (:func:`~optisample.io.tracker.target.balanced_gains`). Nothing iterates -- the level the envelope
-    cannot state is exactly what stays in the waveform, by construction.
+    The order the work runs in is the point of it. The split states each recording's level exactly, so a
+    first shape is fitted from those levels (:func:`written_shape`) and states as much of them as a format
+    carries. What it has no room for is read straight back off the flattened waveforms and held back at a
+    ratio the format does carry (:func:`~optisample.carrier.compress.held_sources`), which leaves the set at
+    a level a curve can follow. A second shape is fitted to that held-back level; each waveform is then the
+    restated recording divided by what the second curve plays it down by
+    (:func:`~optisample.carrier.store.store_carrier`); and the balance between the waveforms is restored
+    last, on the step the format keeps beside each sample
+    (:func:`~optisample.io.tracker.target.balanced_gains`). Two passes settle it -- the first states the
+    level, the second holds back what was left over -- and nothing iterates past them.
 
     Sources are encoded in order from one seeded generator, so the bytes a set is written as reproduce.
 
@@ -126,9 +131,11 @@ def carrier_instrument(
         ValueError: when the sources were read at rates that differ, or when one is worth nothing to the
             instrument sharing the shape.
     """
-    shape = written_shape(sources, target=settings.target, grid=settings.grid)
+    stated = written_shape(sources, target=settings.target, grid=settings.grid)
+    held = held_sources(sources, stated.envelope, settings=settings)
+    shape = written_shape(held, target=settings.target, grid=settings.grid)
     rng = np.random.default_rng(settings.seed)
-    stored = tuple(store_carrier(source, shape.envelope, settings=settings, rng=rng) for source in sources)
+    stored = tuple(store_carrier(source, shape.envelope, settings=settings, rng=rng) for source in held)
     gains = balanced_gains([carrier.playback_gain for carrier in stored], settings.target)
     samples = tuple(
         Sample(

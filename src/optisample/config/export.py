@@ -3,6 +3,7 @@ from typing import Annotated
 from pydantic import Field
 
 from optisample.config.base import ConfigModel
+from optisample.config.dynamics import HoldConfig
 from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.config.stage import StageConfig
 from optisample.config.tracker import TrackerConfig
@@ -18,15 +19,30 @@ class EnvelopeConfig(ConfigModel):
     release_s: Annotated[float, Field(gt=0.0)]
 
 
+class InstrumentsConfig(ConfigModel):
+    """How a set of recordings is written as the standalone instruments a player loads on their own.
+
+    One volume envelope serves a whole set, so it states the level they agree on and each recording keeps
+    whatever it holds beyond that. What is left over stays in the waveform, where peak normalization reads
+    it as the crest and the depth is spent on it. ``compression`` is the curve that remainder is held back
+    along before any of it is stored (:func:`~optisample.dsp.dynamics.held_back`), which is what has a
+    shallow grid spend itself on timbre.
+    """
+
+    compression: HoldConfig
+
+
 class ExportConfig(StageConfig):
     """What leaves the run: the module written, the clock it plays on, and how it is rendered to audio.
 
     ``tracker`` states the format and the levels stored in it, ``playback`` the speed and tempo both
-    formats share, ``envelope`` how a released note is let go, and ``render`` what openmpt123 is asked for
-    when the written module is turned back into audio.
+    formats share, ``envelope`` how a released note is let go, ``instruments`` how a set of recordings is
+    written as standalone files, and ``render`` what openmpt123 is asked for when the written module is
+    turned back into audio.
     """
 
     tracker: TrackerConfig
     render: RenderConfig
     playback: PlaybackConfig
     envelope: EnvelopeConfig
+    instruments: InstrumentsConfig

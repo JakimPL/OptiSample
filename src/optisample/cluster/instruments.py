@@ -33,6 +33,7 @@ from optisample.cluster.stages import (
 )
 from optisample.config.cluster import ClusterConfig
 from optisample.config.codec import EncodeConfig
+from optisample.config.export import InstrumentsConfig
 from optisample.config.loop import FeatureConfig
 from optisample.dsp.envelope import decompose, level_reading
 from optisample.dsp.surrogate import NO_LOOPS, EncodingParams
@@ -57,9 +58,10 @@ class ClusterSettings:
     """What writing a clustered set of recordings as carrier instruments is carried out with.
 
     ``source`` names the set of recordings the run reads, ``reading`` states how they are decoded and named,
-    ``cluster`` how the space they make is built, cut and written, and ``target`` which format the
-    instruments are held to. ``tempo_bpm`` is the clock the volume envelopes are counted in ticks of, which
-    travels in the manifest since an instrument file carries no clock of its own.
+    ``cluster`` how the space they make is built, cut and written, ``instruments`` how each band is written
+    as a standalone file, and ``target`` which format the instruments are held to. ``tempo_bpm`` is the
+    clock the volume envelopes are counted in ticks of, which travels in the manifest since an instrument
+    file carries no clock of its own.
     """
 
     source: RecordingSource
@@ -67,6 +69,7 @@ class ClusterSettings:
     cluster: ClusterConfig
     features: FeatureConfig
     encode: EncodeConfig
+    instruments: InstrumentsConfig
     target: ExportTarget
     release_s: float
     tempo_bpm: float
@@ -219,6 +222,7 @@ def _carrier_settings(settings: ClusterSettings) -> CarrierSettings:
         grid=envelope_grid(settings.target, tempo=settings.tempo, release_s=settings.release_s),
         params=EncodingParams(target_rate=stored.rate, depth_bits=stored.depth),
         config=settings.encode,
+        compression=settings.instruments.compression,
         seed=settings.seed,
     )
 

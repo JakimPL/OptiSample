@@ -4,8 +4,9 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.signal import lfilter
 
-from optisample.config.dynamics import DynamicsConfig
-from optisample.dsp.level import db_to_gain, gain_to_db, peak_amplitude
+from optisample.config.dynamics import DynamicsConfig, HoldConfig
+from optisample.dsp.envelope import LevelReading, local_level
+from optisample.dsp.level import db_to_gain, gain_to_db, mean_energy, peak_amplitude
 
 Signal = NDArray[np.float64]
 
@@ -25,7 +26,7 @@ def _level(signal: Signal, sample_rate: int, window_s: float) -> Signal:
     return np.sqrt(np.maximum(_one_pole(signal * signal, sample_rate, window_s), 0.0))
 
 
-def _reduction_db(over_db: Signal, config: DynamicsConfig) -> Signal:
+def _over_reduction_db(over_db: Signal, config: HoldConfig) -> Signal:
     """The gain reduction the curve asks for at each level, stated as decibels over the threshold.
 
     Under the knee the curve stays flat, over it each decibel of excess keeps ``1 / ratio`` of itself,
@@ -39,6 +40,41 @@ def _reduction_db(over_db: Signal, config: DynamicsConfig) -> Signal:
         np.select([over_db <= -edge, over_db >= edge], [np.zeros_like(over_db), kept * over_db], bend),
         dtype=np.float64,
     )
+
+
+def reduction_db(level: Signal, *, reference: float, config: HoldConfig) -> Signal:
+    """How far each moment of ``level`` is held back, in decibels, read against ``reference``.
+
+    The one place the hold curve lives, so a caller states where the level comes from and how it is
+    referenced while the knee, the ratio and the threshold are read the same way wherever the curve is
+    asked for. Reading the threshold against a reference the level carries with it makes the answer
+    scale-invariant: the same material is held back the same way however hot it stands.
+    """
+    return _over_reduction_db(gain_to_db(level / reference) - config.threshold_db, config)
+
+
+def held_back(signal: Signal, reading: LevelReading, config: HoldConfig) -> Signal:
+    """The gain each frame of ``signal`` is held back by, read against the level the whole of it carries.
+
+    The detector is the level curve the recording's own pitch settles
+    (:func:`~optisample.dsp.envelope.local_level`), so the weighting's reach either side of a frame is both
+    the attack and the release at once: symmetric, zero-phase, and as long as the material asks for --
+    twenty milliseconds for anything above G#2, widening toward eighty at the bottom of the band. A
+    transient is therefore taken down as it arrives rather than after it, and since the gain is a function
+    of a curve already held to that band it moves the level while leaving the waveform inside a cycle
+    exactly as it stands.
+
+    The reference is the signal's own root mean square, so ``threshold_db`` states how far **above** the
+    body of the material the hold opens. Material standing where it sits throughout is therefore passed
+    through as it is, and what the curve answers is the excursions alone -- which is what the pass is for,
+    since a level a written curve already stated costs the depth nothing.
+    """
+    level = local_level(signal, reading)
+    body = float(np.sqrt(mean_energy(signal)))
+    if body <= 0.0:
+        return np.ones_like(level)
+
+    return db_to_gain(reduction_db(level, reference=body, config=config))
 
 
 def compress(signal: Signal, sample_rate: int, config: DynamicsConfig) -> Signal:
@@ -58,6 +94,6 @@ def compress(signal: Signal, sample_rate: int, config: DynamicsConfig) -> Signal
     if peak <= 0.0:
         return data.copy()
 
-    over_db = gain_to_db(_level(data, sample_rate, config.rms_window_s) / peak) - config.threshold_db
-    reduction = _one_pole(_reduction_db(over_db, config), sample_rate, config.gain_smoothing_s)
+    held = reduction_db(_level(data, sample_rate, config.rms_window_s), reference=peak, config=config)
+    reduction = _one_pole(held, sample_rate, config.gain_smoothing_s)
     return np.asarray(data * db_to_gain(reduction), dtype=np.float64)

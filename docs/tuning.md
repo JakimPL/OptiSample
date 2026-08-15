@@ -501,6 +501,7 @@ as the format numbers. Each extra sample is charged a reserve, so the run states
 | `loop.envelope.highest_hz` | `loop/envelope.yaml` | A held note pulses at the loop's rate, or a levelled region wavers where the recording was steady. |
 | `loop.geometry.detune_semitones` | `loop/geometry.yaml` | A recording that is in tune loops well and one recorded off-pitch settles no loop at all. |
 | `export.envelope.release_s` | `export/envelope.yaml` | A released note is cut off abruptly, or hangs on after the key is let go. |
+| `export.instruments.compression.threshold_db`, `.ratio` | `export/instruments.yaml` | A clustered instrument's samples sound quiet for the depth they are stored at, one take of a band sitting far under the rest. Lower the threshold to catch more of what the shared curve missed; raise the ratio to hold it further down. A ratio of `1.0` stores each waveform exactly as the curve before it left it. |
 
 `--config` takes a **directory** laid out the way the bundled one is -- a stage per directory, a group per
 file -- so copy the whole `src/opticonfig/` tree and edit the copy.

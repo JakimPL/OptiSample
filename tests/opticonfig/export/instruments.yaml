@@ -1,0 +1,5 @@
+# How a set of recordings is written as standalone instruments (optisample.config.export.InstrumentsConfig).
+compression: # what the shared curve had no room to state, held back before any waveform is stored
+  threshold_db: 6.0 # the hold opens this far over the body of the flattened level, leaving a flat one alone
+  ratio: 8.0 # a level past the threshold keeps an eighth of its excess; 1.0 stores the waveform as it stands
+  knee_db: 6.0 # width of the bend the ratio arrives over

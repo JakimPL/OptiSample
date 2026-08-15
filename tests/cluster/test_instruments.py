@@ -98,6 +98,7 @@ def cluster_settings(config: OptiConfig, run_root: Path) -> Callable[..., Cluste
             cluster=type(config.cluster).model_validate(cluster),
             features=config.loop.features,
             encode=config.encode,
+            instruments=config.export.instruments,
             target=export_target(config.export.tracker),
             release_s=config.export.envelope.release_s,
             tempo_bpm=config.export.playback.tempo,
