@@ -4,3 +4,6 @@ compression: # what the shared curve had no room to state, held back before any 
   threshold_db: 6.0 # the hold opens this far over the body of the flattened level, leaving a flat one alone
   ratio: 8.0 # a level past the threshold keeps an eighth of its excess; 1.0 stores the waveform as it stands
   knee_db: 6.0 # width of the bend the ratio arrives over
+  attack_share: 0.25 # share of the detector's reach the hold opens ahead of a peak, so it is open on arrival
+  release_share: 0.25 # share of that reach the hold stays open behind a peak, settling the level once
+  ceiling_db: 3.0 # absolute limit over the same body, which is what holds the crest a flattened take keeps

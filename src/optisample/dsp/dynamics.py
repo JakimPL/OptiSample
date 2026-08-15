@@ -2,9 +2,10 @@ from typing import Final
 
 import numpy as np
 from numpy.typing import NDArray
+from scipy.ndimage import minimum_filter1d
 from scipy.signal import lfilter
 
-from optisample.config.dynamics import DynamicsConfig, HoldConfig
+from optisample.config.dynamics import DynamicsConfig, HoldConfig, LimitConfig
 from optisample.dsp.envelope import LevelReading, local_level
 from optisample.dsp.level import db_to_gain, gain_to_db, mean_energy, peak_amplitude
 
@@ -53,28 +54,67 @@ def reduction_db(level: Signal, *, reference: float, config: HoldConfig) -> Sign
     return _over_reduction_db(gain_to_db(level / reference) - config.threshold_db, config)
 
 
-def held_back(signal: Signal, reading: LevelReading, config: HoldConfig) -> Signal:
+def _sustained(reduction: Signal, *, attack_frames: int, release_frames: int) -> Signal:
+    """``reduction`` carried to each frame from the deepest the curve reaches nearby, ahead of it and behind.
+
+    A running minimum over the window reaching ``attack_frames`` forward and ``release_frames`` back, which
+    is what states an attack and a release separately on a curve read symmetrically. Looking forward brings
+    a reduction in that far ahead of the peak asking for it, so the hold is already open when the peak
+    lands; looking back keeps it open that long afterwards, so the level settles once behind a transient.
+    A window of one frame answers the curve exactly as it stands.
+
+    The curve it runs over is band-limited by the reading it came from, so the result stays smooth and the
+    gain moves the level while leaving the waveform inside a cycle as it stands.
+    """
+    size = attack_frames + release_frames + 1
+    if size <= 1:
+        return reduction
+
+    return np.asarray(
+        minimum_filter1d(reduction, size=size, origin=size // 2 - attack_frames, mode="nearest"),
+        dtype=np.float64,
+    )
+
+
+def _under_ceiling(reduction: Signal, over_db: Signal, ceiling_db: float) -> Signal:
+    """``reduction`` deepened wherever it would leave ``over_db`` standing past ``ceiling_db``.
+
+    The absolute limit behind the curve: the reduction a frame keeps is whichever of the two holds it
+    further down, so a level the ratio alone would let through is brought to the ceiling exactly.
+    """
+    return np.asarray(np.minimum(reduction, ceiling_db - over_db), dtype=np.float64)
+
+
+def held_back(signal: Signal, reading: LevelReading, config: LimitConfig) -> Signal:
     """The gain each frame of ``signal`` is held back by, read against the level the whole of it carries.
 
     The detector is the level curve the recording's own pitch settles
-    (:func:`~optisample.dsp.envelope.local_level`), so the weighting's reach either side of a frame is both
-    the attack and the release at once: symmetric, zero-phase, and as long as the material asks for --
-    twenty milliseconds for anything above G#2, widening toward eighty at the bottom of the band. A
-    transient is therefore taken down as it arrives rather than after it, and since the gain is a function
-    of a curve already held to that band it moves the level while leaving the waveform inside a cycle
-    exactly as it stands.
+    (:func:`~optisample.dsp.envelope.local_level`), read symmetrically and zero-phase over a reach as long
+    as the material asks for -- twenty milliseconds for anything above G#2, widening toward eighty at the
+    bottom of the band. Reading a frame from the material centred on it is what gives the pass its
+    lookahead, and ``attack_share`` and ``release_share`` spend it: the reduction is carried forward and
+    back over shares of that reach (:func:`_sustained`), so a sub-unit attack has the hold open before the
+    peak arrives and a longer release keeps it open through the decay behind it. ``ceiling_db`` then holds
+    the result absolutely (:func:`_under_ceiling`), which is what makes the pass a limiter rather than a
+    ratio alone.
 
-    The reference is the signal's own root mean square, so ``threshold_db`` states how far **above** the
-    body of the material the hold opens. Material standing where it sits throughout is therefore passed
-    through as it is, and what the curve answers is the excursions alone -- which is what the pass is for,
-    since a level a written curve already stated costs the depth nothing.
+    The reference is the signal's own root mean square, so ``threshold_db`` and ``ceiling_db`` both state
+    how far **above** the body of the material they act. Material standing where it sits throughout is
+    therefore passed through as it is, and what the curve answers is the excursions alone -- which is what
+    the pass is for, since a level a written curve already stated costs the depth nothing.
     """
     level = local_level(signal, reading)
     body = float(np.sqrt(mean_energy(signal)))
     if body <= 0.0:
         return np.ones_like(level)
 
-    return db_to_gain(reduction_db(level, reference=body, config=config))
+    over_db = gain_to_db(level / body)
+    sustained = _sustained(
+        _over_reduction_db(over_db - config.threshold_db, config),
+        attack_frames=round(config.attack_share * reading.reach),
+        release_frames=round(config.release_share * reading.reach),
+    )
+    return db_to_gain(_under_ceiling(sustained, over_db, config.ceiling_db))
 
 
 def compress(signal: Signal, sample_rate: int, config: DynamicsConfig) -> Signal:

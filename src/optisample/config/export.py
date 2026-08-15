@@ -3,7 +3,7 @@ from typing import Annotated
 from pydantic import Field
 
 from optisample.config.base import ConfigModel
-from optisample.config.dynamics import HoldConfig
+from optisample.config.dynamics import LimitConfig
 from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.config.stage import StageConfig
 from optisample.config.tracker import TrackerConfig
@@ -26,14 +26,16 @@ class InstrumentsConfig(ConfigModel):
     whatever it holds beyond that. What is left over stays in the waveform, where peak normalization reads
     it as the crest and the depth is spent on it. ``compression`` is the curve that remainder is held back
     along before any of it is stored (:func:`~optisample.dsp.dynamics.held_back`), which is what has a
-    shallow grid spend itself on timbre.
+    shallow grid spend itself on timbre. It states its attack and release as shares of the reach the level
+    detector spans, so both follow the pitch each recording was played at, and it holds a ceiling the
+    result stays under whatever the ratio alone would pass.
 
     ``post_loop`` keeps what a recording goes on making past the region it wraps on, stored behind it. A
     file written to be loaded and edited is worth carrying it in: a player sounds the loop, so the tail
     costs a listener nothing until they delete the loop to reach it.
     """
 
-    compression: HoldConfig
+    compression: LimitConfig
     post_loop: bool
 
 

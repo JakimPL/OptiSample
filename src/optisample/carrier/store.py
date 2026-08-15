@@ -6,7 +6,7 @@ import numpy as np
 
 from optisample.carrier.source import CarrierSource
 from optisample.config.codec import EncodeConfig
-from optisample.config.dynamics import HoldConfig
+from optisample.config.dynamics import LimitConfig
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, StoredSample, encode
 from optisample.io.tracker.envelope import EnvelopeGrid, carried_signal
 from optisample.io.tracker.target import ExportTarget
@@ -48,7 +48,7 @@ class CarrierSettings:
     grid: EnvelopeGrid
     params: EncodingParams
     config: EncodeConfig
-    compression: HoldConfig
+    compression: LimitConfig
     post_loop: bool
     seed: int
 
