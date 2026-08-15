@@ -2,6 +2,7 @@ from optisample.dsp.surrogate.encode import encode
 from optisample.dsp.surrogate.params import (
     NO_LOOP,
     NO_LOOPS,
+    POST_LOOP_DROPPED,
     UNLOOPED,
     EncodeContext,
     EncodingParams,
@@ -15,6 +16,7 @@ __all__ = [
     "NO_LOOP",
     "NO_LOOPS",
     "NO_RELEASE_RAMP",
+    "POST_LOOP_DROPPED",
     "UNLOOPED",
     "EncodeContext",
     "EncodingParams",

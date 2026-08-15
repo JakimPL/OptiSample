@@ -128,14 +128,18 @@ def _plan_recordings(kind: PlanKind) -> tuple[Recording, ...]:
     from it sounds, and carries the label the plan files all of its artifacts under. The loop is the
     encoder's own, in frames of the stored waveform, so a voice auditioned on its own wraps exactly where
     the plan's own bank wraps it.
+
+    The waveform is the unit's whole take (:attr:`~optisample.artifacts.units.Unit.whole`) -- the stored
+    one up to the loop end, with the rest of the recording behind it. A player wraps on the region, so the
+    file sounds the plan's own voice and holds the stretch past it for whoever deletes the loop to reach.
     """
     return tuple(
         Recording(
             name=unit.label,
             root_pitch=unit.representative,
-            sample_rate=unit.stored.sample_rate,
-            signal=unit.stored.pcm,
-            loop=unit.stored.loop,
+            sample_rate=unit.whole.sample_rate,
+            signal=unit.whole.pcm,
+            loop=unit.whole.loop,
         )
         for unit in kind.units
     )

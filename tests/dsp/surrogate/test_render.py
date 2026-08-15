@@ -111,6 +111,26 @@ def test_render_loop_sustains_a_note_held_past_the_stored_length(
     assert float(np.sqrt(np.mean(held[-SR:] ** 2))) > 0.1  # the last second still sounds (loop sustained it)
 
 
+def test_a_sample_carrying_a_tail_is_played_the_way_a_tracker_plays_it(
+    sine: Callable[..., NDArray[np.float64]],
+    make_encode_ctx: Callable[..., EncodeContext],
+    settle: SettleLoops,
+) -> None:
+    """A forward loop turns back where it ends, so what is stored behind it is never reached by holding a note."""
+    recording = sine(_TONE_HZ, dur=_TONE_S)
+    settled = settle(recording, SR, root_hz=_TONE_HZ, search_s=_TONE_S)
+    context = make_encode_ctx(60, settled=settled)
+    params = EncodingParams(target_rate=SR, depth_bits=16, loop_index=_CHEAPEST)
+    kept = encode(recording, SR, params, replace(context, post_loop=True))
+    dropped = encode(recording, SR, params, context)
+
+    for duration_s in (None, 0.05, 3.0):
+        assert (
+            render(kept, SR, pitch=60, duration_s=duration_s).size
+            == render(dropped, SR, pitch=60, duration_s=duration_s).size
+        )
+
+
 def _decaying(sine: Callable[..., NDArray[np.float64]], *, half_life_s: float) -> NDArray[np.float64]:
     """Two seconds of a struck note: a steady pitch under an amplitude that falls away as it rings."""
     tone = sine(_TONE_HZ, dur=2.0)

@@ -223,6 +223,7 @@ def _carrier_settings(settings: ClusterSettings) -> CarrierSettings:
         params=EncodingParams(target_rate=stored.rate, depth_bits=stored.depth),
         config=settings.encode,
         compression=settings.instruments.compression,
+        post_loop=settings.instruments.post_loop,
         seed=settings.seed,
     )
 

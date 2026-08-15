@@ -64,6 +64,7 @@ def allocation(tiny_settings: OptimizeSettings, config: OptiConfig) -> DumpSetti
         render=config.export.render,
         playback=config.export.playback,
         envelope=config.export.envelope,
+        post_loop=config.export.instruments.post_loop,
         render_ground_truth=False,
         grouped=False,
     )

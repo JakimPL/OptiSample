@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 
 from optisample.config.codec import EncodeConfig
-from optisample.dsp.surrogate import NO_LOOPS, EncodeContext, StoredSample, encode
+from optisample.dsp.surrogate import NO_LOOPS, POST_LOOP_DROPPED, EncodeContext, StoredSample, encode
 from optisample.io.tracker.envelope import NO_ENVELOPE, carried_signal, sounding_level
 from optisample.io.tracker.loop import stored_loop
 from optisample.io.tracker.target import ExportTarget, balanced_gains, sample_label
@@ -47,12 +47,16 @@ class EncodeOrder:
     plan order, and ``tempo`` the clock those curves were written on -- the pair a run storing carriers
     divides its recordings by. ``seed`` starts the one generator every unit's dither is drawn from, so the
     byte layout reproduces the plan exactly.
+
+    ``post_loop`` says whether each waveform carries the rest of its take behind the region it wraps on,
+    which belongs to the file being written rather than to the plan that priced it.
     """
 
     config: EncodeConfig
     envelopes: Sequence[Envelope | None]
     tempo: int
     seed: int
+    post_loop: bool = POST_LOOP_DROPPED
 
 
 def _played_through(stored: StoredSample, envelope: Envelope | None, *, tempo: int) -> StoredSample:
@@ -104,6 +108,7 @@ def encode_plan_units(
             config=order.config,
             settled=recordings.settled.get(unit.representative_key, NO_LOOPS),
             rng=rng,
+            post_loop=order.post_loop,
         )
         yield unit, _played_through(
             encode(representative, recordings.sample_rate, unit.params, encode_context),
@@ -192,6 +197,29 @@ def unit_envelopes(layout: SlotLayout, envelopes: Sequence[Envelope | None], uni
     return tuple(by_sample.get(sample, NO_ENVELOPE) for sample in range(units))
 
 
+def encode_order(
+    layout: SlotLayout,
+    context: ExportContext,
+    *,
+    envelopes: Sequence[Envelope | None],
+    units: int,
+    post_loop: bool = POST_LOOP_DROPPED,
+) -> EncodeOrder:
+    """What re-encoding one plan's units is carried out with, off the context the export runs under.
+
+    Every re-encode of a plan is settled here, so the module's own samples and the ones written beside it
+    share a clock, a seed and a curve per unit, and the stretch stored past a loop is the one thing a
+    caller states for itself.
+    """
+    return EncodeOrder(
+        config=context.encode,
+        envelopes=unit_envelopes(layout, envelopes, units),
+        tempo=context.envelope_grid.tempo,
+        seed=context.seed,
+        post_loop=post_loop,
+    )
+
+
 def plan_samples(
     plan: StrategyPlan,
     layout: SlotLayout,
@@ -213,12 +241,7 @@ def plan_samples(
         encode_plan_units(
             units,
             recordings,
-            EncodeOrder(
-                config=context.encode,
-                envelopes=unit_envelopes(layout, envelopes, len(units)),
-                tempo=context.envelope_grid.tempo,
-                seed=context.seed,
-            ),
+            encode_order(layout, context, envelopes=envelopes, units=len(units)),
         )
     )
     gains = sample_gains(encoded, plan.velocity_map, context.target)

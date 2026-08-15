@@ -502,6 +502,7 @@ as the format numbers. Each extra sample is charged a reserve, so the run states
 | `loop.geometry.detune_semitones` | `loop/geometry.yaml` | A recording that is in tune loops well and one recorded off-pitch settles no loop at all. |
 | `export.envelope.release_s` | `export/envelope.yaml` | A released note is cut off abruptly, or hangs on after the key is let go. |
 | `export.instruments.compression.threshold_db`, `.ratio` | `export/instruments.yaml` | A clustered instrument's samples sound quiet for the depth they are stored at, one take of a band sitting far under the rest. Lower the threshold to catch more of what the shared curve missed; raise the ratio to hold it further down. A ratio of `1.0` stores each waveform exactly as the curve before it left it. |
+| `export.instruments.post_loop` | `export/instruments.yaml` | The instrument files a run writes carry the whole take, with the loop set inside it — delete the loop in a tracker and the recording plays on. Turn it off (or pass `--no-post-loop`) to end each file at the loop instead, which is what a set headed straight for a sampler with no editing wants. A player sounds the two identically; only the file size differs, and the module's own budget is untouched either way. |
 
 `--config` takes a **directory** laid out the way the bundled one is -- a stage per directory, a group per
 file -- so copy the whole `src/opticonfig/` tree and edit the copy.

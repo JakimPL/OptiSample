@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+import numpy as np
+
 from optisample.config.codec import EncodeConfig
 from optisample.dsp.dynamics import compress
 from optisample.dsp.envelope import level_reading
@@ -29,10 +31,18 @@ def _apply_loop(shaped: Signal, rate: int, loop: Loop, context: EncodeContext) -
     and the seam is blended over exactly the frames a player wraps between. The level is read over two
     periods of the pitch the clip was recorded at and at the rate the copy is stored at, which is the same
     reading the loop stage levelled by and so the same waveform it measured.
+
+    A context asking for the post-loop carries the rest of the recording along behind the region. The tail
+    is taken from the waveform before its loop was readied, since preparation rewrites the frames meeting
+    the seam and a tail beginning on those would step the moment a player is asked for the whole span.
     """
     config = context.config
     reading = level_reading(rate, config.envelope, midi_to_freq(context.root_pitch))
-    return prepare_loop(shaped, loop, rate, config.seam, reading)[: loop.end]
+    prepared = prepare_loop(shaped, loop, rate, config.seam, reading)[: loop.end]
+    if not context.post_loop:
+        return prepared
+
+    return np.concatenate([prepared, shaped[loop.end :]])
 
 
 def _asked_loop(params: EncodingParams, context: EncodeContext) -> SettledLoop | None:
@@ -132,7 +142,8 @@ def encode(
     that loop region, and the loop sustains notes held past the stored length -- cheap to store, and true to
     the recording as far as the loop's own timbre holds. The region is stored at one level and the decline
     the recording makes from it rides beside the PCM as a :class:`~optisample.dsp.level.Level`, so a held
-    note falls away on the curve the material states. Storing the trimmed sample keeps ``trim_s`` worth of the
+    note falls away on the curve the material states. A context asking for the post-loop keeps the rest of
+    the recording behind that region, where a listener reaches it by deleting the loop. Storing the trimmed sample keeps ``trim_s`` worth of the
     recording as it was played and ends a longer note there, closing on the release ramp
     (:func:`~optisample.dsp.quantize.release_fade`) so the sample plays out. Which of the two a note is
     better served by is the sweep's to price, and it enumerates both.

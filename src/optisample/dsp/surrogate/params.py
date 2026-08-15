@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Final
 
@@ -9,6 +11,7 @@ from optisample.dsp.loop import Loop
 
 NO_LOOP: Final = None  # the loop of a stored sample that plays out rather than wrapping
 UNLOOPED: Final = None  # the loop an encoding names when it stores the played span instead of a region
+POST_LOOP_DROPPED: Final = False  # a priced encoding stores the attack and the region, which is what it pays for
 
 
 @dataclass(frozen=True)
@@ -60,9 +63,17 @@ class EncodeContext:
     the stored headroom), the loops the clip was settled around, and the dither RNG. ``settled`` holds them
     in the order :attr:`EncodingParams.loop_index` counts, and is :data:`NO_LOOPS` for a clip the loop stage
     found nothing to loop, which stores the trimmed span whatever the params ask for.
+
+    ``post_loop`` keeps what a recording goes on making past the region it wraps on, stored behind it. A
+    player sounds the loop, so the tail is reached by deleting the loop -- which is what makes it worth
+    keeping in a file written to be edited. It stands here rather than beside the params because it belongs
+    to the call and not to the axes a sweep prices: every span it adds is stored length nothing paid for,
+    and an encoding names the same stored sample whichever way it is asked for
+    (:func:`~optisample.optimize.grouping.stores.dither`).
     """
 
     root_pitch: int
     config: EncodeConfig
     settled: SettledLoops = NO_LOOPS
     rng: np.random.Generator | None = None
+    post_loop: bool = POST_LOOP_DROPPED

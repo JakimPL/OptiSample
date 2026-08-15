@@ -19,14 +19,19 @@ class DumpSettings:
     """What to dump and how (bundled to keep call sites small).
 
     ``optimize``/``render``/``playback``/``envelope`` carry the config the run needs; the CLI builds them
-    from a loaded ``OptiConfig`` (see :func:`optisample.cli._dump_settings`). The remaining flags are
+    from a loaded ``OptiConfig`` (see :func:`optisample.cli.settings._dump_settings`). The remaining flags are
     behavioural toggles, so they keep ergonomic defaults.
+
+    ``post_loop`` says whether the standalone file written for each stored voice keeps the rest of its take
+    behind the region it wraps on. It reaches those files alone: the module, the bank and the sample WAVs
+    carry the waveform the plan was priced at, so the byte accounting stands whichever way it is set.
     """
 
     optimize: OptimizeSettings
     render: RenderConfig
     playback: PlaybackConfig
     envelope: EnvelopeConfig
+    post_loop: bool
     render_ground_truth: bool = True  # render module + per-note through openmpt123 if it is installed
     grouped: bool = True
     ungrouped: bool = True

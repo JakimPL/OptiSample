@@ -82,6 +82,7 @@ NO_RENDER = DumpSettings(
     render=_CONFIG.export.render,
     playback=_CONFIG.export.playback,
     envelope=_CONFIG.export.envelope,
+    post_loop=_CONFIG.export.instruments.post_loop,
     render_ground_truth=False,
 )
 
@@ -294,6 +295,7 @@ def test_ground_truth_render_produces_real_audio(tmp_path: Path, demo_audio_map:
             render=_CONFIG.export.render,
             playback=_CONFIG.export.playback,
             envelope=_CONFIG.export.envelope,
+            post_loop=_CONFIG.export.instruments.post_loop,
         ),
     )
     assert all(plan.rendered for plan in result.plans if plan.feasible)
@@ -344,6 +346,7 @@ def test_strategy_flags_restrict_which_plans_run(
         render=_CONFIG.export.render,
         playback=_CONFIG.export.playback,
         envelope=_CONFIG.export.envelope,
+        post_loop=_CONFIG.export.instruments.post_loop,
         render_ground_truth=False,
         ungrouped=False,
     )

@@ -37,6 +37,21 @@ def test_a_looped_waveform_is_wrapped_past_the_span_it_stores(
     assert played.size == stored.frames + HELD_ROUNDS * region
 
 
+def test_a_waveform_carrying_a_tail_is_auditioned_at_the_loop_it_wraps_on(
+    source: Sourcer, carrier_settings: Settings
+) -> None:
+    """An audition stands for what a player puts out, and a player turns back where the region ends."""
+    one = source(loop=_LOOP)
+    kept = _stored(one, carrier_settings(post_loop=True))
+    dropped = _stored(one, carrier_settings())
+
+    assert kept.stored.frames > dropped.stored.frames
+    assert (
+        carrier_audition(kept, NO_ENVELOPE, tempo=TEMPO).size
+        == carrier_audition(dropped, NO_ENVELOPE, tempo=TEMPO).size
+    )
+
+
 def test_a_waveform_stored_whole_plays_out_as_it_stands(source: Sourcer, carrier_settings: Settings) -> None:
     """There is no region to wrap, so the audition is the stored span itself."""
     settings = carrier_settings()

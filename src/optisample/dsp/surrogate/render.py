@@ -64,22 +64,39 @@ def _repitch(stored: StoredSample, out_rate: int, pitch: int | None) -> tuple[Si
     return played, scale
 
 
-def _sustain_with_loop(
+def _wrapped(
     played: Signal,
     loop: Loop,
     scale: float,
-    target: int,
+    target: int | None,
 ) -> Signal:
-    """Extend ``played`` to ``target`` frames by repeating its loop region (mapped to the output rate)."""
+    """What a player sounds from ``played``: its frames up to the loop end, repeated to reach ``target``.
+
+    A forward loop is where playback turns back, so the loop end is where the sounding span ends and
+    anything stored behind it is reached by deleting the loop rather than by holding a note. The bounds are
+    mapped to the output rate, so the wrap tracks whatever the repitch did to the stored timeline. A note
+    ending inside the loop is left where it ends; ``target`` naming no length sounds the span once.
+    """
     start = max(0, min(round(loop.start * scale), played.size))
     end = max(start + 1, min(round(loop.end * scale), played.size))
     segment = played[start:end]
-    if segment.size == 0 or target <= end:
+    if segment.size == 0:
         return played
+
+    if target is None or target <= end:
+        return np.asarray(played[:end], dtype=np.float64)
 
     repeats = int(np.ceil((target - end) / segment.size))
     tail = np.tile(segment, repeats)[: target - end]
     return np.concatenate([played[:end], tail])
+
+
+def _held_frames(duration_s: float | None, out_rate: int) -> int | None:
+    """How many output frames a note is held for, where it is held for a stated length."""
+    if duration_s is None:
+        return None
+
+    return round(duration_s * out_rate)
 
 
 def _declining(played: Signal, level: Level, out_rate: int) -> Signal:
@@ -106,9 +123,9 @@ def render(
     """Render a note from ``stored`` at ``out_rate``: repitch to ``pitch``, level it, fit the duration.
 
     ``pitch`` defaults to the sample's root (no transpose). Repitching plays the sample faster/slower
-    (``2**((pitch - root) / 12)``), which shifts both pitch and length the way a tracker does. If the
-    sample carries a loop and the note is held past the stored length, the loop region is repeated to
-    sustain it (in the output domain, so it tracks the repitch); otherwise the note simply ends.
+    (``2**((pitch - root) / 12)``), which shifts both pitch and length the way a tracker does. A sample
+    carrying a loop sounds up to the loop end and wraps there (:func:`_wrapped`), in the output domain so
+    the wrap tracks the repitch; one carrying none plays to its own end and stops.
 
     A sample carrying a level (:class:`~optisample.dsp.level.Level`) is played down by it, which is
     what lets a held loop fall away the way the recording it stands for did. The note then sounds at
@@ -117,10 +134,8 @@ def render(
     per-sample multiplier, and the second is the note's own dynamic.
     """
     played, scale = _repitch(stored, out_rate, pitch)
-    if duration_s is not None and stored.loop is not None:
-        target = round(duration_s * out_rate)
-        if target > played.size:
-            played = _sustain_with_loop(played, stored.loop, scale, target)
+    if stored.loop is not None:
+        played = _wrapped(played, stored.loop, scale, _held_frames(duration_s, out_rate))
 
     rendered = apply_gain(_declining(played, stored.level, out_rate), stored.playback_gain * volume / MAX_VOLUME)
     if duration_s is not None:

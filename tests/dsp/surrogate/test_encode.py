@@ -27,6 +27,7 @@ _TONE_HZ = 440.0  # the pitch every recording below is played at, which its loop
 
 SettleLoops = Callable[..., SettledLoops]
 _CHEAPEST = 0  # the offer a test reaches for: the shortest region the recording supports
+_ONE_STEP_16 = 2.0**-15  # how far apart two sixteen-bit readings of one waveform stand at their closest
 
 
 def _root_mean_square(pcm: NDArray[np.float64]) -> float:
@@ -75,6 +76,58 @@ def test_encode_loop_stores_attack_plus_loop_and_drops_the_tail(
     assert stored.frames == stored.loop.end  # storage is trimmed to [0, loop.end)
     assert stored.frames < recording.size  # ... the attack plus one loop, so the sustain tail is dropped
     assert stored.loop.length >= round(geometry_config.min_loop_s * SR)
+
+
+def test_a_sample_asked_for_the_post_loop_stores_the_rest_of_the_recording_behind_it(
+    sine: Callable[..., NDArray[np.float64]],
+    make_encode_ctx: Callable[..., EncodeContext],
+    settle: SettleLoops,
+) -> None:
+    """What a file written to be edited holds: the wrap a player makes, and the take carrying on behind it."""
+    recording = sine(_TONE_HZ, dur=_TONE_S)
+    settled = settle(recording, SR, root_hz=_TONE_HZ, search_s=_TONE_S)
+    context = make_encode_ctx(60, settled=settled)
+    params = EncodingParams(target_rate=SR, depth_bits=16, loop_index=_CHEAPEST)
+    kept = encode(recording, SR, params, replace(context, post_loop=True))
+    dropped = encode(recording, SR, params, context)
+
+    assert kept.loop == dropped.loop  # the region a player wraps on is where it was
+    assert kept.frames == pytest.approx(recording.size, abs=2)
+    assert kept.frames > dropped.frames
+
+
+def test_the_span_a_kept_post_loop_wraps_on_sounds_as_the_one_stored_without_it(
+    sine: Callable[..., NDArray[np.float64]],
+    make_encode_ctx: Callable[..., EncodeContext],
+    settle: SettleLoops,
+) -> None:
+    """A tail costs a player nothing: what sounds before the wrap is the waveform the plan was priced at.
+
+    Normalization reads the span actually stored, so a tail standing higher than the region moves the gain
+    and with it the step each frame rounds to. What the two agree to is one step of the grid they are both
+    quantized on, which is the closest two readings of one waveform can stand at that depth.
+    """
+    recording = sine(_TONE_HZ, dur=_TONE_S)
+    settled = settle(recording, SR, root_hz=_TONE_HZ, search_s=_TONE_S)
+    context = make_encode_ctx(60, settled=settled)
+    params = EncodingParams(target_rate=SR, depth_bits=16, loop_index=_CHEAPEST, dither=False)
+    kept = encode(recording, SR, params, replace(context, post_loop=True))
+    dropped = encode(recording, SR, params, context)
+
+    assert dropped.loop is not None
+    assert np.max(np.abs(kept.pcm[: dropped.loop.end] - dropped.pcm)) <= _ONE_STEP_16
+
+
+def test_a_sample_storing_no_loop_is_stored_the_same_whichever_post_loop_asks_for(
+    sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
+) -> None:
+    """There is no region to store behind, so a recording kept as it was played reaches the same bytes."""
+    recording = sine(_TONE_HZ, dur=_TONE_S)
+    params = EncodingParams(target_rate=SR, depth_bits=16, trim_s=_HALF_S, dither=False)
+    kept = encode(recording, SR, params, replace(make_encode_ctx(60), post_loop=True))
+    dropped = encode(recording, SR, params, make_encode_ctx(60))
+
+    assert np.array_equal(kept.pcm, dropped.pcm)
 
 
 def test_a_trimmed_sample_closes_on_the_release_ramp(

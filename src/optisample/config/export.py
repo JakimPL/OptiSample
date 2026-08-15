@@ -27,9 +27,14 @@ class InstrumentsConfig(ConfigModel):
     it as the crest and the depth is spent on it. ``compression`` is the curve that remainder is held back
     along before any of it is stored (:func:`~optisample.dsp.dynamics.held_back`), which is what has a
     shallow grid spend itself on timbre.
+
+    ``post_loop`` keeps what a recording goes on making past the region it wraps on, stored behind it. A
+    file written to be loaded and edited is worth carrying it in: a player sounds the loop, so the tail
+    costs a listener nothing until they delete the loop to reach it.
     """
 
     compression: HoldConfig
+    post_loop: bool
 
 
 class ExportConfig(StageConfig):

@@ -38,8 +38,10 @@ class CarrierSettings:
     ``grid`` states the clock and the two grids a volume envelope is written on, ``params`` the rate and
     depth every waveform is stored at, and ``config`` how a span is resampled, wrapped and quantized on the
     way there. ``compression`` is the curve the level a written envelope has no room to state is held back
-    along (:func:`~optisample.carrier.compress.held_sources`). ``seed`` starts the one generator the set's
-    dither is drawn from, so the bytes a set is written as reproduce.
+    along (:func:`~optisample.carrier.compress.held_sources`). ``post_loop`` keeps what a take goes on
+    making past the region it wraps on, stored behind it, which a file written to be loaded and edited is
+    worth carrying. ``seed`` starts the one generator the set's dither is drawn from, so the bytes a set is
+    written as reproduce.
     """
 
     target: ExportTarget
@@ -47,6 +49,7 @@ class CarrierSettings:
     params: EncodingParams
     config: EncodeConfig
     compression: HoldConfig
+    post_loop: bool
     seed: int
 
 
@@ -81,6 +84,7 @@ def store_carrier(
                 config=settings.config,
                 settled=source.loops,
                 rng=rng,
+                post_loop=settings.post_loop,
             ),
         ),
     )

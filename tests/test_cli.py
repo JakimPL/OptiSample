@@ -10,14 +10,14 @@ from pydantic import ValidationError
 
 from optisample.artifacts.paths import instrument_files_dir
 from optisample.calibrate.ranking import Fault, Verdict
-from optisample.cli import (
+from optisample.cli import main
+from optisample.cli.parsers import build_parser
+from optisample.cli.settings import (
     _demo_settings,
     _dump_settings,
     _ingest_settings,
     _optimize_settings,
     _pipeline_settings,
-    build_parser,
-    main,
 )
 from optisample.config import OptiConfig
 from optisample.config.reduce import DedupeKey

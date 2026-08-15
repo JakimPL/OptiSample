@@ -11,7 +11,7 @@ from optisample.config import OptiConfig
 from optisample.dsp.envelope import Decomposition, decompose, level_reading
 from optisample.dsp.level import Clock, db_to_gain, unit_level
 from optisample.dsp.loop import Loop
-from optisample.dsp.surrogate import NO_LOOPS, EncodingParams, SettledLoop
+from optisample.dsp.surrogate import NO_LOOPS, POST_LOOP_DROPPED, EncodingParams, SettledLoop
 from optisample.io.tracker.envelope import envelope_grid
 from optisample.io.tracker.target import ExportTarget, export_target
 from optisample.keys import SampleKey
@@ -110,6 +110,7 @@ def carrier_settings(config: OptiConfig, target: ExportTarget) -> Callable[..., 
         rate: int = SR,
         written: ExportTarget | None = None,
         ratio: float | None = None,
+        post_loop: bool = POST_LOOP_DROPPED,
     ) -> CarrierSettings:
         chosen = target if written is None else written
         held = config.export.instruments.compression
@@ -119,6 +120,7 @@ def carrier_settings(config: OptiConfig, target: ExportTarget) -> Callable[..., 
             params=EncodingParams(target_rate=rate, depth_bits=depth),
             config=config.encode,
             compression=held if ratio is None else held.model_copy(update={"ratio": ratio}),
+            post_loop=post_loop,
             seed=SEED,
         )
 

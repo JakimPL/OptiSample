@@ -11,7 +11,7 @@ from optisample.optimize.export import build_module
 from optisample.optimize.export.build import written_voices
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.coverage import key_coverage, played_keys
-from optisample.optimize.export.samples import sample_gains
+from optisample.optimize.export.samples import encode_order, encode_plan_units, sample_gains
 from optisample.optimize.export.voices import PlayedVoices, WrittenInstruments, written_instruments
 from optisample.optimize.layers.bands import VelocityLayers
 from optisample.optimize.layers.slots import SlotLayout, plan_slots
@@ -22,6 +22,7 @@ from optisample.optimize.plans import (
 )
 from optisample.optimize.report import format_grouping_report, format_report
 from optisample.optimize.tasks import PitchTask
+from trackmod.core.envelopes.envelope import Envelope
 from trackmod.module.protocol import TrackerModule
 
 
@@ -31,10 +32,16 @@ class Unit:
 
     ``layer`` is the velocity band the sample answers for, so the tasks are the notes that band covers
     and the artifacts written for them are filed under the same layer the module plays them through.
+
+    ``stored`` is the waveform the module carries, which is the one the plan paid for. ``whole`` is the
+    same waveform with the rest of its take stored behind the region it wraps on
+    (:func:`~optisample.optimize.export.samples.whole_samples`), which is what the standalone file written
+    for this voice holds; the two are frame for frame the same up to the loop end.
     """
 
     label: str
     stored: StoredSample
+    whole: StoredSample
     layer: int
     tasks: tuple[PitchTask, ...]
     representative_key: SampleKey
@@ -69,6 +76,31 @@ class PlanKind:
         return self.layout.layers
 
 
+def _whole_samples(
+    plan: StrategyPlan,
+    layout: SlotLayout,
+    envelopes: Sequence[Envelope | None],
+    dump_context: DumpContext,
+) -> tuple[StoredSample, ...]:
+    """Every unit re-encoded keeping what its recording goes on making past the region it wraps on.
+
+    The same units, curves, seed and clock the module's own samples were encoded from, so a waveform here
+    holds the stored one frame for frame up to the loop end and carries the rest of the take behind it. It
+    is the standalone file written for one voice that holds it; the module carries what the plan paid for.
+    A run asking for no tail is answered with the stored waveforms themselves, the same encode reaching the
+    same bytes under the same seed.
+    """
+    units = plan.sample_units()
+    order = encode_order(
+        layout,
+        _export_context(dump_context),
+        envelopes=envelopes,
+        units=len(units),
+        post_loop=dump_context.settings.post_loop,
+    )
+    return tuple(stored for _, stored in encode_plan_units(units, dump_context.recordings, order))
+
+
 def build_units(plan: StrategyPlan, dump_context: DumpContext) -> tuple[Unit, ...]:
     """Re-encode every stored sample the plan kept, in the exporter's order + seed so the PCM matches.
 
@@ -78,22 +110,29 @@ def build_units(plan: StrategyPlan, dump_context: DumpContext) -> tuple[Unit, ..
     its encode root and its recording is the loudest velocity played in the band it answers for. The
     encode config comes from the prepared run, so a unit is re-encoded under the gain staging the
     allocation scored it with.
+
+    Each unit is encoded a second time under the same curves, seed and clock, keeping what its take goes on
+    making past the loop, which is the form the standalone file written for that voice carries. The module
+    reads ``stored`` alone, so what the plan is priced at stands.
     """
     units: list[Unit] = []
     tasks = dump_context.layer_tasks(plan.layers)
     export_context = _export_context(dump_context)
+    layout = plan_slots(plan, export_context.target)
     written = written_voices(
         plan,
-        plan_slots(plan, export_context.target),
+        layout,
         dump_context.recordings,
         list(dump_context.material),
         export_context,
     )
-    for unit, stored in zip(plan.sample_units(), written.planned.stored):
+    whole = _whole_samples(plan, layout, written.envelopes, dump_context)
+    for unit, stored, kept in zip(plan.sample_units(), written.planned.stored, whole):
         units.append(
             Unit(
                 label=unit.label,
                 stored=stored,
+                whole=kept,
                 layer=unit.layer,
                 tasks=tuple(tasks[(unit.layer, key)] for key in unit.keys),
                 representative_key=unit.representative_key,

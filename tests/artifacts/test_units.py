@@ -1,10 +1,22 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 
-from optisample.artifacts.context import DumpContext
+from optisample.artifacts.context import DumpContext, DumpSettings
 from optisample.artifacts.units import build_units, make_kind
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
+
+
+def _kept_tail(dump_context: DumpContext) -> DumpSettings:
+    """The run's settings asking each written voice to carry the rest of its take."""
+    return replace(dump_context.settings, post_loop=True)
+
+
+def _dropped_tail(dump_context: DumpContext) -> DumpSettings:
+    """The run's settings asking each written voice to end where the module's own sample does."""
+    return replace(dump_context.settings, post_loop=False)
 
 
 def test_build_units_re_encodes_one_unit_per_sample_unit(
@@ -25,6 +37,25 @@ def test_build_units_is_deterministic(ungrouped_plan: InstrumentPlan, dump_conte
     second = build_units(ungrouped_plan, dump_context)
     for unit_a, unit_b in zip(first, second):
         assert np.array_equal(unit_a.stored.pcm, unit_b.stored.pcm)  # same seed + no dither → identical PCM
+
+
+def test_a_unit_carries_the_whole_take_beside_the_span_the_module_stores(
+    ungrouped_plan: InstrumentPlan, dump_context: DumpContext
+) -> None:
+    """The plan pays for the region; the file written for that voice holds the rest of the take behind it."""
+    for unit in build_units(ungrouped_plan, replace(dump_context, settings=_kept_tail(dump_context))):
+        assert unit.whole.loop == unit.stored.loop
+        assert unit.whole.frames >= unit.stored.frames
+        if unit.stored.loop is not None:
+            assert unit.whole.frames > unit.stored.frames
+
+
+def test_a_run_keeping_no_post_loop_writes_the_span_the_module_stores(
+    ungrouped_plan: InstrumentPlan, dump_context: DumpContext
+) -> None:
+    """The same encode under the same seed, so the file written for a voice is the module's own waveform."""
+    for unit in build_units(ungrouped_plan, replace(dump_context, settings=_dropped_tail(dump_context))):
+        assert np.array_equal(unit.whole.pcm, unit.stored.pcm)
 
 
 def test_make_kind_packages_an_ungrouped_plan(ungrouped_plan: InstrumentPlan, dump_context: DumpContext) -> None:
