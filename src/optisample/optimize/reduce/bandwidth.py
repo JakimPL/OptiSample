@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Final, Protocol
 
 import numpy as np
@@ -47,8 +47,14 @@ class FormatInputs(Protocol):
     def bandwidth(self) -> BandwidthConfig: ...
 
 
-def _stored_span(clip: Signal, trim_s: float, sample_rate: int) -> Signal:
-    """The stretch of ``clip`` a sample trimmed to ``trim_s`` keeps -- the part being stored and scored."""
+def _stored_span(clip: Signal, trim_s: float | None, sample_rate: int) -> Signal:
+    """The stretch of ``clip`` a sample trimmed to ``trim_s`` keeps -- the part being stored and scored.
+
+    A trim of ``None`` keeps the recording whole, which is the span an untrimmed encoding stores.
+    """
+    if trim_s is None:
+        return np.asarray(clip, dtype=np.float64)
+
     return np.asarray(clip[: seconds_to_frames(trim_s, sample_rate)], dtype=np.float64)
 
 
@@ -61,6 +67,17 @@ def clip_band_hz(clip: Signal, trim_s: float, sample_rate: int, config: Bandwidt
     """
     stored = _stored_span(clip, trim_s, sample_rate)
     return content_edge_hz(stored, sample_rate, config.content_floor_db, config.content_band_hz)
+
+
+def clip_reach_hz(clip: Signal, trim_s: float | None, sample_rate: int, config: BandwidthConfig) -> float:
+    """How far up the spectrum the stretch stored at ``trim_s`` still reaches, read at the deeper floor.
+
+    The same measurement :func:`clip_band_hz` makes, taken at ``discard_floor_db``, which counts content
+    quiet enough that the settled rung is free to leave it out. What sits between the two readings is the
+    band a stored sample gives up, and :func:`discard_surcharge` is what prices it.
+    """
+    stored = _stored_span(clip, trim_s, sample_rate)
+    return content_edge_hz(stored, sample_rate, config.discard_floor_db, config.content_band_hz)
 
 
 def _audible_rate_hz(
@@ -166,28 +183,98 @@ def stored_format(clip: Signal, demand: ClipDemand, context: FormatInputs) -> St
     )
 
 
+def discarded_octaves(reach_hz: float, target_rate: int) -> float:
+    """Octaves of the band a recording reaches that a sample stored at ``target_rate`` leaves out.
+
+    Counted in octaves so the charge follows the span of spectrum given up rather than its energy: a
+    harmonic recording keeps nearly all of its energy in the first few partials, which leaves a share of
+    energy reading almost the same for a rung carrying the whole spectrum as for one carrying a fraction
+    of it. Octaves separate those two, and separate a bass whose material genuinely ends low -- and so
+    gives up nothing at a cheap rung -- from a brass whose does not.
+    """
+    stored_edge_hz = target_rate / _RATE_PER_BANDWIDTH
+    if reach_hz <= stored_edge_hz:
+        return 0.0
+
+    return float(np.log2(reach_hz / stored_edge_hz))
+
+
+def discard_surcharge(reach_hz: float, target_rate: int, config: BandwidthConfig) -> float:
+    """What storing a recording reaching ``reach_hz`` at ``target_rate`` costs the objective beyond its metrics.
+
+    The composite metrics read a narrowed sample as close to its reference, so the bytes a wider rung
+    costs buy little the objective can see. This is where a run states the worth of that band by ear:
+    ``discard_penalty`` per octave given up (:func:`discarded_octaves`), added to the distortion the
+    metrics measured, so the allocation weighs a wider rung against everything else the same bytes buy.
+    """
+    return config.discard_penalty * discarded_octaves(reach_hz, target_rate)
+
+
+@dataclass
+class DiscardPricer:
+    """What each stored span of one recording gives up in band, measured once per length asked about.
+
+    A recording's reach depends on the stretch stored of it and nothing else, so a sweep offering many
+    encodings of one recording reads each distinct length once and prices every rung offered from it.
+    Both the per-pitch sweep and the per-zone one charge through here, so a rung costs the objective the
+    same wherever it is scored.
+    """
+
+    clip: Signal
+    sample_rate: int
+    config: BandwidthConfig
+    reaches: dict[float | None, float] = field(default_factory=dict, init=False)
+
+    def surcharge(self, params: EncodingParams) -> float:
+        """What the objective is charged for the band ``params`` leaves out of this recording.
+
+        A penalty of zero prices every rung on the metrics alone, which is answered before any spectrum
+        is read so a run that states no worth by ear pays nothing to ask.
+        """
+        if self.config.discard_penalty == 0.0:
+            return 0.0
+
+        if params.trim_s not in self.reaches:
+            self.reaches[params.trim_s] = clip_reach_hz(self.clip, params.trim_s, self.sample_rate, self.config)
+
+        return discard_surcharge(self.reaches[params.trim_s], params.target_rate, self.config)
+
+
+def _offered_rates(settled_rate: int, sweep: SweepConfig, sample_rate: int) -> tuple[int, ...]:
+    """``settled_rate`` and the ``rate_headroom`` rungs of the sweep's own ladder nearest above it."""
+    above = [rate for rate in reversed(sweep_rates(sweep, sample_rate)) if rate > settled_rate]
+    return (settled_rate, *above[: sweep.rate_headroom])
+
+
 def stored_encodings(
     stored: StoredFormat,
     sweep: SweepConfig,
     *,
+    sample_rate: int,
     trim_s: float | None,
     loops: int,
 ) -> tuple[EncodingParams, ...]:
     """Every encoding the sweep runs for a sample kept at ``stored``: the trimmed span, then each loop.
 
-    The format is settled before the sweep starts and the loops are settled before it too, so what the
-    sweep prices is how far the sample carries on past its attack: keeping the played span, against keeping
-    the attack plus each of the ``loops`` regions the loop stage found. Those regions run from short to
+    The loops are settled before the sweep starts, so what the sweep prices is how far the sample carries
+    on past its attack -- keeping the played span, against keeping the attack plus each of the ``loops``
+    regions the loop stage found -- and how much of its spectrum it keeps. Those regions run from short to
     long, so the encodings walk a sample's stored length from its cheapest to its most faithful and the
     hull picks the trades worth keeping.
+
+    ``stored`` names the rung the recording's own content asks for, and each span is offered there and at
+    the rungs above it the headroom reaches (:func:`_offered_rates`). That is what lets a byte buy band:
+    the wider rungs cost more and win where :func:`discard_surcharge` prices the spectrum they keep above
+    what the same bytes buy in length or in another sample.
 
     Where the depth leaves a grid shallow enough for the dynamics stage to buy headroom, each span is
     offered both plain and compressed and the objective picks between them, which is what makes compression
     an axis the run prices rather than a step it takes on the way past. A depth deep enough to carry the
     material outright offers each span once.
 
-    Spans lead: every encoding of the trimmed span stands before the first loop's, so the trimmed span
-    occupies the opening positions for every clip and the per-pitch and per-zone sweeps score in one order.
+    Spans lead, then rates: every encoding of the trimmed span stands before the first loop's, so the
+    trimmed span occupies the opening positions for every clip and the per-pitch and per-zone sweeps score
+    in one order, with the settled rung leading each span.
     """
     plain = EncodingParams(
         target_rate=stored.target_rate,
@@ -200,7 +287,8 @@ def stored_encodings(
     )
     dynamics = (False, True) if stored.compress else (False,)
     return tuple(
-        replace(plain, loop_index=span, compress=compress)
+        replace(plain, loop_index=span, target_rate=rate, compress=compress)
         for span in (UNLOOPED, *range(loops))
+        for rate in _offered_rates(stored.target_rate, sweep, sample_rate)
         for compress in dynamics
     )

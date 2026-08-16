@@ -2,3 +2,5 @@
 ceiling_hz: 16000.0    # highest output frequency worth storing (capped at the analysis Nyquist)
 content_floor_db: 60.0 # how far under its loudest band a recording still carries content
 content_band_hz: 200.0 # width the spectrum is averaged into before that edge is read
+discard_floor_db: 90.0 # deeper floor naming the band a recording still reaches, which a cheap rung gives up
+discard_penalty: 0.0    # distortion charged per octave of that band a stored rung leaves out

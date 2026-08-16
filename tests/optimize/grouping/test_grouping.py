@@ -438,3 +438,35 @@ def test_run_instrument_grouped_reads_wavs_from_disk(tmp_path: Path) -> None:
     grouped = run_instrument_grouped(inst, _settings(GRID_TINY))
     assert set(grouped.pitches) == set(PITCHES)
     assert grouped.used_bytes <= grouped.sample_budget_bytes
+
+
+GRID_HEADROOM = _grid(rates=(44_100, 11_025), depth=16, dither=False, rate_headroom=1)
+
+_PRICED_KB = 96.0  # room a grouped plan leaves unspent while the metrics alone price its rungs
+
+
+def _priced(
+    audio: dict[SampleKey, NDArray[np.float64]],
+    recordings: Recordings,
+    discard_penalty: float,
+) -> GroupedInstrumentPlan:
+    """A grouped plan with the band a cheap rung gives up charged at ``discard_penalty``."""
+    settings = _settings(
+        GRID_HEADROOM,
+        bandwidth={"ceiling_hz": _STORED_CEILING_HZ, "discard_penalty": discard_penalty},
+    )
+    return optimize_instrument_grouped(_instrument(_PRICED_KB), recordings(audio, SR), settings)
+
+
+def test_a_grouped_plan_buys_band_once_the_run_charges_for_giving_it_up(
+    audio: dict[SampleKey, NDArray[np.float64]],
+    recordings: Recordings,
+) -> None:
+    """Grouping prices a rung the way the per-pitch sweep does, so the same charge moves both."""
+    unpriced = _priced(audio, recordings, 0.0)
+    charged = _priced(audio, recordings, 1.0)
+
+    assert sum(zone.chosen.params.target_rate for zone in charged.zones) > sum(
+        zone.chosen.params.target_rate for zone in unpriced.zones
+    )
+    assert charged.used_bytes <= charged.sample_budget_bytes

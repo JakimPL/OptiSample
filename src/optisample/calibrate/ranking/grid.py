@@ -12,12 +12,14 @@ from optisample.optimize.operating_points import compresses, sweep_rates
 class RankingGrid:
     """How far a listening set widens the grid the sweep offers, along the axes the sweep settles first.
 
-    One rate and one depth are read off a clip's own content before the sweep starts
-    (:func:`~optisample.optimize.reduce.bandwidth.stored_format`), so the encodings the allocation
-    chooses among differ in how much of the recording they store and in nothing else. A metric judged on
-    those alone is judged on one axis. ``depths`` are the depths a clip is also stored at, which is what
-    puts a quantization step in the set; ``rate_steps`` is how many rungs of the sweep's own ladder below
-    the settled rate it is also read at, which puts a bandwidth step there beside it.
+    One depth is read off a clip's own content before the sweep starts
+    (:func:`~optisample.optimize.reduce.bandwidth.stored_format`), and the rungs the allocation chooses
+    among reach as far up as
+    :attr:`~optisample.config.optimize.SweepConfig.rate_headroom` opens them, so a run leaving that at
+    zero offers encodings differing in how much of the recording they store and in nothing else. A metric
+    judged on those alone is judged on one axis. ``depths`` are the depths a clip is also stored at, which
+    is what puts a quantization step in the set; ``rate_steps`` is how many rungs of the sweep's own ladder
+    below the settled rate it is also read at, which puts a bandwidth step there beside it.
 
     Each widened rung is stored both as the pipeline would store it -- the depth carrying the compression
     it earns (:func:`~optisample.optimize.operating_points.compresses`) -- and with that compression

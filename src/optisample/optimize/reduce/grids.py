@@ -103,7 +103,13 @@ def narrow_grid(clip: StoredClip, context: GridContext) -> NarrowedGrid:
         pitch=clip.pitch,
         useful_rate_hz=useful_rate_hz(clip.representative, demand, context.sample_rate, context.bandwidth),
         stored=stored,
-        encodings=stored_encodings(stored, context.sweep, trim_s=demand.trim_s, loops=clip.offered_loops),
+        encodings=stored_encodings(
+            stored,
+            context.sweep,
+            sample_rate=context.sample_rate,
+            trim_s=demand.trim_s,
+            loops=clip.offered_loops,
+        ),
     )
 
 

@@ -131,6 +131,40 @@ such sample.
 **Levers.** `--content-floor-db` per run; `optimize/sweep.yaml: rates` is the ladder itself and `--rate`
 (repeatable) replaces it for one run.
 
+### 3a. Buying band back: what the metrics cannot hear
+
+`content_floor_db` decides the rung, and the rung is settled **before** the budget is spent. That has a
+consequence worth stating plainly: bytes freed by `--max-samples` buy stored length and zone width, and
+nothing else. The sweep offers one rate per span, so band is not among the things a byte can buy.
+
+`rate_headroom` puts it back on the table. Each span is offered at the settled rung and at that many rungs
+above it, so the allocation can spend room on spectrum. On its own this changes nothing: the composite
+metrics read a narrowed sample as close to its reference, so the cheap rung keeps winning. Measured on the
+demo piano with `rate_headroom: 1` and the 11 025/44 100 ladder:
+
+| `discard_penalty` | 64 KiB budget | 80 KiB budget |
+|---|---|---|
+| `0.0` (shipped) | 11 025 + 44 100, 47 584 B used | 11 025 + 44 100, **47 584 B used** |
+| `1.0` | 44 100 + 44 100, 63 432 B used | 44 100 + 44 100, 78 820 B used |
+
+Read the second column twice. Given 80 KiB the unpriced run stores 47.6 KiB and **leaves 32 KiB unspent**,
+because nothing in the objective wants band. That is the gap the metrics cannot see.
+
+`discard_penalty` is where a run states what that band is worth by ear. It charges distortion per octave
+of spectrum a rung leaves out, measured against `discard_floor_db` — a second, deeper reading of the same
+spectrum than the one that settles the rung. The gap between the two floors is content quiet enough that
+the allocation is free to drop it and loud enough that you would rather it did not.
+
+Charging by **octaves of band** rather than by share of energy is deliberate. A harmonic recording keeps
+almost all of its energy in the first few partials, so an energy share reads nearly the same for a rung
+carrying the whole spectrum as for one carrying a fraction of it. Octaves separate those, and separate a
+bass whose material genuinely ends low — and so gives up nothing at a cheap rung, and is charged nothing —
+from a brass whose does not. This is what keeps the knob instrument-aware instead of a flat floor on the
+stored rate.
+
+**Levers.** `--rate-headroom` opens the rungs, `--discard-penalty` prices them; both default to the
+behaviour that prices a rung on the metrics alone.
+
 ## 4. Bit depth: what 8 bits costs, and how to refuse it
 
 A signed 8-bit grid has a step of `2^-7`. Samples are normalized to `headroom_db: 0.5` under full scale,
@@ -520,6 +554,9 @@ as the format numbers. Each extra sample is charged a reserve, so the run states
 | `quantize.release_fade_s` | `codec/quantize.yaml` | Samples click at their end, or 10 ms of ramp is audible. |
 | `--content-floor-db` | CLI (`reduce/bandwidth.yaml`) | The stored band is duller than the budget can afford, or a budget will not fit. |
 | `--max-samples` | CLI (`optimize/budget.yaml`) | Trading sample count against per-sample quality. |
+| `--rate-headroom` | CLI (`optimize/sweep.yaml: rate_headroom`) | Band is not among the things the budget can buy. Offers each span at rungs above the one its content settled on; `0` prices the settled rung alone. Pair it with `--discard-penalty`, which is what makes a wider rung win. |
+| `--discard-penalty` | CLI (`reduce/bandwidth.yaml`) | **The knob that trades sample count for band.** Samples score well and sound dull, and spare budget goes unspent. Charges distortion per octave of spectrum a rung gives up, so the allocation buys a wider one and pays by storing fewer and wider samples. Instrument-aware: material that genuinely ends low is charged nothing. See §3a. |
+| `reduce.bandwidth.discard_floor_db` | `reduce/bandwidth.yaml` | The penalty charges too much or too little across the board. It is the floor the *charge* is read at, sitting at or below `content_floor_db`; the gap between them is the band being priced. |
 | `reduce.grouping.max_zone_semitones` | `reduce/grouping.yaml` | Repitching artefacts across a zone. |
 | `--max-layers` | CLI (`optimize/layers.yaml`) | Dynamics matter more (or less) than fidelity per note. |
 | `dedupe.transposition_headroom_semitones` | `reduce/dedupe.yaml` | Survivors are longer than the music needs. |

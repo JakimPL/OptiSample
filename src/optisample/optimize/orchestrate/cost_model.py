@@ -5,6 +5,7 @@ from optisample.dsp.surrogate import EncodingParams
 from optisample.frontier import lower_convex_hull
 from optisample.optimize.knapsack import KnapsackItem
 from optisample.optimize.operating_points import OperatingPoint
+from optisample.optimize.reduce.bandwidth import DiscardPricer
 from optisample.optimize.tasks import EvalContext, PitchTask, score_reconstruction, swept_sample
 from optisample.progress import ProgressSink
 
@@ -16,10 +17,16 @@ def _evaluate_config(
     task: PitchTask,
     context: EvalContext,
     params: EncodingParams,
+    pricer: DiscardPricer,
 ) -> OperatingPoint:
-    """Encode the pitch's own representative, then score reconstruction against every event at it."""
+    """Encode the pitch's own representative, then score reconstruction against every event at it.
+
+    The band the rung leaves out is charged on top of what the metrics measured
+    (:meth:`~optisample.optimize.reduce.bandwidth.DiscardPricer.surcharge`), so a wider rung competes on
+    the spectrum it keeps as well as on the reconstruction the metrics can read.
+    """
     stored = swept_sample(task, params, context)
-    distortion = score_reconstruction(stored, task, context)
+    distortion = score_reconstruction(stored, task, context) + pricer.surcharge(params)
     return OperatingPoint(
         params=params,
         stored_bytes=context.storage.sample_bytes(frames=stored.frames, depth=stored.depth),
@@ -49,8 +56,9 @@ def build_items(
     """Turn each pitch task into a knapsack item plus its lower-convex-hull configs."""
     swept = _sweep_plan(tasks, encodings)
     points_by_pitch: dict[int, list[OperatingPoint]] = {task.pitch: [] for task in tasks}
+    pricers = {task.pitch: DiscardPricer(task.representative, context.sample_rate, context.bandwidth) for task in tasks}
     for task, params in progress.track(swept, label=_SWEEP_LABEL, total=len(swept)):
-        points_by_pitch[task.pitch].append(_evaluate_config(task, context, params))
+        points_by_pitch[task.pitch].append(_evaluate_config(task, context, params, pricers[task.pitch]))
 
     items: list[KnapsackItem] = []
     hulls: dict[int, tuple[OperatingPoint, ...]] = {}

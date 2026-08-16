@@ -48,6 +48,9 @@ def _reduce_config(config: OptiConfig, args: argparse.Namespace) -> ReduceConfig
     if args.content_floor_db is not None:
         data["bandwidth"]["content_floor_db"] = args.content_floor_db
 
+    if args.discard_penalty is not None:
+        data["bandwidth"]["discard_penalty"] = args.discard_penalty
+
     return ReduceConfig.model_validate(data)
 
 
@@ -111,6 +114,9 @@ def _optimize_settings(
             **config.optimize.sweep.model_dump(),
             "rates": tuple(args.rates) if args.rates else config.optimize.sweep.rates,
             "depth": args.depth if args.depth is not None else config.optimize.sweep.depth,
+            "rate_headroom": (
+                args.rate_headroom if args.rate_headroom is not None else config.optimize.sweep.rate_headroom
+            ),
         }
     )
     return OptimizeSettings(

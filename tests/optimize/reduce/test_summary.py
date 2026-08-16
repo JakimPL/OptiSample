@@ -142,6 +142,7 @@ def test_every_played_pitch_earns_the_grid_the_sweep_will_run(
         clip.pitch: stored_encodings(
             stored_format(clip.representative, demand, context),
             context.sweep,
+            sample_rate=SR,
             trim_s=_NOTE_S,
             loops=clip.offered_loops,
         )

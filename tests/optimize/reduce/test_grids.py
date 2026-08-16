@@ -99,7 +99,9 @@ def test_a_grid_holds_the_encodings_the_sweep_will_run_for_that_pitch(
     settled = stored_format(clip.representative, demand, context)
 
     assert grid.stored == settled
-    assert grid.encodings == stored_encodings(settled, context.sweep, trim_s=_NOTE_S, loops=clip.offered_loops)
+    assert grid.encodings == stored_encodings(
+        settled, context.sweep, sample_rate=SR, trim_s=_NOTE_S, loops=clip.offered_loops
+    )
 
 
 def test_a_grids_stored_rate_carries_the_band_it_measured(clips: tuple[_Clip, ...], context: GridContext) -> None:

@@ -362,3 +362,51 @@ def test_a_cap_above_what_the_format_numbers_is_held_to_the_format(
     assert settings.sample_cap < optimize_settings(sweep=grid, max_samples=EVERY_SAMPLE).sample_cap
     beyond = optimize_settings(sweep=grid, max_samples=settings.target.max_samples + 1)
     assert beyond.sample_cap == beyond.target.max_samples
+
+
+_ROOMY_KB = 64.0  # room the metrics alone leave unspent, which is what the penalty is there to claim
+
+
+@pytest.fixture
+def priced(
+    sweep: Callable[..., SweepConfig],
+    reduce: Callable[..., ReduceConfig],
+    optimize_settings: Callable[..., OptimizeSettings],
+    recordings: Recordings,
+) -> Callable[..., InstrumentPlan]:
+    """Optimize the demo instrument with the band a cheap rung gives up charged at ``discard_penalty``."""
+
+    def _priced(discard_penalty: float, *, budget_kb: float = 64.0) -> InstrumentPlan:
+        settings = optimize_settings(
+            sweep=sweep(rates=(44_100, 11_025), depth=16, rate_headroom=1),
+            reduce=reduce(bandwidth={"discard_penalty": discard_penalty}),
+        )
+        return optimize_instrument(instrument(budget_kb), recordings(demo_audio(), SR), settings)
+
+    return _priced
+
+
+def test_charging_for_discarded_band_buys_a_wider_rung(priced: Callable[..., InstrumentPlan]) -> None:
+    """The trade the penalty exists to state: bytes move to band once a run says the band is worth them.
+
+    The metrics read a narrowed sample as close to its reference, so the settled rung wins on its own
+    terms; charging for the octaves it gives up is what lets the wider one compete for the same bytes.
+    """
+    unpriced = priced(0.0, budget_kb=_ROOMY_KB)
+    charged = priced(1.0, budget_kb=_ROOMY_KB)
+
+    assert sum(pitch.chosen.params.target_rate for pitch in charged.pitches) > sum(
+        pitch.chosen.params.target_rate for pitch in unpriced.pitches
+    )
+    assert charged.used_bytes > unpriced.used_bytes  # the room the metrics left unspent, claimed
+    assert charged.used_bytes <= charged.sample_budget_bytes
+
+
+def test_a_run_charging_nothing_stores_what_the_headroom_free_run_stores(
+    priced: Callable[..., InstrumentPlan],
+    optimize: Callable[..., InstrumentPlan],
+) -> None:
+    """Offering the wider rungs changes nothing on its own, so the headroom costs a run that ignores it nothing."""
+    assert [pitch.chosen.params.target_rate for pitch in priced(0.0).pitches] == [
+        pitch.chosen.params.target_rate for pitch in optimize(64.0).pitches
+    ]

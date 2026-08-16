@@ -8,10 +8,14 @@ from numpy.typing import NDArray
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import BandwidthConfig, ReduceConfig
 from optisample.dsp.spectral import bandlimit
-from optisample.dsp.surrogate import UNLOOPED
+from optisample.dsp.surrogate import UNLOOPED, EncodingParams
 from optisample.optimize.reduce.bandwidth import (
     ClipDemand,
+    DiscardPricer,
     clip_band_hz,
+    clip_reach_hz,
+    discard_surcharge,
+    discarded_octaves,
     format_from_band,
     stored_encodings,
     stored_format,
@@ -63,6 +67,11 @@ def tone(freq: float, amplitude: float = 0.5) -> NDArray[np.float64]:
     """A pure tone filling the trim window, whose energy sits in a single spectral bin."""
     times = np.arange(_FRAMES, dtype=np.float64) / SR
     return np.asarray(amplitude * np.sin(2.0 * np.pi * freq * times), dtype=np.float64)
+
+
+def stored_as(target_rate: int) -> EncodingParams:
+    """One encoding of the trim window at ``target_rate``, which is all the pricer reads of it."""
+    return EncodingParams(target_rate=target_rate, depth_bits=_DEEP_DEPTH, trim_s=_TRIM_S)
 
 
 def broadband(amplitude: float = 0.5) -> NDArray[np.float64]:
@@ -197,7 +206,7 @@ def test_every_stored_span_is_offered_at_the_one_settled_format(make_context: Ca
     context = make_context()
     stored = stored_format(broadband(), UNTRANSPOSED, context)
 
-    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S, loops=3)
+    offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=3)
 
     assert [params.loop_index for params in offered] == [UNLOOPED, 0, 1, 2]
     assert {(params.target_rate, params.depth_bits, params.compress) for params in offered} == {
@@ -208,7 +217,7 @@ def test_every_stored_span_is_offered_at_the_one_settled_format(make_context: Ca
 def test_the_stored_length_reaches_every_encoding_offered(make_context: Callable[..., _Context]) -> None:
     context = make_context()
     stored = stored_format(broadband(), UNTRANSPOSED, context)
-    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S, loops=2)
+    offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=2)
     assert {params.trim_s for params in offered} == {_TRIM_S}
 
 
@@ -219,7 +228,7 @@ def test_a_shallow_depth_offers_every_span_both_plain_and_compressed(
     context = make_context(depth=_SHALLOW_DEPTH, compress=True)
     stored = stored_format(broadband(), UNTRANSPOSED, context)
 
-    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S, loops=2)
+    offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=2)
 
     assert [(params.loop_index, params.compress) for params in offered] == [
         (UNLOOPED, False),
@@ -236,7 +245,7 @@ def test_a_run_asking_for_no_dynamics_offers_every_span_once(make_context: Calla
     context = make_context(depth=_SHALLOW_DEPTH, compress=False)
     stored = stored_format(broadband(), UNTRANSPOSED, context)
 
-    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S, loops=2)
+    offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=2)
 
     assert [params.compress for params in offered] == [False, False, False]
 
@@ -248,7 +257,7 @@ def test_a_depth_deep_enough_to_carry_the_material_offers_no_compressed_encoding
     context = make_context(depth=_DEEP_DEPTH, compress=True)
     stored = stored_format(broadband(), UNTRANSPOSED, context)
 
-    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S, loops=2)
+    offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=2)
 
     assert [params.compress for params in offered] == [False, False, False]
 
@@ -258,7 +267,7 @@ def test_the_trimmed_span_leads_whatever_the_depth_offers(make_context: Callable
     context = make_context(depth=_SHALLOW_DEPTH, compress=True)
     stored = stored_format(broadband(), UNTRANSPOSED, context)
 
-    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S, loops=3)
+    offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=3)
 
     assert all(params.loop_index is UNLOOPED for params in offered[:2])
     assert [params.loop_index for params in offered[2:]] == [0, 0, 1, 1, 2, 2]
@@ -269,6 +278,120 @@ def test_a_clip_with_no_settled_loop_offers_the_trimmed_span_alone(make_context:
     context = make_context()
     stored = stored_format(broadband(), UNTRANSPOSED, context)
 
-    offered = stored_encodings(stored, context.sweep, trim_s=_TRIM_S, loops=0)
+    offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=0)
 
     assert [params.loop_index for params in offered] == [UNLOOPED]
+
+
+# --- what a narrow rung gives up ---------------------------------------------------------------------
+
+
+def test_a_rung_reaching_every_frequency_the_recording_holds_gives_up_nothing() -> None:
+    assert discarded_octaves(reach_hz=3_000.0, target_rate=8_000) == 0.0
+
+
+def test_a_rung_meeting_the_reach_exactly_gives_up_nothing() -> None:
+    """The edge case the charge is defined at: content ending at the stored Nyquist is content kept."""
+    assert discarded_octaves(reach_hz=4_000.0, target_rate=8_000) == 0.0
+
+
+@pytest.mark.parametrize(
+    ("reach_hz", "octaves"),
+    [
+        (8_000.0, 1.0),
+        (16_000.0, 2.0),
+        (5_656.85, 0.5),
+    ],
+)
+def test_a_reach_past_the_stored_edge_is_charged_by_the_octaves_between_them(reach_hz: float, octaves: float) -> None:
+    assert discarded_octaves(reach_hz=reach_hz, target_rate=8_000) == pytest.approx(octaves, abs=1e-4)
+
+
+def test_the_surcharge_follows_the_penalty_the_run_states(reduce: ReduceFactory) -> None:
+    config = reduce(bandwidth={"discard_penalty": 0.25}).bandwidth
+
+    assert discard_surcharge(8_000.0, 8_000, config) == pytest.approx(0.25)
+
+
+def test_a_run_stating_no_penalty_charges_nothing_for_the_band_it_gives_up(reduce: ReduceFactory) -> None:
+    """Zero is what leaves a rung priced on the metrics alone, which is the reading without this knob."""
+    config = reduce(bandwidth={"discard_penalty": 0.0}).bandwidth
+
+    assert discard_surcharge(16_000.0, 8_000, config) == 0.0
+
+
+def test_the_deeper_floor_reads_further_up_than_the_one_that_settles_the_rung(reduce: ReduceFactory) -> None:
+    """The gap between the two readings is the band a settled rung is free to leave out."""
+    config = reduce(bandwidth={"content_floor_db": 40.0, "discard_floor_db": 100.0}).bandwidth
+    faint_partial = tone(1_000.0) + tone(8_000.0, 1.58e-4)  # ~70 dB under the fundamental, between the floors
+
+    assert clip_band_hz(faint_partial, _TRIM_S, SR, config) == pytest.approx(1_000.0, abs=200.0)
+    assert clip_reach_hz(faint_partial, _TRIM_S, SR, config) == pytest.approx(8_000.0, abs=200.0)
+
+
+def test_a_pricer_reads_one_length_once_however_many_rungs_ask_about_it(reduce: ReduceFactory) -> None:
+    """Every rung offered for a span prices off one spectrum, which is what keeps the charge affordable."""
+    config = reduce(bandwidth={"discard_penalty": 1.0}).bandwidth
+    pricer = DiscardPricer(broadband(), SR, config)
+
+    charged = [pricer.surcharge(stored_as(rate)) for rate in (4_000, 8_000, 16_000)]
+
+    assert list(pricer.reaches) == [_TRIM_S]
+    assert charged[0] > charged[1] > charged[2]
+
+
+def test_a_pricer_stating_no_penalty_reads_no_spectrum_at_all(reduce: ReduceFactory) -> None:
+    pricer = DiscardPricer(broadband(), SR, reduce(bandwidth={"discard_penalty": 0.0}).bandwidth)
+
+    assert pricer.surcharge(stored_as(4_000)) == 0.0
+    assert not pricer.reaches
+
+
+# --- the rungs a span is offered at ------------------------------------------------------------------
+
+
+def test_no_headroom_offers_the_rung_the_recording_asked_for_alone(make_context: Callable[..., _Context]) -> None:
+    context = make_context(rate_headroom=0)
+    stored = stored_format(tone(1_000.0), UNTRANSPOSED, context)
+
+    offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=0)
+
+    assert {params.target_rate for params in offered} == {stored.target_rate}
+
+
+def test_headroom_offers_each_span_at_the_rungs_above_the_settled_one(make_context: Callable[..., _Context]) -> None:
+    """Offering the wider rungs is what puts band among the things the allocation's bytes can buy."""
+    context = make_context(rate_headroom=1)
+    stored = stored_format(tone(1_000.0), UNTRANSPOSED, context)
+
+    offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=0)
+
+    assert stored.target_rate == _CHEAPEST_RUNG
+    assert [params.target_rate for params in offered] == [4_000, 8_000]
+
+
+def test_headroom_reaching_past_the_ladder_stops_at_the_recording_itself(
+    make_context: Callable[..., _Context],
+) -> None:
+    """The recording's own rate joins the ladder as its top rung, so a generous headroom settles there."""
+    context = make_context(rate_headroom=99)
+    stored = stored_format(tone(1_000.0), UNTRANSPOSED, context)
+
+    offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=0)
+
+    assert [params.target_rate for params in offered] == [*_RATES[::-1], SR]
+
+
+def test_the_settled_rung_leads_every_span_it_is_offered_for(make_context: Callable[..., _Context]) -> None:
+    """Spans lead and the settled rung opens each, so two sweeps still score in one order."""
+    context = make_context(rate_headroom=1)
+    stored = stored_format(tone(1_000.0), UNTRANSPOSED, context)
+
+    offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=1)
+
+    assert [(params.loop_index, params.target_rate) for params in offered] == [
+        (UNLOOPED, 4_000),
+        (UNLOOPED, 8_000),
+        (0, 4_000),
+        (0, 8_000),
+    ]
