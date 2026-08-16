@@ -9,7 +9,7 @@ from numpy.typing import NDArray
 from optisample.artifacts.context import DumpSettings
 from optisample.artifacts.dump import dump_project
 from optisample.artifacts.paths import pipeline_paths
-from optisample.artifacts.pipeline import PipelineSettings, run_pipeline
+from optisample.artifacts.pipeline import PipelineSettings, PipelineStage, run_pipeline
 from optisample.config import OptiConfig
 from optisample.io.audio import write_wav
 from optisample.io.dataset import SourceDataset
@@ -19,7 +19,6 @@ from optisample.io.note_extractor import (
     dump_notes,
     load_notes,
 )
-from optisample.model import ProjectSpec
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 
 SR = 44_100
@@ -82,6 +81,7 @@ def whole(
         instruments=allocation.instruments,
         intake=config.intake,
         fraction=None,
+        skip=None,
     )
 
 
@@ -106,8 +106,8 @@ def test_a_chained_run_writes_each_stage_under_the_directory_that_names_it(
     run = run_pipeline(source, out, sliced)
     paths = pipeline_paths(out)
     assert run.subset is not None and run.subset.dataset.source.path.parent == paths.subset_dir
-    assert run.reduced.paths.notes_json.parent == paths.reduced_dir
-    assert run.optimized.directory.parent == paths.optimized_dir
+    assert run.reduced is not None and run.reduced.paths.notes_json.parent == paths.reduced_dir
+    assert run.optimized is not None and run.optimized.directory.parent == paths.optimized_dir
     assert (run.optimized.directory / _STRATEGY / "plan.json").is_file()
 
 
@@ -119,8 +119,8 @@ def test_a_run_naming_no_fraction_reduces_the_source_it_was_handed(
     run = run_pipeline(source, out, whole)
     assert run.subset is None
     assert not pipeline_paths(out).subset_dir.exists()
-    assert run.reduced.notes == len(PITCHES)
-    assert (run.optimized.directory / _STRATEGY / "plan.json").is_file()
+    assert run.reduced is not None and run.reduced.notes == len(PITCHES)
+    assert run.optimized is not None and (run.optimized.directory / _STRATEGY / "plan.json").is_file()
 
 
 def test_the_slice_a_run_takes_is_what_it_goes_on_to_reduce(
@@ -130,7 +130,7 @@ def test_the_slice_a_run_takes_is_what_it_goes_on_to_reduce(
     run = run_pipeline(source, tmp_path / "chained", sliced)
     assert run.subset is not None
     assert run.subset.dataset.kept_notes == _SLICED_NOTES
-    assert run.reduced.notes == _SLICED_NOTES
+    assert run.reduced is not None and run.reduced.notes == _SLICED_NOTES
 
 
 def test_the_allocation_reaches_the_plan_the_reduced_dataset_allocates_to(
@@ -138,6 +138,8 @@ def test_the_allocation_reaches_the_plan_the_reduced_dataset_allocates_to(
 ) -> None:
     """The reduction exists to be read back, so a chain allocates from its dataset and that alone."""
     run = run_pipeline(source, tmp_path / "chained", whole)
+    assert run.reduced is not None
+    assert run.optimized is not None
     manifest = load_notes(run.reduced.paths.notes_json, run.reduced.paths.samples_dir, whole.ingest)
     (direct,) = dump_project(manifest, tmp_path / "direct", whole.dump)
     assert _plan(run.optimized.directory) == _plan(direct.directory)
@@ -148,4 +150,43 @@ def test_a_chained_run_states_the_wall_clock_the_whole_chain_took(
 ) -> None:
     """One run of several stages reports the time they add up to, which each stage's own is part of."""
     run = run_pipeline(source, tmp_path / "chained", whole)
+    assert run.reduced is not None
     assert run.elapsed_s >= run.reduced.elapsed_s
+
+
+def test_a_run_stopped_before_optimizing_writes_every_stage_but_the_allocation(
+    tmp_path: Path, source: SourceDataset, whole: PipelineSettings
+) -> None:
+    """A chain stopped before optimizing keeps the datasets the allocation reads, and nothing past them."""
+    run = run_pipeline(source, tmp_path / "chained", replace(whole, skip=PipelineStage.OPTIMIZE))
+    paths = pipeline_paths(tmp_path / "chained")
+    assert run.looped is not None
+    assert run.reduced is not None
+    assert run.optimized is None
+    assert paths.reduced_dir.exists() and paths.looped_dir.exists()
+    assert not paths.optimized_dir.exists()
+
+
+def test_a_run_stopped_before_reducing_writes_only_the_loop_stage(
+    tmp_path: Path, source: SourceDataset, whole: PipelineSettings
+) -> None:
+    """A chain stopped before reducing keeps the loops it settled and leaves the reduction unrun."""
+    run = run_pipeline(source, tmp_path / "chained", replace(whole, skip=PipelineStage.REDUCE))
+    paths = pipeline_paths(tmp_path / "chained")
+    assert run.looped is not None
+    assert run.reduced is None and run.optimized is None
+    assert paths.looped_dir.exists()
+    assert not paths.reduced_dir.exists() and not paths.optimized_dir.exists()
+
+
+def test_a_run_stopped_before_looping_writes_only_the_slice(
+    tmp_path: Path, source: SourceDataset, sliced: PipelineSettings
+) -> None:
+    """A chain stopped before looping keeps the slice and drops every stage past it."""
+    run = run_pipeline(source, tmp_path / "chained", replace(sliced, skip=PipelineStage.LOOP))
+    paths = pipeline_paths(tmp_path / "chained")
+    assert run.subset is not None
+    assert run.looped is None and run.reduced is None and run.optimized is None
+    assert paths.subset_dir.exists()
+    assert not paths.looped_dir.exists()
+    assert not paths.reduced_dir.exists() and not paths.optimized_dir.exists()

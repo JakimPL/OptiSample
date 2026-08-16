@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from enum import StrEnum, unique
 from pathlib import Path
 from time import perf_counter
 
@@ -19,6 +20,19 @@ from optisample.io.source import load_source
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 
 
+@unique
+class PipelineStage(StrEnum):
+    """The stage a chained run is stopped at, named by the command that runs that stage alone.
+
+    Holds the stages the chain always reaches -- looping, reduction and allocation -- in the order they
+    run. Naming one stops the chain before it, so that stage and every stage after it are dropped.
+    """
+
+    LOOP = "loop"
+    REDUCE = "reduce"
+    OPTIMIZE = "optimize"
+
+
 @dataclass(frozen=True)
 class PipelineSettings:
     """What each stage of a chained run is carried out with.
@@ -34,6 +48,9 @@ class PipelineSettings:
 
     ``instruments`` is what every stage carries its own recordings as, so each dataset the chain writes is
     playable in a tracker on the terms the run's own export states.
+
+    ``skip`` is the stage a run ends at, dropping it and every stage after it. Naming none runs the whole
+    chain.
     """
 
     ingest: IngestSettings
@@ -42,19 +59,23 @@ class PipelineSettings:
     instruments: InstrumentSettings
     intake: IntakeConfig
     fraction: float | None
+    skip: PipelineStage | None
 
 
 @dataclass(frozen=True)
 class PipelineRun:
     """What one chained run produced, stage by stage, and the wall-clock the chain took end to end.
 
-    ``subset`` is the slice the run took of its source, carried by the runs that asked for one.
+    ``subset`` is the slice the run took of its source, carried by the runs that asked for one. Every
+    stage past the point a run was stopped at is ``None``: a run stopped before looping leaves
+    ``looped``, ``reduced`` and ``optimized`` empty, and the tree holds only the directories of the
+    stages that ran.
     """
 
     subset: SlicedDataset | None
-    looped: LoopedInstrumentArtifacts
-    reduced: ReducedInstrument
-    optimized: DumpResult
+    looped: LoopedInstrumentArtifacts | None
+    reduced: ReducedInstrument | None
+    optimized: DumpResult | None
     elapsed_s: float
 
 
@@ -134,6 +155,10 @@ def run_pipeline(source: SourceDataset, out_dir: Path, settings: PipelineSetting
     settles loops on its source directly and begins at ``1_looped``, which is how an already-sliced dataset
     is carried through the same command.
 
+    A run stopped at ``settings.skip`` ends before that stage and writes the stages before it alone, so
+    the tree holds only the directories of the stages that ran and the result leaves every dropped stage
+    ``None``.
+
     Every stage carries its own recordings as standalone instruments beside them, so each step of the
     route is playable in a tracker and what one stage did to the audio is audible against the stage before
     it.
@@ -141,8 +166,35 @@ def run_pipeline(source: SourceDataset, out_dir: Path, settings: PipelineSetting
     started_at = perf_counter()
     paths = pipeline_paths(out_dir)
     subset = _sliced(source, paths.subset_dir, settings)
+    if settings.skip is PipelineStage.LOOP:
+        return PipelineRun(
+            subset=subset,
+            looped=None,
+            reduced=None,
+            optimized=None,
+            elapsed_s=perf_counter() - started_at,
+        )
+
     looped = _looped(_next_source(source, subset), paths.looped_dir, settings)
+    if settings.skip is PipelineStage.REDUCE:
+        return PipelineRun(
+            subset=subset,
+            looped=looped,
+            reduced=None,
+            optimized=None,
+            elapsed_s=perf_counter() - started_at,
+        )
+
     reduced = _reduced(looped, paths.reduced_dir, settings)
+    if settings.skip is PipelineStage.OPTIMIZE:
+        return PipelineRun(
+            subset=subset,
+            looped=looped,
+            reduced=reduced,
+            optimized=None,
+            elapsed_s=perf_counter() - started_at,
+        )
+
     optimized = _optimized(reduced, paths.optimized_dir, settings)
     return PipelineRun(
         subset=subset,

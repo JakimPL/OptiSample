@@ -2,7 +2,7 @@ import argparse
 import sys
 from typing import Final
 
-from optisample.artifacts import DumpSettings, InstrumentSettings, PipelineSettings, SliceSettings
+from optisample.artifacts import DumpSettings, InstrumentSettings, PipelineSettings, PipelineStage, SliceSettings
 from optisample.calibrate.ranking import PairQuota, RankingGrid, RankingSettings
 from optisample.cluster.instruments import ClusterSettings
 from optisample.cluster.stages import ReadingSettings, RecordingSource, Stage, available_instruments
@@ -277,6 +277,7 @@ def _pipeline_settings(config: OptiConfig, args: argparse.Namespace) -> Pipeline
         instruments=_instrument_settings(config, args),
         intake=_intake(config, args),
         fraction=args.fraction,
+        skip=PipelineStage(args.skip) if args.skip is not None else None,
     )
 
 

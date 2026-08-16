@@ -114,9 +114,14 @@ def _run_pipeline(config: OptiConfig, args: argparse.Namespace) -> None:
     if run.subset is not None:
         print_subset(run.subset)
 
-    print_looped(run.looped)
-    print_reduced(run.reduced)
-    print_plans(run.optimized)
+    if run.looped is not None:
+        print_looped(run.looped)
+    if run.reduced is not None:
+        print_reduced(run.reduced)
+    if run.optimized is not None:
+        print_plans(run.optimized)
+    elif args.skip is not None:
+        print(f"stopped before {args.skip}")
     print(f"total: {run.elapsed_s:.1f}s")
 
 

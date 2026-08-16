@@ -2,6 +2,7 @@ import argparse
 from pathlib import Path
 from typing import Final, get_args
 
+from optisample.artifacts.pipeline import PipelineStage
 from optisample.cluster.stages import Stage
 from optisample.config.reduce import DedupeKey
 from optisample.config.render import Interpolation
@@ -265,6 +266,12 @@ def _describe_pipeline(parser: argparse.ArgumentParser) -> None:
         type=float,
         default=None,
         help="Share of the source notes to slice out first, in (0, 1]; naming none reduces the source itself",
+    )
+    parser.add_argument(
+        "--skip",
+        choices=[stage.value for stage in PipelineStage],
+        default=None,
+        help="Stop the chain before this stage, dropping it and every stage after it",
     )
     _describe_admission(parser)
 

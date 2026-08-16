@@ -9,6 +9,7 @@ from numpy.typing import NDArray
 from pydantic import ValidationError
 
 from optisample.artifacts.paths import instrument_files_dir
+from optisample.artifacts.pipeline import PipelineStage
 from optisample.calibrate.ranking import Fault, Verdict
 from optisample.cli import main
 from optisample.cli.parsers import build_parser
@@ -643,6 +644,41 @@ def test_the_pipeline_command_reduces_its_source_when_no_fraction_names_a_slice(
     assert (out / "3_optimized" / "piano" / "ungrouped" / "plan.json").is_file()
 
 
+def test_the_pipeline_command_stopped_before_optimizing_writes_no_plan(
+    tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A chain ended at ``--skip optimize`` keeps the datasets the allocation reads and nothing past them."""
+    out = tmp_path / "artifacts"
+    run(
+        [
+            "pipeline",
+            str(tiny_notes),
+            "--budget-kb",
+            "48",
+            "--fraction",
+            "0.67",
+            "--out",
+            str(out),
+            "--rate",
+            "11025",
+            "--depth",
+            "8",
+            "--no-render",
+            "--strategy",
+            "ungrouped",
+            "--skip",
+            "optimize",
+        ]
+    )
+    assert (out / "0_subset" / "piano.notes.json").is_file()
+    assert (out / "1_looped" / "piano.notes.json").is_file()
+    assert (out / "2_reduced" / "piano.notes.json").is_file()
+    assert not (out / "3_optimized").exists()
+    printed = capsys.readouterr().out
+    assert "stopped before optimize" in printed
+    assert "total:" in printed
+
+
 def test_the_allocation_caps_a_chained_run_states_reach_the_stage_that_allocates(config: OptiConfig) -> None:
     """The reduction runs at the configured caps, so its dataset stays the one any allocation reads back."""
     args = build_parser().parse_args(
@@ -658,6 +694,26 @@ def test_the_allocation_caps_a_chained_run_states_reach_the_stage_that_allocates
 def test_a_chained_run_slices_nothing_when_no_fraction_is_named(config: OptiConfig) -> None:
     args = build_parser().parse_args(["pipeline", "m.notes.json", "--budget-kb", "48"])
     assert _pipeline_settings(config, args).fraction is None
+
+
+def test_the_skip_flag_names_the_stage_a_chain_stops_at(config: OptiConfig) -> None:
+    """``--skip`` travels to the settings as the stage the chain ends before, and nothing where it is absent."""
+    assert (
+        _pipeline_settings(config, build_parser().parse_args(["pipeline", "m.notes.json", "--budget-kb", "48"])).skip
+        is None
+    )
+    args = build_parser().parse_args(["pipeline", "m.notes.json", "--budget-kb", "48", "--skip", "reduce"])
+    assert _pipeline_settings(config, args).skip is PipelineStage.REDUCE
+
+
+def test_the_skip_flag_accepts_only_the_stages_the_chain_always_reaches() -> None:
+    """The slice is omitted by leaving ``--fraction`` out, so the flag names the three stages past it."""
+    for stage in ("loop", "reduce", "optimize"):
+        args = build_parser().parse_args(["pipeline", "m.notes.json", "--budget-kb", "48", "--skip", stage])
+        assert args.skip == stage
+
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["pipeline", "m.notes.json", "--budget-kb", "48", "--skip", "subset"])
 
 
 def test_the_pipeline_command_reads_the_same_ingest_flags_as_optimize(config: OptiConfig) -> None:
