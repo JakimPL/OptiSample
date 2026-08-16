@@ -60,7 +60,7 @@ line_length = 120
 known_first_party = ["optisample"]
 
 [tool.pytest.ini_options]
-addopts = "--import-mode=importlib --cov"
+addopts = "--import-mode=importlib --cov -p tests.threads"
 pythonpath = ["src", "."]
 testpaths = ["tests"]
 
