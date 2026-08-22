@@ -7,7 +7,7 @@ from optisample.artifacts.documents.velocity import VelocityMapDocument
 from optisample.artifacts.serialize import Frozen
 from optisample.optimize.layers.slots import ONE_SLOT, SlotLayout
 
-MANIFEST_VERSION: Final = 3  # the manifest shape stated out loud, so a consumer reads the one it knows
+MANIFEST_VERSION: Final = 2  # the manifest shape stated out loud, so a consumer reads the one it knows
 _VELOCITY_AXIS: Final = "velocity"  # the axis name a selector spells its velocity band under
 _PITCH_AXIS: Final = "pitch"  # the axis name a selector spells its run of keys under
 

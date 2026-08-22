@@ -591,12 +591,14 @@ Piano.bank
 ```
 
 The manifest states every band the allocation chose, in order, each naming the entry it is stored as and
-carrying the velocity map the plan measured:
+carrying the velocity map the plan measured, beside the `tempo` the whole bank's envelopes were fitted
+against:
 
 ```json
 {
   "version": 2,
   "name": "Piano",
+  "tempo": 125,
   "layers": [
     {
       "source": { "file": "instruments/p029-p063_v000-v051.iti" },
