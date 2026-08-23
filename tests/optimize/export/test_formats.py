@@ -106,7 +106,7 @@ def test_a_pitch_above_a_formats_keyboard_is_refused_by_that_format(
         samples=[SourceSample(file=Path("top.wav"), pitch=_ABOVE_XM_PITCH, velocity=100)],
         material=material,
     )
-    settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depth=16))
+    settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depths=(16,)))
     plan = optimize_instrument(instrument, recordings(audio, SR), settings)
 
     module = build_module(plan, recordings(audio, SR), material, as_format(TrackerFormat.IT))
@@ -142,7 +142,7 @@ def test_a_plan_holding_more_samples_than_an_xm_instrument_owns_is_written_as_se
     """FastTracker 2 numbers sixteen samples inside an instrument, so a wider plan is cut into slots."""
     instrument = _wide_instrument()
     audio = {SampleKey(pitch, 100): piano_note(pitch, 100, dur=_SHORT_NOTE_S, seed=pitch) for pitch in _WIDE_KEYS}
-    settings = optimize_settings(sweep=sweep(rates=(11_025,), depth=8, dither=False))
+    settings = optimize_settings(sweep=sweep(rates=(11_025,), depths=(8,), dither=False))
     plan = optimize_instrument(instrument, recordings(audio, SR), settings)
     per_instrument = retarget(TrackerFormat.XM).max_samples_per_instrument
 
@@ -164,7 +164,7 @@ def test_one_instrument_holds_the_whole_plan_where_the_format_numbers_samples_fr
     """Impulse Tracker lets an instrument reach the whole sample table, so the same plan stays one."""
     instrument = _wide_instrument()
     audio = {SampleKey(pitch, 100): piano_note(pitch, 100, dur=_SHORT_NOTE_S, seed=pitch) for pitch in _WIDE_KEYS}
-    settings = optimize_settings(sweep=sweep(rates=(11_025,), depth=8, dither=False))
+    settings = optimize_settings(sweep=sweep(rates=(11_025,), depths=(8,), dither=False))
     plan = optimize_instrument(instrument, recordings(audio, SR), settings)
 
     module = build_module(plan, recordings(audio, SR), instrument.material, as_format(TrackerFormat.IT))
@@ -185,7 +185,7 @@ def test_every_note_of_a_cut_plan_names_the_instrument_its_key_resolves_to(
     """Each slot owns a run of keys, and the pattern plays a note through the slot owning its own."""
     instrument = _wide_instrument()
     audio = {SampleKey(pitch, 100): piano_note(pitch, 100, dur=_SHORT_NOTE_S, seed=pitch) for pitch in _WIDE_KEYS}
-    settings = optimize_settings(sweep=sweep(rates=(11_025,), depth=8, dither=False))
+    settings = optimize_settings(sweep=sweep(rates=(11_025,), depths=(8,), dither=False))
     plan = optimize_instrument(instrument, recordings(audio, SR), settings)
     per_instrument = retarget(TrackerFormat.XM).max_samples_per_instrument
 

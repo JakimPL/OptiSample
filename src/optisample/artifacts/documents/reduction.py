@@ -25,13 +25,12 @@ class KeptRecordingRecord(Frozen):
 class StoredFormatRecord(Frozen):
     """The format the reduction settled for a pitch's stored sample, from the recording's own content.
 
-    ``compress`` states whether the sample runs through dynamics on the way to the quantizer, which a
-    shallow depth asks for and a deep one leaves alone.
+    The rate follows the recording's own band, so it is settled here; ``depths`` are the grids the sweep
+    then prices that rate at, and which of them a sample ends up stored on is read off the plan.
     """
 
     target_rate: int
-    depth_bits: int
-    compress: bool
+    depths: list[int]
 
 
 class NarrowedGridRecord(Frozen):
@@ -147,8 +146,7 @@ def reduction_document(reduction: ReductionSummary) -> ReductionDocument:
                 useful_rate_hz=grid.useful_rate_hz,
                 stored=StoredFormatRecord(
                     target_rate=grid.stored.target_rate,
-                    depth_bits=grid.stored.depth_bits,
-                    compress=grid.stored.compress,
+                    depths=list(grid.stored.depths),
                 ),
                 swept=len(grid.encodings),
             )

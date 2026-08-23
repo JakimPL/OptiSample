@@ -46,7 +46,7 @@ def ranking_run_settings(
     optimize_settings: Callable[..., OptimizeSettings],
 ) -> OptimizeSettings:
     """A run settled over a short rate ladder, so a widened grid has rungs to step down to."""
-    return optimize_settings(sweep=sweep(rates=_LADDER, depth=_STORED_DEPTH), seed=_SEED)
+    return optimize_settings(sweep=sweep(rates=_LADDER, depths=(_STORED_DEPTH,)), seed=_SEED)
 
 
 @pytest.fixture

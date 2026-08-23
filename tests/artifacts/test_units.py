@@ -68,12 +68,31 @@ def test_make_kind_packages_an_ungrouped_plan(ungrouped_plan: InstrumentPlan, du
     assert kind.plan_document.module.total_bytes == kind.module.size().total
 
 
-def test_make_kind_rebuilds_the_module_over_other_material(
+def test_make_kind_rebuilds_the_module_over_the_material_it_was_written_for(
     ungrouped_plan: InstrumentPlan, dump_context: DumpContext
 ) -> None:
+    """The plan alone settles the waveforms, so asking for the same material again writes the same module."""
     kind = make_kind(ungrouped_plan, dump_context)
+
+    again = kind.make_module(list(dump_context.material))
+
+    assert again.song.samples == kind.module.song.samples
+
+
+def test_a_carriers_waveform_follows_the_material_its_instrument_plays(
+    ungrouped_plan: InstrumentPlan, dump_context: DumpContext
+) -> None:
+    """A carrier is its recording divided by the curve its instrument carries, and that curve is fitted to
+    what the instrument plays -- so a module rebuilt over other material stores the same plan through a
+    curve of its own. The stored format stands where the plan put it; only the waveform under it moves.
+    """
+    kind = make_kind(ungrouped_plan, dump_context)
+
     one_note = kind.make_module(list(dump_context.material[:1]))
-    assert one_note.song.samples == kind.module.song.samples  # the same stored samples, a shorter song
+
+    stored = [(sample.name, sample.rate, sample.depth) for sample in one_note.song.samples]
+    assert stored == [(sample.name, sample.rate, sample.depth) for sample in kind.module.song.samples]
+    assert one_note.song.samples != kind.module.song.samples  # the curve followed the material it was given
     assert one_note.size().patterns < kind.module.size().patterns
 
 

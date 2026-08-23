@@ -17,7 +17,7 @@ _SETTLED_DEPTH = 16
 @pytest.fixture
 def ladder_sweep(sweep: Callable[..., SweepConfig]) -> SweepConfig:
     """A sweep whose rate ladder is short enough for a test to name every rung it holds."""
-    return sweep(rates=_LADDER, depth=_SETTLED_DEPTH, compress=True)
+    return sweep(rates=_LADDER, depths=(_SETTLED_DEPTH,), compress=True)
 
 
 @pytest.fixture

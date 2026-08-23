@@ -126,20 +126,17 @@ def useful_rate_hz(
 
 @dataclass(frozen=True)
 class StoredFormat:
-    """The rate and depth one sample is stored at, settled from the recording's own content.
+    """The rate one sample is stored at, settled from the recording's own content, and the depths offered.
 
-    The reduction stage decides this and the allocation spends its bytes elsewhere -- on zone width,
-    sample count, stored length and which loop -- so a plan pressed for room stores fewer, wider or
-    shorter samples while each one it does store carries the band its recording asked for.
-
-    ``compress`` says the dynamics stage is *available* at this depth, which is a property of the grid the
-    depth leaves rather than a decision: what the sweep does with it is offer each stored span both ways
-    and let the objective pick (:func:`stored_encodings`).
+    The reduction settles the rate from the recording's own band, so every sample a plan stores carries
+    the spectrum its material asked for whatever else the budget presses on. ``depths`` are the grids the
+    sweep then prices that rate at, deepest first: a shallow copy costs half the frames of a deep one, so
+    how finely a waveform is stored is a trade the objective makes against zone width, sample count and
+    stored length rather than a decision taken before it.
     """
 
     target_rate: int
-    depth_bits: int
-    compress: bool
+    depths: tuple[int, ...]
 
 
 def _lowest_rung(rates: Sequence[int], useful_rate: float) -> int:
@@ -161,11 +158,9 @@ def format_from_band(content_hz: float, demand: ClipDemand, context: FormatInput
     already measured.
     """
     useful_rate = _audible_rate_hz(content_hz, demand.delta_semitones, context.sample_rate, context.bandwidth)
-    depth_bits = context.sweep.depth
     return StoredFormat(
         target_rate=_lowest_rung(sweep_rates(context.sweep, context.sample_rate), useful_rate),
-        depth_bits=depth_bits,
-        compress=compresses(context.sweep, depth_bits),
+        depths=context.sweep.depths,
     )
 
 
@@ -246,6 +241,11 @@ def _offered_rates(settled_rate: int, sweep: SweepConfig, sample_rate: int) -> t
     return (settled_rate, *above[: sweep.rate_headroom])
 
 
+def _dynamics(sweep: SweepConfig, depth: int) -> tuple[bool, ...]:
+    """Whether a span stored at ``depth`` is offered both plain and compressed, or plain alone."""
+    return (False, True) if compresses(sweep, depth) else (False,)
+
+
 def stored_encodings(
     stored: StoredFormat,
     sweep: SweepConfig,
@@ -267,28 +267,28 @@ def stored_encodings(
     the wider rungs cost more and win where :func:`discard_surcharge` prices the spectrum they keep above
     what the same bytes buy in length or in another sample.
 
-    Where the depth leaves a grid shallow enough for the dynamics stage to buy headroom, each span is
-    offered both plain and compressed and the objective picks between them, which is what makes compression
-    an axis the run prices rather than a step it takes on the way past. A depth deep enough to carry the
-    material outright offers each span once.
+    Each of those is offered at every depth the sweep names, and a depth shallow enough for the dynamics
+    stage to buy headroom is offered both plain and compressed, which is what makes both the grid a
+    waveform is stored on and the compression ahead of it axes the run prices rather than steps it takes
+    on the way past. A depth deep enough to carry the material outright offers each span once.
 
-    Spans lead, then rates: every encoding of the trimmed span stands before the first loop's, so the
-    trimmed span occupies the opening positions for every clip and the per-pitch and per-zone sweeps score
-    in one order, with the settled rung leading each span.
+    Spans lead, then rates, then depths: every encoding of the trimmed span stands before the first loop's,
+    so the trimmed span occupies the opening positions for every clip and the per-pitch and per-zone sweeps
+    score in one order, with the settled rung and the deepest grid leading each span.
     """
     plain = EncodingParams(
         target_rate=stored.target_rate,
-        depth_bits=stored.depth_bits,
+        depth_bits=stored.depths[0],
         trim_s=trim_s,
         dither=sweep.dither,
         noise_shaping=sweep.noise_shaping,
         loop_index=UNLOOPED,
         compress=False,
     )
-    dynamics = (False, True) if stored.compress else (False,)
     return tuple(
-        replace(plain, loop_index=span, target_rate=rate, compress=compress)
+        replace(plain, loop_index=span, target_rate=rate, depth_bits=depth, compress=compress)
         for span in (UNLOOPED, *range(loops))
         for rate in _offered_rates(stored.target_rate, sweep, sample_rate)
-        for compress in dynamics
+        for depth in stored.depths
+        for compress in _dynamics(sweep, depth)
     )

@@ -1,10 +1,11 @@
-from typing import Annotated, Final, Literal
+from typing import Annotated, Final, Literal, Self
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from optisample.config.base import ConfigModel
 from optisample.config.layers import LayersConfig
 from optisample.config.stage import StageConfig
+from trackmod.core.samples.depth import BitDepth
 
 Method = Literal["exact", "lagrangian"]
 
@@ -18,8 +19,12 @@ class SweepConfig(ConfigModel):
     states the rates worth stepping down to and leaves "store it as recorded" to follow from the recording
     itself. The reduction reads the rung the recording's own content asks for
     (:func:`~optisample.optimize.reduce.bandwidth.stored_format`), so every rung stays available to
-    material that reaches it. ``depth`` is the depth every stored sample keeps, and ``compress`` applies
-    dynamics on the way to the quantizer where the depth is shallow enough to hear the headroom it buys.
+    material that reaches it. ``depths`` are the depths a stored sample is offered at, and ``compress`` applies
+    dynamics on the way to the quantizer where a depth is shallow enough to hear the headroom it buys.
+    Naming both depths puts the eighth bit among the things a byte buys: a shallow copy costs half the
+    frames of a deep one, so the objective weighs storing one sample deeply against storing two shallowly
+    -- a trade worth making wherever the level a waveform carries is handed to an envelope (``carrier``),
+    since a level-flat waveform spends the whole of a shallow grid on timbre.
 
     What the sweep then prices per sample is the stored span and the rate: keeping the played length
     against keeping the attack plus the loop the loop stage settled, each offered at the settled rung and
@@ -45,11 +50,25 @@ class SweepConfig(ConfigModel):
 
     rates: Annotated[tuple[int, ...], Field(min_length=1)]
     rate_headroom: Annotated[int, Field(ge=0)]
-    depth: Annotated[int, Field(gt=0)]
+    depths: Annotated[tuple[int, ...], Field(min_length=1)]
     dither: bool
     noise_shaping: bool
     compress: bool
     carrier: bool
+
+    @model_validator(mode="after")
+    def _depths_are_storable(self) -> Self:
+        """Hold every offered depth to one a tracker sample is written at.
+
+        Raises:
+            ValueError: when a depth names a grid no format stores, which no encoding could be written to.
+        """
+        storable = {int(depth) for depth in BitDepth}
+        offered = [depth for depth in self.depths if depth not in storable]
+        if offered:
+            raise ValueError(f"depths {offered} are stored by no tracker format, against {sorted(storable)}")
+
+        return self
 
 
 class BudgetConfig(ConfigModel):

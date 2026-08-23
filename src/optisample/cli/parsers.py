@@ -123,9 +123,11 @@ def _ingest_parser() -> argparse.ArgumentParser:
     )
     ingest.add_argument(
         "--depth",
+        dest="depths",
         type=int,
+        action="append",
         default=None,
-        help="Bit depth every stored sample keeps (default: the config's)",
+        help="Bit depth a stored sample is offered at, repeatable; naming one holds the run to it",
     )
     ingest.add_argument(
         "--rate-headroom",

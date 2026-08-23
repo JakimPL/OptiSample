@@ -113,7 +113,7 @@ def _optimize_settings(
         {
             **config.optimize.sweep.model_dump(),
             "rates": tuple(args.rates) if args.rates else config.optimize.sweep.rates,
-            "depth": args.depth if args.depth is not None else config.optimize.sweep.depth,
+            "depths": tuple(args.depths) if args.depths else config.optimize.sweep.depths,
             "rate_headroom": (
                 args.rate_headroom if args.rate_headroom is not None else config.optimize.sweep.rate_headroom
             ),

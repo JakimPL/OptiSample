@@ -90,14 +90,14 @@ def _reduction() -> ReductionDocument:
                 pitch=60,
                 note="C4",
                 useful_rate_hz=12_345.6,
-                stored=StoredFormatRecord(target_rate=16_000, depth_bits=16, compress=False),
+                stored=StoredFormatRecord(target_rate=16_000, depths=[16]),
                 swept=4,
             ),
             NarrowedGridRecord(
                 pitch=67,
                 note="G4",
                 useful_rate_hz=9_000.0,
-                stored=StoredFormatRecord(target_rate=11_025, depth_bits=8, compress=True),
+                stored=StoredFormatRecord(target_rate=11_025, depths=[8]),
                 swept=4,
             ),
         ],
@@ -352,11 +352,11 @@ def test_a_recording_shorter_than_its_material_states_the_shortfall(reduced_root
     assert [row["shortfall_s"] for row in rows] == [0.0, 1.5]
 
 
-def test_a_stored_format_row_names_the_rate_depth_and_compression_it_settled_on(reduced_root: Path) -> None:
+def test_a_stored_format_row_names_the_rate_it_settled_on_and_the_depths_priced_at_it(reduced_root: Path) -> None:
     rows = reports.stored_format_rows(reports.read_reduced(reduced_root, _INSTRUMENT).reduction)
 
     assert rows[0]["stored"] == "16k/16"
-    assert rows[1]["stored"] == "11k/8c"  # c marks the dynamics a shallow depth is stored through
+    assert rows[1]["stored"] == "11k/8"
     assert (rows[0]["useful_rate_hz"], rows[0]["swept"]) == (12_346, 4)
 
 

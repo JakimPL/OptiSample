@@ -547,7 +547,7 @@ def reduction() -> ReductionSummary:
             NarrowedGrid(
                 pitch=60,
                 useful_rate_hz=10_500.0,
-                stored=StoredFormat(target_rate=11_025, depth_bits=16, compress=False),
+                stored=StoredFormat(target_rate=11_025, depths=(16,)),
                 encodings=(EncodingParams(target_rate=11_025, depth_bits=16),),
             ),
         ),

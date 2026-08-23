@@ -10,6 +10,7 @@ from optisample.config.loop import LoopConfig
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import ReduceConfig
 from optisample.dsp.spectral import bandlimit
+from optisample.dsp.surrogate import UNLOOPED
 from optisample.keys import SampleKey
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.reduce.bandwidth import (
@@ -30,7 +31,6 @@ SR = 22_050
 _PITCHES = (60, 67)
 _NOTE_S = 0.4
 _RATES = (16_000, 8_000, 4_000)  # an explicit ladder, so a test states which rung it expects back
-_UNLOOPED_SPANS = 1  # encodings a clip with no settled loop is offered: the played span alone
 _NO_TRANSPOSE = 0
 _RATE_PER_BANDWIDTH = 2.0  # Nyquist, which turns a content-edge tolerance into a rate tolerance
 _SHARED = 2  # workers, enough to run the pre-pass apart without asking the machine for every core
@@ -158,7 +158,7 @@ def test_the_swept_total_adds_up_the_pitches(
 ) -> None:
     summary = summarize_reduction(instrument, clips, audio, inputs)
     assert summary.swept == sum(len(grid.encodings) for grid in summary.grids)
-    assert summary.swept == _UNLOOPED_SPANS * len(clips)  # no clip settled a loop, so one encoding per pitch
+    assert {params.loop_index for grid in summary.grids for params in grid.encodings} == {UNLOOPED}
 
 
 def test_a_pitch_keeps_the_rate_its_own_content_justifies(

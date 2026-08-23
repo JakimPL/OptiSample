@@ -158,4 +158,4 @@ def test_the_reduction_document_records_every_kept_recording_and_narrowed_grid(
     grid = reduction.grids[0]
     assert grid.note and 0.0 < grid.useful_rate_hz
     assert grid.stored.target_rate >= grid.useful_rate_hz  # the rung reaches the band it was settled from
-    assert grid.stored.depth_bits in (8, 16) and grid.swept > 0
+    assert set(grid.stored.depths) <= {8, 16} and grid.swept > 0

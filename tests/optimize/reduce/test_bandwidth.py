@@ -153,9 +153,10 @@ def test_a_sample_transposed_up_is_stored_at_a_lower_rung(make_context: Callable
     )
 
 
-def test_the_depth_is_the_one_the_run_stores_every_sample_at(make_context: Callable[..., _Context]) -> None:
-    context = make_context(depth=_SHALLOW_DEPTH)
-    assert stored_format(broadband(), UNTRANSPOSED, context).depth_bits == _SHALLOW_DEPTH
+def test_the_depths_a_run_prices_reach_the_format_it_settles(make_context: Callable[..., _Context]) -> None:
+    """The reduction settles the rate alone; which grid a sample lands on is the sweep's to price."""
+    context = make_context(depths=(_SHALLOW_DEPTH, _DEEP_DEPTH))
+    assert stored_format(broadband(), UNTRANSPOSED, context).depths == (_SHALLOW_DEPTH, _DEEP_DEPTH)
 
 
 @pytest.mark.parametrize(
@@ -168,15 +169,19 @@ def test_the_depth_is_the_one_the_run_stores_every_sample_at(make_context: Calla
 def test_compression_reaches_the_depths_that_stand_to_win_by_it(
     make_context: Callable[..., _Context], depth: int, compressed: bool
 ) -> None:
-    context = make_context(depth=depth, compress=True)
-    assert stored_format(broadband(), UNTRANSPOSED, context).compress is compressed
+    context = make_context(depths=(depth,), compress=True)
+    stored = stored_format(broadband(), UNTRANSPOSED, context)
+    offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=0)
+    assert any(params.compress for params in offered) is compressed
 
 
 def test_a_run_asking_for_no_compression_stores_every_depth_as_recorded(
     make_context: Callable[..., _Context],
 ) -> None:
-    context = make_context(depth=_SHALLOW_DEPTH, compress=False)
-    assert stored_format(broadband(), UNTRANSPOSED, context).compress is False
+    context = make_context(depths=(_SHALLOW_DEPTH,), compress=False)
+    stored = stored_format(broadband(), UNTRANSPOSED, context)
+    offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=0)
+    assert not any(params.compress for params in offered)
 
 
 # --- measuring a band once, settling many demands from it ---------------------------------------------
@@ -202,16 +207,24 @@ def test_the_same_clip_earns_the_same_format_every_time(make_context: Callable[.
 
 
 def test_every_stored_span_is_offered_at_the_one_settled_format(make_context: Callable[..., _Context]) -> None:
-    """The format is settled before the sweep, so what the sweep prices is how far the sample carries on."""
-    context = make_context()
+    """The rate is settled before the sweep, so what a span varies is how far the sample carries on."""
+    context = make_context(depths=(_DEEP_DEPTH,), compress=False)
     stored = stored_format(broadband(), UNTRANSPOSED, context)
 
     offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=3)
 
     assert [params.loop_index for params in offered] == [UNLOOPED, 0, 1, 2]
-    assert {(params.target_rate, params.depth_bits, params.compress) for params in offered} == {
-        (stored.target_rate, stored.depth_bits, stored.compress)
-    }
+    assert {params.target_rate for params in offered} == {stored.target_rate}
+
+
+def test_both_grids_are_offered_where_a_run_prices_both(make_context: Callable[..., _Context]) -> None:
+    """A shallow copy costs half the frames of a deep one, so which grid to store on is a trade to price."""
+    context = make_context(depths=(_DEEP_DEPTH, _SHALLOW_DEPTH), compress=False)
+    stored = stored_format(broadband(), UNTRANSPOSED, context)
+
+    offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=1)
+
+    assert [params.depth_bits for params in offered] == [_DEEP_DEPTH, _SHALLOW_DEPTH] * 2
 
 
 def test_the_stored_length_reaches_every_encoding_offered(make_context: Callable[..., _Context]) -> None:
@@ -225,7 +238,7 @@ def test_a_shallow_depth_offers_every_span_both_plain_and_compressed(
     make_context: Callable[..., _Context],
 ) -> None:
     """Compression is an axis the run prices, not a step it takes: both ways are offered and one is picked."""
-    context = make_context(depth=_SHALLOW_DEPTH, compress=True)
+    context = make_context(depths=(_SHALLOW_DEPTH,), compress=True)
     stored = stored_format(broadband(), UNTRANSPOSED, context)
 
     offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=2)
@@ -242,7 +255,7 @@ def test_a_shallow_depth_offers_every_span_both_plain_and_compressed(
 
 def test_a_run_asking_for_no_dynamics_offers_every_span_once(make_context: Callable[..., _Context]) -> None:
     """A run that turns the stage off prices no compressed encoding, however shallow its grid runs."""
-    context = make_context(depth=_SHALLOW_DEPTH, compress=False)
+    context = make_context(depths=(_SHALLOW_DEPTH,), compress=False)
     stored = stored_format(broadband(), UNTRANSPOSED, context)
 
     offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=2)
@@ -254,7 +267,7 @@ def test_a_depth_deep_enough_to_carry_the_material_offers_no_compressed_encoding
     make_context: Callable[..., _Context],
 ) -> None:
     """A sixteen-bit grid already sits under anything compression would protect, so it is offered plain."""
-    context = make_context(depth=_DEEP_DEPTH, compress=True)
+    context = make_context(depths=(_DEEP_DEPTH,), compress=True)
     stored = stored_format(broadband(), UNTRANSPOSED, context)
 
     offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=2)
@@ -264,7 +277,7 @@ def test_a_depth_deep_enough_to_carry_the_material_offers_no_compressed_encoding
 
 def test_the_trimmed_span_leads_whatever_the_depth_offers(make_context: Callable[..., _Context]) -> None:
     """Spans lead, so the trimmed one opens the list for every clip and two sweeps score in one order."""
-    context = make_context(depth=_SHALLOW_DEPTH, compress=True)
+    context = make_context(depths=(_SHALLOW_DEPTH,), compress=True)
     stored = stored_format(broadband(), UNTRANSPOSED, context)
 
     offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=3)
@@ -275,7 +288,7 @@ def test_the_trimmed_span_leads_whatever_the_depth_offers(make_context: Callable
 
 def test_a_clip_with_no_settled_loop_offers_the_trimmed_span_alone(make_context: Callable[..., _Context]) -> None:
     """Nothing prices a loop for a recording the loop stage found none in, so the played span stands alone."""
-    context = make_context()
+    context = make_context(depths=(_DEEP_DEPTH,), compress=False)
     stored = stored_format(broadband(), UNTRANSPOSED, context)
 
     offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=0)
@@ -361,7 +374,7 @@ def test_no_headroom_offers_the_rung_the_recording_asked_for_alone(make_context:
 
 def test_headroom_offers_each_span_at_the_rungs_above_the_settled_one(make_context: Callable[..., _Context]) -> None:
     """Offering the wider rungs is what puts band among the things the allocation's bytes can buy."""
-    context = make_context(rate_headroom=1)
+    context = make_context(rate_headroom=1, depths=(_DEEP_DEPTH,), compress=False)
     stored = stored_format(tone(1_000.0), UNTRANSPOSED, context)
 
     offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=0)
@@ -374,7 +387,7 @@ def test_headroom_reaching_past_the_ladder_stops_at_the_recording_itself(
     make_context: Callable[..., _Context],
 ) -> None:
     """The recording's own rate joins the ladder as its top rung, so a generous headroom settles there."""
-    context = make_context(rate_headroom=99)
+    context = make_context(rate_headroom=99, depths=(_DEEP_DEPTH,), compress=False)
     stored = stored_format(tone(1_000.0), UNTRANSPOSED, context)
 
     offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=0)
@@ -384,7 +397,7 @@ def test_headroom_reaching_past_the_ladder_stops_at_the_recording_itself(
 
 def test_the_settled_rung_leads_every_span_it_is_offered_for(make_context: Callable[..., _Context]) -> None:
     """Spans lead and the settled rung opens each, so two sweeps still score in one order."""
-    context = make_context(rate_headroom=1)
+    context = make_context(rate_headroom=1, depths=(_DEEP_DEPTH,), compress=False)
     stored = stored_format(tone(1_000.0), UNTRANSPOSED, context)
 
     offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=1)

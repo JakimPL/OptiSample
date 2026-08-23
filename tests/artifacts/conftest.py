@@ -41,7 +41,7 @@ def _narrow_band_reduce() -> ReduceConfig:
 def tiny_settings() -> OptimizeSettings:
     """Cheap swept settings straight from the bundled config (dither off → the re-encode is deterministic)."""
     grid = SweepConfig.model_validate(
-        {**_CONFIG.optimize.sweep.model_dump(), "rates": (11_025,), "depth": 8, "dither": False}
+        {**_CONFIG.optimize.sweep.model_dump(), "rates": (11_025,), "depths": (8,), "dither": False}
     )
     return OptimizeSettings(
         loop=_CONFIG.loop,

@@ -44,7 +44,7 @@ def planned(
     recordings: Recordings,
 ) -> tuple[InstrumentPlan, StoredRecordings]:
     """A plan over the demo instrument, beside the recordings it was allocated from."""
-    settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depth=16))
+    settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depths=(16,)))
     held = recordings(demo_audio, SR)
     return optimize_instrument(demo_instrument(), held, settings), held
 

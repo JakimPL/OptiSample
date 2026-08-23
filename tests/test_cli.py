@@ -125,7 +125,7 @@ def test_dump_settings_maps_grid_and_flags(config: OptiConfig) -> None:
     )
     settings = _dump_settings(config, args)
     assert settings.optimize.sweep.rates == (11_025,)
-    assert settings.optimize.sweep.depth == 8
+    assert settings.optimize.sweep.depths == (8,)
     assert settings.optimize.loops is False  # --no-loop leaves the loop stage out of the run
     assert settings.optimize.seed == 3
     assert settings.optimize.target.format is config.export.tracker.format  # unnamed, so the configured format

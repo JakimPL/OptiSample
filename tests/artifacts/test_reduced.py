@@ -262,19 +262,23 @@ def test_the_auditions_are_the_encodings_the_document_states(reduced: ReducedIns
 def test_an_audition_is_named_by_the_encoding_it_holds(reduced: ReducedInstrument) -> None:
     """Every audition of a pitch is stored at the rate and depth the reduction settled, named by its axes.
 
-    A depth shallow enough for the dynamics stage offers each span both ways, so the folder holds a
-    compressed audition beside every plain one and a listener hears the axis the objective picks along.
+    The rate follows the recording's own band, so every audition of a pitch shares it; the depth, the
+    dynamics and the stored span are what the sweep prices, so the folder holds one file per encoding it
+    offers and a listener hears every axis the objective picks along.
     """
     grid = _document(reduced)["reduction"]["grids"][0]  # type: ignore[index]
     folder = reduced.paths.auditions_dir / f"p{grid['pitch']:03d}_{grid['note']}"
     stored = grid["stored"]
-    stem = f"r{stored['target_rate']}_d{stored['depth_bits']}"
-    dynamics = ("", "_c") if stored["compress"] else ("",)
-    spans = ["", *(f"_loop{index}" for index in range(grid["swept"] // len(dynamics) - _TRIMMED_ONLY))]
+    stems = [f"r{stored['target_rate']}_d{depth}" for depth in stored["depths"]]
+    dynamics = ("", "_c")  # the fixture stores at a depth shallow enough for the dynamics stage to be offered
+    offered = len(stems) * len(dynamics)
+    spans = ["", *(f"_loop{index}" for index in range(grid["swept"] // offered - _TRIMMED_ONLY))]
 
     auditions = sorted(path.name for path in folder.glob("*.wav") if path.stem != "reference")
 
-    assert auditions == sorted(f"{stem}{compressed}{span}.wav" for span in spans for compressed in dynamics)
+    assert auditions == sorted(
+        f"{stem}{compressed}{span}.wav" for stem in stems for span in spans for compressed in dynamics
+    )
 
 
 def test_an_audition_runs_as_long_as_the_note_it_stands_for(reduced: ReducedInstrument) -> None:

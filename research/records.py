@@ -159,6 +159,7 @@ class PlanReadings(Readings):
     median_zone_keys: float
     widest_zone_keys: int
     rungs: dict[str, int]
+    depths: dict[str, int]
     median_hull_size: float
     reserve_bytes_per_sample: int | None
     objective_uncapped: float | None
@@ -194,6 +195,7 @@ class PlanReadings(Readings):
             median_zone_keys=_median(widths),
             widest_zone_keys=max(widths, default=0),
             rungs=dict(Counter(str(item.target_rate) for item in items)),
+            depths=dict(Counter(str(item.depth_bits) for item in items)),
             median_hull_size=_median([item.hull_size for item in items]),
             reserve_bytes_per_sample=plan.reserve.bytes_per_sample if plan.reserve else None,
             objective_uncapped=plan.reserve.objective_uncapped if plan.reserve else None,

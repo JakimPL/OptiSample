@@ -65,7 +65,7 @@ def instrument(budget_kb: float) -> InstrumentSpec:
 @pytest.fixture
 def grid(sweep: Callable[..., SweepConfig]) -> SweepConfig:
     """The ladder these tests offer, over the bundled defaults; the reduction picks the rung it stores at."""
-    return sweep(rates=(44_100, 11_025), depth=16)
+    return sweep(rates=(44_100, 11_025), depths=(16,))
 
 
 @pytest.fixture
@@ -378,7 +378,7 @@ def priced(
 
     def _priced(discard_penalty: float, *, budget_kb: float = 64.0) -> InstrumentPlan:
         settings = optimize_settings(
-            sweep=sweep(rates=(44_100, 11_025), depth=16, rate_headroom=1),
+            sweep=sweep(rates=(44_100, 11_025), depths=(16,), rate_headroom=1),
             reduce=reduce(bandwidth={"discard_penalty": discard_penalty}),
         )
         return optimize_instrument(instrument(budget_kb), recordings(demo_audio(), SR), settings)
