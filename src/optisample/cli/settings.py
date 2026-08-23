@@ -117,6 +117,7 @@ def _optimize_settings(
             "rate_headroom": (
                 args.rate_headroom if args.rate_headroom is not None else config.optimize.sweep.rate_headroom
             ),
+            "carrier": config.optimize.sweep.carrier and not args.no_carrier,
         }
     )
     return OptimizeSettings(

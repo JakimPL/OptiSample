@@ -91,7 +91,9 @@ def pivot(records: Sequence[CellRecord], family: str, field: str) -> Pivot:
         family=family,
         field=field,
         labels=_sorted_labels({label for _, label in values}),
-        classes={record.instrument_id: record.material_class for record in wanted if _reading(record, field) is not None},
+        classes={
+            record.instrument_id: record.material_class for record in wanted if _reading(record, field) is not None
+        },
         values=values,
     )
 

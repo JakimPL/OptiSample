@@ -8,7 +8,6 @@ from statistics import fmean
 from typing import Final
 
 from optisample.config.loader import load_config
-
 from research.bench import BenchRecord, read
 
 _NAME: Final = 18
@@ -94,10 +93,10 @@ def term_shares(records: Sequence[BenchRecord], weights: Mapping[str, float]) ->
             shares.setdefault(term, []).append(value / total)
 
     terms = sorted({term for shares in gathered.values() for term in shares})
-    header = f"{'class':{_NAME}} " + " ".join(f'{term:>{_WIDTH}}' for term in terms)
+    header = f"{'class':{_NAME}} " + " ".join(f"{term:>{_WIDTH}}" for term in terms)
     lines = ["=== share of the composite each term carries, weighted as the objective sums them", header]
     for name in sorted(gathered):
-        cells = " ".join(f'{fmean(gathered[name].get(term, [0.0])):{_WIDTH}.3f}' for term in terms)
+        cells = " ".join(f"{fmean(gathered[name].get(term, [0.0])):{_WIDTH}.3f}" for term in terms)
         lines.append(f"{name:{_NAME}} " + cells)
 
     return "\n".join(lines)

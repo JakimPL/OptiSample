@@ -141,6 +141,11 @@ def _ingest_parser() -> argparse.ArgumentParser:
         help="Store every sample over the span its material plays, leaving the loop stage off",
     )
     ingest.add_argument(
+        "--no-carrier",
+        action="store_true",
+        help="Store each sample holding the level its own recording had, rather than handing it to a curve",
+    )
+    ingest.add_argument(
         "--dedupe-key",
         choices=_DEDUPE_KEYS,
         default=None,

@@ -106,7 +106,7 @@ def _stored(recording: Recording, params: EncodingParams, config: OptiConfig, cu
     )
 
 
-def _curve(recording: Recording, settings: CurveSettings) -> PlayedCurve:
+def curve_of(recording: Recording, settings: CurveSettings) -> PlayedCurve:
     return PlayedCurve(clip_envelope(recording.signal, recording.key, recording.sample_rate, settings), _TEMPO)
 
 
@@ -161,14 +161,14 @@ def _click(wraps: int) -> Callable[[Recording], Signal]:
     return _apply
 
 
-def _encoder(config: OptiConfig, settings: CurveSettings) -> Callable[..., Callable[[Recording], Signal]]:
+def encoder(config: OptiConfig, settings: CurveSettings) -> Callable[..., Callable[[Recording], Signal]]:
     """A factory for the degradations the codec itself makes, held to one config and one curve reading."""
     plain = PlayedCurve(NO_ENVELOPE, _TEMPO)
 
     def _encoded(rate: int, depth: int, *, compress: bool, carrier: bool) -> Callable[[Recording], Signal]:
         def _apply(recording: Recording) -> Signal:
             params = EncodingParams(target_rate=rate, depth_bits=depth, trim_s=None, compress=compress)
-            return _stored(recording, params, config, _curve(recording, settings) if carrier else plain)
+            return _stored(recording, params, config, curve_of(recording, settings) if carrier else plain)
 
         return _apply
 
@@ -185,7 +185,7 @@ def degradations(config: OptiConfig, rates: Sequence[int]) -> tuple[Degradation,
     """
     target = export_target(config.export.tracker)
     grid = envelope_grid(target, tempo=_TEMPO, release_s=config.export.envelope.release_s)
-    encoded = _encoder(config, CurveSettings(config=config.encode, target=target, grid=grid))
+    encoded = encoder(config, CurveSettings(config=config.encode, target=target, grid=grid))
     top = max(rates)
 
     ladder = [Degradation("rate", f"{rate}", encoded(rate, 16, compress=False, carrier=False)) for rate in rates]
