@@ -134,7 +134,13 @@ class _BandCache:
             )
 
         stored = format_from_band(self.bands[key], demand, self.context)
-        return stored_encodings(stored, self.context.sweep, trim_s=demand.trim_s, loops=rep_task.offered_loops)
+        return stored_encodings(
+            stored,
+            self.context.sweep,
+            sample_rate=self.context.sample_rate,
+            trim_s=demand.trim_s,
+            loops=rep_task.offered_loops,
+        )
 
 
 def candidate_zones(segments: Sequence[ZoneSegment], max_semitones: int) -> list[_Candidate]:

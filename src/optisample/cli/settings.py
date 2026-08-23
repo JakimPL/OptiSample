@@ -2,7 +2,7 @@ import argparse
 import sys
 from typing import Final
 
-from optisample.artifacts import DumpSettings, InstrumentSettings, PipelineSettings, SliceSettings
+from optisample.artifacts import DumpSettings, InstrumentSettings, PipelineSettings, PipelineStage, SliceSettings
 from optisample.calibrate.ranking import PairQuota, RankingGrid, RankingSettings
 from optisample.cluster.instruments import ClusterSettings
 from optisample.cluster.stages import ReadingSettings, RecordingSource, Stage, available_instruments
@@ -47,6 +47,9 @@ def _reduce_config(config: OptiConfig, args: argparse.Namespace) -> ReduceConfig
 
     if args.content_floor_db is not None:
         data["bandwidth"]["content_floor_db"] = args.content_floor_db
+
+    if args.discard_penalty is not None:
+        data["bandwidth"]["discard_penalty"] = args.discard_penalty
 
     return ReduceConfig.model_validate(data)
 
@@ -111,6 +114,9 @@ def _optimize_settings(
             **config.optimize.sweep.model_dump(),
             "rates": tuple(args.rates) if args.rates else config.optimize.sweep.rates,
             "depth": args.depth if args.depth is not None else config.optimize.sweep.depth,
+            "rate_headroom": (
+                args.rate_headroom if args.rate_headroom is not None else config.optimize.sweep.rate_headroom
+            ),
         }
     )
     return OptimizeSettings(
@@ -271,6 +277,7 @@ def _pipeline_settings(config: OptiConfig, args: argparse.Namespace) -> Pipeline
         instruments=_instrument_settings(config, args),
         intake=_intake(config, args),
         fraction=args.fraction,
+        skip=PipelineStage(args.skip) if args.skip is not None else None,
     )
 
 

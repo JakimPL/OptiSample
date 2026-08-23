@@ -10,6 +10,7 @@ import numpy as np
 
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, StoredSample, encode
 from optisample.keys import SampleKey
+from optisample.optimize.reduce.bandwidth import DiscardPricer
 from optisample.optimize.reduce.events import EventIdentity
 from optisample.optimize.tasks import EvalContext, Event, PitchTask, score_event, weighted_distortion
 from optisample.parallel import map_workers
@@ -141,14 +142,16 @@ def score_request(request: StoreRequest, context: EvalContext) -> dict[EncodingP
     class alone, which is what makes a representative's workload a unit of work in its own right.
     """
     served = request.tasks_by_position
+    pricer = DiscardPricer(request.representative.representative, context.sample_rate, context.bandwidth)
     scores: dict[EncodingParams, StoredScore] = {}
     for encoding in request.encodings:
         stored = _stored_sample(request, encoding.params, context)
         scorer = _StoredScorer(stored, context)
+        surcharge = pricer.surcharge(encoding.params)
         scores[encoding.params] = StoredScore(
             stored_bytes=context.storage.sample_bytes(frames=stored.frames, depth=stored.depth),
             frames=stored.frames,
-            distortions={position: scorer.distortion(served[position]) for position in encoding.positions},
+            distortions={position: scorer.distortion(served[position]) + surcharge for position in encoding.positions},
         )
 
     return scores

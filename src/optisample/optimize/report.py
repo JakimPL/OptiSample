@@ -81,8 +81,10 @@ def _format_grid(reduction: ReductionSummary) -> str:
 
     The useful span states what the kept representatives' own content and the playback ceiling justify
     storing, and the stored span the ladder rungs that reach it, so the line reads as the measurement and
-    the format it named. An instrument whose material plays nothing has no pitch to settle, so the line
-    says as much.
+    the format it named. That is the rung each sweep starts from: a run opening
+    :attr:`~optisample.config.optimize.SweepConfig.rate_headroom` offers the rungs above it too, and the
+    allocation reports what it settled on. An instrument whose material plays nothing has no pitch to
+    settle, so the line says as much.
     """
     grids = reduction.grids
     if not grids:

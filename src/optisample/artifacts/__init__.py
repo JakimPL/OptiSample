@@ -25,7 +25,7 @@ from optisample.artifacts.paths import (
     ranking_paths,
     reduced_paths,
 )
-from optisample.artifacts.pipeline import PipelineRun, PipelineSettings, run_pipeline
+from optisample.artifacts.pipeline import PipelineRun, PipelineSettings, PipelineStage, run_pipeline
 from optisample.artifacts.ranking import (
     ListeningSet,
     PairClips,
@@ -53,6 +53,7 @@ __all__ = [
     "PipelinePaths",
     "PipelineRun",
     "PipelineSettings",
+    "PipelineStage",
     "PairClips",
     "PlanArtifacts",
     "PlanPaths",

@@ -131,6 +131,40 @@ such sample.
 **Levers.** `--content-floor-db` per run; `optimize/sweep.yaml: rates` is the ladder itself and `--rate`
 (repeatable) replaces it for one run.
 
+### 3a. Buying band back: what the metrics cannot hear
+
+`content_floor_db` decides the rung, and the rung is settled **before** the budget is spent. That has a
+consequence worth stating plainly: bytes freed by `--max-samples` buy stored length and zone width, and
+nothing else. The sweep offers one rate per span, so band is not among the things a byte can buy.
+
+`rate_headroom` puts it back on the table. Each span is offered at the settled rung and at that many rungs
+above it, so the allocation can spend room on spectrum. On its own this changes nothing: the composite
+metrics read a narrowed sample as close to its reference, so the cheap rung keeps winning. Measured on the
+demo piano with `rate_headroom: 1` and the 11 025/44 100 ladder:
+
+| `discard_penalty` | 64 KiB budget | 80 KiB budget |
+|---|---|---|
+| `0.0` (shipped) | 11 025 + 44 100, 47 584 B used | 11 025 + 44 100, **47 584 B used** |
+| `1.0` | 44 100 + 44 100, 63 432 B used | 44 100 + 44 100, 78 820 B used |
+
+Read the second column twice. Given 80 KiB the unpriced run stores 47.6 KiB and **leaves 32 KiB unspent**,
+because nothing in the objective wants band. That is the gap the metrics cannot see.
+
+`discard_penalty` is where a run states what that band is worth by ear. It charges distortion per octave
+of spectrum a rung leaves out, measured against `discard_floor_db` — a second, deeper reading of the same
+spectrum than the one that settles the rung. The gap between the two floors is content quiet enough that
+the allocation is free to drop it and loud enough that you would rather it did not.
+
+Charging by **octaves of band** rather than by share of energy is deliberate. A harmonic recording keeps
+almost all of its energy in the first few partials, so an energy share reads nearly the same for a rung
+carrying the whole spectrum as for one carrying a fraction of it. Octaves separate those, and separate a
+bass whose material genuinely ends low — and so gives up nothing at a cheap rung, and is charged nothing —
+from a brass whose does not. This is what keeps the knob instrument-aware instead of a flat floor on the
+stored rate.
+
+**Levers.** `--rate-headroom` opens the rungs, `--discard-penalty` prices them; both default to the
+behaviour that prices a rung on the metrics alone.
+
 ## 4. Bit depth: what 8 bits costs, and how to refuse it
 
 A signed 8-bit grid has a step of `2^-7`. Samples are normalized to `headroom_db: 0.5` under full scale,
@@ -441,6 +475,45 @@ under it. The knob that reaches `trim_s` is `reduce.events.duration_bucket_ratio
 scored note length *up* to a geometric grid edge; `2.0` gives each sample up to twice the decay before the
 cut, and costs up to twice the bytes for it. `quantize.release_fade_s` handles the step the cut leaves.
 
+### 8c. Holding back what a shared envelope had no room to state
+
+A carrier instrument hands the level to one volume envelope and keeps the timbre in the waveform. The
+envelope is shared across a whole set, turns through a few dozen corners on a tick and amplitude grid, and
+stops at the quietest step the format still sounds — so a remainder always stays in the waveform, where
+peak normalization reads it as the crest and the depth is spent on it.
+`export.instruments.compression` is the pass that holds that remainder back
+([`held_back`](../src/optisample/dsp/dynamics.py)), and it runs on the **flattened** take, after the
+written envelope is divided out — which is the signal the numbers below are read on.
+
+Measured on 50 Jamzz takes across five instruments, flattened through their own fitted envelopes:
+
+| `ceiling_db` | crest factor | level range | deepest reduction |
+|---|---|---|---|
+| flattened, no pass | 4.708 | 28.74 dB | — |
+| `96` (inert) | 4.222 | 27.78 dB | −1.16 dB |
+| `9` | 4.222 | 27.78 dB | −1.16 dB |
+| `6` | 4.176 | 27.71 dB | −1.28 dB |
+| `4.5` | 4.039 | 27.25 dB | −1.85 dB |
+| `3` (shipped) | **3.841** | 26.31 dB | −2.91 dB |
+| `2` | 3.704 | 25.59 dB | −3.68 dB |
+| `1` | 3.575 | 24.84 dB | −4.46 dB |
+
+Two readings worth carrying away. **The ceiling is the knob that moves this pass**, and unlike
+`content_floor_db` it is a smooth dial the whole way down — every step buys crest, and the reduction it
+spends stays modest (under 3 dB at the shipped setting). **The ratio does almost nothing here**: on a take
+whose level the envelope has already flattened, the soft-knee curve barely opens, so `ratio` between `8`
+and `20` moves the crest in the fourth decimal. That is why the shipped ratio and knee are left where they
+were and the ceiling carries the change.
+
+`attack_share` and `release_share` are shares of the reach the level detector already spans, so they
+follow each recording's own pitch rather than a span fixed for every note alike. The detector reads a
+frame from the material centred on it, and an attack under `1.0` spends that lookahead by opening the hold
+before the peak lands — the sub-unit attack that makes the pass hold a transient rather than follow it.
+On this material they measure neutral (crest within 0.01 across `0.0/0.0` through `0.5/4.0`), because the
+detector's reach already covers the timescale the remainder moves on; they are there for material whose
+remainder is spikier than a band's. Shares of `0.0` state the curve on its own, which is how the pass
+behaved before they were added.
+
 ## 9. Recipes
 
 **"The whole pack is lo-fi."** The stored band is what the reduction read, so start there: raise
@@ -481,6 +554,9 @@ as the format numbers. Each extra sample is charged a reserve, so the run states
 | `quantize.release_fade_s` | `codec/quantize.yaml` | Samples click at their end, or 10 ms of ramp is audible. |
 | `--content-floor-db` | CLI (`reduce/bandwidth.yaml`) | The stored band is duller than the budget can afford, or a budget will not fit. |
 | `--max-samples` | CLI (`optimize/budget.yaml`) | Trading sample count against per-sample quality. |
+| `--rate-headroom` | CLI (`optimize/sweep.yaml: rate_headroom`) | Band is not among the things the budget can buy. Offers each span at rungs above the one its content settled on; `0` prices the settled rung alone. Pair it with `--discard-penalty`, which is what makes a wider rung win. |
+| `--discard-penalty` | CLI (`reduce/bandwidth.yaml`) | **The knob that trades sample count for band.** Samples score well and sound dull, and spare budget goes unspent. Charges distortion per octave of spectrum a rung gives up, so the allocation buys a wider one and pays by storing fewer and wider samples. Instrument-aware: material that genuinely ends low is charged nothing. See §3a. |
+| `reduce.bandwidth.discard_floor_db` | `reduce/bandwidth.yaml` | The penalty charges too much or too little across the board. It is the floor the *charge* is read at, sitting at or below `content_floor_db`; the gap between them is the band being priced. |
 | `reduce.grouping.max_zone_semitones` | `reduce/grouping.yaml` | Repitching artefacts across a zone. |
 | `--max-layers` | CLI (`optimize/layers.yaml`) | Dynamics matter more (or less) than fidelity per note. |
 | `dedupe.transposition_headroom_semitones` | `reduce/dedupe.yaml` | Survivors are longer than the music needs. |
@@ -502,6 +578,8 @@ as the format numbers. Each extra sample is charged a reserve, so the run states
 | `loop.geometry.detune_semitones` | `loop/geometry.yaml` | A recording that is in tune loops well and one recorded off-pitch settles no loop at all. |
 | `export.envelope.release_s` | `export/envelope.yaml` | A released note is cut off abruptly, or hangs on after the key is let go. |
 | `export.instruments.compression.threshold_db`, `.ratio` | `export/instruments.yaml` | A clustered instrument's samples sound quiet for the depth they are stored at, one take of a band sitting far under the rest. Lower the threshold to catch more of what the shared curve missed; raise the ratio to hold it further down. A ratio of `1.0` stores each waveform exactly as the curve before it left it. |
+| `export.instruments.compression.attack_share`, `.release_share` | `export/instruments.yaml` | Transients still set the peak, so the depth is spent on them. Both are shares of the reach the level detector already spans, so they follow each recording's own pitch: the detector reads a frame from the material centred on it, and an attack under `1.0` spends that lookahead by opening the hold before the peak lands. `0.25` with a release of `4.0` is limiter behaviour — in ahead of the transient, out slowly enough that the level settles once. Shares of `0.0` state the curve on its own, which is how the pass behaved before the two were added. |
+| `export.instruments.compression.ceiling_db` | `export/instruments.yaml` | **The knob that moves this pass.** No frame is left standing further over the body of the material than this, whatever the ratio alone would pass. The level it acts on is already smooth, so the wall moves smoothly and leaves the waveform inside a cycle as it stands. See §8c for what each setting measures. |
 | `export.instruments.post_loop` | `export/instruments.yaml` | The instrument files a run writes carry the whole take, with the loop set inside it — delete the loop in a tracker and the recording plays on. Turn it off (or pass `--no-post-loop`) to end each file at the loop instead, which is what a set headed straight for a sampler with no editing wants. A player sounds the two identically; only the file size differs, and the module's own budget is untouched either way. |
 
 `--config` takes a **directory** laid out the way the bundled one is -- a stage per directory, a group per

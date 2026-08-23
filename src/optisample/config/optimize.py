@@ -21,9 +21,14 @@ class SweepConfig(ConfigModel):
     material that reaches it. ``depth`` is the depth every stored sample keeps, and ``compress`` applies
     dynamics on the way to the quantizer where the depth is shallow enough to hear the headroom it buys.
 
-    What the sweep then prices per sample is the stored span: keeping the played length against keeping the
-    attack plus the loop the loop stage settled, which
-    :func:`~optisample.optimize.reduce.bandwidth.stored_encodings` enumerates in that order.
+    What the sweep then prices per sample is the stored span and the rate: keeping the played length
+    against keeping the attack plus the loop the loop stage settled, each offered at the settled rung and
+    at the ``rate_headroom`` rungs of the ladder above it, which
+    :func:`~optisample.optimize.reduce.bandwidth.stored_encodings` enumerates in that order. Offering the
+    wider rungs is what puts band among the things a byte buys, so a run with room to spare can store
+    fewer samples and keep more of each one's spectrum; what those rungs are worth is
+    :attr:`~optisample.config.reduce.BandwidthConfig.discard_penalty`. A headroom of 0 prices the settled
+    rung alone.
 
     ``carrier`` states what a stored sample holds. Set, each waveform is its recording divided by the gain
     the instrument's own volume envelope applies, so the sample keeps the timbre and the envelope carries
@@ -39,6 +44,7 @@ class SweepConfig(ConfigModel):
     """
 
     rates: Annotated[tuple[int, ...], Field(min_length=1)]
+    rate_headroom: Annotated[int, Field(ge=0)]
     depth: Annotated[int, Field(gt=0)]
     dither: bool
     noise_shaping: bool

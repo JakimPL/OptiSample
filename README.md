@@ -200,6 +200,12 @@ It takes every ingest, looping, reduction and allocation flag those commands tak
 `--max-samples` reach the allocating stage, while the reduction between them runs at the configured
 split and cap — which is what keeps its dataset the one any allocation off it reads back.
 
+`--skip loop` ends the chain before the stage it names, so the tree holds only the directories of the
+stages that ran: `--skip optimize` writes the slice, the loops and the reduction and leaves the
+allocation out, and `--skip reduce` stops after looping. Each stage before the stop is written exactly
+as the same command typed out writes it, so a chain ended early is the stages run in a row up to the one
+named.
+
 ### Playing a stage's recordings in a tracker
 
 Every stage writes its recordings as instruments as well as WAVs, so you can load any of them straight

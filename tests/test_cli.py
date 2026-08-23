@@ -9,6 +9,7 @@ from numpy.typing import NDArray
 from pydantic import ValidationError
 
 from optisample.artifacts.paths import instrument_files_dir
+from optisample.artifacts.pipeline import PipelineStage
 from optisample.calibrate.ranking import Fault, Verdict
 from optisample.cli import main
 from optisample.cli.parsers import build_parser
@@ -46,22 +47,27 @@ _BRIEF_S = 0.25  # a note ringing for less than the floor a slice is asked for
 _ADMITS_BOTH = 0.5  # a floor standing between the two, so a ragged source loses exactly its short notes
 
 
-@pytest.fixture
-def tiny_notes(tmp_path: Path, piano_note: Callable[..., NDArray[np.float64]]) -> Path:
-    """A minimal on-disk NoteExtractor project: three piano notes + a .notes.json referencing them.
+def _tiny_project(root: Path, piano_note: Callable[..., NDArray[np.float64]]) -> Path:
+    """A minimal on-disk NoteExtractor project under ``root``: three piano notes and the manifest naming them.
 
     The WAVs live in the sibling ``piano/`` directory the ``optimize`` command resolves by default, so the
     instrument id defaults to ``piano`` and its artifacts land under ``<out>/piano/``.
     """
-    samples_dir = tmp_path / "piano"
+    samples_dir = root / "piano"
     samples_dir.mkdir()
     records = []
     for index, pitch in enumerate(PITCHES):
         write_wav(samples_dir / f"{index:04d}_p{pitch}_v100.wav", piano_note(pitch, 100, 0.6, seed=pitch), SR)
         records.append(NoteRecord(index=index, pitch=pitch, velocity=100, duration_s=0.5))
-    notes_json = tmp_path / "piano.notes.json"
+    notes_json = root / "piano.notes.json"
     dump_notes(records, notes_json)
     return notes_json
+
+
+@pytest.fixture
+def tiny_notes(tmp_path: Path, piano_note: Callable[..., NDArray[np.float64]]) -> Path:
+    """The minimal project (:func:`_tiny_project`), written fresh for one test to run commands over."""
+    return _tiny_project(tmp_path, piano_note)
 
 
 @pytest.fixture
@@ -562,21 +568,26 @@ def test_pipeline_command_writes_a_directory_per_stage_it_ran(
     assert "ungrouped: objective" in printed and "total:" in printed
 
 
-@pytest.mark.parametrize("stage", ["0_subset/piano", "1_looped/piano", "2_reduced/piano"])
-def test_every_stage_of_a_chained_run_carries_its_recordings_as_instruments(
-    stage: str, tmp_path: Path, tiny_notes: Path
-) -> None:
-    """A stage's own audio is playable in a tracker, so what one stage did to it is audible against the next."""
-    out = tmp_path / "artifacts"
+@pytest.fixture(scope="module")
+def chained_run(tmp_path_factory: pytest.TempPathFactory, piano_note: Callable[..., NDArray[np.float64]]) -> Path:
+    """One chained run every stage of it is read off, since each stage's reading asks the same run of it."""
+    root = tmp_path_factory.mktemp("chained")
+    out = root / "artifacts"
     run(
         # fmt: off
         [
-            "pipeline", str(tiny_notes), "--budget-kb", "48", "--fraction", "0.67", "--out", str(out),
-            "--rate", "11025", "--depth", "8", "--no-render", "--strategy", "ungrouped",
+            "pipeline", str(_tiny_project(root, piano_note)), "--budget-kb", "48", "--fraction", "0.67",
+            "--out", str(out), "--rate", "11025", "--depth", "8", "--no-render", "--strategy", "ungrouped",
         ]
         # fmt: on
     )
-    samples_dir = out / stage
+    return out
+
+
+@pytest.mark.parametrize("stage", ["0_subset/piano", "1_looped/piano", "2_reduced/piano"])
+def test_every_stage_of_a_chained_run_carries_its_recordings_as_instruments(stage: str, chained_run: Path) -> None:
+    """A stage's own audio is playable in a tracker, so what one stage did to it is audible against the next."""
+    samples_dir = chained_run / stage
 
     for extension in (".iti", ".xi"):
         written = list(instrument_files_dir(samples_dir, extension).glob(f"*{extension}"))
@@ -643,6 +654,41 @@ def test_the_pipeline_command_reduces_its_source_when_no_fraction_names_a_slice(
     assert (out / "3_optimized" / "piano" / "ungrouped" / "plan.json").is_file()
 
 
+def test_the_pipeline_command_stopped_before_optimizing_writes_no_plan(
+    tmp_path: Path, tiny_notes: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A chain ended at ``--skip optimize`` keeps the datasets the allocation reads and nothing past them."""
+    out = tmp_path / "artifacts"
+    run(
+        [
+            "pipeline",
+            str(tiny_notes),
+            "--budget-kb",
+            "48",
+            "--fraction",
+            "0.67",
+            "--out",
+            str(out),
+            "--rate",
+            "11025",
+            "--depth",
+            "8",
+            "--no-render",
+            "--strategy",
+            "ungrouped",
+            "--skip",
+            "optimize",
+        ]
+    )
+    assert (out / "0_subset" / "piano.notes.json").is_file()
+    assert (out / "1_looped" / "piano.notes.json").is_file()
+    assert (out / "2_reduced" / "piano.notes.json").is_file()
+    assert not (out / "3_optimized").exists()
+    printed = capsys.readouterr().out
+    assert "stopped before optimize" in printed
+    assert "total:" in printed
+
+
 def test_the_allocation_caps_a_chained_run_states_reach_the_stage_that_allocates(config: OptiConfig) -> None:
     """The reduction runs at the configured caps, so its dataset stays the one any allocation reads back."""
     args = build_parser().parse_args(
@@ -658,6 +704,26 @@ def test_the_allocation_caps_a_chained_run_states_reach_the_stage_that_allocates
 def test_a_chained_run_slices_nothing_when_no_fraction_is_named(config: OptiConfig) -> None:
     args = build_parser().parse_args(["pipeline", "m.notes.json", "--budget-kb", "48"])
     assert _pipeline_settings(config, args).fraction is None
+
+
+def test_the_skip_flag_names_the_stage_a_chain_stops_at(config: OptiConfig) -> None:
+    """``--skip`` travels to the settings as the stage the chain ends before, and nothing where it is absent."""
+    assert (
+        _pipeline_settings(config, build_parser().parse_args(["pipeline", "m.notes.json", "--budget-kb", "48"])).skip
+        is None
+    )
+    args = build_parser().parse_args(["pipeline", "m.notes.json", "--budget-kb", "48", "--skip", "reduce"])
+    assert _pipeline_settings(config, args).skip is PipelineStage.REDUCE
+
+
+def test_the_skip_flag_accepts_only_the_stages_the_chain_always_reaches() -> None:
+    """The slice is omitted by leaving ``--fraction`` out, so the flag names the three stages past it."""
+    for stage in ("loop", "reduce", "optimize"):
+        args = build_parser().parse_args(["pipeline", "m.notes.json", "--budget-kb", "48", "--skip", stage])
+        assert args.skip == stage
+
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["pipeline", "m.notes.json", "--budget-kb", "48", "--skip", "subset"])
 
 
 def test_the_pipeline_command_reads_the_same_ingest_flags_as_optimize(config: OptiConfig) -> None:

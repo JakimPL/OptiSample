@@ -19,6 +19,30 @@ class HoldConfig(ConfigModel):
     knee_db: Annotated[float, Field(ge=0.0)]
 
 
+class LimitConfig(HoldConfig):
+    """The hold curve, plus how quickly it acts and the ceiling it holds absolutely.
+
+    The curve itself is :class:`HoldConfig`. ``attack_share`` and ``release_share`` state how long the
+    reduction takes to arrive and how long it stays, each as a share of the reach the level detector already
+    spans (:attr:`~optisample.dsp.envelope.LevelReading.reach`), so both follow the pitch the recording was
+    played at rather than a span fixed for every note alike. The detector reads a frame from the material
+    centred on it, which is the lookahead an attack shorter than that reach acts inside: a share under 1.0
+    brings the reduction in ahead of the peak that asked for it, which is what makes the pass hold a
+    transient rather than follow it. A release longer than the attack keeps the reduction through the decay
+    behind a peak, so the level settles once instead of moving with every cycle. Shares of zero hold the
+    reduction to exactly the moment the curve asks for it.
+
+    ``ceiling_db`` is the absolute limit, stated over the same body the threshold is read against: whatever
+    the curve leaves, the result stays under it. Because the level it acts on is already a smooth curve, the
+    ceiling moves smoothly too, which is what lets it be a brick wall and still leave the waveform inside a
+    cycle as it stands. A ceiling far above the threshold leaves the ratio alone to shape the material.
+    """
+
+    attack_share: Annotated[float, Field(ge=0.0)]
+    release_share: Annotated[float, Field(ge=0.0)]
+    ceiling_db: float
+
+
 class DynamicsConfig(HoldConfig):
     """Soft-knee compression ahead of the quantizer: where the curve acts, how hard, and how quickly.
 

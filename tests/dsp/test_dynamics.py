@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from optisample.config.dynamics import DynamicsConfig, HoldConfig
+from optisample.config.dynamics import DynamicsConfig, LimitConfig
 from optisample.config.loop import EnvelopeConfig
 from optisample.dsp.dynamics import compress, held_back, reduction_db
 from optisample.dsp.envelope import LevelReading, level_reading, local_level
@@ -17,9 +17,11 @@ SR = 44_100
 _QUIET = 0.1  # the amplitude a scaled-down copy of a test signal peaks at
 _HELD_PITCH = 60  # the key the held-back tests read their material at, which settles the weighting
 _SQUARE_KNEE_DB = 1e-9  # the width a knee asked to be square still bends over, so the quadratic divides
+_NO_CEILING = 96.0  # dB over a signal's own body, past any level material reaches, so the ratio alone shapes it
+_ROUNDING_DB = 1e-9  # the slack a decibel comparison leaves for the float arithmetic behind it
 
 DynamicsFactory = Callable[..., DynamicsConfig]
-HoldFactory = Callable[..., HoldConfig]
+HoldFactory = Callable[..., LimitConfig]
 
 
 @pytest.fixture
@@ -36,8 +38,23 @@ def dynamics(dynamics_config: DynamicsConfig) -> DynamicsFactory:
 def hold() -> HoldFactory:
     """Factory: the curve a level is held back along, stated where each test needs it."""
 
-    def _build(*, threshold_db: float = 6.0, ratio: float = 8.0, knee_db: float = 6.0) -> HoldConfig:
-        return HoldConfig(threshold_db=threshold_db, ratio=ratio, knee_db=knee_db)
+    def _build(
+        *,
+        threshold_db: float = 6.0,
+        ratio: float = 8.0,
+        knee_db: float = 6.0,
+        attack_share: float = 0.0,
+        release_share: float = 0.0,
+        ceiling_db: float = _NO_CEILING,
+    ) -> LimitConfig:
+        return LimitConfig(
+            threshold_db=threshold_db,
+            ratio=ratio,
+            knee_db=knee_db,
+            attack_share=attack_share,
+            release_share=release_share,
+            ceiling_db=ceiling_db,
+        )
 
     return _build
 
@@ -214,3 +231,56 @@ def test_a_transient_is_taken_down_before_it_arrives(reading: LevelReading, hold
     gain = held_back(spiked, reading, hold())
     onset = int(np.argmax(np.abs(spiked) > 1.5))
     assert gain[onset - reading.reach // 2] < gain[0]
+
+
+# --- the attack, the release and the ceiling ---------------------------------------------------------
+
+
+def test_an_attack_opens_the_hold_further_ahead_of_the_peak(reading: LevelReading, hold: HoldFactory) -> None:
+    """A sub-unit attack is a share of the reach the detector already spans, spent as lookahead."""
+    spiked = _spiked_tone()
+    onset = int(np.argmax(np.abs(spiked) > 1.5))
+    ahead = onset - reading.reach
+
+    assert held_back(spiked, reading, hold(attack_share=0.5))[ahead] < held_back(spiked, reading, hold())[ahead]
+
+
+def test_a_release_keeps_the_hold_open_behind_the_peak(reading: LevelReading, hold: HoldFactory) -> None:
+    """The level settles once behind a transient rather than following the decay back up."""
+    spiked = _spiked_tone()
+    onset = int(np.argmax(np.abs(spiked) > 1.5))
+    behind = onset + 2 * reading.reach
+
+    assert held_back(spiked, reading, hold(release_share=4.0))[behind] < held_back(spiked, reading, hold())[behind]
+
+
+def test_shares_of_zero_hold_the_reduction_to_the_moment_the_curve_asks_for_it(
+    reading: LevelReading, hold: HoldFactory
+) -> None:
+    """The curve on its own is what a run states by asking for neither an attack nor a release."""
+    spiked = _spiked_tone()
+    assert np.array_equal(
+        held_back(spiked, reading, hold(attack_share=0.0, release_share=0.0)),
+        held_back(spiked, reading, hold()),
+    )
+
+
+def test_a_ceiling_holds_a_peak_the_ratio_alone_would_pass(reading: LevelReading, hold: HoldFactory) -> None:
+    """The absolute limit behind the curve: no frame is left standing further over the body than it names."""
+    spiked = _spiked_tone()
+    ceiling_db = 3.0
+    body = float(np.sqrt(np.mean(spiked**2)))
+    held = local_level(spiked, reading) * held_back(spiked, reading, hold(ratio=1.0, ceiling_db=ceiling_db))
+
+    assert float(np.max(gain_to_db(held / body))) <= ceiling_db + _ROUNDING_DB
+
+
+def test_a_ceiling_past_every_level_leaves_the_ratio_to_shape_the_material(
+    reading: LevelReading, hold: HoldFactory
+) -> None:
+    """A ceiling no material reaches is inert, so the curve alone answers."""
+    spiked = _spiked_tone()
+    assert np.array_equal(
+        held_back(spiked, reading, hold(ceiling_db=_NO_CEILING)),
+        held_back(spiked, reading, hold(ceiling_db=2.0 * _NO_CEILING)),
+    )

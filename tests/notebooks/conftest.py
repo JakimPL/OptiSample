@@ -109,7 +109,7 @@ def _clustered(corpus: RecordingCorpus, config: OptiConfig) -> Clustered:
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def clustered(config: OptiConfig) -> Clustered:
     """A handful of synthesised takes carried the whole way a notebook carries them, ready to draw."""
     source = _source(Stage.SUBSET)

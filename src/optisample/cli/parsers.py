@@ -2,6 +2,7 @@ import argparse
 from pathlib import Path
 from typing import Final, get_args
 
+from optisample.artifacts.pipeline import PipelineStage
 from optisample.cluster.stages import Stage
 from optisample.config.reduce import DedupeKey
 from optisample.config.render import Interpolation
@@ -127,6 +128,12 @@ def _ingest_parser() -> argparse.ArgumentParser:
         help="Bit depth every stored sample keeps (default: the config's)",
     )
     ingest.add_argument(
+        "--rate-headroom",
+        type=int,
+        default=None,
+        help="Rungs above the rate a recording's own content asks for that each stored span is also offered at",
+    )
+    ingest.add_argument(
         "--no-loop",
         action="store_true",
         help="Store every sample over the span its material plays, leaving the loop stage off",
@@ -142,6 +149,12 @@ def _ingest_parser() -> argparse.ArgumentParser:
         type=float,
         default=None,
         help="How far under its loudest band a recording still carries content, which decides its stored rate",
+    )
+    ingest.add_argument(
+        "--discard-penalty",
+        type=float,
+        default=None,
+        help="Distortion charged per octave of band a stored rate leaves out, which is what buys a wider one",
     )
     ingest.add_argument(
         "--seed",
@@ -253,6 +266,12 @@ def _describe_pipeline(parser: argparse.ArgumentParser) -> None:
         type=float,
         default=None,
         help="Share of the source notes to slice out first, in (0, 1]; naming none reduces the source itself",
+    )
+    parser.add_argument(
+        "--skip",
+        choices=[stage.value for stage in PipelineStage],
+        default=None,
+        help="Stop the chain before this stage, dropping it and every stage after it",
     )
     _describe_admission(parser)
 

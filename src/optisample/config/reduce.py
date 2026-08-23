@@ -91,7 +91,7 @@ class EventsConfig(ConfigModel):
 
 
 class BandwidthConfig(ConfigModel):
-    """How the rate a sample is stored at follows from the recording's own band.
+    """How the rate a sample is stored at follows from the recording's own band, and what a narrow one costs.
 
     ``ceiling_hz`` is the highest output frequency worth carrying, which bounds the stored bandwidth once
     playback transposition is applied. ``content_floor_db`` and ``content_band_hz`` measure the band a
@@ -99,11 +99,38 @@ class BandwidthConfig(ConfigModel):
     averaged into bands that wide. Together they name the rate a clip asks to be stored at
     (:func:`~optisample.optimize.reduce.bandwidth.useful_rate_hz`), and the ladder's lowest rung reaching
     it is what the sample is kept at, so ``content_floor_db`` decides how much band the run stores.
+
+    ``discard_floor_db`` reads the same spectrum at a deeper floor, naming the band a recording still
+    reaches rather than the band the allocation is obliged to carry
+    (:func:`~optisample.optimize.reduce.bandwidth.clip_reach_hz`). The gap between the two floors is the
+    content a settled rung leaves out, and ``discard_penalty`` is the distortion charged for each octave
+    of it (:func:`~optisample.optimize.reduce.bandwidth.discard_surcharge`). The composite metrics score
+    a narrowed sample as close to its reference, so the penalty is where a run states what that
+    narrowing is worth by ear; the allocation then buys a wider rung wherever the charge exceeds what
+    the same bytes buy elsewhere, and pays for it by storing fewer and wider samples. A penalty of 0.0
+    prices a rung on the metrics alone.
     """
 
     ceiling_hz: Annotated[float, Field(gt=0.0)]
     content_floor_db: Annotated[float, Field(gt=0.0)]
     content_band_hz: Annotated[float, Field(gt=0.0)]
+    discard_floor_db: Annotated[float, Field(gt=0.0)]
+    discard_penalty: Annotated[float, Field(ge=0.0)]
+
+    @model_validator(mode="after")
+    def _floors_ordered(self) -> Self:
+        """Hold the deeper floor at or under the one that settles the rung, which is what leaves a gap to price.
+
+        Raises:
+            ValueError: when ``discard_floor_db`` sits above ``content_floor_db``, which would charge a
+                sample for band the settled rung already carries.
+        """
+        if self.discard_floor_db < self.content_floor_db:
+            raise ValueError(
+                f"discard_floor_db {self.discard_floor_db} must be at least content_floor_db {self.content_floor_db}"
+            )
+
+        return self
 
 
 class ZoneConfig(ConfigModel):
