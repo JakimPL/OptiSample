@@ -8,7 +8,7 @@ from numpy.typing import NDArray
 
 from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
-from optisample.config.reduce import ReduceConfig
+from optisample.config.reduce import NO_GROUPING, ReduceConfig
 from optisample.io.audio import write_wav
 from optisample.io.tracker.target import export_target
 from optisample.keys import SampleKey
@@ -83,6 +83,8 @@ def _settings(sweep: SweepConfig, **sections: Mapping[str, object]) -> OptimizeS
         max_samples=_CONFIG.optimize.budget.max_samples,
         resolution=_CONFIG.optimize.budget.resolution,
         target=export_target(_CONFIG.export.tracker),
+        playback=_CONFIG.export.playback,
+        envelope=_CONFIG.export.envelope,
     )
 
 
@@ -257,6 +259,16 @@ def test_zone_hull_is_a_monotone_frontier(
 
 def _zones(tasks: list[PitchTask], context: EvalContext) -> list[_Candidate]:
     return candidate_zones(_one_layer(tasks), context.grouping.max_zone_semitones)
+
+
+def test_a_zero_width_cap_leaves_every_key_its_own_zone(
+    dithered: tuple[list[PitchTask], EvalContext],
+) -> None:
+    """A percussion map numbers a different instrument at each key, so no two of them may share a sample."""
+    tasks, _ = dithered
+    zones = candidate_zones(_one_layer(tasks), NO_GROUPING)
+    assert len(zones) == len(tasks)
+    assert all(stop - start == 1 for start, stop in (zone.span for zone in zones))
 
 
 def test_an_encodings_dither_follows_its_identity_rather_than_when_it_is_drawn(

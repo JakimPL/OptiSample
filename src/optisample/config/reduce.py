@@ -1,10 +1,12 @@
 from enum import StrEnum, unique
-from typing import Annotated, Self
+from typing import Annotated, Final, Self
 
 from pydantic import Field, model_validator
 
 from optisample.config.base import ConfigModel
 from optisample.config.stage import StageConfig
+
+NO_GROUPING: Final = 0  # the ``max_zone_semitones`` width that leaves every key standing on its own
 
 
 @unique
@@ -137,10 +139,13 @@ class ZoneConfig(ConfigModel):
     """How pitch-zone grouping bounds its own search.
 
     ``max_zone_semitones`` caps how wide a contiguous zone may be, which is what keeps the number of
-    candidate ranges linear in the keyboard span.
+    candidate ranges linear in the keyboard span. :data:`NO_GROUPING` keeps every key its own sample,
+    which is what a keyboard of unrelated sounds asks for: a percussion map numbers a different
+    instrument at each key, so a zone spanning several of them stores one of those sounds in place of
+    the rest.
     """
 
-    max_zone_semitones: Annotated[int, Field(ge=1)]
+    max_zone_semitones: Annotated[int, Field(ge=NO_GROUPING)]
 
 
 class ReduceConfig(StageConfig):

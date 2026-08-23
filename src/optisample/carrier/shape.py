@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Final
 
 from optisample.carrier.source import CarrierSource
-from optisample.dsp.level import level_readings
+from optisample.dsp.level import Clock, curve_level, level_readings, written_level
 from optisample.dsp.trajectory import SharedTrajectory, TrajectoryMember, fit_shared_trajectory, reading_window_s
+from optisample.io.tracker.envelope import NO_ENVELOPE, EnvelopeGrid, shape_nodes, volume_envelope
+from optisample.io.tracker.target import ExportTarget
+from trackmod.core.envelopes.envelope import Envelope
 
 NO_SHAPE: Final = None  # what a set holding nothing long enough to read one whole window of leaves behind
+NO_DISPERSION: Final = 0.0  # what one envelope costs a set carrying none
 
 
 def shared_rate(sources: Sequence[CarrierSource]) -> int:
@@ -72,3 +77,35 @@ def carrier_shape(sources: Sequence[CarrierSource], *, nodes: int) -> SharedTraj
         return NO_SHAPE
 
     return fit_shared_trajectory(members, nodes=nodes)
+
+
+@dataclass(frozen=True)
+class WrittenShape:
+    """The one curve a set of recordings is written under, beside what sharing it costs them.
+
+    ``dispersion_db`` is how far the furthest source stands from the shape, which is the reading that says
+    whether the set was well chosen to be written together -- large where the recordings decline at rates
+    of their own, near nothing where they decline alike.
+    """
+
+    envelope: Envelope | None
+    dispersion_db: float
+
+
+def written_shape(sources: Sequence[CarrierSource], *, target: ExportTarget, grid: EnvelopeGrid) -> WrittenShape:
+    """The volume curve an instrument built from ``sources`` carries, beside what sharing it costs.
+
+    The shape is fitted from the sources' own levels and written against its own loudest moment, since the
+    level each source stands at is restored by the step beside its own waveform rather than by the curve.
+    A set holding nothing long enough to read leaves ``NO_ENVELOPE``, which sounds every waveform as it
+    stands and costs its sources nothing.
+    """
+    shape = carrier_shape(sources, nodes=shape_nodes(target.envelope_point_bound))
+    if shape is NO_SHAPE:
+        return WrittenShape(envelope=NO_ENVELOPE, dispersion_db=NO_DISPERSION)
+
+    level = curve_level(shape.curve, Clock.PLAYED)
+    return WrittenShape(
+        envelope=volume_envelope(written_level(level, reference_db=level.peak_db), grid),
+        dispersion_db=shape.dispersion_db,
+    )

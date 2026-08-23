@@ -17,7 +17,6 @@ from optisample.dsp.surrogate import (
     SettledLoops,
     StoredSample,
     closed_reference,
-    encode,
     render,
 )
 from optisample.dsp.timebase import seconds_to_frames
@@ -25,6 +24,7 @@ from optisample.keys import SampleKey, keys_by_pitch, nearest_key
 from optisample.metrics.base import Signal
 from optisample.metrics.composite import CompositeFidelity, QualityReport, evaluate
 from optisample.model import InstrumentSpec, NoteEvent
+from optisample.optimize.carrier import Envelopes, PlayedCurve, stored_carrier
 from optisample.optimize.reduce.events import MergedEvent, merge_events
 from optisample.optimize.velocity_map import VelocityVolumeMap
 from optisample.optimize.weighting import energy_weight
@@ -161,12 +161,18 @@ def render_event(stored: StoredSample, event: Event, *, pitch: int, sample_rate:
 
 
 def _stored(task: PitchTask, params: EncodingParams, context: EvalContext, rng: Generator | None) -> StoredSample:
-    """``task``'s representative encoded under ``params``, stamped with the pitch it was recorded at."""
-    return encode(
+    """``task``'s representative encoded under ``params``, stamped with the pitch it was recorded at.
+
+    Where the run stores carriers, the recording is divided by the curve it alone states and that curve
+    rides on the stored sample, so what the sweep prices is the waveform the module keeps played through
+    the envelope beside it (:func:`~optisample.optimize.carrier.stored_carrier`).
+    """
+    return stored_carrier(
         task.representative,
         context.sample_rate,
         params,
         EncodeContext(root_pitch=task.pitch, config=context.encode, settled=task.settled, rng=rng),
+        PlayedCurve(context.envelopes.get(task.representative_key), context.tempo),
     )
 
 
@@ -200,6 +206,10 @@ class EvalContext:
     The two dither sources sit side by side: ``rng`` is the one stream the ungrouped sweep's encodes
     draw from in the order it reaches them, and ``seed`` is the run entropy a stored sample scored
     across zones derives its own stream from, so that score reads the same wherever it appears.
+
+    ``envelopes`` names the curve each recording states on its own and ``tempo`` the clock those curves are
+    counted in, which is what a run storing carriers prices its waveforms against. A run storing
+    recordings names none, and every clip is priced holding the level its own PCM carries.
     """
 
     sample_rate: int
@@ -211,6 +221,8 @@ class EvalContext:
     bandwidth: BandwidthConfig
     grouping: ZoneConfig
     seed: int
+    tempo: int
+    envelopes: Envelopes
 
 
 @dataclass(frozen=True)

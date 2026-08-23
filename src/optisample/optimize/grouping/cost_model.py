@@ -101,7 +101,8 @@ def _capped_ranges(tasks: Sequence[PitchTask], max_semitones: int) -> Iterator[_
     The cap states how far the material lets one recording reach: a wider zone asks a sample to stand in
     further from its root than repitching holds up over, and dropping those ranges is what keeps the
     candidate zones linear in the keyboard span. A single key spans nothing, so each key remains its own
-    candidate zone and some partition always exists.
+    candidate zone and some partition always exists -- which is also what a cap of
+    :data:`~optisample.config.reduce.NO_GROUPING` leaves, since any second key already spans more.
     """
     for start, lowest in enumerate(tasks):
         for stop in range(start + 1, len(tasks) + 1):

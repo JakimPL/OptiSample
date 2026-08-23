@@ -408,6 +408,8 @@ def test_the_dedupe_key_the_dataset_was_reduced_under_reaches_the_document(
         max_samples=no_render_settings.optimize.max_samples,
         resolution=no_render_settings.optimize.resolution,
         target=no_render_settings.optimize.target,
+        playback=no_render_settings.optimize.playback,
+        envelope=no_render_settings.optimize.envelope,
     )
     loudest = {SampleKey(pitch, 100): graded_audio[SampleKey(pitch, 100)] for pitch in PITCHES}
     reduced = dump_reduced(

@@ -424,6 +424,8 @@ def optimize_settings(config: OptiConfig, target: ExportTarget) -> Callable[...,
             max_samples=config.optimize.budget.max_samples if max_samples is None else max_samples,
             resolution=config.optimize.budget.resolution,
             target=target,
+            playback=config.export.playback,
+            envelope=config.export.envelope,
             seed=seed,
         )
 

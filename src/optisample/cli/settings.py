@@ -133,6 +133,8 @@ def _optimize_settings(
         max_samples=budget.max_samples,
         resolution=budget.resolution,
         target=_export_target(config, args),
+        playback=config.export.playback,
+        envelope=config.export.envelope,
         seed=args.seed,
         workers=_workers(config, args),
         progress=_progress(args),

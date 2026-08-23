@@ -8,8 +8,9 @@ from typing import Final
 
 import numpy as np
 
-from optisample.dsp.surrogate import EncodeContext, EncodingParams, StoredSample, encode
+from optisample.dsp.surrogate import EncodeContext, EncodingParams, StoredSample
 from optisample.keys import SampleKey
+from optisample.optimize.carrier import PlayedCurve, stored_carrier
 from optisample.optimize.reduce.bandwidth import DiscardPricer
 from optisample.optimize.reduce.events import EventIdentity
 from optisample.optimize.tasks import EvalContext, Event, PitchTask, score_event, weighted_distortion
@@ -124,14 +125,25 @@ class _StoredScorer:
 
 
 def _stored_sample(request: StoreRequest, params: EncodingParams, context: EvalContext) -> StoredSample:
-    """``request``'s recording stored under ``params``, rooted at the pitch it was recorded at."""
+    """``request``'s recording stored under ``params``, rooted at the pitch it was recorded at.
+
+    Where the run stores carriers, the recording is divided by the curve it alone states and that curve
+    rides on the stored sample, so a zone is priced on the waveform the module keeps
+    (:func:`~optisample.optimize.carrier.stored_carrier`).
+    """
     encode_context = EncodeContext(
         root_pitch=request.stored_key.pitch,
         config=context.encode,
         settled=request.representative.settled,
         rng=dither(context.seed, request.stored_key, params),
     )
-    return encode(request.representative.representative, context.sample_rate, params, encode_context)
+    return stored_carrier(
+        request.representative.representative,
+        context.sample_rate,
+        params,
+        encode_context,
+        PlayedCurve(context.envelopes.get(request.stored_key), context.tempo),
+    )
 
 
 def score_request(request: StoreRequest, context: EvalContext) -> dict[EncodingParams, StoredScore]:

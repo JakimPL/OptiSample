@@ -74,6 +74,8 @@ def _settings() -> OptimizeSettings:
         max_samples=_CONFIG.optimize.budget.max_samples,
         resolution=_CONFIG.optimize.budget.resolution,
         target=export_target(_CONFIG.export.tracker),
+        playback=_CONFIG.export.playback,
+        envelope=_CONFIG.export.envelope,
     )
 
 

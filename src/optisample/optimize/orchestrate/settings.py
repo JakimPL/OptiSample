@@ -2,13 +2,17 @@ from dataclasses import dataclass
 from typing import Final
 
 from optisample.config.codec import EncodeConfig
+from optisample.config.export import EnvelopeConfig
 from optisample.config.layers import LayersConfig
 from optisample.config.loop import LoopConfig
 from optisample.config.metrics import MetricsConfig
 from optisample.config.optimize import EVERY_SAMPLE, SweepConfig, VelocityConfig
 from optisample.config.reduce import ReduceConfig
+from optisample.config.render import PlaybackConfig
+from optisample.io.tracker.envelope import EnvelopeGrid, envelope_grid
 from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.composite import CompositeFidelity, build_composite
+from optisample.optimize.carrier import CurveSettings
 from optisample.optimize.plans import Method
 from optisample.parallel import IN_PROCESS
 from optisample.progress import NO_PROGRESS, ProgressSink
@@ -28,7 +32,9 @@ class OptimizeSettings:
     byte totals its budget is resolved into (:func:`~optisample.optimize.dp.byte_grid`) -- all
     sourced from config at the entry point. ``target`` is the tracker format the
     plan will be written as, which is what prices every stored sample the allocation considers and how
-    many layers it may store. ``seed`` drives the dither RNG, ``workers`` how many processes the stages
+    many layers it may store, while ``playback`` and ``envelope`` state the clock and the release a volume
+    curve is written on -- which is what lets the sweep price a stored carrier against the very curve the
+    module will play it down by. ``seed`` drives the dither RNG, ``workers`` how many processes the stages
     that fan out share their work between, and ``progress`` is where each stage reports how far through
     it is; the three describe how the run is carried out rather than what it computes, so they keep code
     defaults. ``loops`` says whether the loop stage runs at all, which is the one switch that leaves every
@@ -47,10 +53,27 @@ class OptimizeSettings:
     max_samples: int
     resolution: int | None
     target: ExportTarget
+    playback: PlaybackConfig
+    envelope: EnvelopeConfig
     loops: bool = LOOPS_OFFERED
     seed: int = DEFAULT_SEED
     workers: int = IN_PROCESS
     progress: ProgressSink = NO_PROGRESS
+
+    @property
+    def envelope_grid(self) -> EnvelopeGrid:
+        """What a curve priced by the sweep is held to: the module's clock, the format's grids, the release.
+
+        The same bundle the exporter writes its curves on
+        (:attr:`~optisample.optimize.export.context.ExportContext.envelope_grid`), so a carrier is priced
+        against a curve of exactly the resolution the written module carries.
+        """
+        return envelope_grid(self.target, tempo=self.playback.tempo, release_s=self.envelope.release_s)
+
+    @property
+    def curve_settings(self) -> CurveSettings:
+        """What reading the curve one recording states is carried out with, for a run pricing carriers."""
+        return CurveSettings(config=self.encode, target=self.target, grid=self.envelope_grid)
 
     @property
     def sample_cap(self) -> int:

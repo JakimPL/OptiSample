@@ -3,7 +3,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from optisample.config.reduce import ReduceConfig
+from optisample.config.reduce import NO_GROUPING, ReduceConfig
 
 
 def raw(**sections: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -53,7 +53,7 @@ def test_bundled_shape_validates() -> None:
         ("bandwidth", {"discard_floor_db": 0.0}),
         ("bandwidth", {"discard_penalty": -0.1}),  # a rung the objective is paid to narrow is unrepresentable
         ("bandwidth", {"discard_floor_db": 30.0}),  # above the settled floor, so no band is left to charge for
-        ("grouping", {"max_zone_semitones": 0}),
+        ("grouping", {"max_zone_semitones": -1}),
     ],
 )
 def test_out_of_range_values_are_rejected(section: str, overrides: dict[str, Any]) -> None:
@@ -63,6 +63,12 @@ def test_out_of_range_values_are_rejected(section: str, overrides: dict[str, Any
 
 def test_a_ratio_of_one_is_the_lower_bound_that_keeps_every_duration() -> None:
     assert ReduceConfig.model_validate(raw(events={"duration_bucket_ratio": 1.0})).events.duration_bucket_ratio == 1.0
+
+
+def test_a_zone_width_of_zero_asks_for_no_grouping() -> None:
+    """A keyboard of unrelated sounds keeps every key its own sample, which zero width is how to ask for."""
+    grouping = ReduceConfig.model_validate(raw(grouping={"max_zone_semitones": NO_GROUPING})).grouping
+    assert grouping.max_zone_semitones == NO_GROUPING
 
 
 def test_the_two_floors_may_meet() -> None:

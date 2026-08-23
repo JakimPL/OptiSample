@@ -4,6 +4,7 @@ import numpy as np
 
 from optisample.metrics.composite import build_composite
 from optisample.model import InstrumentSpec
+from optisample.optimize.carrier import NO_ENVELOPES, Envelopes, clip_envelopes
 from optisample.optimize.knapsack import rd_curve
 from optisample.optimize.layers.slots import reserved_slots
 from optisample.optimize.orchestrate.audio import load_run_audio
@@ -32,6 +33,19 @@ from optisample.optimize.velocity_map import (
     derive_velocity_map,
     loudness_by_velocity,
 )
+
+
+def _priced_envelopes(audio: AudioMap, sample_rate: int, settings: OptimizeSettings) -> Envelopes:
+    """The curve each recording states on its own, where the run stores carriers rather than recordings.
+
+    Read once per survivor and carried on the scoring context, so every encoding of one recording is
+    priced against the same curve and a worker scoring it reads none of them again. A run storing
+    recordings names no curve, and every clip is priced holding the level its own PCM carries.
+    """
+    if not settings.sweep.carrier:
+        return NO_ENVELOPES
+
+    return clip_envelopes(audio, sample_rate, settings.curve_settings)
 
 
 @dataclass(frozen=True)
@@ -115,6 +129,8 @@ def prepare_run(
         bandwidth=grid.bandwidth,
         grouping=settings.reduce.grouping,
         seed=settings.seed,
+        tempo=settings.playback.tempo,
+        envelopes=_priced_envelopes(audio, sample_rate, settings),
     )
     reduction = summarize_reduction(
         instrument,

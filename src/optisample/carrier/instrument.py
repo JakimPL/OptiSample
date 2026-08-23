@@ -7,38 +7,20 @@ from typing import Final
 import numpy as np
 
 from optisample.carrier.compress import held_sources
-from optisample.carrier.shape import NO_SHAPE, carrier_shape
+from optisample.carrier.shape import WrittenShape, written_shape
 from optisample.carrier.source import CarrierSource
 from optisample.carrier.store import CarrierSettings, StoredCarrier, store_carrier
-from optisample.dsp.level import Clock, curve_level, written_level
-from optisample.io.tracker.envelope import NO_ENVELOPE, EnvelopeGrid, shape_nodes, volume_envelope
 from optisample.io.tracker.loop import stored_loop
 from optisample.io.tracker.target import ExportTarget, balanced_gains, sample_label
 from optisample.music import sounded_note
 from optisample.optimize.export.coverage import covered_routing
-from trackmod.core.envelopes.envelope import Envelope
 from trackmod.core.instruments.instrument import Instrument
 from trackmod.core.instruments.keymap import KeyAssignment, Keymap, routed_keymap
 from trackmod.core.instruments.unit import InstrumentUnit
 from trackmod.core.notes.pitch import Note
 from trackmod.core.samples.sample import Sample
 
-NO_DISPERSION: Final = 0.0  # what one envelope costs a set carrying none
-
 _BITS_PER_BYTE: Final = 8
-
-
-@dataclass(frozen=True)
-class WrittenShape:
-    """The one curve a set of recordings is written under, beside what sharing it costs them.
-
-    ``dispersion_db`` is how far the furthest source stands from the shape, which is the reading that says
-    whether the set was well chosen to be written together -- large where the recordings decline at rates
-    of their own, near nothing where they decline alike.
-    """
-
-    envelope: Envelope | None
-    dispersion_db: float
 
 
 @dataclass(frozen=True)
@@ -84,25 +66,6 @@ def _routing(sources: Sequence[CarrierSource], target: ExportTarget) -> dict[Not
 def carrier_keymap(sources: Sequence[CarrierSource], target: ExportTarget) -> Keymap:
     """Every key ``target`` numbers routed to the source nearest it, each sounding its own pitch."""
     return routed_keymap(covered_routing(_routing(sources, target), target))
-
-
-def written_shape(sources: Sequence[CarrierSource], *, target: ExportTarget, grid: EnvelopeGrid) -> WrittenShape:
-    """The volume curve an instrument built from ``sources`` carries, beside what sharing it costs.
-
-    The shape is fitted from the sources' own levels and written against its own loudest moment, since the
-    level each source stands at is restored by the step beside its own waveform rather than by the curve.
-    A set holding nothing long enough to read leaves ``NO_ENVELOPE``, which sounds every waveform as it
-    stands and costs its sources nothing.
-    """
-    shape = carrier_shape(sources, nodes=shape_nodes(target.envelope_point_bound))
-    if shape is NO_SHAPE:
-        return WrittenShape(envelope=NO_ENVELOPE, dispersion_db=NO_DISPERSION)
-
-    level = curve_level(shape.curve, Clock.PLAYED)
-    return WrittenShape(
-        envelope=volume_envelope(written_level(level, reference_db=level.peak_db), grid),
-        dispersion_db=shape.dispersion_db,
-    )
 
 
 def carrier_instrument(

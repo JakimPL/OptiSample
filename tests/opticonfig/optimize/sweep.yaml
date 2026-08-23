@@ -5,4 +5,4 @@ depth: 16                    # bits every stored sample keeps
 dither: false
 noise_shaping: false
 compress: true               # offered beside the plain encoding where the depth is shallow enough to hear it
-carrier: true                # store timbre and let the envelope carry the level; the objective prices this yet
+carrier: true                # store timbre and let the envelope carry the level, which the sweep prices per clip

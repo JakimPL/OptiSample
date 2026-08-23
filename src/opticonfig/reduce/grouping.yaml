@@ -1,2 +1,2 @@
 # How pitch-zone grouping bounds its own search (optisample.config.reduce.ZoneConfig).
-max_zone_semitones: 12 # widest contiguous pitch zone the partition DP considers
+max_zone_semitones: 12 # widest contiguous pitch zone the partition DP considers; 0 keeps every key its own sample

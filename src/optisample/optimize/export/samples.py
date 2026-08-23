@@ -1,15 +1,15 @@
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 import numpy as np
 
 from optisample.config.codec import EncodeConfig
-from optisample.dsp.surrogate import NO_LOOPS, POST_LOOP_DROPPED, EncodeContext, StoredSample, encode
-from optisample.io.tracker.envelope import NO_ENVELOPE, carried_signal, sounding_level
+from optisample.dsp.surrogate import NO_LOOPS, POST_LOOP_DROPPED, EncodeContext, StoredSample
+from optisample.io.tracker.envelope import NO_ENVELOPE
 from optisample.io.tracker.loop import stored_loop
 from optisample.io.tracker.target import ExportTarget, balanced_gains, sample_label
-from optisample.metrics.base import Signal
 from optisample.music import sounded_note
+from optisample.optimize.carrier import PlayedCurve, stored_carrier
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.coverage import covered_routing
 from optisample.optimize.layers.slots import InstrumentSlot, SlotLayout
@@ -59,24 +59,6 @@ class EncodeOrder:
     post_loop: bool = POST_LOOP_DROPPED
 
 
-def _played_through(stored: StoredSample, envelope: Envelope | None, *, tempo: int) -> StoredSample:
-    """``stored`` carrying the level the module plays it back through, where a curve carries one for it.
-
-    A waveform that handed its level to an instrument's envelope holds none of that level itself, so what a
-    note sounds at is the stored material times the very curve it was divided by
-    (:func:`~optisample.io.tracker.envelope.sounding_level`). Carrying that curve on the sample is what
-    lets the surrogate renderer (:func:`~optisample.dsp.surrogate.render.render`) put out what the module
-    puts out, so a carrier is scored as it is heard rather than as the level-flat waveform it is stored as.
-
-    A waveform stored as it was played keeps the level it was encoded with, its own PCM already holding
-    every level it sounds at up to the loop it wraps on.
-    """
-    if envelope is NO_ENVELOPE:
-        return stored
-
-    return replace(stored, level=sounding_level(envelope, tempo=tempo))
-
-
 def encode_plan_units(
     units: Sequence[SampleUnit],
     recordings: StoredRecordings,
@@ -96,13 +78,6 @@ def encode_plan_units(
     """
     rng = np.random.default_rng(order.seed)
     for position, unit in enumerate(units):
-        envelope = order.envelopes[position]
-        representative: Signal = carried_signal(
-            recordings.audio[unit.representative_key],
-            envelope,
-            tempo=order.tempo,
-            sample_rate=recordings.sample_rate,
-        )
         encode_context = EncodeContext(
             root_pitch=unit.representative,
             config=order.config,
@@ -110,10 +85,12 @@ def encode_plan_units(
             rng=rng,
             post_loop=order.post_loop,
         )
-        yield unit, _played_through(
-            encode(representative, recordings.sample_rate, unit.params, encode_context),
-            envelope,
-            tempo=order.tempo,
+        yield unit, stored_carrier(
+            recordings.audio[unit.representative_key],
+            recordings.sample_rate,
+            unit.params,
+            encode_context,
+            PlayedCurve(order.envelopes[position], order.tempo),
         )
 
 
