@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from importlib import resources
 from pathlib import Path
-from shutil import copytree
+from shutil import copytree, rmtree
 from typing import Any, Final
 
 import yaml
@@ -13,6 +13,7 @@ from optisample.config.loader import load_config
 _PACKAGE: Final = "opticonfig"
 _SUFFIX: Final = ".yaml"
 _STAGE_DEPTH: Final = 2  # a stage group is addressed as "<stage>.<group>", which is a file two names deep
+_PARTIAL: Final = ".partial"  # where a copy is built, so only a whole tree ever stands under its own name
 
 Overrides = Mapping[str, Any]
 
@@ -80,11 +81,21 @@ def variant(directory: Path, overrides: Overrides) -> Path:
 
     Loading the result is what makes a mistyped key or an out-of-bounds value fail here rather than
     inside the run that would have spent minutes on it.
+
+    The copy is built beside the name it is asked for and moved onto it once it is whole, so a sweep
+    stopped part-way leaves nothing a later run would read as a config tree and go on to run against.
     """
     if directory.exists():
         return directory
 
-    copytree(bundled_root(), directory, ignore=_only_yaml)
-    apply(directory, overrides)
-    load_config(directory)
+    partial = directory.with_name(directory.name + _PARTIAL)
+    rmtree(partial, ignore_errors=True)
+    copytree(bundled_root(), partial, ignore=_only_yaml)
+    apply(partial, overrides)
+    load_config(partial)
+    if directory.exists():
+        rmtree(partial, ignore_errors=True)
+    else:
+        partial.replace(directory)
+
     return directory

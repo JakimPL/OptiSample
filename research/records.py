@@ -56,6 +56,24 @@ def _span_ratios(recordings: Sequence[RecordingLoopsRecord]) -> list[float]:
     ]
 
 
+def _cheapest_offers_s(recordings: Sequence[RecordingLoopsRecord]) -> list[float]:
+    """The shortest span each looped recording may be stored over, which is the least a loop asks for."""
+    return [min(offer.end_s for offer in recording.offered) for recording in recordings if recording.offered]
+
+
+def _stored_shares(recordings: Sequence[RecordingLoopsRecord]) -> list[float]:
+    """What share of the span it plays each looped recording stores, once its cheapest offer is taken.
+
+    This is the byte lever the loop stage hands the allocation: a recording offering a loop a quarter of
+    the way in stores a quarter of the frames playing the note out would have asked for.
+    """
+    return [
+        min(offer.end_s for offer in recording.offered) / recording.search_s
+        for recording in recordings
+        if recording.offered and recording.search_s > _NOTHING
+    ]
+
+
 class LoopReadings(Readings):
     """What the loop stage settled: how much material loops, what it offers, and what it turned down."""
 
@@ -70,6 +88,9 @@ class LoopReadings(Readings):
     median_offer_s: float
     shortest_offer_s: float
     longest_offer_s: float
+    median_start_s: float
+    median_cheapest_s: float
+    median_stored_share: float
     median_span_ratio: float
     median_seam_step: float
     median_spectral_distance_db: float
@@ -94,6 +115,9 @@ class LoopReadings(Readings):
             median_offer_s=_median([offer.end_s for offer in offered]),
             shortest_offer_s=min((offer.end_s for offer in offered), default=_NOTHING),
             longest_offer_s=max((offer.end_s for offer in offered), default=_NOTHING),
+            median_start_s=_median([offer.start_s for offer in offered]),
+            median_cheapest_s=_median(_cheapest_offers_s(recordings)),
+            median_stored_share=_median(_stored_shares(recordings)),
             median_span_ratio=_median(_span_ratios(recordings)),
             median_seam_step=_median([offer.quality.seam_step for offer in offered]),
             median_spectral_distance_db=_median([offer.quality.spectral_distance for offer in offered]),
