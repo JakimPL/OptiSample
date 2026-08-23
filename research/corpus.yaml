@@ -1,0 +1,24 @@
+# The corpus the research measures on: where it sits, and the acoustic class each instrument stands for.
+# Classes are what a tuning claim is tagged with, so a finding states the material it holds across.
+manifests: D:/Projekty/Rendery/MIDI/Jamzz/Isolated
+samples: D:/Projekty/Rendery/WAV/Jamzz/Samples
+reduced: D:/Projekty/Rendery/SMP/Jamzz/Artifacts/2_reduced
+classes:
+  Piano: struck
+  Bass: plucked_low
+  Drums - Main Kit: percussive
+  Drums - Secondary Kit: percussive
+  Drums - Supplementary Kit: percussive
+  Ensemble - Strings A: bowed_sustained
+  Ensemble - Strings B: bowed_sustained
+  Ensemble - Strings C: bowed_sustained
+  Ensemble - Solo: bowed_sustained
+  Ensemble - Spiccato: short
+  Big Band - Long: brass_sustained
+  Big Band - Short: short
+  Big Band - Staccato: short
+  Big Band - Trumpet: brass_bright
+  Big Band - Flute: wind_bright
+  Big Band - Trombone: brass_dark
+  Big Band - Horn A: brass_dark
+  Big Band - Horn B: brass_dark

@@ -5,7 +5,7 @@ test:
 .PHONY: lint
 lint:
 	uv run mypy
-	uv run pylint src/optisample notebooks/utils
+	uv run pylint src/optisample notebooks/utils research
 
 .PHONY: format
 format:

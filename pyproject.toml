@@ -72,7 +72,7 @@ show_missing = true
 fail_under = 99
 
 [tool.mypy]
-files = ["src/optisample", "notebooks/utils"]
+files = ["src/optisample", "notebooks/utils", "research"]
 exclude = ["tests", 'notebooks/[^/]+\.py$']
 plugins = ["pydantic.mypy"]
 disallow_subclassing_any = true
