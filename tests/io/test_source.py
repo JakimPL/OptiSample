@@ -11,7 +11,7 @@ from optisample.config.dynamic_axis import AS_WRITTEN
 from optisample.config.subset import IntakeConfig
 from optisample.io.audio import write_wav
 from optisample.io.dataset import SourceDataset
-from optisample.io.note_extractor import IngestSettings, NoteRecord, dump_notes
+from optisample.io.note_extractor import IngestSettings, NoteRecord, dump_notes, read_manifest
 from optisample.io.source import load_source, write_source_subset
 from optisample.model import ProjectSpec
 from tests.conftest import TEST_CONFIG_DIR
@@ -27,6 +27,8 @@ _SLICE = 0.4
 _SLICED_TAKES = 2
 _ADMIT_EVERY = 0.0  # a floor every take clears, so both shapes are read on their spread alone
 _INTAKE = IntakeConfig(min_duration_s=_ADMIT_EVERY, subsonic=_SUBSONIC, dynamic_axis=AS_WRITTEN)
+_TRACKED = (0, 1)  # the controllers an extraction followed, which a written dataset states in turn
+_WHEEL = 1
 
 
 @pytest.fixture
@@ -156,3 +158,23 @@ def test_a_slice_is_read_back_by_the_loader_its_source_was(
     (instrument,) = load_source(dataset.source, settings).instruments
 
     assert len(instrument.samples) == dataset.kept_notes
+
+
+def test_a_written_dataset_states_the_controllers_its_extraction_followed(tmp_path: Path) -> None:
+    """A stage writes a dataset a later one reads, so the tracked set survives the join it is written across."""
+    notes_json = tmp_path / f"{_INSTRUMENT}.notes.json"
+    dump_notes(
+        [NoteRecord(index=0, pitch=_PITCHES[0], velocity=_VELOCITY, duration_s=_TAKE_S, cc_averages={_WHEEL: 64.0})],
+        notes_json,
+        tracked_ccs=_TRACKED,
+    )
+
+    assert read_manifest(notes_json).settings.tracked_ccs == _TRACKED
+
+
+def test_a_dataset_written_without_a_tracked_controller_states_an_empty_set(tmp_path: Path) -> None:
+    """An extraction following nothing says so, which is what tells it apart from one that was not asked."""
+    notes_json = tmp_path / f"{_INSTRUMENT}.notes.json"
+    dump_notes([NoteRecord(index=0, pitch=_PITCHES[0], velocity=_VELOCITY, duration_s=_TAKE_S)], notes_json)
+
+    assert read_manifest(notes_json).settings.tracked_ccs == ()

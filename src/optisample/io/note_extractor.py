@@ -65,11 +65,17 @@ class RollSettings(BaseModel):
 
 
 class ManifestSettings(BaseModel):
-    """The extraction settings a manifest records, of which the ingest reads the rolls."""
+    """The extraction settings a manifest records: the padding its recordings hold, and what it tracked.
+
+    ``tracked_ccs`` names the controllers the extraction followed, which is what says whether a dataset can
+    answer for an axis at all: a run reading its dynamics from a controller wants one this set names. A
+    dataset extracted without following any states an empty set.
+    """
 
     model_config = ConfigDict(extra="ignore")
 
     rolls: RollSettings
+    tracked_ccs: tuple[int, ...] = ()
 
 
 class ManifestRender(BaseModel):
@@ -263,12 +269,17 @@ def dump_notes(
     """Write the consumed ``.notes.json`` subset for ``notes`` (render window ``[0, duration_s]``).
 
     The rolls are declared as none, because a written recording starts at its onset and is stored for as
-    long as the pitch it serves asks for, so a later ingest keeps every frame of it.
+    long as the pitch it serves asks for, so a later ingest keeps every frame of it. ``tracked_ccs`` is
+    written beside them, where a NoteExtractor manifest states it
+    (:attr:`ManifestSettings.tracked_ccs`), so a dataset a stage writes says which controllers it followed
+    and reading it back answers the way its source did.
     """
     data: dict[str, Any] = {
         **_render_block(tempo_bpm),
-        "config": {"tracked_ccs": list(tracked_ccs)},
-        "settings": {"rolls": {"pre_roll_seconds": NO_PADDING_S, "post_roll_seconds": NO_PADDING_S}},
+        "settings": {
+            "tracked_ccs": list(tracked_ccs),
+            "rolls": {"pre_roll_seconds": NO_PADDING_S, "post_roll_seconds": NO_PADDING_S},
+        },
         "notes": [
             {
                 "pitch": note.pitch,

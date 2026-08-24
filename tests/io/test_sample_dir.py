@@ -33,6 +33,8 @@ _VELOCITIES = (20, 70, 120)
 _LEAD_IN_S = 0.05
 _TRAIL_OUT_S = 0.03
 _ADMIT_EVERY = 0.0  # a floor every take clears, so a slice is read on its spread alone
+_SWEPT_AVERAGE = 67.022  # an average a moving controller leaves, which is what asks for a spelled point
+_SWEPT_SPELLING = "67p022"  # how a trimmer writes that average into a file name
 
 
 @dataclass(frozen=True)
@@ -108,6 +110,39 @@ def test_controller_averages_carry_over_from_the_name(tmp_path: Path) -> None:
     (take,) = read_takes(tmp_path)
 
     assert take.cc_averages == {1: 64.5, 11: 20.0}
+
+
+@pytest.mark.parametrize(
+    ("spelled", "average"),
+    [
+        ("cc1-67p022", 67.022),
+        ("cc1-64.5", 64.5),
+        ("cc1-90", 90.0),
+        ("cc1-m3p5", -3.5),
+    ],
+    ids=("a point written as a letter", "a point written as itself", "a whole number", "a signed value"),
+)
+def test_an_average_is_read_back_from_every_spelling_a_recording_is_named_with(
+    tmp_path: Path,
+    spelled: str,
+    average: float,
+) -> None:
+    """A trimmer writes the point and the sign as letters, so a name holds to what a filesystem carries."""
+    _write_take(tmp_path / f"0000_p060_v100_{spelled}.wav")
+    (take,) = read_takes(tmp_path)
+
+    assert take.cc_averages == {1: pytest.approx(average)}
+
+
+def test_a_directory_of_trimmed_recordings_reaches_the_averages_its_manifest_states(
+    tmp_path: Path,
+    settings: IngestSettings,
+) -> None:
+    """The two shapes of one dataset agree: a controller average survives being spelled into a file name."""
+    _write_take(tmp_path / f"0000_p060_v100_cc1-{_SWEPT_SPELLING}.wav")
+    (instrument,) = load_sample_dir(tmp_path, settings).instruments
+
+    assert [sample.cc_averages for sample in instrument.samples] == [{1: pytest.approx(_SWEPT_AVERAGE)}]
 
 
 def test_takes_are_read_in_filename_order(named_grid: Path) -> None:

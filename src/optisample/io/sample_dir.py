@@ -21,7 +21,9 @@ UNKNOWN_VELOCITY: Final = MIDI_MAX_VELOCITY
 _TOKEN_SEPARATOR: Final = "_"
 _NUMBERED_PITCH_PATTERN: Final = re.compile(r"^p(\d+)$")
 _VELOCITY_PATTERN: Final = re.compile(r"^v(\d+)$")
-_CONTROLLER_PATTERN: Final = re.compile(r"^cc(\d+)-(\d+(?:\.\d+)?)$")
+_DECIMAL_POINT_MARKER: Final = "p"  # a controller average spells its point this way, which every filesystem accepts
+_MINUS_SIGN_MARKER: Final = "m"  # and its sign this way, for the same reason
+_CONTROLLER_PATTERN: Final = re.compile(rf"^cc(\d+)-({_MINUS_SIGN_MARKER}?\d+(?:[{_DECIMAL_POINT_MARKER}.]\d+)?)$")
 
 
 @dataclass(frozen=True)
@@ -96,10 +98,22 @@ def _velocity_of(tokens: Sequence[str]) -> int | None:
     return next((int(match.group(1)) for match in map(_VELOCITY_PATTERN.match, tokens) if match), None)
 
 
+def _controller_average(spelled: str) -> float:
+    """The average a ``cc<number>-<average>`` token spells, with its markers read back as the signs they stand for.
+
+    A recording is named for what it holds, and a controller average is a decimal, so the writer spells the
+    point and the sign as the letters :data:`_DECIMAL_POINT_MARKER` and :data:`_MINUS_SIGN_MARKER` -- which
+    is what keeps the name to characters every filesystem carries. Reading them back here is what lets a
+    directory of recordings state the same averages its manifest does. A point written as itself reads the
+    same way, so a name from either hand is understood.
+    """
+    return float(spelled.replace(_MINUS_SIGN_MARKER, "-").replace(_DECIMAL_POINT_MARKER, "."))
+
+
 def _controllers_of(tokens: Sequence[str]) -> dict[int, float]:
     """Every ``cc<number>-<average>`` token as the controller average it records."""
     matches = (_CONTROLLER_PATTERN.match(token) for token in tokens)
-    return {int(match.group(1)): float(match.group(2)) for match in matches if match}
+    return {int(match.group(1)): _controller_average(match.group(2)) for match in matches if match}
 
 
 def _spell_name(path: Path) -> _SpelledName:
