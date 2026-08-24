@@ -18,6 +18,7 @@ from optisample.optimize.grouping.stores import (
 from optisample.optimize.plans.grouped import ZoneOption
 from optisample.optimize.reduce.bandwidth import (
     ClipDemand,
+    carried_storages,
     clip_band_hz,
     format_from_band,
     stored_encodings,
@@ -118,10 +119,15 @@ class _BandCache:
 
     A recording's band depends on the stretch stored of it and nothing else, so it is measured once per
     recording and length. A zone's own transpose then settles the format from it, which is arithmetic.
+
+    Which storages the recording is worth being offered as is a property of the recording alone
+    (:func:`~optisample.optimize.reduce.bandwidth.carried_storages`), so it is read once beside the band
+    and every zone reaching the same recording is answered from it.
     """
 
     context: EvalContext
     bands: dict[_BandKey, float] = field(default_factory=dict, init=False)
+    storages: dict[SampleKey, tuple[bool, ...]] = field(default_factory=dict, init=False)
 
     def encodings(self, rep_task: PitchTask, demand: ClipDemand) -> tuple[EncodingParams, ...]:
         """The encodings worth scoring for ``rep_task`` under ``demand``."""
@@ -134,7 +140,15 @@ class _BandCache:
                 self.context.bandwidth,
             )
 
-        stored = format_from_band(self.bands[key], demand, self.context)
+        if rep_task.representative_key not in self.storages:
+            self.storages[rep_task.representative_key] = carried_storages(rep_task.representative, self.context)
+
+        stored = format_from_band(
+            self.bands[key],
+            demand,
+            self.context,
+            self.storages[rep_task.representative_key],
+        )
         return stored_encodings(
             stored,
             self.context.sweep,

@@ -1,15 +1,13 @@
 import argparse
 from pathlib import Path
-from typing import Final, get_args
+from typing import Final
 
 from optisample.artifacts.pipeline import PipelineStage
 from optisample.cluster.stages import Stage
 from optisample.config.reduce import DedupeKey
-from optisample.config.render import Interpolation
 from optisample.config.tracker import TrackerFormat
 from optisample.seed import DEFAULT_SEED
 
-_INTERPOLATIONS: Final = get_args(Interpolation)
 _FORMATS: Final = tuple(TrackerFormat)
 _DEDUPE_KEYS: Final = tuple(DedupeKey)
 _ARTIFACTS_OUT: Final = Path("artifacts")
@@ -90,12 +88,6 @@ def _ingest_parser() -> argparse.ArgumentParser:
         choices=_FORMATS,
         default=None,
         help="Tracker format to write (default: the config's)",
-    )
-    ingest.add_argument(
-        "--interpolation",
-        choices=_INTERPOLATIONS,
-        default=None,
-        help="Playback interpolation (default: sinc)",
     )
     ingest.add_argument(
         "--pre-roll-ms",

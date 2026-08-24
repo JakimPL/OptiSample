@@ -17,6 +17,7 @@ from optisample.io.tracker.envelope import NO_ENVELOPE, envelope_grid
 from optisample.io.tracker.target import export_target
 from optisample.keys import SampleKey
 from optisample.metrics.composite import build_composite, evaluate
+from optisample.music import note_name
 from optisample.optimize.carrier import CurveSettings, PlayedCurve, clip_envelope, stored_carrier
 
 Signal = NDArray[np.float64]
@@ -40,6 +41,11 @@ class Recording:
     key: SampleKey
     signal: Signal
     sample_rate: int
+
+    @property
+    def label(self) -> str:
+        """How this take is named where one is written to disk, which reads as the note it plays."""
+        return f"{self.instrument_id}_p{self.key.pitch:03d}_{note_name(self.key.pitch)}".replace(" ", "_")
 
 
 @dataclass(frozen=True)

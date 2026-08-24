@@ -139,6 +139,7 @@ def one_shot(corpus: Corpus) -> tuple[Cell, ...]:
 
 _WORTH: Final = ("Big Band - Staccato", "Ensemble - Strings C", "Big Band - Horn A")
 _PREFIX_BUDGET_KB: Final = 512.0
+_ONE_STORAGE: Final[Mapping[str, Any]] = {"optimize.sweep.carriers": [False]}
 _PREFIXES: Final[tuple[tuple[str, Mapping[str, Any]], ...]] = (
     ("shipped", {}),
     ("settle30", {"loop.features.settle_db_per_s": 30.0}),
@@ -157,6 +158,10 @@ def prefix_worth(corpus: Corpus) -> tuple[Cell, ...]:
     a different side -- the settling threshold reads it off the material, the attack cap imposes it -- and
     the last pairs the loosest threshold with a timbre gate tight enough to still say no, which is what
     says whether the two knobs belong together.
+
+    Every cell stores its recordings as they were played, which holds the storage axis still while the
+    prefix moves: what separates two cells is then the loop window alone, and each of them prices half the
+    encodings a run offering both storages would.
     """
     return tuple(
         Cell(
@@ -165,7 +170,7 @@ def prefix_worth(corpus: Corpus) -> tuple[Cell, ...]:
             material=material,
             stage=Stage.OPTIMIZE,
             budget_kb=_PREFIX_BUDGET_KB,
-            overrides=overrides,
+            overrides={**_ONE_STORAGE, **overrides},
             source=Source.REDUCED,
         )
         for name, overrides in _PREFIXES

@@ -62,14 +62,16 @@ class ClipRequest:
 class GridContext:
     """What settling a pitch's stored grid runs off, in the validated config a worker process can be handed.
 
-    ``sample_rate`` is the rate the run measures at, ``sweep`` what a clip may be stored as, and
-    ``bandwidth`` the knobs that read a recording's own band. Every field is a small validated value, so the
+    ``sample_rate`` is the rate the run measures at, ``sweep`` what a clip may be stored as,
+    ``bandwidth`` the knobs that read a recording's own band and ``tempo`` the clock a written curve
+    turns its corners on, which says whose level a curve has room to carry. Every field is a small validated value, so the
     whole context travels to a worker as it stands.
     """
 
     sample_rate: int
     sweep: SweepConfig
     bandwidth: BandwidthConfig
+    tempo: int
 
 
 @dataclass(frozen=True)

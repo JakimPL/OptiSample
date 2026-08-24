@@ -68,10 +68,15 @@ def test_the_profile_draws_one_line_per_depth_the_recording_reached(config: Opti
 def test_contribution_bar_totals_match_fidelity(
     composite: CompositeFidelity, metrics_config: MetricsConfig, tone: Callable[..., NDArray[np.float64]]
 ) -> None:
+    """A bar states the whole of a candidate's score, so its stack sums to the fidelity beside it.
+
+    The terms are the ones the composite was built from, so a term added to the objective reaches the
+    picture without the drawing being told about it.
+    """
     signal = tone()
     weights = metrics_config.weights
     rows = views.compare_specs(signal, SR, degrade.smoke_specs(), composite)
     for row in rows:
-        stacked = sum(weights.get(key, 0.0) * float(row[key]) for key in viz._CONTRIBUTION_KEYS)
+        stacked = sum(weight * float(row[key]) for key, weight in weights.items())
         assert stacked == pytest.approx(float(row["fidelity"]), rel=1e-9, abs=1e-9)
     assert viz.figure_png(viz.contribution_bar(rows, weights))[:8] == b"\x89PNG\r\n\x1a\n"

@@ -21,7 +21,6 @@ def fields(tmp_path: Path) -> runs.Fields:
         fraction=0.1,
         tracker_format="it",
         strategy="ungrouped",
-        interpolation="sinc",
         dedupe_key="pitch_velocity",
         content_floor_db=60.0,
         rates=(22_050, 11_025),

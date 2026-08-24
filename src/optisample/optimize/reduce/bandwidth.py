@@ -6,11 +6,13 @@ import numpy as np
 
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import BandwidthConfig
+from optisample.dsp.onset import ATTACK_READING, attack_seconds
 from optisample.dsp.spectral import content_edge_hz
 from optisample.dsp.surrogate import UNLOOPED, EncodingParams, Signal
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.music import semitone_ratio
 from optisample.optimize.operating_points import compresses, sweep_rates
+from trackmod.core.timing.clock import tick_seconds
 
 _RATE_PER_BANDWIDTH: Final = 2.0  # Nyquist: a stored rate carries content up to half of it
 _UNTRANSPOSED: Final = 0  # the transpose a sample plays at while it serves the key it was recorded at
@@ -33,8 +35,9 @@ class FormatInputs(Protocol):
     """What settling a stored format reads from the run's shared context: the run's rate and its rules.
 
     Stated as a protocol so the reduction and the sweep run off one context: the rate the run measures
-    at, the ladder a stored rate is chosen from and the band knobs that choose the rung each have a
-    single source, and the format comes out in exactly the terms the sweep then encodes under.
+    at, the ladder a stored rate is chosen from, the band knobs that choose the rung and the clock a
+    written curve turns its corners on each have a single source, and the format comes out in exactly the
+    terms the sweep then encodes under.
     """
 
     @property
@@ -45,6 +48,9 @@ class FormatInputs(Protocol):
 
     @property
     def bandwidth(self) -> BandwidthConfig: ...
+
+    @property
+    def tempo(self) -> int: ...
 
 
 def _stored_span(clip: Signal, trim_s: float | None, sample_rate: int) -> Signal:
@@ -141,6 +147,24 @@ class StoredFormat:
     carriers: tuple[bool, ...]
 
 
+AS_PLAYED: Final = (False,)  # the one storage left to a recording a written curve cannot follow
+
+
+def carried_storages(clip: Signal, context: FormatInputs) -> tuple[bool, ...]:
+    """The storages ``clip`` is worth being offered as, which is both wherever a curve can carry its level.
+
+    A curve turns its corners on the tick grid, so a recording rising to full level inside a tick is one
+    whose level a curve gives back as a ramp. Storing it as a carrier and storing it as it was played come
+    out as the same waveform, so the sweep is offered the one storage rather than pricing the pair twice
+    (:func:`~optisample.optimize.carrier.clip_envelope`).
+    """
+    shortest = context.sweep.min_carried_attack_ticks * tick_seconds(context.tempo)
+    if attack_seconds(clip, context.sample_rate, ATTACK_READING) >= shortest:
+        return context.sweep.carriers
+
+    return AS_PLAYED
+
+
 def _lowest_rung(rates: Sequence[int], useful_rate: float) -> int:
     """The lowest rung of ``rates`` reaching ``useful_rate``, which is the cheapest rate carrying the band.
 
@@ -151,7 +175,12 @@ def _lowest_rung(rates: Sequence[int], useful_rate: float) -> int:
     return min(rate for rate in rates if rate >= useful_rate)
 
 
-def format_from_band(content_hz: float, demand: ClipDemand, context: FormatInputs) -> StoredFormat:
+def format_from_band(
+    content_hz: float,
+    demand: ClipDemand,
+    context: FormatInputs,
+    carriers: tuple[bool, ...],
+) -> StoredFormat:
     """The format a recording of band ``content_hz`` is stored at under ``demand``, by arithmetic alone.
 
     The demand enters here and nowhere else: the interval the sample is transposed by lowers the rate
@@ -163,7 +192,7 @@ def format_from_band(content_hz: float, demand: ClipDemand, context: FormatInput
     return StoredFormat(
         target_rate=_lowest_rung(sweep_rates(context.sweep, context.sample_rate), useful_rate),
         depths=context.sweep.depths,
-        carriers=context.sweep.carriers,
+        carriers=carriers,
     )
 
 
@@ -178,6 +207,7 @@ def stored_format(clip: Signal, demand: ClipDemand, context: FormatInputs) -> St
         clip_band_hz(clip, demand.trim_s, context.sample_rate, context.bandwidth),
         demand,
         context,
+        carried_storages(clip, context),
     )
 
 

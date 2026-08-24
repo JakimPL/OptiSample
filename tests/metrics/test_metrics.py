@@ -26,7 +26,12 @@ from optisample.metrics import (
 from optisample.metrics.base import Signal
 
 SR = 16_000
-_METRIC_NAMES = ("mrstft", "logmel_l1", "mcd", "spectral_shape")
+
+
+@pytest.fixture(name="metric_names")
+def _metric_names(metrics_config: MetricsConfig) -> tuple[str, ...]:
+    """The terms the composite is summed from, so a term added to the objective reaches these tests."""
+    return tuple(metrics_config.weights)
 
 
 def harmonic(f0: float, dur: float = 0.7, n_partials: int = 6, amp: float = 0.8) -> NDArray[np.float64]:
@@ -55,8 +60,8 @@ def _restore_metric_registry() -> Iterator[None]:
         unregister_metric(name)
 
 
-def test_registry_exposes_defaults(metrics_config: MetricsConfig) -> None:
-    for name in _METRIC_NAMES:
+def test_registry_exposes_defaults(metrics_config: MetricsConfig, metric_names: tuple[str, ...]) -> None:
+    for name in metric_names:
         assert name in available_metrics()
         assert build_metric(name, metrics_config).name == name
 
@@ -79,30 +84,32 @@ def test_register_and_unregister_round_trip(metrics_config: MetricsConfig) -> No
     assert "tmp_metric" not in available_metrics()
 
 
-def test_each_metric_zero_for_identical(metrics_config: MetricsConfig) -> None:
+def test_each_metric_zero_for_identical(metrics_config: MetricsConfig, metric_names: tuple[str, ...]) -> None:
     signal = harmonic(220.0)
     context = MetricContext(sample_rate=SR)
-    for name in _METRIC_NAMES:
+    for name in metric_names:
         assert build_metric(name, metrics_config).distance(signal, signal, context) == pytest.approx(0.0, abs=1e-6)
 
 
-def test_evaluate_identical_has_zero_fidelity(composite: CompositeFidelity) -> None:
+def test_evaluate_identical_has_zero_fidelity(composite: CompositeFidelity, metric_names: tuple[str, ...]) -> None:
     signal = harmonic(220.0)
     report = evaluate(signal, signal, SR, composite)
     assert report.fidelity == pytest.approx(0.0, abs=1e-6)
     assert report.diagnostics["snr_db"] == np.inf
-    assert set(report.breakdown) == set(_METRIC_NAMES)
+    assert set(report.breakdown) == set(metric_names)
 
 
 def test_composite_breakdown_and_distance_agree_with_score(
-    composite: CompositeFidelity, quantize: Callable[..., NDArray[np.float64]]
+    composite: CompositeFidelity,
+    quantize: Callable[..., NDArray[np.float64]],
+    metric_names: tuple[str, ...],
 ) -> None:
     signal = harmonic(220.0)
     context = MetricContext(SR)
     fidelity, per_metric = composite.score(signal, quantize(signal, 8), context)
     assert composite.breakdown(signal, quantize(signal, 8), context) == per_metric  # same raw sub-scores
     assert composite.distance(signal, quantize(signal, 8), context) == pytest.approx(fidelity)
-    assert set(per_metric) == set(_METRIC_NAMES)
+    assert set(per_metric) == set(metric_names)
 
 
 def test_composite_is_monotone_with_quantization(

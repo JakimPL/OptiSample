@@ -16,8 +16,6 @@ from optisample.dsp.trajectory import reading_window_s
 
 Signal = NDArray[np.float64]
 
-_CONTRIBUTION_KEYS = ("mrstft", "logmel_l1", "spectral_shape", "mcd")
-
 
 @dataclass(frozen=True)
 class SpectrogramStyle:
@@ -87,14 +85,17 @@ def spectrogram_figure(
 
 
 def contribution_bar(comparisons: list[Row], weights: dict[str, float], *, title: str | None = None) -> Figure:
-    """Stacked weighted per-metric contributions; each bar's total height ≈ that candidate's fidelity."""
+    """Stacked weighted per-metric contributions; each bar's total height is that candidate's fidelity.
+
+    The terms are the ones ``weights`` names, in the order the composite sums them, so a bar states the
+    whole of what a candidate scored however many terms the objective was built from.
+    """
     labels = [str(row["candidate"]) for row in comparisons]
     positions = np.arange(len(comparisons), dtype=np.float64)
     figure = Figure(figsize=(8.0, 3.2))
     axes = figure.add_subplot()
     bottom = np.zeros(len(comparisons), dtype=np.float64)
-    for key in _CONTRIBUTION_KEYS:
-        weight = weights.get(key, 0.0)
+    for key, weight in weights.items():
         values = np.array([weight * float(row[key]) for row in comparisons], dtype=np.float64)
         axes.bar(positions, values, bottom=bottom, label=key)
         bottom += values

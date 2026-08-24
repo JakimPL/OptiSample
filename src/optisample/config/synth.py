@@ -47,14 +47,14 @@ class MaterialEvent(ConfigModel):
 
 
 class PresetConfig(ConfigModel):
-    """One demo instrument: its archetype, recorded (pitch, velocity) grid, durations, budget, material."""
+    """One demo instrument: what it sounds like, and the song whose notes are rendered as its recordings.
+
+    The material is the whole of what a preset states: every note it plays is rendered as a recording, so
+    the keys, the dynamics and the lengths a dataset holds are read off the song rather than named twice.
+    """
 
     id: str
     archetype: Archetype
-    pitches: tuple[int, ...]
-    velocities: tuple[int, ...]
-    sample_duration: float
-    budget_kb: float
     material: tuple[MaterialEvent, ...]
 
 

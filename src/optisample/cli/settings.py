@@ -246,12 +246,8 @@ def _source(args: argparse.Namespace) -> SourceDataset:
 
 
 def _project(args: argparse.Namespace) -> ProjectSpec:
-    """Build the project settings from the flags; ``--interpolation`` overrides the ``ProjectSpec`` default."""
-    name = instrument_name(args.source)
-    if args.interpolation is None:
-        return ProjectSpec(name=name)
-
-    return ProjectSpec(name=name, interpolation=args.interpolation)
+    """The project one ingest states, which is the name every manifest it writes is filed under."""
+    return ProjectSpec(name=instrument_name(args.source))
 
 
 def _ingest_settings(args: argparse.Namespace) -> IngestSettings:

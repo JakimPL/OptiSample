@@ -12,6 +12,7 @@ from optisample.dsp.surrogate import UNLOOPED, EncodingParams
 from optisample.optimize.reduce.bandwidth import (
     ClipDemand,
     DiscardPricer,
+    carried_storages,
     clip_band_hz,
     clip_reach_hz,
     discard_surcharge,
@@ -29,6 +30,9 @@ _OCTAVE = 12
 _NO_TRANSPOSE = 0
 _RATES = (16_000, 8_000, 4_000)  # an explicit ladder, so a test states which rung it expects back
 _AS_PLAYED = (False,)  # one storage, so a test counting encodings measures the axis it names
+_TEMPO = 125  # the clock a written curve turns its corners on, which no test here varies
+_SLOW_ATTACK_S = 0.1  # an attack running several ticks, which a written curve states with room to spare
+_ONE_TICK = 1.0  # the gate as it ships: a curve needs a tick of run to state an attack across
 _CHEAPEST_RUNG = min(_RATES)
 _RATE_PER_BANDWIDTH = 2.0  # Nyquist, which turns a content-edge tolerance into a rate tolerance
 _DEEP_DEPTH = 16  # bits, where the quantizer already sits below what compression would protect
@@ -48,6 +52,7 @@ class _Context:
     sample_rate: int
     sweep: SweepConfig
     bandwidth: BandwidthConfig
+    tempo: int = _TEMPO
 
 
 @pytest.fixture
@@ -194,7 +199,8 @@ def test_one_measured_band_settles_every_demand_on_the_clip(make_context: Callab
     clip = broadband()
     band = clip_band_hz(clip, _TRIM_S, SR, context.bandwidth)
     for demand in (UNTRANSPOSED, AN_OCTAVE_UP):
-        assert format_from_band(band, demand, context) == stored_format(clip, demand, context)
+        storages = carried_storages(clip, context)
+        assert format_from_band(band, demand, context, storages) == stored_format(clip, demand, context)
 
 
 def test_the_same_clip_earns_the_same_format_every_time(make_context: Callable[..., _Context]) -> None:
@@ -226,6 +232,55 @@ def test_both_grids_are_offered_where_a_run_prices_both(make_context: Callable[.
     offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=1)
 
     assert [params.depth_bits for params in offered] == [_DEEP_DEPTH, _SHALLOW_DEPTH] * 2
+
+
+def _risen(clip: NDArray[np.float64], attack_s: float = _SLOW_ATTACK_S) -> NDArray[np.float64]:
+    """``clip`` ramped in over ``attack_s``, which is a level a written curve has room to state."""
+    rise = min(clip.size, round(attack_s * SR))
+    ramped = np.array(clip, dtype=np.float64)
+    ramped[:rise] *= np.linspace(0.0, 1.0, rise)
+    return ramped
+
+
+def test_a_recording_a_curve_cannot_follow_is_offered_the_one_storage(
+    make_context: Callable[..., _Context],
+) -> None:
+    """A burst at full level from its first frame gives a curve nothing it can state, so it is stored as played.
+
+    Storing it as a carrier would come out as the very same waveform, so offering the pair would price one
+    encoding twice over.
+    """
+    context = make_context(carriers=(True, False), min_carried_attack_ticks=_ONE_TICK)
+
+    assert carried_storages(broadband(), context) == (False,)
+
+
+def test_a_recording_that_rises_slowly_is_offered_every_storage_the_run_prices(
+    make_context: Callable[..., _Context],
+) -> None:
+    """An attack running several ticks is a level a curve follows, so both storages are worth pricing."""
+    context = make_context(carriers=(True, False), min_carried_attack_ticks=_ONE_TICK)
+
+    assert carried_storages(_risen(broadband()), context) == (True, False)
+
+
+def test_a_clip_no_curve_follows_prices_half_the_encodings_a_slower_one_does(
+    make_context: Callable[..., _Context],
+) -> None:
+    """What narrowing the storages is for: the sweep runs one encoding per span rather than the same one twice."""
+    context = make_context(
+        carriers=(True, False),
+        depths=(_DEEP_DEPTH,),
+        compress=False,
+        min_carried_attack_ticks=_ONE_TICK,
+    )
+    struck = stored_format(broadband(), UNTRANSPOSED, context)
+    risen = stored_format(_risen(broadband()), UNTRANSPOSED, context)
+
+    offered = stored_encodings(struck, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=1)
+    both = stored_encodings(risen, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=1)
+
+    assert len(offered) * 2 == len(both)
 
 
 def test_both_storages_are_offered_where_a_run_prices_both(make_context: Callable[..., _Context]) -> None:

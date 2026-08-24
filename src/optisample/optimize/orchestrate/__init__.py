@@ -120,6 +120,7 @@ def prepare_run(
         sample_rate=sample_rate,
         sweep=settings.sweep,
         bandwidth=settings.reduce.bandwidth,
+        tempo=settings.playback.tempo,
     )
     context = EvalContext(
         sample_rate=grid.sample_rate,

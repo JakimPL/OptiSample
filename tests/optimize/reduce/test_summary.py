@@ -31,6 +31,7 @@ SR = 22_050
 _PITCHES = (60, 67)
 _NOTE_S = 0.4
 _RATES = (16_000, 8_000, 4_000)  # an explicit ladder, so a test states which rung it expects back
+_TEMPO = 125  # the clock a written curve turns its corners on, which no test here varies
 _NO_TRANSPOSE = 0
 _RATE_PER_BANDWIDTH = 2.0  # Nyquist, which turns a content-edge tolerance into a rate tolerance
 _SHARED = 2  # workers, enough to run the pre-pass apart without asking the machine for every core
@@ -65,6 +66,7 @@ def context(encode_config: EncodeConfig, sweep: SweepFactory, reduce: ReduceFact
         sample_rate=SR,
         sweep=sweep(rates=_RATES),
         bandwidth=reduce().bandwidth,
+        tempo=_TEMPO,
     )
 
 

@@ -29,6 +29,7 @@ SR = 22_050
 _PITCHES = (60, 67)
 _NOTE_S = 0.4
 _RATES = (16_000, 8_000, 4_000)
+_TEMPO = 125  # the clock a written curve turns its corners on, which no test here varies
 _OWN_KEY = 0
 
 ReduceFactory = Callable[..., ReduceConfig]
@@ -61,6 +62,7 @@ def context(encode_config: EncodeConfig, sweep: SweepFactory, reduce: ReduceFact
         sample_rate=SR,
         sweep=sweep(rates=_RATES),
         bandwidth=reduce().bandwidth,
+        tempo=_TEMPO,
     )
 
 

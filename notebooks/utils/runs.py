@@ -54,7 +54,6 @@ class Fields:
     fraction: float
     tracker_format: str
     strategy: str
-    interpolation: str
     dedupe_key: str
     content_floor_db: float
     rates: tuple[int, ...]
@@ -131,8 +130,6 @@ def _ingest_flags(fields: Fields, dataset: Dataset) -> list[str]:
         f"{fields.budget_kb:g}",
         "--format",
         fields.tracker_format,
-        "--interpolation",
-        fields.interpolation,
         "--dedupe-key",
         fields.dedupe_key,
         "--content-floor-db",

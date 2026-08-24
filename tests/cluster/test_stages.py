@@ -57,6 +57,7 @@ _ENCODING = {
     "target_rate": _STORED_RATE,
     "depth_bits": 8,
     "compress": False,
+    "carrier": False,
     "trim_s": _STORED_S,
     "loop_index": None,
     "loop": None,

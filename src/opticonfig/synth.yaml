@@ -30,10 +30,6 @@ piano:                     # decaying one-shot archetype
 presets:
   - id: strings
     archetype: sustained
-    pitches: [48, 55, 60, 67, 72]
-    velocities: [40, 80, 115]
-    sample_duration: 4.5         # >= the longest material note (4.0 s), so a real sustain exists to loop/match
-    budget_kb: 128.0
     material:
       - {pitch: 60, velocity: 80, duration_s: 2.5, count: 10}
       - {pitch: 55, velocity: 80, duration_s: 3.0, count: 6}
@@ -43,10 +39,6 @@ presets:
       - {pitch: 60, velocity: 40, duration_s: 2.0, count: 4}
   - id: piano
     archetype: piano
-    pitches: [48, 55, 60, 67, 72]
-    velocities: [50, 100]
-    sample_duration: 1.6
-    budget_kb: 96.0
     material:
       - {pitch: 60, velocity: 100, duration_s: 0.8, count: 12}
       - {pitch: 48, velocity: 50, duration_s: 1.2, count: 5}
@@ -55,10 +47,6 @@ presets:
       - {pitch: 72, velocity: 100, duration_s: 0.4, count: 6}
   - id: dynamics             # every key played across four dynamics, so velocity layering has something to buy
     archetype: piano
-    pitches: [48, 60, 72]
-    velocities: [20, 55, 90, 125]
-    sample_duration: 1.2
-    budget_kb: 192.0
     material:
       - {pitch: 48, velocity: 20, duration_s: 0.5, count: 2}
       - {pitch: 48, velocity: 55, duration_s: 0.5, count: 2}

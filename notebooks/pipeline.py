@@ -8,7 +8,6 @@ app = marimo.App(width="full")
 def _():
     import sys
     from pathlib import Path
-    from typing import get_args
 
     root = Path.cwd()
     while not (root / "pyproject.toml").exists() and root != root.parent:
@@ -20,19 +19,17 @@ def _():
 
     from notebooks.utils import context, panels, reports, runs, viz
 
-    return Path, context, get_args, mo, panels, reports, root, runs, viz
+    return Path, context, mo, panels, reports, root, runs, viz
 
 
 @app.cell
-def _(get_args):
+def _():
     from optisample.artifacts.paths import plan_paths
     from optisample.config.reduce import DedupeKey
-    from optisample.config.render import Interpolation
     from optisample.config.tracker import TrackerFormat
     from optisample.optimize.operating_points import sweep_rates
 
-    interpolations = list(get_args(Interpolation))
-    return DedupeKey, TrackerFormat, interpolations, plan_paths, sweep_rates
+    return DedupeKey, TrackerFormat, plan_paths, sweep_rates
 
 
 @app.cell
@@ -76,7 +73,7 @@ def _(Path, mo, root, runs):
 
 
 @app.cell
-def _(DedupeKey, TrackerFormat, interpolations, mo, notebook, sweep_rates):
+def _(DedupeKey, TrackerFormat, mo, notebook, sweep_rates):
     _config = notebook.config
     _rates = [str(rate) for rate in sweep_rates(_config.optimize.sweep, 48_000)]
 
@@ -89,7 +86,6 @@ def _(DedupeKey, TrackerFormat, interpolations, mo, notebook, sweep_rates):
         [kind.value for kind in TrackerFormat], value=_config.export.tracker.format.value, label="format"
     )
     strategy = mo.ui.dropdown(["both", "ungrouped", "grouped"], value="ungrouped", label="strategy")
-    interpolation = mo.ui.dropdown(interpolations, value=_config.export.render.interpolation, label="interpolation")
 
     dedupe_key = mo.ui.dropdown(
         [key.value for key in DedupeKey], value=_config.reduce.dedupe.key.value, label="dedupe key"
@@ -112,7 +108,7 @@ def _(DedupeKey, TrackerFormat, interpolations, mo, notebook, sweep_rates):
         [
             mo.md("## Flags"),
             mo.hstack([fraction, budget_kb, workers, seed], justify="start", gap=2),
-            mo.hstack([tracker_format, strategy, interpolation], justify="start", gap=2),
+            mo.hstack([tracker_format, strategy], justify="start", gap=2),
             mo.hstack([dedupe_key, content_floor_db], justify="start", gap=2),
             mo.hstack([rates, depth], justify="start", gap=2),
             mo.hstack([loop, render], justify="start", gap=2),
@@ -124,7 +120,6 @@ def _(DedupeKey, TrackerFormat, interpolations, mo, notebook, sweep_rates):
         dedupe_key,
         depth,
         fraction,
-        interpolation,
         loop,
         rates,
         render,
@@ -144,7 +139,6 @@ def _(
     depth,
     fraction,
     instrument,
-    interpolation,
     loop,
     out_root,
     rates,
@@ -165,7 +159,6 @@ def _(
         fraction=float(fraction.value),
         tracker_format=tracker_format.value,
         strategy=strategy.value,
-        interpolation=interpolation.value,
         dedupe_key=dedupe_key.value,
         content_floor_db=float(content_floor_db.value),
         rates=tuple(int(rate) for rate in rates.value),

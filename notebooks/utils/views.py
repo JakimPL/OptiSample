@@ -100,16 +100,17 @@ def budget_summary(instrument: InstrumentSpec, frame_counts: Sequence[int], stor
 
 
 def compare(reference: Signal, candidate: Signal, sample_rate: int, label: str, composite: CompositeFidelity) -> Row:
-    """Evaluate ``candidate`` against ``reference`` and flatten it into one comparison row."""
+    """Evaluate ``candidate`` against ``reference`` and flatten it into one comparison row.
+
+    Every term the composite measured travels on the row under its own name, so a term added to the
+    objective reaches a table or a picture read off these rows without either being told about it.
+    """
     report = evaluate(reference, candidate, sample_rate, composite)
     breakdown, diagnostics = report.breakdown, report.diagnostics
     return {
         "candidate": label,
         "fidelity": report.fidelity,
-        "mrstft": breakdown["mrstft"],
-        "logmel_l1": breakdown["logmel_l1"],
-        "mcd": breakdown["mcd"],
-        "spectral_shape": breakdown["spectral_shape"],
+        **breakdown,
         "snr_db": diagnostics["snr_db"],
         "seg_snr_db": diagnostics["segmental_snr_db"],
         "si_sdr_db": diagnostics["si_sdr_db"],
