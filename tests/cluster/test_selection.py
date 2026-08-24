@@ -19,6 +19,7 @@ from optisample.cluster.stages import (
     stage_dataset,
 )
 from optisample.config import OptiConfig
+from optisample.config.dynamic_axis import AS_WRITTEN
 from optisample.io.audio import write_wav
 from optisample.io.dataset import SourceDataset
 from optisample.io.note_extractor import NOTES_SUFFIX, IngestSettings, NoteRecord, dump_notes
@@ -79,6 +80,7 @@ def _read_back(dataset: SourceDataset, instrument_id: str) -> list[tuple[int, in
             pre_roll_s=_STATED_BY_MANIFEST,
             post_roll_s=_STATED_BY_MANIFEST,
             keep_tail=_TO_THE_RELEASE,
+            dynamic_axis=AS_WRITTEN,
         ),
     )
     (instrument,) = manifest.instruments

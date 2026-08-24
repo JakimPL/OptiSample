@@ -3,6 +3,7 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
+from optisample.config.dynamic_axis import AS_WRITTEN
 from optisample.config.synth import SynthConfig
 from optisample.io.audio import read_wav
 from optisample.io.note_extractor import NOTES_SUFFIX, IngestSettings, load_notes
@@ -48,6 +49,7 @@ def load(demo_dir: Path | str) -> Manifest:
             pre_roll_s=_NO_PADDING_S,
             post_roll_s=_NO_PADDING_S,
             keep_tail=False,
+            dynamic_axis=AS_WRITTEN,
         )
         manifest = load_notes(notes_json, demo_dir / instrument_id, settings)
         instruments.append(manifest.instruments[0])

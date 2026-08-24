@@ -9,6 +9,7 @@ from numpy.typing import NDArray
 
 from optisample.config import OptiConfig, load_config
 from optisample.config.codec import EncodeConfig, QuantizeConfig
+from optisample.config.dynamic_axis import AS_WRITTEN, DynamicAxisConfig
 from optisample.config.dynamics import DynamicsConfig
 from optisample.config.layers import LayersConfig
 from optisample.config.loop import (
@@ -112,6 +113,7 @@ def ingest_settings() -> Callable[..., IngestSettings]:
         pre_roll_s: float = 0.0,
         post_roll_s: float = 0.0,
         keep_tail: bool = False,
+        dynamic_axis: DynamicAxisConfig = AS_WRITTEN,
     ) -> IngestSettings:
         return IngestSettings(
             instrument_id=instrument_id,
@@ -120,6 +122,7 @@ def ingest_settings() -> Callable[..., IngestSettings]:
             pre_roll_s=pre_roll_s,
             post_roll_s=post_roll_s,
             keep_tail=keep_tail,
+            dynamic_axis=dynamic_axis,
         )
 
     return _build

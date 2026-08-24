@@ -21,6 +21,7 @@ from optisample.cli.settings import (
     _pipeline_settings,
 )
 from optisample.config import OptiConfig
+from optisample.config.dynamic_axis import DynamicAxis
 from optisample.config.reduce import DedupeKey
 from optisample.config.tracker import TrackerFormat
 from optisample.io.audio import write_wav
@@ -131,6 +132,34 @@ def test_dump_settings_maps_grid_and_flags(config: OptiConfig) -> None:
     assert settings.optimize.target.format is config.export.tracker.format  # unnamed, so the configured format
     assert settings.render_ground_truth is False
     assert settings.grouped is True and settings.ungrouped is False
+
+
+def test_an_unnamed_dynamics_axis_leaves_the_run_reading_the_configured_one(config: OptiConfig) -> None:
+    args = build_parser().parse_args(["optimize", "m.notes.json", "--budget-kb", "48"])
+
+    assert _ingest_settings(config, args).dynamic_axis == config.dynamic_axis
+
+
+def test_the_dynamics_flag_moves_the_run_onto_the_controller_it_names(config: OptiConfig) -> None:
+    args = build_parser().parse_args(["optimize", "m.notes.json", "--budget-kb", "48", "--dynamics", "cc11"])
+    axis = _ingest_settings(config, args).dynamic_axis
+
+    assert axis.axis is DynamicAxis.CONTROLLER
+    assert axis.controller == 11
+
+
+def test_the_dynamics_flag_names_velocity_over_a_configured_controller(config: OptiConfig) -> None:
+    """The flag reaches both ways, so one instrument of a CC-driven corpus is held to velocity."""
+    args = build_parser().parse_args(["optimize", "m.notes.json", "--budget-kb", "48", "--dynamics", "velocity"])
+
+    assert _ingest_settings(config, args).dynamic_axis.axis is DynamicAxis.VELOCITY
+
+
+def test_a_dynamics_axis_spelled_as_neither_is_refused(config: OptiConfig) -> None:
+    args = build_parser().parse_args(["optimize", "m.notes.json", "--budget-kb", "48", "--dynamics", "wheel"])
+
+    with pytest.raises(ValueError, match="neither 'velocity' nor a controller"):
+        _ingest_settings(config, args)
 
 
 def test_the_format_flag_overrides_the_configured_format(config: OptiConfig) -> None:
@@ -747,18 +776,18 @@ def test_the_reduce_command_reads_the_same_ingest_flags_as_optimize(config: Opti
     assert _optimize_settings(config, reduced, config.optimize.layers, config.optimize.budget).seed == 3
 
 
-def test_the_roll_flags_state_a_directory_of_recordings_padding_in_seconds() -> None:
+def test_the_roll_flags_state_a_directory_of_recordings_padding_in_seconds(config: OptiConfig) -> None:
     """A directory names no rolls of its own, so the flags are read as the seconds it holds at each end."""
     argv = ["optimize", "piano", "--budget-kb", "48", "--pre-roll-ms", "20", "--post-roll-ms", "250"]
-    settings = _ingest_settings(build_parser().parse_args(argv))
+    settings = _ingest_settings(config, build_parser().parse_args(argv))
 
     assert (settings.pre_roll_s, settings.post_roll_s) == pytest.approx((0.02, 0.25))
 
 
-def test_the_keep_tail_flag_asks_for_the_padding_past_each_release() -> None:
+def test_the_keep_tail_flag_asks_for_the_padding_past_each_release(config: OptiConfig) -> None:
     argv = ["optimize", "m.notes.json", "--budget-kb", "48", "--keep-tail"]
 
-    assert _ingest_settings(build_parser().parse_args(argv)).keep_tail
+    assert _ingest_settings(config, build_parser().parse_args(argv)).keep_tail
 
 
 def test_the_workers_flag_sets_how_far_a_run_fans_out(config: OptiConfig) -> None:

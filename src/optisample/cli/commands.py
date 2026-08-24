@@ -49,7 +49,7 @@ _PROFILE_TOP_FUNCTIONS: Final = 20
 
 
 def _run_loop(config: OptiConfig, args: argparse.Namespace) -> None:
-    manifest = load_source(_source(args), _ingest_settings(args))
+    manifest = load_source(_source(args), _ingest_settings(config, args))
     for result in loop_project(
         manifest,
         args.out,
@@ -60,7 +60,7 @@ def _run_loop(config: OptiConfig, args: argparse.Namespace) -> None:
 
 
 def _run_reduce(config: OptiConfig, args: argparse.Namespace) -> None:
-    manifest = load_source(_source(args), _ingest_settings(args))
+    manifest = load_source(_source(args), _ingest_settings(config, args))
     for result in reduce_project(
         manifest,
         args.out,
@@ -71,7 +71,7 @@ def _run_reduce(config: OptiConfig, args: argparse.Namespace) -> None:
 
 
 def _run_listen(config: OptiConfig, args: argparse.Namespace) -> None:
-    manifest = load_source(_source(args), _ingest_settings(args))
+    manifest = load_source(_source(args), _ingest_settings(config, args))
     for result in ranking_project(
         manifest,
         args.out,
@@ -101,7 +101,7 @@ def _run_instruments(config: OptiConfig, args: argparse.Namespace) -> None:
 
 
 def _run_optimize(config: OptiConfig, args: argparse.Namespace) -> None:
-    manifest = load_source(_source(args), _ingest_settings(args))
+    manifest = load_source(_source(args), _ingest_settings(config, args))
     results = dump_project(manifest, args.out, _dump_settings(config, args))
     for result in results:
         print_plans(result)

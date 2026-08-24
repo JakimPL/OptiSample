@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from optisample.config import load_config
+from optisample.config.dynamic_axis import AS_WRITTEN
 from optisample.config.subset import IntakeConfig
 from optisample.io.audio import write_wav
 from optisample.io.dataset import SourceDataset
@@ -25,7 +26,7 @@ _VELOCITY = 100
 _SLICE = 0.4
 _SLICED_TAKES = 2
 _ADMIT_EVERY = 0.0  # a floor every take clears, so both shapes are read on their spread alone
-_INTAKE = IntakeConfig(min_duration_s=_ADMIT_EVERY, subsonic=_SUBSONIC)
+_INTAKE = IntakeConfig(min_duration_s=_ADMIT_EVERY, subsonic=_SUBSONIC, dynamic_axis=AS_WRITTEN)
 
 
 @pytest.fixture

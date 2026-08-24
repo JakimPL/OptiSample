@@ -11,6 +11,7 @@ import pytest
 from numpy.typing import NDArray
 
 from optisample.config import load_config
+from optisample.config.dynamic_axis import AS_WRITTEN
 from optisample.config.subset import IntakeConfig
 from optisample.dsp.subsonic import remove_subsonic
 from optisample.io.audio import read_wav, write_wav
@@ -69,7 +70,7 @@ def _written(source: Path, out_dir: Path, *, fraction: float, min_duration_s: fl
         out_dir,
         instrument_id="Piano",
         fraction=fraction,
-        intake=IntakeConfig(min_duration_s=min_duration_s, subsonic=_SUBSONIC),
+        intake=IntakeConfig(min_duration_s=min_duration_s, subsonic=_SUBSONIC, dynamic_axis=AS_WRITTEN),
     )
 
 
@@ -153,7 +154,7 @@ def test_even_ranks_spreads_its_picks_over_the_axis(case: _RankCase) -> None:
 
 
 def test_a_subset_holds_the_share_of_notes_it_was_asked_for(source: Path) -> None:
-    positions = select_positions(_manifest(source).notes, 0.2)
+    positions = select_positions(_manifest(source).notes, 0.2, AS_WRITTEN)
     assert len(positions) == round(0.2 * _TOTAL)
     assert list(positions) == sorted(set(positions))  # source order, each note taken once
 
@@ -161,13 +162,13 @@ def test_a_subset_holds_the_share_of_notes_it_was_asked_for(source: Path) -> Non
 def test_a_subset_reaches_every_pitch_before_any_pitch_repeats(source: Path) -> None:
     """Covering the keyboard first is what makes a small slice predict how the whole dataset behaves."""
     notes = _manifest(source).notes
-    positions = select_positions(notes, len(_PITCHES) / _TOTAL)
+    positions = select_positions(notes, len(_PITCHES) / _TOTAL, AS_WRITTEN)
     assert sorted(notes[position].pitch for position in positions) == sorted(_PITCHES)
 
 
 def test_a_pitch_taking_two_notes_takes_its_quietest_and_its_loudest(source: Path) -> None:
     notes = _manifest(source).notes
-    positions = select_positions(notes, 2 * len(_PITCHES) / _TOTAL)
+    positions = select_positions(notes, 2 * len(_PITCHES) / _TOTAL, AS_WRITTEN)
     by_pitch: dict[int, list[int]] = {}
     for position in positions:
         by_pitch.setdefault(notes[position].pitch, []).append(notes[position].velocity)
@@ -177,7 +178,7 @@ def test_a_pitch_taking_two_notes_takes_its_quietest_and_its_loudest(source: Pat
 
 def test_a_subset_smaller_than_the_keyboard_spreads_the_pitches_it_keeps(source: Path) -> None:
     notes = _manifest(source).notes
-    kept = [notes[position].pitch for position in select_positions(notes, 3 / _TOTAL)]
+    kept = [notes[position].pitch for position in select_positions(notes, 3 / _TOTAL, AS_WRITTEN)]
     centre = (_PITCHES[0] + _PITCHES[-1]) / 2.0
     assert (kept[0], kept[-1]) == (_PITCHES[0], _PITCHES[-1])
     assert abs(kept[1] - centre) <= 1.0
@@ -199,24 +200,24 @@ def _lopsided() -> list[ManifestNote]:
 def test_every_pitch_takes_a_second_note_before_any_takes_a_third() -> None:
     """Notes go round the pitches in passes, so a subset spreads rather than deepening at one pitch."""
     notes = _lopsided()
-    positions = select_positions(notes, 4 / len(notes))
+    positions = select_positions(notes, 4 / len(notes), AS_WRITTEN)
     assert Counter(notes[position].pitch for position in positions) == {60: 2, 61: 2}
 
 
 def test_a_pitch_that_has_given_all_it_holds_steps_aside_for_the_rest() -> None:
     notes = _lopsided()
-    positions = select_positions(notes, 6 / len(notes))
+    positions = select_positions(notes, 6 / len(notes), AS_WRITTEN)
     assert Counter(notes[position].pitch for position in positions) == {60: 4, 61: 2}
 
 
 def test_a_whole_subset_keeps_every_note(source: Path) -> None:
-    assert select_positions(_manifest(source).notes, 1.0) == tuple(range(_TOTAL))
+    assert select_positions(_manifest(source).notes, 1.0, AS_WRITTEN) == tuple(range(_TOTAL))
 
 
 @pytest.mark.parametrize("fraction", [0.0, -0.1, 1.5])
 def test_a_fraction_outside_the_unit_interval_is_rejected(source: Path, fraction: float) -> None:
     with pytest.raises(ValueError):
-        select_positions(_manifest(source).notes, fraction)
+        select_positions(_manifest(source).notes, fraction, AS_WRITTEN)
 
 
 # --- the length a note sounds for to be drawn on ----------------------------------------------------
@@ -238,28 +239,33 @@ def test_a_note_sounding_exactly_the_floor_is_drawn_on(ragged: Path) -> None:
 def test_the_share_is_counted_against_the_source_before_its_short_notes_leave(ragged: Path) -> None:
     """Raising the floor narrows what a slice draws on and leaves the size it comes out at alone."""
     notes = _manifest(ragged).notes
-    admitted = admit(notes, fraction=0.5, min_duration_s=_NOTE_S)
+    admitted = admit(notes, fraction=0.5, min_duration_s=_NOTE_S, dynamic_axis=AS_WRITTEN)
 
     assert len(admitted.positions) == round(0.5 * _TOTAL)
     assert all(notes[position].duration_s >= _NOTE_S for position in admitted.positions)
 
 
 def test_the_notes_held_out_for_sounding_briefly_are_counted(ragged: Path) -> None:
-    admitted = admit(_manifest(ragged).notes, fraction=0.5, min_duration_s=_NOTE_S)
+    admitted = admit(_manifest(ragged).notes, fraction=0.5, min_duration_s=_NOTE_S, dynamic_axis=AS_WRITTEN)
 
     assert admitted.brief == len(range(0, _TOTAL, _BRIEF_EVERY))
 
 
 def test_a_share_wider_than_the_floor_leaves_keeps_everything_that_survives_it(ragged: Path) -> None:
     notes = _manifest(ragged).notes
-    admitted = admit(notes, fraction=1.0, min_duration_s=_NOTE_S)
+    admitted = admit(notes, fraction=1.0, min_duration_s=_NOTE_S, dynamic_axis=AS_WRITTEN)
 
     assert admitted.positions == sounding_positions(notes, _NOTE_S)
 
 
 def test_a_floor_no_note_reaches_leaves_nothing_to_draw_on(ragged: Path) -> None:
     with pytest.raises(ValueError, match="sounds for less than"):
-        admit(_manifest(ragged).notes, fraction=0.5, min_duration_s=_NOTE_S + _BRIEF_S + 1.0)
+        admit(
+            _manifest(ragged).notes,
+            fraction=0.5,
+            min_duration_s=_NOTE_S + _BRIEF_S + 1.0,
+            dynamic_axis=AS_WRITTEN,
+        )
 
 
 # --- the dataset it writes -------------------------------------------------------------------------

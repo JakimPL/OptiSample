@@ -53,6 +53,22 @@ def _runtime_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _dynamics_parser() -> argparse.ArgumentParser:
+    """The flag every command reading a source declares: which reading carries its dynamics.
+
+    A slice spreads the share it keeps along this axis and every later stage keys its recordings on it,
+    so the command that only slices states it exactly as the ones that go on to allocate do.
+    """
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument(
+        "--dynamics",
+        default=None,
+        metavar="AXIS",
+        help="Reading this instrument's dynamics travel on: velocity, or cc<N> for a controller (cc1 is the wheel)",
+    )
+    return parser
+
+
 def _ingest_parser() -> argparse.ArgumentParser:
     """The flags ``optimize`` and ``reduce`` share: which recordings to read and how to narrow them.
 
@@ -60,7 +76,7 @@ def _ingest_parser() -> argparse.ArgumentParser:
     plan is held to, the padding a directory of recordings holds and every reduction knob are declared
     once and read identically whichever command was asked for.
     """
-    ingest = argparse.ArgumentParser(add_help=False)
+    ingest = argparse.ArgumentParser(add_help=False, parents=[_dynamics_parser()])
     ingest.add_argument(
         "source",
         type=Path,
@@ -475,7 +491,7 @@ def build_parser() -> argparse.ArgumentParser:
     _describe_subset(
         sub.add_parser(
             "subset",
-            parents=[configured, _progress_parser()],
+            parents=[configured, _progress_parser(), _dynamics_parser()],
             help="Write the share of a dataset that spans its pitch and velocity ranges",
         )
     )

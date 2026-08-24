@@ -266,7 +266,12 @@ def write_sample_dir_subset(
     is sliced against the note's own sounding span instead.
     """
     takes = read_takes(Path(samples_dir))
-    admitted = admit(takes, fraction=fraction, min_duration_s=intake.min_duration_s)
+    admitted = admit(
+        takes,
+        fraction=fraction,
+        min_duration_s=intake.min_duration_s,
+        dynamic_axis=intake.dynamic_axis,
+    )
     kept = [takes[position] for position in admitted.positions]
     target = Path(out_dir) / instrument_id
     target.mkdir(parents=True, exist_ok=True)

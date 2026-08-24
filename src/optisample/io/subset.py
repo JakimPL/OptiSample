@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import json
 import shutil
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, Protocol
 
+from optisample.config.dynamic_axis import DynamicAxisConfig
 from optisample.config.subset import IntakeConfig
 from optisample.config.subsonic import SubsonicConfig
 from optisample.dsp.subsonic import remove_subsonic
+from optisample.dynamic_axis import dynamic_of
 from optisample.io.audio import read_wav, write_wav
 from optisample.io.dataset import SourceDataset, SubsetDataset
 from optisample.io.note_extractor import (
@@ -32,6 +34,10 @@ class Played(Protocol):
 
     Stated as a protocol so the same rule slices both shapes of dataset -- the notes a manifest lists
     and the takes a directory of recordings names -- from one implementation.
+
+    The dynamic axis is read off ``velocity`` and ``cc_averages`` together
+    (:func:`~optisample.dynamic_axis.dynamic_of`), so both readings arrive here and the configured one
+    decides which of them a slice spreads along.
     """
 
     @property
@@ -39,6 +45,9 @@ class Played(Protocol):
 
     @property
     def velocity(self) -> int: ...
+
+    @property
+    def cc_averages(self) -> Mapping[int, float]: ...
 
     @property
     def duration_s(self) -> float: ...
@@ -92,18 +101,20 @@ def _allotments(sizes: Sequence[int], keep: int) -> tuple[int, ...]:
     return tuple(allotted)
 
 
-def _velocity_ordered_pitches(notes: Sequence[Played]) -> list[list[int]]:
-    """The positions of every note, grouped by ascending pitch and sorted by velocity within a pitch.
+def _dynamic_ordered_pitches(notes: Sequence[Played], dynamic_axis: DynamicAxisConfig) -> list[list[int]]:
+    """The positions of every note, grouped by ascending pitch and sorted by dynamic within a pitch.
 
     Both axes arrive sorted, so a share taken at even ranks of a group spans that pitch's dynamics and
-    the groups themselves span the keyboard.
+    the groups themselves span the keyboard. The dynamic is the reading ``dynamic_axis`` names, which is
+    what makes the spread cover the range an instrument was actually played across.
     """
     by_pitch: dict[int, list[int]] = {}
     for position, note in enumerate(notes):
         by_pitch.setdefault(note.pitch, []).append(position)
 
     return [
-        sorted(positions, key=lambda position: notes[position].velocity) for _, positions in sorted(by_pitch.items())
+        sorted(positions, key=lambda position: dynamic_of(notes[position], dynamic_axis))
+        for _, positions in sorted(by_pitch.items())
     ]
 
 
@@ -119,31 +130,31 @@ def kept_count(notes: int, fraction: float) -> int:
     return max(_AT_LEAST_ONE, round(fraction * notes))
 
 
-def select_count(notes: Sequence[Played], keep: int) -> tuple[int, ...]:
+def select_count(notes: Sequence[Played], keep: int, dynamic_axis: DynamicAxisConfig) -> tuple[int, ...]:
     """Positions of the ``keep`` notes a subset holds, in source order.
 
     Notes are grouped by pitch, each pitch is allotted a share of the subset, and the notes a pitch
-    contributes are those its velocities spread evenly over. The subset therefore covers the pitch
+    contributes are those its dynamics spread evenly over. The subset therefore covers the pitch
     range the source plays and, within each pitch, the dynamics it was played across -- which is what
     makes a small slice representative enough to predict how the whole dataset behaves.
 
     Asking for at least as many notes as there are keeps every one of them, so a caller counting its
     share against a larger source than it hands over receives the whole of what it handed over.
     """
-    groups = _velocity_ordered_pitches(notes)
+    groups = _dynamic_ordered_pitches(notes, dynamic_axis)
     allotted = _allotments([len(group) for group in groups], keep)
     return tuple(
         sorted(group[rank] for group, picks in zip(groups, allotted) for rank in even_ranks(len(group), picks))
     )
 
 
-def select_positions(notes: Sequence[Played], fraction: float) -> tuple[int, ...]:
+def select_positions(notes: Sequence[Played], fraction: float, dynamic_axis: DynamicAxisConfig) -> tuple[int, ...]:
     """Positions of the notes a subset holding ``fraction`` of ``notes`` keeps, in source order.
 
     Raises:
         ValueError: if ``fraction`` falls outside ``(0, 1]``.
     """
-    return select_count(notes, kept_count(len(notes), fraction))
+    return select_count(notes, kept_count(len(notes), fraction), dynamic_axis)
 
 
 def sounding_positions(notes: Sequence[Played], min_duration_s: float) -> tuple[int, ...]:
@@ -168,7 +179,13 @@ class Admission:
     brief: int
 
 
-def admit(notes: Sequence[Played], *, fraction: float, min_duration_s: float) -> Admission:
+def admit(
+    notes: Sequence[Played],
+    *,
+    fraction: float,
+    min_duration_s: float,
+    dynamic_axis: DynamicAxisConfig,
+) -> Admission:
     """The notes a slice keeps: the share ``fraction`` asks for, drawn from those sounding long enough.
 
     The floor is read first and the share is counted against the source as it arrived, so a slice comes
@@ -189,7 +206,7 @@ def admit(notes: Sequence[Played], *, fraction: float, min_duration_s: float) ->
 
     carried = [notes[position] for position in sounding]
     return Admission(
-        positions=tuple(sounding[rank] for rank in select_count(carried, keep)),
+        positions=tuple(sounding[rank] for rank in select_count(carried, keep, dynamic_axis)),
         brief=len(notes) - len(sounding),
     )
 
@@ -357,7 +374,12 @@ def write_subset(
     """
     source = _read_source(dataset.path)
     destination = _destination(Path(out_dir), instrument_id)
-    admitted = admit(source.notes, fraction=fraction, min_duration_s=intake.min_duration_s)
+    admitted = admit(
+        source.notes,
+        fraction=fraction,
+        min_duration_s=intake.min_duration_s,
+        dynamic_axis=intake.dynamic_axis,
+    )
     kept = _write_notes(source, admitted.positions, destination)
     written = _clean_recordings(_indices(kept), dataset.recordings_dir, destination.samples_dir, intake.subsonic)
     return _sliced(source, kept, destination, written, admitted.brief)

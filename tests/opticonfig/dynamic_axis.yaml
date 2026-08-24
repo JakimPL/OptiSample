@@ -1,0 +1,3 @@
+# Where an instrument's dynamics are read from (optisample.config.dynamic_axis.DynamicAxisConfig).
+axis: velocity # velocity | controller - the reading a note's dynamic is taken from
+controller: 1 # the controller that reading takes, where the axis is a controller (1 is the mod wheel)

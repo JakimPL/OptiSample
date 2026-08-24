@@ -11,6 +11,7 @@ import numpy as np
 from optisample.artifacts.documents.plan import PlanDocument
 from optisample.artifacts.paths import PipelinePaths, PlanPaths, pipeline_paths, plan_paths
 from optisample.cluster.representative import Durations, MemberReadings, Weights
+from optisample.config.dynamic_axis import AS_WRITTEN
 from optisample.config.reduce import DedupeConfig, TrimConfig
 from optisample.io.audio import mono, read_wav
 from optisample.io.dataset import SourceDataset
@@ -366,6 +367,8 @@ def _ingest(source: RecordingSource, settings: ReadingSettings) -> IngestSetting
     Every stage of a chain writes a ``.notes.json``, which records the padding each of its recordings holds
     and the notes they answer for, so the fields a manifest states for itself are the ones read back here.
     The budget stands only because a manifest carries one; a reading allocates nothing and spends none of it.
+    The dynamics are read as the dataset states them (:data:`~optisample.config.dynamic_axis.AS_WRITTEN`),
+    the stage that wrote it having keyed them onto the velocity every note carries.
     """
     return IngestSettings(
         instrument_id=source.instrument_id,
@@ -374,6 +377,7 @@ def _ingest(source: RecordingSource, settings: ReadingSettings) -> IngestSetting
         pre_roll_s=_STATED_BY_MANIFEST,
         post_roll_s=_STATED_BY_MANIFEST,
         keep_tail=settings.keep_tail,
+        dynamic_axis=AS_WRITTEN,
     )
 
 

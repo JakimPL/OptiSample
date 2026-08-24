@@ -6,6 +6,7 @@ from typing import Any, Final
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from optisample.config.dynamic_axis import DynamicAxisConfig
 from optisample.io.audio import probe_wav
 from optisample.model import (
     InstrumentSpec,
@@ -129,6 +130,11 @@ class IngestSettings:
 
     ``pre_roll_s`` / ``post_roll_s`` state how a directory of recordings was padded, which is the one
     source shape saying nothing about itself; a ``.notes.json`` records its own rolls and is read by them.
+
+    ``dynamic_axis`` names the reading this instrument's dynamics travel on, which the source states
+    nothing about: a note carries its velocity and its controller averages alike, and which of them varies
+    with how loudly it was played is a fact about the library that recorded it
+    (:func:`~optisample.dynamic_axis.on_axis`).
     """
 
     instrument_id: str
@@ -137,6 +143,7 @@ class IngestSettings:
     pre_roll_s: float
     post_roll_s: float
     keep_tail: bool
+    dynamic_axis: DynamicAxisConfig
 
 
 def _trail_out_s(recorded_s: float, sounding_s: float, post_roll_s: float) -> float:

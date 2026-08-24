@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from optisample.config.subset import IntakeConfig
+from optisample.dynamic_axis import on_axis
 from optisample.io.dataset import SourceDataset, SubsetDataset
 from optisample.io.note_extractor import IngestSettings, load_notes
 from optisample.io.sample_dir import load_sample_dir, write_sample_dir_subset
@@ -16,11 +17,15 @@ def load_source(source: SourceDataset, settings: IngestSettings) -> Manifest:
     A ``.notes.json`` is joined to its recordings and carries the performance it was extracted from; a
     directory of recordings is read as the grid its filenames spell, each take standing for one note.
     Both answer with the same single-instrument manifest, so every stage past the ingest reads one shape.
+
+    The manifest lands keyed on the axis this instrument's dynamics travel on
+    (:func:`~optisample.dynamic_axis.on_axis`), which is the one reading a source states nothing about and
+    every stage afterwards depends on.
     """
     if source.is_directory:
-        return load_sample_dir(source.path, settings)
+        return on_axis(load_sample_dir(source.path, settings), settings.dynamic_axis)
 
-    return load_notes(source.path, source.recordings_dir, settings)
+    return on_axis(load_notes(source.path, source.recordings_dir, settings), settings.dynamic_axis)
 
 
 def write_source_subset(

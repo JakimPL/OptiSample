@@ -1,4 +1,5 @@
 import argparse
+import re
 import sys
 from typing import Final
 
@@ -8,6 +9,7 @@ from optisample.cluster.instruments import ClusterSettings
 from optisample.cluster.stages import ReadingSettings, RecordingSource, Stage, available_instruments
 from optisample.config import OptiConfig
 from optisample.config.cluster import ClusterConfig
+from optisample.config.dynamic_axis import DynamicAxis, DynamicAxisConfig
 from optisample.config.export import InstrumentsConfig
 from optisample.config.layers import LayersConfig
 from optisample.config.optimize import BudgetConfig, SweepConfig
@@ -25,6 +27,7 @@ from optisample.synth import DemoSettings
 
 _MS_PER_S: Final = 1000.0
 _DATASET_STRATEGY: Final = "grouped"  # a dataset stage names no allocation, so the strategy stands unread
+_CONTROLLER_AXIS: Final = re.compile(r"^cc(\d+)$")  # how --dynamics spells a controller, as a sample name does
 
 
 def _export_target(config: OptiConfig, args: argparse.Namespace) -> ExportTarget:
@@ -250,7 +253,30 @@ def _project(args: argparse.Namespace) -> ProjectSpec:
     return ProjectSpec(name=instrument_name(args.source))
 
 
-def _ingest_settings(args: argparse.Namespace) -> IngestSettings:
+def _dynamic_axis(config: OptiConfig, args: argparse.Namespace) -> DynamicAxisConfig:
+    """The axis this run reads its dynamics off: ``--dynamics`` where it was given, the configured one otherwise.
+
+    The flag is per invocation because the axis is per instrument and a run carries one instrument, so a
+    corpus of mixed libraries is driven by naming the axis beside each instrument's budget.
+
+    Raises:
+        ValueError: when the flag spells neither ``velocity`` nor a controller, which would otherwise
+            leave the run reading an axis nobody asked for.
+    """
+    if args.dynamics is None:
+        return config.dynamic_axis
+
+    if args.dynamics == DynamicAxis.VELOCITY:
+        return DynamicAxisConfig(axis=DynamicAxis.VELOCITY, controller=config.dynamic_axis.controller)
+
+    named = _CONTROLLER_AXIS.match(args.dynamics)
+    if named is None:
+        raise ValueError(f"--dynamics {args.dynamics!r} names neither 'velocity' nor a controller such as 'cc1'")
+
+    return DynamicAxisConfig(axis=DynamicAxis.CONTROLLER, controller=int(named.group(1)))
+
+
+def _ingest_settings(config: OptiConfig, args: argparse.Namespace) -> IngestSettings:
     """The manifest fields a source leaves to the caller, read off the shared ingest flags."""
     return IngestSettings(
         instrument_id=args.instrument_id or instrument_name(args.source),
@@ -259,6 +285,7 @@ def _ingest_settings(args: argparse.Namespace) -> IngestSettings:
         pre_roll_s=args.pre_roll_ms / _MS_PER_S,
         post_roll_s=args.post_roll_ms / _MS_PER_S,
         keep_tail=args.keep_tail,
+        dynamic_axis=_dynamic_axis(config, args),
     )
 
 
@@ -270,7 +297,7 @@ def _pipeline_settings(config: OptiConfig, args: argparse.Namespace) -> Pipeline
     between them stays the one any allocation reads back.
     """
     return PipelineSettings(
-        ingest=_ingest_settings(args),
+        ingest=_ingest_settings(config, args),
         reduce=_optimize_settings(config, args, config.optimize.layers, config.optimize.budget),
         dump=_dump_settings(config, args),
         instruments=_instrument_settings(config, args),
@@ -285,6 +312,7 @@ def _intake(config: OptiConfig, args: argparse.Namespace) -> IntakeConfig:
     return IntakeConfig(
         min_duration_s=config.subset.min_duration_s if args.min_duration_s is None else args.min_duration_s,
         subsonic=config.subsonic,
+        dynamic_axis=_dynamic_axis(config, args),
     )
 
 

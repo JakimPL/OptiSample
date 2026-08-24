@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from optisample.config import load_config
+from optisample.config.dynamic_axis import AS_WRITTEN
 from optisample.config.subset import IntakeConfig
 from optisample.dsp.subsonic import remove_subsonic
 from optisample.io.audio import read_wav, write_wav
@@ -194,7 +195,7 @@ def test_a_slice_of_a_directory_is_a_directory(named_grid: Path, tmp_path: Path)
         tmp_path / "out",
         instrument_id=_INSTRUMENT,
         fraction=0.4,
-        intake=IntakeConfig(min_duration_s=_ADMIT_EVERY, subsonic=_SUBSONIC),
+        intake=IntakeConfig(min_duration_s=_ADMIT_EVERY, subsonic=_SUBSONIC, dynamic_axis=AS_WRITTEN),
     )
 
     assert dataset.source.is_directory
@@ -208,7 +209,7 @@ def test_a_slice_spans_the_ranges_its_source_covers(named_grid: Path, tmp_path: 
         tmp_path / "out",
         instrument_id=_INSTRUMENT,
         fraction=0.4,
-        intake=IntakeConfig(min_duration_s=_ADMIT_EVERY, subsonic=_SUBSONIC),
+        intake=IntakeConfig(min_duration_s=_ADMIT_EVERY, subsonic=_SUBSONIC, dynamic_axis=AS_WRITTEN),
     )
 
     assert dataset.source_notes == len(_PITCHES) * len(_VELOCITIES)
@@ -223,7 +224,7 @@ def test_a_slice_of_a_directory_arrives_past_the_band_under_hearing(named_grid: 
         tmp_path / "out",
         instrument_id=_INSTRUMENT,
         fraction=0.4,
-        intake=IntakeConfig(min_duration_s=_ADMIT_EVERY, subsonic=_SUBSONIC),
+        intake=IntakeConfig(min_duration_s=_ADMIT_EVERY, subsonic=_SUBSONIC, dynamic_axis=AS_WRITTEN),
     )
     originals = {wav.name: wav for wav in named_grid.glob("*.wav")}
 
@@ -249,7 +250,7 @@ def test_a_directory_holds_its_takes_to_the_length_its_headers_report(
             tmp_path / "out",
             instrument_id=_INSTRUMENT,
             fraction=0.4,
-            intake=IntakeConfig(min_duration_s=min_duration_s, subsonic=_SUBSONIC),
+            intake=IntakeConfig(min_duration_s=min_duration_s, subsonic=_SUBSONIC, dynamic_axis=AS_WRITTEN),
         )
 
     if not kept:
@@ -267,7 +268,7 @@ def test_a_slice_keeps_the_takes_it_wrote_readable(named_grid: Path, tmp_path: P
         tmp_path / "out",
         instrument_id=_INSTRUMENT,
         fraction=0.4,
-        intake=IntakeConfig(min_duration_s=_ADMIT_EVERY, subsonic=_SUBSONIC),
+        intake=IntakeConfig(min_duration_s=_ADMIT_EVERY, subsonic=_SUBSONIC, dynamic_axis=AS_WRITTEN),
     )
     (instrument,) = load_sample_dir(dataset.source.path, settings).instruments
 

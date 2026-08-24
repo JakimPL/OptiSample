@@ -2,6 +2,7 @@ from optisample.config.analysis import AnalysisConfig
 from optisample.config.base import ConfigModel
 from optisample.config.cluster import ClusterConfig
 from optisample.config.codec import CodecConfig, EncodeConfig
+from optisample.config.dynamic_axis import DynamicAxisConfig
 from optisample.config.export import ExportConfig
 from optisample.config.loop import LoopConfig
 from optisample.config.optimize import OptimizeConfig
@@ -22,13 +23,16 @@ class OptiConfig(ConfigModel):
     ``subsonic`` stands on its own because it is the band the whole run works in rather than one stage's
     knob: the very first stage reads its source past it, and every stage after that reads a dataset
     already holding what a listener has. ``subset`` stands beside it for the same reason read the other
-    way: it settles which of a source's material enters the run at all.
+    way: it settles which of a source's material enters the run at all. ``dynamic_axis`` stands with them as
+    the third thing the way in settles: which reading of a note carries how loudly it was played, taken
+    once at the ingest so every stage afterwards is keyed on the axis that varies with the playing.
     """
 
     analysis: AnalysisConfig
     cluster: ClusterConfig
     subset: SubsetConfig
     subsonic: SubsonicConfig
+    dynamic_axis: DynamicAxisConfig
     codec: CodecConfig
     loop: LoopConfig
     reduce: ReduceConfig
@@ -41,10 +45,15 @@ class OptiConfig(ConfigModel):
     def intake(self) -> IntakeConfig:
         """What the first stage does to a source, gathered from the two groups that settle the way in.
 
-        A slice admits what is long enough to work with and writes what it keeps past the band under
-        hearing, so the two travel together and every caller of the way in receives one validated value.
+        A slice admits what is long enough to work with, writes what it keeps past the band under
+        hearing, and spreads what it keeps along the axis the dynamics travel on, so the three travel
+        together and every caller of the way in receives one validated value.
         """
-        return IntakeConfig(min_duration_s=self.subset.min_duration_s, subsonic=self.subsonic)
+        return IntakeConfig(
+            min_duration_s=self.subset.min_duration_s,
+            subsonic=self.subsonic,
+            dynamic_axis=self.dynamic_axis,
+        )
 
     @property
     def encode(self) -> EncodeConfig:
