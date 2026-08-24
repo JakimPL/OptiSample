@@ -290,7 +290,7 @@ def export_context(config: OptiConfig, target: ExportTarget) -> ExportContext:
         playback=config.export.playback,
         target=target,
         envelope=config.export.envelope,
-        carrier=config.optimize.sweep.carrier,
+        min_carried_attack_ticks=config.optimize.sweep.min_carried_attack_ticks,
     )
 
 
@@ -547,7 +547,7 @@ def reduction() -> ReductionSummary:
             NarrowedGrid(
                 pitch=60,
                 useful_rate_hz=10_500.0,
-                stored=StoredFormat(target_rate=11_025, depths=(16,)),
+                stored=StoredFormat(target_rate=11_025, depths=(16,), carriers=(False,)),
                 encodings=(EncodingParams(target_rate=11_025, depth_bits=16),),
             ),
         ),

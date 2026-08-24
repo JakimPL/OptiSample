@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -10,19 +11,28 @@ from optisample.io.tracker.envelope import NO_ENVELOPE, envelope_grid
 from optisample.io.tracker.target import ExportTarget
 from optisample.keys import SampleKey
 from optisample.metrics.diagnostics import segmental_snr
-from optisample.optimize.carrier import CurveSettings, PlayedCurve, clip_envelope, clip_envelopes, stored_carrier
+from optisample.optimize.carrier import (
+    CurveSettings,
+    PlayedCurve,
+    clip_envelope,
+    clip_envelopes,
+    played_curve,
+    stored_carrier,
+)
 
 _RATE = 44_100
 _PITCH = 60
 _TEMPO = 125
 _KEY = SampleKey(_PITCH, 100)
 _NO_CURVE = PlayedCurve(NO_ENVELOPE, _TEMPO)
+_EVERY_ATTACK = 0.0  # the gate admitting every recording, whatever its attack asks of a written curve
+_NO_ATTACK = 1_000.0  # a gate no recording clears, which is how a recording is held to its own level
 
 
 @pytest.fixture(name="curves")
 def _curves(config: OptiConfig, target: ExportTarget) -> CurveSettings:
     grid = envelope_grid(target, tempo=_TEMPO, release_s=config.export.envelope.release_s)
-    return CurveSettings(config=config.encode, target=target, grid=grid)
+    return CurveSettings(config=config.encode, target=target, grid=grid, min_attack_ticks=_EVERY_ATTACK)
 
 
 @pytest.fixture(name="note")
@@ -90,3 +100,31 @@ def test_every_recording_a_run_holds_states_a_curve_of_its_own(
     other = SampleKey(_PITCH + 12, 100)
     envelopes = clip_envelopes({_KEY: note, other: note}, _RATE, curves)
     assert set(envelopes) == {_KEY, other}
+
+
+def test_a_recording_rising_faster_than_a_tick_states_no_curve(
+    note: NDArray[np.float64], curves: CurveSettings
+) -> None:
+    """A curve turns its corners on ticks, so a level event shorter than one is a level it cannot state.
+
+    Handing it over anyway gives the attack back as a ramp between corners and holds the level ahead of it
+    up, which is exactly what a struck sound is recognised by.
+    """
+    assert clip_envelope(note, _KEY, _RATE, replace(curves, min_attack_ticks=_NO_ATTACK)) is NO_ENVELOPE
+
+
+def test_a_recording_the_grid_has_room_for_keeps_the_curve_it_states(
+    note: NDArray[np.float64], curves: CurveSettings
+) -> None:
+    """The gate answers for the material a curve cannot follow and leaves everything else where it was."""
+    assert clip_envelope(note, _KEY, _RATE, curves)
+
+
+def test_an_encoding_storing_a_recording_as_played_reaches_for_no_curve(
+    note: NDArray[np.float64], curves: CurveSettings
+) -> None:
+    """Both storages are offered per span, so which one an encoding asks for is what settles its waveform."""
+    envelopes = clip_envelopes({_KEY: note}, _RATE, curves)
+
+    assert played_curve(envelopes, _KEY, _params(16), _TEMPO).envelope is NO_ENVELOPE
+    assert played_curve(envelopes, _KEY, replace(_params(16), carrier=True), _TEMPO).envelope is envelopes[_KEY]

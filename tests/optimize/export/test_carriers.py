@@ -13,12 +13,12 @@ from optisample.dsp.surrogate import render
 from optisample.dsp.surrogate.sample import CARRIES_ITS_LEVEL
 from optisample.io.tracker.envelope import NO_ENVELOPE, carried_signal
 from optisample.keys import SampleKey
-from optisample.optimize.export.build import written_voices
+from optisample.optimize.export.build import layout_units, module_carries, written_voices
 from optisample.optimize.export.carriers import plan_trajectories, planned_reach_s
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.samples import unit_envelopes
 from optisample.optimize.export.voices import NO_SHAPE, PlannedVoices
-from optisample.optimize.layers.slots import plan_slots
+from optisample.optimize.layers.slots import SlotLayout, plan_slots
 from optisample.optimize.orchestrate import optimize_instrument
 from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.plans import InstrumentPlan
@@ -34,6 +34,11 @@ _HELD_S = 0.5  # the longest note the demo material holds, which is the stretch 
 # what the two roundings of a written curve and the codec together leave between a carrier played back
 # and the recording it was taken from, the whole of which the measured reading sits an order under
 _WRITTEN_DB = 0.5
+_EVERY_ATTACK = 0.0  # the gate admitting every recording, whatever its attack asks of a written curve
+_NO_ATTACK = 1_000.0  # a gate no recording clears, which is how a module is held to storing recordings
+_ONE_TICK = 1.0  # the gate as it ships: a curve needs a tick of run to state an attack across
+_STRUCK_S = 0.001  # an attack no written curve has room to state
+_SLOW_ATTACK_S = 0.1  # an attack running several ticks, which a curve states with room to spare
 
 
 @pytest.fixture
@@ -44,7 +49,7 @@ def planned(
     recordings: Recordings,
 ) -> tuple[InstrumentPlan, StoredRecordings]:
     """A plan over the demo instrument, beside the recordings it was allocated from."""
-    settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depths=(16,)))
+    settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depths=(16,), carriers=(True,)))
     held = recordings(demo_audio, SR)
     return optimize_instrument(demo_instrument(), held, settings), held
 
@@ -155,7 +160,8 @@ def test_dividing_by_the_written_curve_leaves_a_flatter_waveform(
     """The level moves to the envelope, so what the encoder receives travels less than the recording did."""
     plan, held = planned
     layout = plan_slots(plan, export_context.target)
-    written = written_voices(plan, layout, held, demo_material(), dataclasses.replace(export_context, carrier=True))
+    context = dataclasses.replace(export_context, min_carried_attack_ticks=_EVERY_ATTACK)
+    written = written_voices(plan, layout, held, demo_material(), context)
     envelope = next(curve for curve in written.envelopes if curve is not NO_ENVELOPE)
     unit = next(iter(plan.sample_units()))
     signal = held.audio[unit.representative_key]
@@ -195,7 +201,8 @@ def test_a_stored_carrier_is_rendered_where_the_recording_it_stands_for_sounded(
     """
     plan, held = planned
     layout = plan_slots(plan, export_context.target)
-    carried = written_voices(plan, layout, held, demo_material(), dataclasses.replace(export_context, carrier=True))
+    context = dataclasses.replace(export_context, min_carried_attack_ticks=_EVERY_ATTACK)
+    carried = written_voices(plan, layout, held, demo_material(), context)
     unit = next(iter(plan.sample_units()))
     stored = carried.planned.stored[0]
     reference = held.audio[unit.representative_key][: round(_HELD_S * SR)]
@@ -210,17 +217,26 @@ def test_a_stored_carrier_is_rendered_where_the_recording_it_stands_for_sounded(
 # --- which way round the export runs -------------------------------------------------------------------------
 
 
-def test_storing_recordings_and_storing_carriers_write_different_waveforms(
+def test_a_module_whose_recordings_rise_too_fast_for_a_curve_stores_them_as_they_were_played(
     planned: tuple[InstrumentPlan, StoredRecordings],
     export_context: ExportContext,
 ) -> None:
-    """The switch is what it says it is: the same plan lands as two different sets of stored bytes."""
+    """The gate is what it says it is: one plan lands as two different sets of stored bytes.
+
+    Every sample here was priced as a carrier, so what separates the two is the room a written curve has
+    to state the attack each recording makes. Given the room, the level moves onto the curve and the
+    waveform is what it leaves; given none, every waveform keeps the level it was played at.
+    """
     plan, held = planned
     layout = plan_slots(plan, export_context.target)
     material = demo_material()
 
-    levelled = written_voices(plan, layout, held, material, dataclasses.replace(export_context, carrier=False))
-    carried = written_voices(plan, layout, held, material, dataclasses.replace(export_context, carrier=True))
+    levelled = written_voices(
+        plan, layout, held, material, dataclasses.replace(export_context, min_carried_attack_ticks=_NO_ATTACK)
+    )
+    carried = written_voices(
+        plan, layout, held, material, dataclasses.replace(export_context, min_carried_attack_ticks=_EVERY_ATTACK)
+    )
 
     assert [sample.pcm.size for sample in levelled.planned.samples] == [
         sample.pcm.size for sample in carried.planned.samples
@@ -228,3 +244,50 @@ def test_storing_recordings_and_storing_carriers_write_different_waveforms(
     assert any(
         not np.allclose(left.pcm, right.pcm) for left, right in zip(levelled.planned.samples, carried.planned.samples)
     )
+
+
+def _slow(frames: int) -> NDArray[np.float64]:
+    """A take rising over a stretch several ticks long, which is a level a written curve states with room."""
+    rise = round(_SLOW_ATTACK_S * SR)
+    envelope = np.concatenate([np.linspace(0.0, 1.0, rise), np.linspace(1.0, 0.2, max(1, frames - rise))])
+    tone = np.sin(2.0 * np.pi * 200.0 * np.arange(frames, dtype=np.float64) / SR)
+    return tone * envelope[:frames]
+
+
+def _struck(frames: int) -> NDArray[np.float64]:
+    """A take at full level a millisecond in and falling from there, which no written curve states."""
+    silent = round(_STRUCK_S * SR)
+    falling = np.concatenate([np.zeros(silent), np.linspace(1.0, 0.2, max(1, frames - silent))])
+    tone = np.sin(2.0 * np.pi * 200.0 * np.arange(frames, dtype=np.float64) / SR)
+    return np.asarray(tone * falling[:frames], dtype=np.float64)
+
+
+def _takes(held: StoredRecordings, layout: SlotLayout, *, struck: int) -> StoredRecordings:
+    """``held`` rebuilt so ``struck`` of the samples the module stores rise faster than a tick.
+
+    The recordings are replaced by the key each stored sample repitches from, since those are the ones the
+    module's storage is decided on; anything the plan passed over is left as it stands.
+    """
+    stored = [unit.representative_key for unit in layout_units(layout)]
+    replaced = {key: (_struck if key in stored[:struck] else _slow)(signal.size) for key, signal in held.audio.items()}
+    return dataclasses.replace(held, audio=replaced)
+
+
+def test_a_module_is_written_the_way_most_of_its_samples_asked_to_be(
+    planned: tuple[InstrumentPlan, StoredRecordings],
+    export_context: ExportContext,
+) -> None:
+    """The format gives an instrument one envelope for every sample it holds, so the module states one storage.
+
+    Stating the one most of its samples asked for is what keeps a briskly struck take from deciding for a
+    set of slow ones, and a slow one from deciding for a set of struck ones. Half is not most, so a module
+    split evenly stores its recordings, which is the reading that is right whatever the split.
+    """
+    plan, held = planned
+    layout = plan_slots(plan, export_context.target)
+    gated = dataclasses.replace(export_context, min_carried_attack_ticks=_ONE_TICK)
+    units = len(layout_units(layout))
+
+    assert module_carries(layout, _takes(held, layout, struck=0), gated)
+    assert not module_carries(layout, _takes(held, layout, struck=units // 2), gated)
+    assert not module_carries(layout, _takes(held, layout, struck=units), gated)

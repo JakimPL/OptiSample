@@ -149,7 +149,7 @@ def _export_context(dump_context: DumpContext) -> ExportContext:
         playback=settings.playback,
         target=settings.optimize.target,
         envelope=settings.envelope,
-        carrier=settings.optimize.sweep.carrier,
+        min_carried_attack_ticks=settings.optimize.sweep.min_carried_attack_ticks,
         seed=settings.optimize.seed,
     )
 

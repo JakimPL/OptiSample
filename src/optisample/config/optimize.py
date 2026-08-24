@@ -35,10 +35,23 @@ class SweepConfig(ConfigModel):
     :attr:`~optisample.config.reduce.BandwidthConfig.discard_penalty`. A headroom of 0 prices the settled
     rung alone.
 
-    ``carrier`` states what a stored sample holds. Set, each waveform is its recording divided by the gain
-    the instrument's own volume envelope applies, so the sample keeps the timbre and the envelope carries
-    the level -- which is what lets a shallow grid spend itself on sound rather than on a decline the curve
-    states anyway. Left unset, each waveform holds the recording as it was played, level and all.
+    ``carriers`` states what a stored sample may hold. ``true`` divides each waveform by the gain the
+    instrument's own volume envelope applies, so the sample keeps the timbre and the envelope carries the
+    level -- which is what lets a shallow grid spend itself on sound rather than on a decline the curve
+    states anyway. ``false`` keeps the recording as it was played, level and all. Naming both prices each
+    span each way and leaves the choice to the objective: the two cost identical bytes, so what separates
+    them is fidelity alone.
+
+    A tracker gives one envelope to every sample an instrument holds, so the choice is written per
+    instrument: a slot is carried where every sample it holds was priced carried, and stored as played
+    otherwise (:func:`~optisample.optimize.export.build.written_voices`).
+
+    ``min_carried_attack_ticks`` is the room a curve needs to state a recording's own attack, counted in
+    envelope ticks. A written curve turns its corners on a tick grid, so an attack rising in less than one
+    tick is a level event the grid states as a ramp: the attack comes back softened and the level ahead of
+    it stays up. A recording rising faster than this many ticks therefore keeps the level its own PCM
+    carries whatever ``carriers`` names, which is what holds a struck sound's transient
+    (:func:`~optisample.optimize.carrier.clip_envelope`).
 
     A carrier travels with the curve it was divided by
     (:attr:`~optisample.dsp.surrogate.sample.StoredSample.level`), so the surrogate renderer
@@ -54,7 +67,8 @@ class SweepConfig(ConfigModel):
     dither: bool
     noise_shaping: bool
     compress: bool
-    carrier: bool
+    carriers: Annotated[tuple[bool, ...], Field(min_length=1)]
+    min_carried_attack_ticks: Annotated[float, Field(ge=0.0)]
 
     @model_validator(mode="after")
     def _depths_are_storable(self) -> Self:
@@ -67,6 +81,19 @@ class SweepConfig(ConfigModel):
         offered = [depth for depth in self.depths if depth not in storable]
         if offered:
             raise ValueError(f"depths {offered} are stored by no tracker format, against {sorted(storable)}")
+
+        return self
+
+    @model_validator(mode="after")
+    def _carriers_are_distinct(self) -> Self:
+        """Hold the offered storages to one of each, so no span is priced the same way twice.
+
+        Raises:
+            ValueError: when a storage is named more than once, which would double the sweep's work and
+                leave two identical encodings on the frontier.
+        """
+        if len(set(self.carriers)) != len(self.carriers):
+            raise ValueError(f"carriers {list(self.carriers)} names a storage twice")
 
         return self
 

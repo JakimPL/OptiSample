@@ -5,6 +5,7 @@ weights:
   logmel_l1: 0.35
   spectral_shape: 1.0
   mcd: 0.01
+  onset: 0.5             # the attack's own say, which every other term averages away
 mrstft:
   resolutions:
     - {n_fft: 256, hop_length: 64}
@@ -19,6 +20,10 @@ spectral_shape:
   stft: {n_fft: 1024, hop_length: 256}
   weights: {centroid: 0.4, rolloff: 0.2, flatness: 0.2, flux_variance: 0.2}
   rolloff_percent: 0.85
+onset:
+  mel: {n_fft: 512, hop_length: 128, n_mels: 40, fmin: 0.0, fmax: null}
+  pre_s: 0.01            # stretch ahead of the onset the window opens at, where a stored floor shows
+  span_s: 0.06           # stretch past it the attack is read over
 preprocess:
   target_lufs: -23.0       # EBU R128 loudness-normalization target before comparison
   dynamic_range_db: 80.0   # log floor shared by mrstft / logmel / mcd (dB below the reference peak)

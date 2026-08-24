@@ -8,6 +8,7 @@ from optisample.carrier.shape import written_shape
 from optisample.carrier.source import CarrierSource
 from optisample.config.codec import EncodeConfig
 from optisample.dsp.envelope import decompose, level_reading
+from optisample.dsp.onset import ATTACK_READING, attack_seconds
 from optisample.dsp.surrogate import (
     NO_LOOPS,
     UNLOOPED,
@@ -22,6 +23,7 @@ from optisample.io.tracker.target import ExportTarget
 from optisample.keys import SampleKey
 from optisample.music import midi_to_freq
 from trackmod.core.envelopes.envelope import Envelope
+from trackmod.core.timing.clock import tick_seconds
 
 Envelopes = Mapping[SampleKey, Envelope | None]
 NO_ENVELOPES: Final[Envelopes] = {}  # what a run storing recordings prices against, read-only by its type
@@ -41,6 +43,12 @@ class CurveSettings:
     config: EncodeConfig
     target: ExportTarget
     grid: EnvelopeGrid
+    min_attack_ticks: float
+
+    @property
+    def shortest_carried_attack_s(self) -> float:
+        """The briefest attack a written curve has room to state, in seconds of the clock it runs on."""
+        return self.min_attack_ticks * tick_seconds(self.grid.tempo)
 
 
 def clip_envelope(signal: Signal, key: SampleKey, sample_rate: int, settings: CurveSettings) -> Envelope | None:
@@ -51,7 +59,16 @@ def clip_envelope(signal: Signal, key: SampleKey, sample_rate: int, settings: Cu
     the curve each clip states on its own -- the closest a per-clip price can come to what the module
     writes, and what makes the gap between the two exactly the cost of sharing
     (:attr:`~optisample.carrier.shape.WrittenShape.dispersion_db`).
+
+    A recording whose attack rises faster than the tick grid can turn a corner states no curve, and its
+    waveform keeps the level it was played at. A written curve walks straight between corners a tick apart,
+    so a level event shorter than that comes back as a ramp: the attack softens and the level ahead of it
+    stays up, which is audible on any struck sound and is what
+    :attr:`~optisample.config.optimize.SweepConfig.min_carried_attack_ticks` holds the storage away from.
     """
+    if attack_seconds(signal, sample_rate, ATTACK_READING) < settings.shortest_carried_attack_s:
+        return NO_ENVELOPE
+
     return written_shape(
         [
             CarrierSource(
@@ -87,6 +104,16 @@ class PlayedCurve:
 
     envelope: Envelope | None
     tempo: int
+
+
+def played_curve(envelopes: Envelopes, key: SampleKey, params: EncodingParams, tempo: int) -> PlayedCurve:
+    """The curve one encoding hands its level to: the recording's own, where the encoding asks for a carrier.
+
+    An encoding storing the recording as it was played names no curve, and so does one asking for a carrier
+    of a recording that states none -- which is how a run offering both storages prices the same waveform
+    twice for material a curve can carry and once for material it cannot.
+    """
+    return PlayedCurve(envelopes.get(key) if params.carrier else NO_ENVELOPE, tempo)
 
 
 def stored_carrier(

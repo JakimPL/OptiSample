@@ -28,6 +28,7 @@ _FRAMES = int(_TRIM_S * SR)
 _OCTAVE = 12
 _NO_TRANSPOSE = 0
 _RATES = (16_000, 8_000, 4_000)  # an explicit ladder, so a test states which rung it expects back
+_AS_PLAYED = (False,)  # one storage, so a test counting encodings measures the axis it names
 _CHEAPEST_RUNG = min(_RATES)
 _RATE_PER_BANDWIDTH = 2.0  # Nyquist, which turns a content-edge tolerance into a rate tolerance
 _DEEP_DEPTH = 16  # bits, where the quantizer already sits below what compression would protect
@@ -56,7 +57,7 @@ def make_context(sweep: SweepFactory, reduce: ReduceFactory) -> Callable[..., _C
     def _build(*, bandwidth: dict[str, object] | None = None, **grid: object) -> _Context:
         return _Context(
             sample_rate=SR,
-            sweep=sweep(rates=_RATES, **grid),
+            sweep=sweep(rates=_RATES, **{"carriers": _AS_PLAYED, **grid}),
             bandwidth=reduce(bandwidth=bandwidth or {}).bandwidth,
         )
 
@@ -225,6 +226,16 @@ def test_both_grids_are_offered_where_a_run_prices_both(make_context: Callable[.
     offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=1)
 
     assert [params.depth_bits for params in offered] == [_DEEP_DEPTH, _SHALLOW_DEPTH] * 2
+
+
+def test_both_storages_are_offered_where_a_run_prices_both(make_context: Callable[..., _Context]) -> None:
+    """Storing timbre alone costs the bytes storing the level with it costs, so fidelity alone separates them."""
+    context = make_context(depths=(_DEEP_DEPTH,), compress=False, carriers=(True, False))
+    stored = stored_format(broadband(), UNTRANSPOSED, context)
+
+    offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=1)
+
+    assert [params.carrier for params in offered] == [True, False] * 2
 
 
 def test_the_stored_length_reaches_every_encoding_offered(make_context: Callable[..., _Context]) -> None:

@@ -28,6 +28,7 @@ _EXPECTED_METRICS = (
     "logmel_l1",
     "spectral_shape",
     "mcd",
+    "onset",
     "segmental_snr_db",
     "snr_db",
     "si_sdr_db",

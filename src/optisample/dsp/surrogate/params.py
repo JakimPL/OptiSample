@@ -44,6 +44,10 @@ class EncodingParams:
     the clip keeps ``trim_s`` of the recording as it was played. A longer loop carries more of the
     material's own movement for more bytes, so naming which one is what turns loop length into an axis the
     sweep prices alongside the trimmed span.
+
+    ``carrier`` asks for the level to travel on the instrument's own volume envelope, leaving the stored
+    waveform holding timbre alone. It costs exactly the bytes the same span costs stored as played, so it
+    is the one axis here that buys fidelity rather than trading it for length or band.
     """
 
     target_rate: int
@@ -53,6 +57,7 @@ class EncodingParams:
     noise_shaping: bool = False
     loop_index: int | None = UNLOOPED
     compress: bool = False
+    carrier: bool = False
 
 
 @dataclass(frozen=True)

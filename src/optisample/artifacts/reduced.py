@@ -168,10 +168,16 @@ def _calibrated_run(loaded: LoadedInstrument, paths: ReducedPaths, config: LoopC
 
 
 def _encoding_stem(params: EncodingParams) -> str:
-    """The audition filename for one swept encoding: every axis it asks for, in the sweep's order."""
+    """The audition filename for one swept encoding: every axis it asks for, in the sweep's order.
+
+    Every axis is named, so two encodings differing in any of them land in the folder side by side and a
+    listener hears them against each other rather than one overwriting the other.
+    """
     parts = [f"r{params.target_rate}", f"d{params.depth_bits}"]
     if params.compress:
-        parts.append("c")
+        parts.append("comp")
+    if params.carrier:
+        parts.append("carrier")
     if params.loop_index is not None:
         parts.append(f"loop{params.loop_index}")
 

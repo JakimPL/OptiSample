@@ -56,7 +56,11 @@ class EncodingRecord(Frozen):
     counting from the cheapest stored span, and is absent for an item storing the span it plays -- so how
     much of a note the budget paid to keep is readable beside what that cost. ``loop`` and ``level`` are
     read off the sample as re-encoding actually stored it, so they state the loop a player wraps on and the
-    curve it is brought down by rather than what the sweep asked for. The plan items
+    curve it is brought down by rather than what the sweep asked for. ``carrier`` says the waveform came out
+    holding timbre alone, its level travelling on the curve beside it. It is read off the stored sample
+    rather than off what the encoding asked for, so a recording whose attack a written curve has no room
+    to state (:func:`~optisample.optimize.carrier.clip_envelope`) reads as the recording it was stored as
+    however the sweep reached it. The plan items
     (:class:`PitchItemRecord`, :class:`ZoneItemRecord`) inherit these fields so the block appears once per
     item, flattened alongside the item's own leading fields.
     """
@@ -64,6 +68,7 @@ class EncodingRecord(Frozen):
     target_rate: int
     depth_bits: int
     compress: bool
+    carrier: bool
     trim_s: float | None
     loop_index: int | None
     loop: LoopRecord | None
@@ -226,6 +231,7 @@ def _encoding_record(unit: SampleUnit, stored: StoredSample) -> EncodingRecord:
         target_rate=unit.params.target_rate,
         depth_bits=unit.params.depth_bits,
         compress=unit.params.compress,
+        carrier=not stored.level.transparent,
         trim_s=unit.params.trim_s,
         loop_index=unit.params.loop_index,
         loop=loop_record(stored.loop),

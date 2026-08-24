@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Final
 
 from optisample.dsp.level import Clock, Level, curve_level, loudest_db, written_level
+from optisample.dsp.onset import ATTACK_READING, attack_seconds
 from optisample.dsp.trajectory import SharedTrajectory
 from optisample.io.tracker.envelope import NO_ENVELOPE, shape_nodes, volume_envelope
 from optisample.model import NoteEvent
@@ -12,7 +13,7 @@ from optisample.optimize.export.material import CHANNELS, Voicing, material_patt
 from optisample.optimize.export.samples import PlannedSamples, plan_samples
 from optisample.optimize.export.voices import NO_SHAPE, PlannedVoices, PlayedVoices, instrument_shapes
 from optisample.optimize.layers.slots import ONE_SLOT, SlotLayout, plan_slots
-from optisample.optimize.plans import SINGLE_LAYER, StrategyPlan
+from optisample.optimize.plans import SINGLE_LAYER, SampleUnit, StrategyPlan
 from optisample.optimize.tasks import StoredRecordings
 from trackmod.core.envelopes.envelope import Envelope
 from trackmod.core.instruments.instrument import Instrument
@@ -23,6 +24,7 @@ from trackmod.module.protocol import TrackerModule
 
 _NAME_CHARS: Final = 22  # the narrowest instrument-name field a target format keeps, FastTracker 2's
 _SHORTEST_ID: Final = 1  # instrument-id characters a name keeps however long the axes it states are
+_BOTH_WAYS: Final = 2  # storages a sample may be held as, which is what a majority of them is counted against
 
 
 def _axes(layout: SlotLayout, index: int) -> str:
@@ -178,6 +180,39 @@ def _levelled(
     return WrittenVoices(planned=planned, envelopes=_written(shapes, context))
 
 
+def _unit_carries(unit: SampleUnit, recordings: StoredRecordings, context: ExportContext) -> bool:
+    """Whether one stored sample is worth handing its level to a curve.
+
+    Two things have to hold: the plan priced it as a carrier, and the recording behind it rises slowly
+    enough for a curve written on the tick grid to state its attack
+    (:attr:`~optisample.optimize.export.context.ExportContext.shortest_carried_attack_s`). A struck sound
+    reaching full level inside a tick is a level event the grid gives back as a ramp, so what it asks for
+    is the level its own PCM already carries.
+    """
+    return unit.params.carrier and (
+        attack_seconds(recordings.audio[unit.representative_key], recordings.sample_rate, ATTACK_READING)
+        >= context.shortest_carried_attack_s
+    )
+
+
+def module_carries(layout: SlotLayout, recordings: StoredRecordings, context: ExportContext) -> bool:
+    """Whether the module is written as carriers, which is the granularity the format leaves the choice at.
+
+    A tracker gives one volume envelope to each instrument and applies it to every sample that instrument
+    holds, so the samples written together answer alike and the module states one storage for all of them.
+    It states the one most of its samples asked for (:func:`_unit_carries`), which is what keeps a single
+    briskly struck take among a set of slow ones from holding the whole instrument to storing recordings,
+    and keeps a set of struck takes from being carried for the sake of the few slow ones among them.
+    """
+    units = layout_units(layout)
+    return bool(units) and sum(_unit_carries(unit, recordings, context) for unit in units) > len(units) / _BOTH_WAYS
+
+
+def layout_units(layout: SlotLayout) -> tuple[SampleUnit, ...]:
+    """Every stored sample the module holds, in the order its instruments number them."""
+    return tuple(unit for slot in layout.slots for unit in slot.units)
+
+
 def written_voices(
     plan: StrategyPlan,
     layout: SlotLayout,
@@ -187,10 +222,11 @@ def written_voices(
 ) -> WrittenVoices:
     """The stored samples a plan is written as, beside the curve each instrument plays them down by.
 
-    Which way round the two settle is what ``context.carrier`` states, and every caller re-encoding a plan
-    goes through here, so the bytes a module carries and the bytes an artifact reports are the same bytes.
+    Which way round the two settle is what :func:`module_carries` states, and every caller re-encoding a
+    plan goes through here, so the bytes a module carries and the bytes an artifact reports are the same
+    bytes.
     """
-    if context.carrier:
+    if module_carries(layout, recordings, context):
         return _carried(plan, layout, recordings, material, context)
 
     return _levelled(plan, layout, recordings, material, context)
@@ -207,7 +243,7 @@ def build_song(
     The plan supplies the stored samples and the keys they serve; the format decides how many instruments
     those samples are written as (:func:`~optisample.optimize.layers.slots.pack_slots`); the material
     supplies the patterns that audition them and, beside the recordings, the trajectory each instrument's
-    own envelope is fitted to. Which way round those two settle is what ``context.carrier`` states:
+    own envelope is fitted to. Which way round those two settle is what :func:`module_carries` states:
     :func:`_carried` fits the curve first and stores what it leaves, :func:`_levelled` stores the recording
     and fits what its level leaves. Everything else -- the song name, the single channel, the clock -- is
     the same for both strategies, so it lives here once.

@@ -21,6 +21,21 @@ class McdConfig(ConfigModel):
     mel: MelParams
 
 
+class OnsetConfig(ConfigModel):
+    """The attack term: how much of an onset is scored, and the mel sizing it is read under.
+
+    ``pre_s`` is the stretch ahead of the onset the window opens at, which is where a stored copy's own
+    noise floor shows; ``span_s`` how far past it the attack is read. Between them they say how much of a
+    sound's beginning the objective hears apart from the note behind it, so a longer span reads more of
+    the body and a shorter one concentrates on the transient. Every other threshold the reading uses is the
+    convention :data:`~optisample.dsp.onset.ATTACK_READING` states.
+    """
+
+    mel: MelParams
+    pre_s: float
+    span_s: float
+
+
 class SpectralWeights(ConfigModel):
     """Sub-weights for the four spectral-shape terms, applied to each term's relative delta."""
 
@@ -63,4 +78,5 @@ class MetricsConfig(ConfigModel):
     logmel: LogMelConfig
     mcd: McdConfig
     spectral_shape: SpectralShapeConfig
+    onset: OnsetConfig
     preprocess: PreprocessConfig

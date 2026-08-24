@@ -28,6 +28,7 @@ _CLICKS: Final = (1, 8)  # discontinuities a badly wrapped loop makes over one s
 _DEPTHS: Final = (16, 8)  # grids a stored sample is offered at
 _KEEP: Final = (0.25, 0.5, 0.75)  # shares of a span a hard trim keeps
 _BANDS_HZ: Final = (2000.0, 4000.0, 8000.0, 16000.0)  # brickwall edges, which cost band without costing rate
+_EVERY_ATTACK: Final = 0.0  # the gate the bench reads under, so a storage the shipped config refuses is measured
 
 
 @dataclass(frozen=True)
@@ -185,7 +186,8 @@ def degradations(config: OptiConfig, rates: Sequence[int]) -> tuple[Degradation,
     """
     target = export_target(config.export.tracker)
     grid = envelope_grid(target, tempo=_TEMPO, release_s=config.export.envelope.release_s)
-    encoded = encoder(config, CurveSettings(config=config.encode, target=target, grid=grid))
+    settings = CurveSettings(config=config.encode, target=target, grid=grid, min_attack_ticks=_EVERY_ATTACK)
+    encoded = encoder(config, settings)
     top = max(rates)
 
     ladder = [Degradation("rate", f"{rate}", encoded(rate, 16, compress=False, carrier=False)) for rate in rates]

@@ -59,7 +59,13 @@ def _narrow_band_reduce() -> ReduceConfig:
 
 def _settings(*, carrier: bool = True) -> OptimizeSettings:
     grid = SweepConfig.model_validate(
-        {**_CONFIG.optimize.sweep.model_dump(), "rates": (11_025,), "depths": (8,), "dither": False, "carrier": carrier}
+        {
+            **_CONFIG.optimize.sweep.model_dump(),
+            "rates": (11_025,),
+            "depths": (8,),
+            "dither": False,
+            "carriers": (carrier,),
+        }
     )
     return OptimizeSettings(
         loop=_CONFIG.loop,

@@ -6,6 +6,7 @@ from optisample.metrics.base import (
     unregister_metric,
 )
 from optisample.metrics.composite import CompositeFidelity, build_composite, evaluate
+from optisample.metrics.onset import OnsetShape
 from optisample.metrics.preprocess import (
     integrated_loudness,
     loudness_normalize,
@@ -21,6 +22,7 @@ __all__ = [
     "MelCepstralDistortion",
     "MetricContext",
     "MultiResolutionStft",
+    "OnsetShape",
     "SpectralShape",
     "available_metrics",
     "build_composite",

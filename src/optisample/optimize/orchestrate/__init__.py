@@ -39,10 +39,12 @@ def _priced_envelopes(audio: AudioMap, sample_rate: int, settings: OptimizeSetti
     """The curve each recording states on its own, where the run stores carriers rather than recordings.
 
     Read once per survivor and carried on the scoring context, so every encoding of one recording is
-    priced against the same curve and a worker scoring it reads none of them again. A run storing
-    recordings names no curve, and every clip is priced holding the level its own PCM carries.
+    priced against the same curve and a worker scoring it reads none of them again. A run offering no
+    carrier at all names no curve, and so does a recording whose attack a written curve has no room to
+    state (:func:`~optisample.optimize.carrier.clip_envelope`); every clip without one is priced holding
+    the level its own PCM carries.
     """
-    if not settings.sweep.carrier:
+    if not any(settings.sweep.carriers):
         return NO_ENVELOPES
 
     return clip_envelopes(audio, sample_rate, settings.curve_settings)

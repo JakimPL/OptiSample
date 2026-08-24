@@ -132,11 +132,13 @@ class StoredFormat:
     the spectrum its material asked for whatever else the budget presses on. ``depths`` are the grids the
     sweep then prices that rate at, deepest first: a shallow copy costs half the frames of a deep one, so
     how finely a waveform is stored is a trade the objective makes against zone width, sample count and
-    stored length rather than a decision taken before it.
+    stored length rather than a decision taken before it. ``carriers`` are the storages each of those is
+    offered as, which cost identical bytes and differ in what the waveform is left holding.
     """
 
     target_rate: int
     depths: tuple[int, ...]
+    carriers: tuple[bool, ...]
 
 
 def _lowest_rung(rates: Sequence[int], useful_rate: float) -> int:
@@ -161,6 +163,7 @@ def format_from_band(content_hz: float, demand: ClipDemand, context: FormatInput
     return StoredFormat(
         target_rate=_lowest_rung(sweep_rates(context.sweep, context.sample_rate), useful_rate),
         depths=context.sweep.depths,
+        carriers=context.sweep.carriers,
     )
 
 
@@ -270,7 +273,9 @@ def stored_encodings(
     Each of those is offered at every depth the sweep names, and a depth shallow enough for the dynamics
     stage to buy headroom is offered both plain and compressed, which is what makes both the grid a
     waveform is stored on and the compression ahead of it axes the run prices rather than steps it takes
-    on the way past. A depth deep enough to carry the material outright offers each span once.
+    on the way past. A depth deep enough to carry the material outright offers each span once. Each of
+    those in turn is offered as every storage ``carriers`` names, which cost the same bytes and differ in
+    whether the level rides on the waveform or on the curve beside it.
 
     Spans lead, then rates, then depths: every encoding of the trimmed span stands before the first loop's,
     so the trimmed span occupies the opening positions for every clip and the per-pitch and per-zone sweeps
@@ -284,11 +289,20 @@ def stored_encodings(
         noise_shaping=sweep.noise_shaping,
         loop_index=UNLOOPED,
         compress=False,
+        carrier=False,
     )
     return tuple(
-        replace(plain, loop_index=span, target_rate=rate, depth_bits=depth, compress=compress)
+        replace(
+            plain,
+            loop_index=span,
+            target_rate=rate,
+            depth_bits=depth,
+            compress=compress,
+            carrier=carrier,
+        )
         for span in (UNLOOPED, *range(loops))
         for rate in _offered_rates(stored.target_rate, sweep, sample_rate)
         for depth in stored.depths
         for compress in _dynamics(sweep, depth)
+        for carrier in stored.carriers
     )

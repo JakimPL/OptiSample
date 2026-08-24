@@ -10,11 +10,12 @@ from optisample.metrics.base import MetricContext, Signal, register_metric
 _TINY: Final = 1e-12
 
 
-def _min_frames(first: Signal, second: Signal) -> int:
+def min_frames(first: Signal, second: Signal) -> int:
+    """The frames two analyses share, which is what a term compares them over."""
     return int(min(first.shape[0], second.shape[0]))
 
 
-def _floored_log(values: Signal, reference_peak: float, rel_floor: float) -> Signal:
+def floored_log(values: Signal, reference_peak: float, rel_floor: float) -> Signal:
     """Natural log after clamping ``values`` to ``rel_floor`` of the reference peak."""
     floor = max(reference_peak * rel_floor, _TINY)
     return np.log(np.maximum(values, floor))
@@ -44,12 +45,12 @@ class MultiResolutionStft:
         for params in self.resolutions:
             ref_mag = stft_magnitude(reference, params)
             cand_mag = stft_magnitude(candidate, params)
-            frames = _min_frames(ref_mag, cand_mag)
+            frames = min_frames(ref_mag, cand_mag)
             ref_mag, cand_mag = ref_mag[:frames], cand_mag[:frames]
             convergence = float(np.linalg.norm(ref_mag - cand_mag) / (np.linalg.norm(ref_mag) + _TINY))
             peak = float(np.max(ref_mag)) if ref_mag.size else 0.0
             log_l1 = float(
-                np.mean(np.abs(_floored_log(ref_mag, peak, rel_floor) - _floored_log(cand_mag, peak, rel_floor)))
+                np.mean(np.abs(floored_log(ref_mag, peak, rel_floor) - floored_log(cand_mag, peak, rel_floor)))
             )
             total += convergence + log_l1
 
@@ -74,11 +75,11 @@ class LogMelL1:
         rel_floor = 10.0 ** (-self.dynamic_range_db / 10.0)
         ref_mel = melspectrogram(reference, context.sample_rate, self.params)
         cand_mel = melspectrogram(candidate, context.sample_rate, self.params)
-        frames = _min_frames(ref_mel, cand_mel)
+        frames = min_frames(ref_mel, cand_mel)
         ref_mel, cand_mel = ref_mel[:frames], cand_mel[:frames]
         peak = float(np.max(ref_mel)) if ref_mel.size else 0.0
-        ref_log = _floored_log(ref_mel, peak, rel_floor)
-        cand_log = _floored_log(cand_mel, peak, rel_floor)
+        ref_log = floored_log(ref_mel, peak, rel_floor)
+        cand_log = floored_log(cand_mel, peak, rel_floor)
         return float(np.mean(np.abs(ref_log - cand_log)))
 
 

@@ -5,4 +5,5 @@ depths: [16, 8]              # grids a stored sample is offered at; a shallow co
 dither: false
 noise_shaping: false
 compress: true               # offered beside the plain encoding where the depth is shallow enough to hear it
-carrier: true                # store timbre and let the envelope carry the level, which the sweep prices per clip
+carriers: [true, false]      # storages a span is offered as; both cost the same bytes, so fidelity decides
+min_carried_attack_ticks: 0.0 # the fixtures' notes rise in a few ms; the gate's own tests name their own

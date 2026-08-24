@@ -73,7 +73,12 @@ class OptimizeSettings:
     @property
     def curve_settings(self) -> CurveSettings:
         """What reading the curve one recording states is carried out with, for a run pricing carriers."""
-        return CurveSettings(config=self.encode, target=self.target, grid=self.envelope_grid)
+        return CurveSettings(
+            config=self.encode,
+            target=self.target,
+            grid=self.envelope_grid,
+            min_attack_ticks=self.sweep.min_carried_attack_ticks,
+        )
 
     @property
     def sample_cap(self) -> int:

@@ -26,11 +26,13 @@ class StoredFormatRecord(Frozen):
     """The format the reduction settled for a pitch's stored sample, from the recording's own content.
 
     The rate follows the recording's own band, so it is settled here; ``depths`` are the grids the sweep
-    then prices that rate at, and which of them a sample ends up stored on is read off the plan.
+    then prices that rate at and ``carriers`` the storages it offers each of them as, and which of them a
+    sample ends up stored on is read off the plan.
     """
 
     target_rate: int
     depths: list[int]
+    carriers: list[bool]
 
 
 class NarrowedGridRecord(Frozen):
@@ -147,6 +149,7 @@ def reduction_document(reduction: ReductionSummary) -> ReductionDocument:
                 stored=StoredFormatRecord(
                     target_rate=grid.stored.target_rate,
                     depths=list(grid.stored.depths),
+                    carriers=list(grid.stored.carriers),
                 ),
                 swept=len(grid.encodings),
             )

@@ -270,14 +270,19 @@ def test_an_audition_is_named_by_the_encoding_it_holds(reduced: ReducedInstrumen
     folder = reduced.paths.auditions_dir / f"p{grid['pitch']:03d}_{grid['note']}"
     stored = grid["stored"]
     stems = [f"r{stored['target_rate']}_d{depth}" for depth in stored["depths"]]
-    dynamics = ("", "_c")  # the fixture stores at a depth shallow enough for the dynamics stage to be offered
-    offered = len(stems) * len(dynamics)
+    dynamics = ("", "_comp")  # the fixture stores at a depth shallow enough for the dynamics stage to be offered
+    storages = ("_carrier", "")  # the fixture offers both, and the sweep names them in that order
+    offered = len(stems) * len(dynamics) * len(storages)
     spans = ["", *(f"_loop{index}" for index in range(grid["swept"] // offered - _TRIMMED_ONLY))]
 
     auditions = sorted(path.name for path in folder.glob("*.wav") if path.stem != "reference")
 
     assert auditions == sorted(
-        f"{stem}{compressed}{span}.wav" for stem in stems for span in spans for compressed in dynamics
+        f"{stem}{compressed}{storage}{span}.wav"
+        for stem in stems
+        for span in spans
+        for compressed in dynamics
+        for storage in storages
     )
 
 
