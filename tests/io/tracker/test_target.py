@@ -5,6 +5,18 @@ from collections.abc import Callable
 
 import numpy as np
 import pytest
+from trackmod import BitDepth, Compliance, Instrument, Sample, Song, extract
+from trackmod.core.effects.effect import Effect
+from trackmod.core.instruments.keymap import KeyAssignment, routed_keymap
+from trackmod.core.notes.command import NoteCommand
+from trackmod.core.notes.pitch import Note
+from trackmod.core.patterns.builder import PatternBuilder
+from trackmod.core.patterns.cell import Cell
+from trackmod.core.songs.order import OrderList
+from trackmod.core.songs.playback import Playback
+from trackmod.limits.capability import Capability
+from trackmod.spec.levels import MAX_VOLUME
+from trackmod.spec.pitch import RATE_NOTE
 
 from optisample.config.tracker import (
     ITTrackerConfig,
@@ -14,23 +26,6 @@ from optisample.config.tracker import (
 )
 from optisample.io.tracker.target import ExportTarget, balanced_gains, export_target, sample_label
 from optisample.io.tracker.voices import instrument_voices, routed_voices
-from trackmod.core.effects.effect import Effect
-from trackmod.core.instruments.instrument import Instrument
-from trackmod.core.instruments.keymap import KeyAssignment, routed_keymap
-from trackmod.core.instruments.transfer import extract
-from trackmod.core.notes.command import NoteCommand
-from trackmod.core.notes.pitch import Note
-from trackmod.core.patterns.builder import PatternBuilder
-from trackmod.core.patterns.cell import Cell
-from trackmod.core.samples.depth import BitDepth
-from trackmod.core.samples.sample import Sample
-from trackmod.core.songs.order import OrderList
-from trackmod.core.songs.playback import Playback
-from trackmod.core.songs.song import Song
-from trackmod.limits.capability import Capability
-from trackmod.limits.compliance import Compliance
-from trackmod.spec.levels import MAX_VOLUME
-from trackmod.spec.pitch import RATE_NOTE
 
 _KEY = Note(RATE_NOTE)
 PROBE_ROWS = 32

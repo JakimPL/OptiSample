@@ -4,14 +4,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+from trackmod import BitDepth
+from trackmod.module.storage import Storage
 
 from notebooks.utils import degrade, loading, views
 from optisample.config.spectral import SpectralConfig
 from optisample.metrics import CompositeFidelity
 from optisample.model import Manifest
 from optisample.optimize.plans.budget import populated_instrument_bytes
-from trackmod.core.samples.depth import BitDepth
-from trackmod.module.storage import Storage
 
 SR = 44_100
 

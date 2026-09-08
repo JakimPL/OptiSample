@@ -6,6 +6,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+from trackmod.spec.levels import MAX_VOLUME
 
 from optisample.dsp.level import Clock, unit_level
 from optisample.dsp.surrogate import (
@@ -21,7 +22,6 @@ from optisample.dsp.surrogate import (
     render,
 )
 from optisample.metrics.diagnostics import snr
-from trackmod.spec.levels import MAX_VOLUME
 
 SR = 44_100
 _TRIM_S = 0.5

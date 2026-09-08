@@ -1,5 +1,13 @@
 from typing import Final
 
+from trackmod import Instrument, Sample, Song, TrackerModule
+from trackmod.core.instruments.keymap import KeyAssignment, routed_keymap
+from trackmod.core.patterns.builder import PatternBuilder
+from trackmod.core.patterns.cell import Cell
+from trackmod.core.songs.order import OrderList
+from trackmod.core.songs.playback import Playback
+from trackmod.core.timing.clock import row_seconds
+
 from optisample.calibrate.context import NoteProbe
 from optisample.config.render import PlaybackConfig
 from optisample.dsp.surrogate import StoredSample
@@ -7,16 +15,6 @@ from optisample.io.tracker.target import ExportTarget
 from optisample.io.tracker.voices import instrument_voices
 from optisample.music import sounded_note
 from optisample.optimize.export.material import CHANNELS
-from trackmod.core.instruments.instrument import Instrument
-from trackmod.core.instruments.keymap import KeyAssignment, routed_keymap
-from trackmod.core.patterns.builder import PatternBuilder
-from trackmod.core.patterns.cell import Cell
-from trackmod.core.samples.sample import Sample
-from trackmod.core.songs.order import OrderList
-from trackmod.core.songs.playback import Playback
-from trackmod.core.songs.song import Song
-from trackmod.core.timing.clock import row_seconds
-from trackmod.module.protocol import TrackerModule
 
 DEFAULT_NAME: Final = "calib"
 

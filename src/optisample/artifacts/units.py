@@ -1,11 +1,15 @@
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
+from trackmod import TrackerModule
+from trackmod.core.envelopes.envelope import Envelope
+
 from optisample.artifacts.context import DumpContext
 from optisample.artifacts.documents.plan import PlanDocument, plan_document
 from optisample.dsp.surrogate import StoredSample
 from optisample.io.tracker.envelope import shape_nodes
 from optisample.io.tracker.voices import routed_voices
+from optisample.io.tracker.written import written_module
 from optisample.keys import SampleKey
 from optisample.model import NoteEvent
 from optisample.optimize.export import build_module
@@ -23,8 +27,6 @@ from optisample.optimize.plans import (
 )
 from optisample.optimize.report import format_grouping_report, format_report
 from optisample.optimize.tasks import PitchTask
-from trackmod.core.envelopes.envelope import Envelope
-from trackmod.module.protocol import TrackerModule
 
 
 @dataclass(frozen=True)
@@ -198,7 +200,7 @@ def make_kind(plan: InstrumentPlan | GroupedInstrumentPlan, dump_context: DumpCo
         return build_module(plan, dump_context.recordings, list(material), export_context)
 
     module = make_module(dump_context.material)
-    size = module.size()
+    stated = written_module(module)
     layout = plan_slots(plan, export_context.target)
     coverage = key_coverage(
         [instrument.keymap for instrument in routed_voices(module.song).instruments],
@@ -206,9 +208,9 @@ def make_kind(plan: InstrumentPlan | GroupedInstrumentPlan, dump_context: DumpCo
         played=played_keys(plan.sample_units()),
     )
     if plan.strategy == "grouped":
-        report_text = format_grouping_report(plan, size, coverage, layout)
+        report_text = format_grouping_report(plan, stated, coverage, layout)
     else:
-        report_text = format_report(plan, size, coverage, layout)
+        report_text = format_report(plan, stated, coverage, layout)
     return PlanKind(
         plan.strategy,
         layout,
@@ -217,7 +219,7 @@ def make_kind(plan: InstrumentPlan | GroupedInstrumentPlan, dump_context: DumpCo
         plan_document(
             plan,
             encoded,
-            size,
+            stated,
             coverage,
             _written_instruments(plan, layout, encoded, dump_context, export_context),
         ),

@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+from trackmod import ITInstrumentFile
 
 from optisample.artifacts import DumpSettings, dump_instrument, dump_project
 from optisample.artifacts.documents.bank import MANIFEST_VERSION
@@ -30,7 +31,6 @@ from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.reduce.trim import NO_SCREEN
 from optisample.optimize.tasks import AudioMap, StoredRecordings
 from tests.conftest import TEST_CONFIG_DIR
-from trackmod.trackers.it.instrument_file import ITInstrumentFile
 
 Recordings = Callable[..., StoredRecordings]
 

@@ -6,10 +6,10 @@ from typing import Final
 
 import numpy as np
 from numpy.typing import NDArray
+from trackmod import TrackerModule
 
 from optisample.config.render import Interpolation, RenderConfig
 from optisample.io.audio import read_wav
-from trackmod.module.protocol import TrackerModule
 
 _BINARY: Final = "openmpt123"
 _MODULE_STEM: Final = "module"

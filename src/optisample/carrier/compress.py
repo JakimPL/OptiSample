@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import replace
 
+from trackmod.core.envelopes.envelope import Envelope
+
 from optisample.carrier.source import CarrierSource
 from optisample.carrier.store import CarrierSettings
 from optisample.config.loop import EnvelopeConfig
@@ -10,7 +12,6 @@ from optisample.dsp.dynamics import held_back
 from optisample.dsp.envelope import LevelReading, Signal, decompose, level_reading
 from optisample.io.tracker.envelope import carried_signal
 from optisample.music import midi_to_freq
-from trackmod.core.envelopes.envelope import Envelope
 
 
 def source_reading(source: CarrierSource, config: EnvelopeConfig) -> LevelReading:

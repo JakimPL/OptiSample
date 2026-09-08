@@ -2,21 +2,18 @@ from collections.abc import Callable, Sequence
 
 import numpy as np
 import pytest
-
-from optisample.config.render import PlaybackConfig
-from optisample.io.tracker.target import ExportTarget
-from optisample.io.tracker.voices import instrument_voices
-from trackmod.core.instruments.instrument import Instrument
+from trackmod import Instrument, Sample, Song, TrackerModule
 from trackmod.core.instruments.keymap import KeyAssignment, routed_keymap
 from trackmod.core.notes.pitch import Note
 from trackmod.core.patterns.builder import PatternBuilder
 from trackmod.core.patterns.cell import Cell
-from trackmod.core.samples.sample import Sample
 from trackmod.core.songs.order import OrderList
 from trackmod.core.songs.playback import Playback
-from trackmod.core.songs.song import Song
-from trackmod.module.protocol import TrackerModule
 from trackmod.spec.pitch import RATE_NOTE
+
+from optisample.config.render import PlaybackConfig
+from optisample.io.tracker.target import ExportTarget
+from optisample.io.tracker.voices import instrument_voices
 
 PROBE_ROWS = 40
 PROBE_KEY = Note(RATE_NOTE)

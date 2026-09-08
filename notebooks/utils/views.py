@@ -2,6 +2,8 @@ from collections.abc import Sequence
 
 import numpy as np
 from numpy.typing import NDArray
+from trackmod import BitDepth
+from trackmod.module.storage import Storage
 
 from notebooks.utils.degrade import DegradeSpec, apply
 from notebooks.utils.loading import sample_label
@@ -20,8 +22,6 @@ from optisample.metrics import (
 )
 from optisample.model import InstrumentSpec, SourceSample
 from optisample.optimize.plans.budget import populated_instrument_bytes
-from trackmod.core.samples.depth import BitDepth
-from trackmod.module.storage import Storage
 
 Signal = NDArray[np.float64]
 

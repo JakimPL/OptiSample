@@ -6,6 +6,7 @@ from math import inf
 from typing import Final
 
 import numpy as np
+from trackmod.spec.levels import MAX_VOLUME
 
 from optisample.dsp.level import gain_to_db, level_readings
 from optisample.dsp.series import Readings, Series
@@ -20,7 +21,6 @@ from optisample.optimize.layers.slots import InstrumentSlot, SlotLayout
 from optisample.optimize.plans import SampleUnit
 from optisample.optimize.tasks import StoredRecordings
 from optisample.optimize.velocity_map import VelocityVolumeMap
-from trackmod.spec.levels import MAX_VOLUME
 
 NO_SHAPE: Final = None  # what an instrument the material never plays a recorded key of leaves behind
 NO_DRIFT: Final = 0.0  # what one envelope costs an instrument carrying none

@@ -3,7 +3,12 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Final
 
+from trackmod import Compliance
+from trackmod.module.size import SizeReport
+from trackmod.module.storage import Storage
+
 from optisample.dsp.surrogate import EncodingParams
+from optisample.io.tracker.written import WrittenModule
 from optisample.keys import SampleKey
 from optisample.metrics.size import bytes_to_kib
 from optisample.music import MIDI_MAX_VELOCITY
@@ -38,11 +43,10 @@ from optisample.optimize.report import (
     format_report,
 )
 from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
-from trackmod.module.size import SizeReport
-from trackmod.module.storage import Storage
 
 _MODULE_BYTES = 64 * 1024
 _SIZE = SizeReport(patterns=120, pcm=9000, headers=800, largest_pattern=90)
+_WRITTEN = WrittenModule(size=_SIZE, reach=Compliance.CANONICAL, exceeded=(), provenance="TrackMod")
 _COVERAGE = KeyCoverage(numbered=120, played=3, answered=120)  # a keyboard answered in full from 3 recordings
 _WHOLE_AXIS = VelocityLayers((VelocityBand(0, MIDI_MAX_VELOCITY),))  # one layer answering every dynamic
 _ENERGY_EXPONENT = 0.5  # the weighting these fixtures state; the report only ever echoes it back
@@ -100,7 +104,7 @@ def test_format_report_has_all_sections(storage: Storage, reduction: ReductionSu
         storage=storage,
         reduction=reduction,
     )
-    report = format_report(plan, _SIZE, _COVERAGE, _layout(plan))
+    report = format_report(plan, _WRITTEN, _COVERAGE, _layout(plan))
     assert "Instrument 'piano'" in report
     assert "Budget:" in report and "Objective:" in report
     assert f"{bytes_to_kib(_SIZE.total):7.1f} KiB module" in report  # the written size sits beside the budget
@@ -123,10 +127,10 @@ def test_a_report_states_the_weighting_its_objective_was_measured_under(
         storage=storage,
         reduction=reduction,
     )
-    assert f"energy^{_ENERGY_EXPONENT:g}-weighted" in format_report(ungrouped, _SIZE, _COVERAGE, _layout(ungrouped))
+    assert f"energy^{_ENERGY_EXPONENT:g}-weighted" in format_report(ungrouped, _WRITTEN, _COVERAGE, _layout(ungrouped))
     layered = _layered_plan(storage, reduction)
     assert f"energy^{_ENERGY_EXPONENT:g}-weighted" in format_grouping_report(
-        layered, _SIZE, _COVERAGE, _layout(layered)
+        layered, _WRITTEN, _COVERAGE, _layout(layered)
     )
 
 
@@ -142,7 +146,7 @@ def test_report_curve_always_includes_the_final_point(storage: Storage, reductio
         storage=storage,
         reduction=reduction,
     )
-    report = format_report(plan, _SIZE, _COVERAGE, _layout(plan))
+    report = format_report(plan, _WRITTEN, _COVERAGE, _layout(plan))
     assert f"{bytes_to_kib(curve[-1].total_bytes):7.1f} KiB" in report  # final vertex shown despite the stride
 
 
@@ -179,7 +183,7 @@ def test_grouping_report_has_the_expected_sections(storage: Storage, reduction: 
         storage=storage,
         reduction=reduction,
     )
-    report = format_grouping_report(plan, _SIZE, _COVERAGE, _layout(plan))
+    report = format_grouping_report(plan, _WRITTEN, _COVERAGE, _layout(plan))
     assert "pitch-zone grouping" in report
     assert "Budget:" in report and "Zones" in report
     assert "60-62" in report and " 67 " in report  # multi-key span and single-key span
@@ -204,7 +208,7 @@ def _layered_plan(storage: Storage, reduction: ReductionSummary) -> GroupedInstr
 
 def test_a_layered_report_prices_the_split_band_by_band(storage: Storage, reduction: ReductionSummary) -> None:
     plan = _layered_plan(storage, reduction)
-    report = format_grouping_report(plan, _SIZE, _COVERAGE, _layout(plan))
+    report = format_grouping_report(plan, _WRITTEN, _COVERAGE, _layout(plan))
     assert "Instruments (" in report
     assert "v000-v050" in report and "v051-v127" in report
     assert f"{bytes_to_kib(3000):9.1f}" in report and f"{bytes_to_kib(6000):9.1f}" in report
@@ -223,7 +227,7 @@ def test_a_band_written_as_several_instruments_prices_each_one(storage: Storage,
         storage=storage,
         reduction=reduction,
     )
-    report = format_grouping_report(plan, _SIZE, _COVERAGE, _layout(plan, _ONE_SAMPLE_EACH))
+    report = format_grouping_report(plan, _WRITTEN, _COVERAGE, _layout(plan, _ONE_SAMPLE_EACH))
     assert "C4-D4" in report and "G4-G4" in report
     assert f"{bytes_to_kib(6000):9.1f}" in report and f"{bytes_to_kib(3000):9.1f}" in report
 
@@ -236,7 +240,7 @@ def test_the_header_states_the_instruments_reserved_against_those_written(
         _layered_plan(storage, reduction),
         budget=split_budget(_MODULE_BYTES / 1024.0, storage, _RESERVED),
     )
-    report = format_grouping_report(plan, _SIZE, _COVERAGE, _layout(plan))
+    report = format_grouping_report(plan, _WRITTEN, _COVERAGE, _layout(plan))
     assert f"Instruments: {_RESERVED:>5} reserved  ->  2 written" in report
     assert f"{bytes_to_kib(2 * populated_instrument_bytes(storage)):.1f} KiB of the reserve left free" in report
 
@@ -246,14 +250,14 @@ def test_a_layered_report_counts_each_key_once_however_many_bands_store_it(
 ) -> None:
     """Two layers over the same two keys is a two-key instrument, so the summary line says two."""
     plan = _layered_plan(storage, reduction)
-    report = format_grouping_report(plan, _SIZE, _COVERAGE, _layout(plan))
+    report = format_grouping_report(plan, _WRITTEN, _COVERAGE, _layout(plan))
     assert "2 zones over 2 keys and 2 velocity layers" in report
 
 
 def test_every_zone_states_the_layer_it_answers_for(storage: Storage, reduction: ReductionSummary) -> None:
     """A key served twice appears once per band, so the zone table names which one each row belongs to."""
     plan = _layered_plan(storage, reduction)
-    rows = format_grouping_report(plan, _SIZE, _COVERAGE, _layout(plan)).splitlines()
+    rows = format_grouping_report(plan, _WRITTEN, _COVERAGE, _layout(plan)).splitlines()
     zone_rows = [line for line in rows if "60-61 (2)" in line]
     assert [line.split()[0] for line in zone_rows] == ["0", "1"]
 
@@ -331,7 +335,7 @@ def test_both_strategies_report_the_reduction(storage: Storage, reduction: Reduc
         storage=storage,
         reduction=reduction,
     )
-    ungrouped = format_report(plan, _SIZE, _COVERAGE, _layout(plan))
+    ungrouped = format_report(plan, _WRITTEN, _COVERAGE, _layout(plan))
     option = ZoneOption(60, EncodingParams(target_rate=22_050, depth_bits=16), 6000, 0.2, 2400)
     zoned = _grouped_plan(
         zones=(Zone((60,), FIRST_LAYER, SampleKey(60, 100), 1.0, option, (option,)),),
@@ -339,7 +343,7 @@ def test_both_strategies_report_the_reduction(storage: Storage, reduction: Reduc
         storage=storage,
         reduction=reduction,
     )
-    grouped = format_grouping_report(zoned, _SIZE, _COVERAGE, _layout(zoned))
+    grouped = format_grouping_report(zoned, _WRITTEN, _COVERAGE, _layout(zoned))
     block = format_reduction_block(reduction)
     assert block in ungrouped and block in grouped
 
@@ -349,7 +353,7 @@ def test_a_grouped_report_states_the_sample_cap_it_was_held_to(storage: Storage,
     option = ZoneOption(60, EncodingParams(target_rate=22_050, depth_bits=16), 6000, 0.2, 2400)
     zones = (Zone((60,), FIRST_LAYER, SampleKey(60, 100), 1.0, option, (option,)),)
     free = _grouped_plan(zones=zones, layers=_WHOLE_AXIS, storage=storage, reduction=reduction)
-    report = format_grouping_report(free, _SIZE, _COVERAGE, _layout(free))
+    report = format_grouping_report(free, _WRITTEN, _COVERAGE, _layout(free))
     assert f"1 stored of {_WHOLE_TABLE} allowed" in report
     assert "priced at the bytes it stores" in report
 
@@ -359,7 +363,7 @@ def test_a_grouped_report_prices_the_cap_that_decided_the_plan(storage: Storage,
     option = ZoneOption(60, EncodingParams(target_rate=22_050, depth_bits=16), 6000, 0.2, 2400)
     zones = (Zone((60, 61), FIRST_LAYER, SampleKey(60, 100), 1.0, option, (option,)),)
     capped = _grouped_plan(zones=zones, layers=_WHOLE_AXIS, storage=storage, reduction=reduction, reserve=_CHARGED)
-    report = format_grouping_report(capped, _SIZE, _COVERAGE, _layout(capped))
+    report = format_grouping_report(capped, _WRITTEN, _COVERAGE, _layout(capped))
     assert f"1 stored of {_CHARGED.cap} allowed" in report
     assert f"{_CHARGED.bytes_per_sample} B charged per sample" in report
     assert f"{_CHARGED.objective_uncapped:.4f} uncapped" in report

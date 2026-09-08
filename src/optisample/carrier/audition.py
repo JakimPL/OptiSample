@@ -3,11 +3,11 @@ from __future__ import annotations
 from typing import Final
 
 import numpy as np
+from trackmod.core.envelopes.envelope import Envelope
 
 from optisample.carrier.store import StoredCarrier
 from optisample.dsp.envelope import Signal
 from optisample.io.tracker.envelope import sounded_signal
-from trackmod.core.envelopes.envelope import Envelope
 
 HELD_ROUNDS: Final = 4  # rounds a loop is wrapped for, enough for a seam step to become a rhythm rather than a click
 

@@ -4,6 +4,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from trackmod import Compliance, InstrumentUnit, ITInstrumentFile, XMInstrumentFile
+from trackmod.spec.levels import MAX_VOLUME
 
 from optisample.artifacts.documents.sample import ProvenanceRecord, sample_document
 from optisample.artifacts.instruments.dump import InstrumentSettings, write_dataset_instruments, write_instruments
@@ -27,11 +29,6 @@ from optisample.metrics.base import Signal
 from optisample.music import midi_to_freq
 from optisample.progress import NO_PROGRESS
 from tests.artifacts.instruments.conftest import ROOT_PITCH, SR, TEMPO_BPM, Recorder
-from trackmod.core.instruments.unit import InstrumentUnit
-from trackmod.limits.compliance import Compliance
-from trackmod.spec.levels import MAX_VOLUME
-from trackmod.trackers.it.instrument_file import ITInstrumentFile
-from trackmod.trackers.xm.instrument_file import XMInstrumentFile
 
 NAME = "0000_p060_C4_v100"
 CONFIGURED_TEMPO_BPM = 125.0

@@ -4,6 +4,8 @@ from collections.abc import Sequence
 from math import inf
 from typing import Final
 
+from trackmod.spec.levels import MAX_VOLUME
+
 from optisample.dsp.level import gain_to_db, level_readings
 from optisample.dsp.series import Readings
 from optisample.dsp.timebase import seconds_to_frames
@@ -13,7 +15,6 @@ from optisample.optimize.export.voices import NO_SHAPE, PlannedVoices, Voice, sl
 from optisample.optimize.layers.slots import InstrumentSlot, SlotLayout
 from optisample.optimize.plans import SampleUnit
 from optisample.optimize.tasks import StoredRecordings
-from trackmod.spec.levels import MAX_VOLUME
 
 _UNBOUNDED: Final = inf  # how long a looped waveform keeps sounding, which is every moment asked of it
 

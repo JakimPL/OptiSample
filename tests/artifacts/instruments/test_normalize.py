@@ -4,6 +4,9 @@ from collections.abc import Callable
 
 import numpy as np
 import pytest
+from trackmod import InstrumentUnit
+from trackmod.core.notes.pitch import Note
+from trackmod.spec.levels import MAX_VOLUME
 
 from optisample.artifacts.instruments.normalize import (
     STORED_DEPTH,
@@ -23,9 +26,6 @@ from optisample.io.tracker.envelope import EnvelopeGrid, envelope_grid, played_g
 from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.base import Signal
 from tests.artifacts.instruments.conftest import ROOT_PITCH, Recorder
-from trackmod.core.instruments.unit import InstrumentUnit
-from trackmod.core.notes.pitch import Note
-from trackmod.spec.levels import MAX_VOLUME
 
 NAME = "0000_p060_C4_v100"
 _READING_WINDOW_S = 0.05

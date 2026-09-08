@@ -5,6 +5,10 @@ from dataclasses import dataclass
 from typing import Final
 
 import numpy as np
+from trackmod import Instrument, InstrumentUnit, Sample
+from trackmod.core.envelopes.envelope import Envelope
+from trackmod.core.instruments.keymap import KeyAssignment, Keymap, routed_keymap
+from trackmod.core.notes.pitch import Note
 
 from optisample.carrier.compress import held_sources
 from optisample.carrier.shape import NO_SHAPE, carrier_shape
@@ -16,12 +20,6 @@ from optisample.io.tracker.loop import stored_loop
 from optisample.io.tracker.target import ExportTarget, balanced_gains, sample_label
 from optisample.music import sounded_note
 from optisample.optimize.export.coverage import covered_routing
-from trackmod.core.envelopes.envelope import Envelope
-from trackmod.core.instruments.instrument import Instrument
-from trackmod.core.instruments.keymap import KeyAssignment, Keymap, routed_keymap
-from trackmod.core.instruments.unit import InstrumentUnit
-from trackmod.core.notes.pitch import Note
-from trackmod.core.samples.sample import Sample
 
 NO_DISPERSION: Final = 0.0  # what one envelope costs a set carrying none
 

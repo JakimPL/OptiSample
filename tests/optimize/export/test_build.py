@@ -3,6 +3,11 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
+from trackmod import TrackerModule
+from trackmod.core.envelopes.envelope import Envelope
+from trackmod.core.timing.clock import tick_seconds
+from trackmod.limits.bound import Bound
+from trackmod.spec.levels import MAX_VOLUME, MIN_VOLUME
 
 from optisample.dsp.level import Clock, curve_level, gain_to_db, loudest_db, written_level
 from optisample.dsp.piecewise import CurveNode, PiecewiseCurve
@@ -13,11 +18,6 @@ from optisample.optimize.export.build import slot_envelope, slot_level
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.voices import NO_SHAPE
 from optisample.optimize.plans import InstrumentPlan
-from trackmod.core.envelopes.envelope import Envelope
-from trackmod.core.timing.clock import tick_seconds
-from trackmod.limits.bound import Bound
-from trackmod.module.protocol import TrackerModule
-from trackmod.spec.levels import MAX_VOLUME, MIN_VOLUME
 
 _TEMPO = 125
 _TICK_S = tick_seconds(_TEMPO)

@@ -2,6 +2,12 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from trackmod.core.envelopes.curve import Breakpoint, timed_envelope
+from trackmod.core.envelopes.envelope import Envelope
+from trackmod.core.envelopes.span import EnvelopeSpan
+from trackmod.core.timing.clock import tick_seconds
+from trackmod.limits.bound import Bound
+from trackmod.spec.levels import MAX_VOLUME, MIN_VOLUME
 
 from optisample.dsp.level import Clock, curve_level, gain_to_db, written_level
 from optisample.dsp.piecewise import CurveNode, PiecewiseCurve
@@ -17,12 +23,6 @@ from optisample.io.tracker.envelope import (
     sounding_level,
     volume_envelope,
 )
-from trackmod.core.envelopes.curve import Breakpoint, timed_envelope
-from trackmod.core.envelopes.envelope import Envelope
-from trackmod.core.envelopes.span import EnvelopeSpan
-from trackmod.core.timing.clock import tick_seconds
-from trackmod.limits.bound import Bound
-from trackmod.spec.levels import MAX_VOLUME, MIN_VOLUME
 
 _TEMPO = 125
 _TICK_S = tick_seconds(_TEMPO)

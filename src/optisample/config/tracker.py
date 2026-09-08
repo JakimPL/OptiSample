@@ -1,7 +1,8 @@
 from enum import StrEnum, unique
 
+from trackmod import Compliance
+
 from optisample.config.base import ConfigModel
-from trackmod.limits.compliance import Compliance
 
 
 @unique

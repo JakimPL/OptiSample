@@ -6,6 +6,7 @@ from typing import Final
 
 import numpy as np
 from numpy.random import Generator
+from trackmod.module.storage import Storage
 
 from optisample.config.codec import EncodeConfig
 from optisample.config.optimize import SweepConfig
@@ -28,7 +29,6 @@ from optisample.model import InstrumentSpec, NoteEvent
 from optisample.optimize.reduce.events import MergedEvent, merge_events
 from optisample.optimize.velocity_map import VelocityVolumeMap
 from optisample.optimize.weighting import energy_weight
-from trackmod.module.storage import Storage
 
 AudioMap = Mapping[SampleKey, Signal]
 LoopMap = Mapping[SampleKey, SettledLoops]

@@ -3,17 +3,18 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
 
-from optisample.config.render import PlaybackConfig
-from optisample.io.tracker.target import ExportTarget
-from optisample.model import NoteEvent
-from optisample.optimize.layers.slots import SlotLayout
-from optisample.optimize.velocity_map import VelocityVolumeMap
 from trackmod.core.notes.pitch import Note
 from trackmod.core.patterns.builder import PatternBuilder
 from trackmod.core.patterns.cell import Cell
 from trackmod.core.patterns.grid import Pattern
 from trackmod.core.songs.order import OrderList
 from trackmod.core.timing.clock import row_seconds
+
+from optisample.config.render import PlaybackConfig
+from optisample.io.tracker.target import ExportTarget
+from optisample.model import NoteEvent
+from optisample.optimize.layers.slots import SlotLayout
+from optisample.optimize.velocity_map import VelocityVolumeMap
 
 CHANNELS: Final = 1  # the material plays one voice at a time, so one channel carries the whole song.
 

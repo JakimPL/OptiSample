@@ -3,10 +3,10 @@ from typing import Final
 
 import numpy as np
 from numpy.typing import NDArray
+from trackmod import BitDepth
 
 from optisample.dsp.level import Clock, Level, unit_level
 from optisample.dsp.loop import Loop
-from trackmod.core.samples.depth import BitDepth
 
 Signal = NDArray[np.float64]
 

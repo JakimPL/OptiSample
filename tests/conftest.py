@@ -6,6 +6,8 @@ from typing import Final
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+from trackmod.module.storage import Storage
+from trackmod.spec.levels import MAX_VOLUME
 
 from optisample.config import OptiConfig, load_config
 from optisample.config.codec import EncodeConfig, QuantizeConfig
@@ -56,8 +58,6 @@ from optisample.optimize.tasks import (
 )
 from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
 from optisample.synth import NoteSpec, synthesize
-from trackmod.module.storage import Storage
-from trackmod.spec.levels import MAX_VOLUME
 
 TEST_CONFIG_DIR: Final = Path(__file__).parent / "opticonfig"
 """The settings the suite runs under, held in the repository beside the tests that read them.

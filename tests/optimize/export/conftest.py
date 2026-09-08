@@ -4,6 +4,7 @@ from collections.abc import Callable
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+from trackmod import TrackerModule
 
 from optisample.config.optimize import SweepConfig
 from optisample.config.tracker import TrackerFormat
@@ -29,7 +30,6 @@ from tests.optimize.export.demo import (
     demo_instrument,
     demo_material,
 )
-from trackmod.module.protocol import TrackerModule
 
 Recordings = Callable[..., StoredRecordings]
 

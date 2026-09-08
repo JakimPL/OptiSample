@@ -2,6 +2,8 @@ from collections.abc import Callable
 
 import numpy as np
 import pytest
+from trackmod import TrackerModule
+from trackmod.core.notes.command import NoteCommand
 
 from optisample.config.render import RenderConfig
 from optisample.dsp.surrogate.params import EncodingParams
@@ -14,8 +16,6 @@ from optisample.optimize.layers.slots import SlotLayout, pack_slots
 from optisample.optimize.plans import GroupedInstrumentPlan, SampleUnit
 from tests.optimize.export.demo import demo_material
 from tests.optimize.export.test_material import song_cells
-from trackmod.core.notes.command import NoteCommand
-from trackmod.module.protocol import TrackerModule
 
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
 

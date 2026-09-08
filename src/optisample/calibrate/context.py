@@ -1,10 +1,11 @@
 from dataclasses import dataclass
 from typing import Final
 
+from trackmod.spec.levels import MAX_VOLUME
+
 from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.composite import CompositeFidelity
-from trackmod.spec.levels import MAX_VOLUME
 
 _DEFAULT_PROBE_DURATION_S: Final = 0.5
 

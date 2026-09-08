@@ -4,16 +4,16 @@ from dataclasses import dataclass
 from typing import Final
 
 import numpy as np
-
-from optisample.dsp.level import Clock, Level, Signal, WrittenLevel, constant_level, db_to_gain, gain_to_db, read_level
-from optisample.dsp.series import Readings, Series
-from optisample.io.tracker.target import ExportTarget
 from trackmod.core.envelopes.curve import Breakpoint, placed_ticks, timed_envelope
 from trackmod.core.envelopes.envelope import Envelope
 from trackmod.core.envelopes.span import EnvelopeSpan
 from trackmod.core.timing.clock import tick_seconds
 from trackmod.limits.bound import Bound
 from trackmod.spec.levels import MAX_VOLUME, MIN_VOLUME
+
+from optisample.dsp.level import Clock, Level, Signal, WrittenLevel, constant_level, db_to_gain, gain_to_db, read_level
+from optisample.dsp.series import Readings, Series
+from optisample.io.tracker.target import ExportTarget
 
 NO_ENVELOPE: Final = None  # what an instrument whose samples carry every level they play at leaves behind
 

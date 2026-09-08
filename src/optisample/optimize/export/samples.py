@@ -2,6 +2,11 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, replace
 
 import numpy as np
+from trackmod import Sample
+from trackmod.core.envelopes.envelope import Envelope
+from trackmod.core.instruments.keymap import KeyAssignment, Keymap, routed_keymap
+from trackmod.core.notes.pitch import Note
+from trackmod.spec.levels import MAX_VOLUME
 
 from optisample.config.codec import EncodeConfig
 from optisample.dsp.surrogate import NO_LOOPS, POST_LOOP_DROPPED, EncodeContext, StoredSample, encode
@@ -16,11 +21,6 @@ from optisample.optimize.layers.slots import InstrumentSlot, SlotLayout
 from optisample.optimize.plans import SampleUnit, StrategyPlan
 from optisample.optimize.tasks import StoredRecordings
 from optisample.optimize.velocity_map import VelocityVolumeMap
-from trackmod.core.envelopes.envelope import Envelope
-from trackmod.core.instruments.keymap import KeyAssignment, Keymap, routed_keymap
-from trackmod.core.notes.pitch import Note
-from trackmod.core.samples.sample import Sample
-from trackmod.spec.levels import MAX_VOLUME
 
 
 @dataclass(frozen=True)

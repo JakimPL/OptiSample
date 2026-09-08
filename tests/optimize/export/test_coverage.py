@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
+from trackmod.core.instruments.keymap import KeyAssignment, Keymap, routed_keymap
+from trackmod.core.notes.pitch import Note
 
 from optisample.config.tracker import TrackerFormat
 from optisample.dsp.surrogate import EncodingParams
@@ -11,8 +13,6 @@ from optisample.keys import SampleKey
 from optisample.music import sounded_note
 from optisample.optimize.export.coverage import covered_routing, key_coverage, played_keys
 from optisample.optimize.plans import FIRST_LAYER, SampleUnit
-from trackmod.core.instruments.keymap import KeyAssignment, Keymap, routed_keymap
-from trackmod.core.notes.pitch import Note
 
 _LOWEST_PLAYED = 60
 _HIGHEST_PLAYED = 72

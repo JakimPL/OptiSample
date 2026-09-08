@@ -7,13 +7,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 from pydantic import ValidationError
+from trackmod import BitDepth, Sample, TrackerModule
 
 from optisample.config.render import RenderConfig
 from optisample.io import render as render_mod
 from optisample.io.render import filter_taps, openmpt123_available, render_file, render_module
-from trackmod.core.samples.depth import BitDepth
-from trackmod.core.samples.sample import Sample
-from trackmod.module.protocol import TrackerModule
 
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
 

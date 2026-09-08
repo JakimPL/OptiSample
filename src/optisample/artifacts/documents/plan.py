@@ -10,6 +10,7 @@ from optisample.artifacts.documents.reduction import ReductionDocument, reductio
 from optisample.artifacts.documents.velocity import VelocityMapDocument, velocity_map_document
 from optisample.artifacts.serialize import Frozen
 from optisample.dsp.surrogate import StoredSample
+from optisample.io.tracker.written import WrittenModule
 from optisample.music import note_name
 from optisample.optimize.export.build import instrument_name
 from optisample.optimize.export.coverage import KeyCoverage
@@ -22,7 +23,6 @@ from optisample.optimize.plans import (
     SampleUnit,
     StrategyPlan,
 )
-from trackmod.module.size import SizeReport
 
 _OPTIONAL_HEAD: Final = ("method", "pitches", "reserve", "zones")
 
@@ -36,17 +36,25 @@ class BudgetRecord(Frozen):
     module_bytes: int
 
 
-class ModuleSizeRecord(Frozen):
-    """What the written module occupies, split by what spends the bytes.
+class ModuleRecord(Frozen):
+    """What the written module occupies, how far it reaches, and what its header names as its writer.
 
     The budget accounts for the instrument's footprint alone, so these totals also carry the audition
     material the module plays -- which is why they exceed :attr:`BudgetRecord.module_bytes`.
+
+    ``reach`` is the strictest compliance level the module fits inside, which says which players open
+    the file: a plan graded at one level may hold only values a wider one allows, and ``exceeded``
+    counts the ceilings it passed to get there. A module carrying a value no record layout holds
+    reaches none of the levels and states that outright.
     """
 
     total_bytes: int
     header_bytes: int
     pcm_bytes: int
     pattern_bytes: int
+    reach: str
+    exceeded: int
+    provenance: str | None
 
 
 class EncodingRecord(Frozen):
@@ -180,7 +188,7 @@ class PlanDocument(Frozen):
     objective: float
     energy_exponent: float
     budget: BudgetRecord
-    module: ModuleSizeRecord
+    module: ModuleRecord
     keyboard: KeyboardRecord
     reduction: ReductionDocument
     velocity_map: VelocityMapDocument
@@ -204,12 +212,15 @@ def _budget_record(plan: StrategyPlan) -> BudgetRecord:
     )
 
 
-def _module_size_record(size: SizeReport) -> ModuleSizeRecord:
-    return ModuleSizeRecord(
-        total_bytes=size.total,
-        header_bytes=size.headers,
-        pcm_bytes=size.pcm,
-        pattern_bytes=size.patterns,
+def _module_record(module: WrittenModule) -> ModuleRecord:
+    return ModuleRecord(
+        total_bytes=module.size.total,
+        header_bytes=module.size.headers,
+        pcm_bytes=module.size.pcm,
+        pattern_bytes=module.size.patterns,
+        reach=module.reach_label,
+        exceeded=len(module.exceeded),
+        provenance=module.provenance,
     )
 
 
@@ -304,7 +315,7 @@ def _zone_item(unit: SampleUnit, stored: StoredSample) -> ZoneItemRecord:
 def plan_document(
     plan: InstrumentPlan | GroupedInstrumentPlan,
     encoded: Sequence[StoredSample],
-    size: SizeReport,
+    module: WrittenModule,
     coverage: KeyCoverage,
     written: WrittenInstruments,
 ) -> PlanDocument:
@@ -312,14 +323,14 @@ def plan_document(
 
     The plan's :meth:`~optisample.optimize.plans.StrategyPlan.sample_units` supplies the shared encoding
     block for every item; only the leading fields (a pitch vs. a zone, and whether a ``method`` is
-    recorded) differ, selected by narrowing on the plan's strategy. ``size`` is what the module the plan
-    exports to actually occupies, ``coverage`` what its keymaps answer of the format's keyboard, and
-    and ``written`` the instruments it was written as, beside what each of their volume envelopes leaves
+    recorded) differ, selected by narrowing on the plan's strategy. ``module`` is what the module the plan
+    exports to states about itself, ``coverage`` what its keymaps answer of the format's keyboard, and
+    ``written`` the instruments it was written as, beside what each of their volume envelopes leaves
     the key of its own it suits worst.
     """
     units = plan.sample_units()
     budget = _budget_record(plan)
-    module = _module_size_record(size)
+    module_record = _module_record(module)
     keyboard = _keyboard_record(coverage)
     reduction = reduction_document(plan.reduction)
     velocity_map = velocity_map_document(plan.velocity_map)
@@ -331,7 +342,7 @@ def plan_document(
             objective=plan.objective,
             energy_exponent=plan.energy_exponent,
             budget=budget,
-            module=module,
+            module=module_record,
             keyboard=keyboard,
             reduction=reduction,
             velocity_map=velocity_map,
@@ -346,7 +357,7 @@ def plan_document(
         objective=plan.objective,
         energy_exponent=plan.energy_exponent,
         budget=budget,
-        module=module,
+        module=module_record,
         keyboard=keyboard,
         reduction=reduction,
         velocity_map=velocity_map,

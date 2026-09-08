@@ -1,5 +1,6 @@
+from trackmod import Loop as TrackerLoop
+
 from optisample.dsp.loop import Loop
-from trackmod.core.samples.loop import Loop as TrackerLoop
 
 
 def stored_loop(loop: Loop | None) -> TrackerLoop | None:

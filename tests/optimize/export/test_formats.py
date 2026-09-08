@@ -4,6 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+from trackmod import TrackerModule
 
 from optisample.config.optimize import SweepConfig
 from optisample.config.render import RenderConfig
@@ -21,7 +22,6 @@ from optisample.optimize.plans import InstrumentPlan
 from optisample.optimize.tasks import StoredRecordings
 from tests.optimize.export.demo import SR
 from tests.optimize.export.test_material import song_cells
-from trackmod.module.protocol import TrackerModule
 
 Recordings = Callable[..., StoredRecordings]
 

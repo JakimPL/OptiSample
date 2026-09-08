@@ -6,6 +6,9 @@ from math import ceil, prod
 from typing import Final
 
 import numpy as np
+from trackmod import BitDepth, Instrument, InstrumentUnit, Sample
+from trackmod.core.instruments.keymap import KeyAssignment, Keymap, routed_keymap
+from trackmod.limits.bound import Bound
 
 from optisample.config.codec import EncodeConfig
 from optisample.dsp.envelope import decompose, level_reading
@@ -26,12 +29,6 @@ from optisample.io.tracker.target import ExportTarget
 from optisample.metrics.base import Signal
 from optisample.music import midi_to_freq, sounded_note
 from optisample.optimize.export.coverage import covered_routing
-from trackmod.core.instruments.instrument import Instrument
-from trackmod.core.instruments.keymap import KeyAssignment, Keymap, routed_keymap
-from trackmod.core.instruments.unit import InstrumentUnit
-from trackmod.core.samples.depth import BitDepth
-from trackmod.core.samples.sample import Sample
-from trackmod.limits.bound import Bound
 
 STORED_DEPTH: Final = BitDepth.SIXTEEN  # the depth a reference rendering of a recording keeps its timbre at
 

@@ -2,6 +2,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
 
+from trackmod import Instrument, Song, TrackerModule
+from trackmod.core.envelopes.envelope import Envelope
+from trackmod.core.instruments.keymap import Keymap
+from trackmod.core.songs.playback import Playback
+
 from optisample.dsp.level import Clock, Level, curve_level, loudest_db, written_level
 from optisample.dsp.trajectory import SharedTrajectory
 from optisample.io.tracker.envelope import NO_ENVELOPE, shape_nodes, volume_envelope
@@ -15,12 +20,6 @@ from optisample.optimize.export.voices import NO_SHAPE, PlannedVoices, PlayedVoi
 from optisample.optimize.layers.slots import ONE_SLOT, SlotLayout, plan_slots
 from optisample.optimize.plans import SINGLE_LAYER, StrategyPlan
 from optisample.optimize.tasks import StoredRecordings
-from trackmod.core.envelopes.envelope import Envelope
-from trackmod.core.instruments.instrument import Instrument
-from trackmod.core.instruments.keymap import Keymap
-from trackmod.core.songs.playback import Playback
-from trackmod.core.songs.song import Song
-from trackmod.module.protocol import TrackerModule
 
 _NAME_CHARS: Final = 22  # the narrowest instrument-name field a target format keeps, FastTracker 2's
 _SHORTEST_ID: Final = 1  # instrument-id characters a name keeps however long the axes it states are

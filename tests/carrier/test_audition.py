@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 import numpy as np
 import pytest
+from trackmod.core.envelopes.envelope import Envelope
 
 from optisample.carrier.audition import HELD_ROUNDS, carrier_audition
 from optisample.carrier.instrument import written_shape
@@ -12,7 +13,6 @@ from optisample.carrier.store import CarrierSettings, StoredCarrier, store_carri
 from optisample.dsp.loop import Loop
 from optisample.io.tracker.envelope import NO_ENVELOPE
 from tests.carrier.conftest import ROOT_PITCH, SR, TEMPO, Sourcer
-from trackmod.core.envelopes.envelope import Envelope
 
 Settings = Callable[..., CarrierSettings]
 

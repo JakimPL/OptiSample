@@ -1,17 +1,13 @@
 import numpy as np
 import pytest
-
-from optisample.io.tracker.voices import instrument_voices, routed_voices
-from trackmod.core.instruments.instrument import Instrument
+from trackmod import Instrument, InstrumentVoices, Sample, Song, flattened
 from trackmod.core.instruments.keymap import KeyAssignment, routed_keymap
 from trackmod.core.notes.pitch import Note
 from trackmod.core.patterns.builder import PatternBuilder
-from trackmod.core.samples.sample import Sample
 from trackmod.core.songs.order import OrderList
 from trackmod.core.songs.playback import Playback
-from trackmod.core.songs.song import Song
-from trackmod.core.voices.convert import flattened
-from trackmod.core.voices.voices import InstrumentVoices
+
+from optisample.io.tracker.voices import instrument_voices, routed_voices
 
 _KEY = Note(60)
 _ROWS = 32

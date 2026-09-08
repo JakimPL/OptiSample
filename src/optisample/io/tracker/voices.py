@@ -1,9 +1,6 @@
 from collections.abc import Sequence
 
-from trackmod.core.instruments.instrument import Instrument
-from trackmod.core.samples.sample import Sample
-from trackmod.core.songs.song import Song
-from trackmod.core.voices.voices import InstrumentVoices, SampleVoices
+from trackmod import Instrument, InstrumentVoices, Sample, SampleVoices, Song
 
 
 def instrument_voices(instruments: Sequence[Instrument], samples: Sequence[Sample]) -> InstrumentVoices:

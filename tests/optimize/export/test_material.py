@@ -4,6 +4,11 @@ from collections.abc import Callable
 
 import numpy as np
 import pytest
+from trackmod import TrackerModule
+from trackmod.core.notes.command import NoteCommand
+from trackmod.core.notes.pitch import Note
+from trackmod.core.patterns.cell import Cell
+from trackmod.core.timing.clock import row_seconds
 
 from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.io.render import openmpt123_available, render_module
@@ -12,11 +17,6 @@ from optisample.io.tracker.voices import routed_voices
 from optisample.model import NoteEvent
 from optisample.optimize.export.material import Voicing, event_rows, material_patterns
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
-from trackmod.core.notes.command import NoteCommand
-from trackmod.core.notes.pitch import Note
-from trackmod.core.patterns.cell import Cell
-from trackmod.core.timing.clock import row_seconds
-from trackmod.module.protocol import TrackerModule
 
 requires_openmpt = pytest.mark.skipif(not openmpt123_available(), reason="openmpt123 not installed")
 

@@ -5,6 +5,13 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from trackmod import BitDepth, Instrument, ITInstrumentFile, Sample, Song, extract
+from trackmod.core.instruments.keymap import KeyAssignment, routed_keymap
+from trackmod.core.notes.pitch import Note
+from trackmod.core.patterns.builder import PatternBuilder
+from trackmod.core.patterns.cell import Cell
+from trackmod.core.songs.order import OrderList
+from trackmod.core.songs.playback import Playback
 
 from optisample.artifacts.container import (
     MANIFEST_NAME,
@@ -21,18 +28,6 @@ from optisample.io.tracker.voices import instrument_voices, routed_voices
 from optisample.music import MIDI_MAX_VELOCITY
 from optisample.optimize.layers.bands import VelocityBand, VelocityLayers
 from optisample.optimize.layers.slots import InstrumentSlot, SlotLayout
-from trackmod.core.instruments.instrument import Instrument
-from trackmod.core.instruments.keymap import KeyAssignment, routed_keymap
-from trackmod.core.instruments.transfer import extract
-from trackmod.core.notes.pitch import Note
-from trackmod.core.patterns.builder import PatternBuilder
-from trackmod.core.patterns.cell import Cell
-from trackmod.core.samples.depth import BitDepth
-from trackmod.core.samples.sample import Sample
-from trackmod.core.songs.order import OrderList
-from trackmod.core.songs.playback import Playback
-from trackmod.core.songs.song import Song
-from trackmod.trackers.it.instrument_file import ITInstrumentFile
 
 _NAME = "piano"
 _KEYS = (Note(60), Note(72))

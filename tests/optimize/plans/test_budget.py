@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
+from trackmod.module.storage import Storage
 
 from optisample.metrics.size import kib_to_bytes
 from optisample.optimize.plans import (
@@ -13,7 +14,6 @@ from optisample.optimize.plans import (
     populated_instrument_bytes,
     split_budget,
 )
-from trackmod.module.storage import Storage
 
 _LAYERS = 3  # a piano-like split into soft, medium and loud, which writes three instruments
 

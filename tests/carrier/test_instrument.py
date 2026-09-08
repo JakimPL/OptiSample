@@ -4,6 +4,7 @@ from collections.abc import Callable, Sequence
 
 import numpy as np
 import pytest
+from trackmod.spec.levels import MAX_VOLUME
 
 from optisample.carrier.instrument import CarrierInstrument, carrier_instrument
 from optisample.carrier.source import CarrierSource
@@ -17,7 +18,6 @@ from optisample.io.tracker.envelope import sounding_gain
 from optisample.io.tracker.target import ExportTarget, export_target
 from optisample.metrics.base import Signal
 from tests.carrier.conftest import ROOT_PITCH, SR, TEMPO, Sourcer
-from trackmod.spec.levels import MAX_VOLUME
 
 Settings = Callable[..., CarrierSettings]
 

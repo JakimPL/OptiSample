@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 import numpy as np
+from trackmod.core.envelopes.envelope import Envelope
 
 from optisample.carrier.source import CarrierSource
 from optisample.config.codec import EncodeConfig
@@ -10,7 +11,6 @@ from optisample.config.dynamics import LimitConfig
 from optisample.dsp.surrogate import EncodeContext, EncodingParams, StoredSample, encode
 from optisample.io.tracker.envelope import EnvelopeGrid, carried_signal
 from optisample.io.tracker.target import ExportTarget
-from trackmod.core.envelopes.envelope import Envelope
 
 
 @dataclass(frozen=True)

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Final
 
 import numpy as np
+from trackmod.module.storage import Storage
 
 from optisample.config.codec import EncodeConfig
 from optisample.config.optimize import SweepConfig
@@ -19,7 +20,6 @@ from optisample.dsp.surrogate import (
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.metrics.composite import CompositeFidelity, evaluate
 from optisample.metrics.size import bytes_to_kib
-from trackmod.module.storage import Storage
 
 _COMPRESSIBLE_DEPTH: Final = 8  # bits; a deeper grid's noise floor sits below what compression protects
 

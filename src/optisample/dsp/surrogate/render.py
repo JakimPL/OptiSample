@@ -1,4 +1,5 @@
 import numpy as np
+from trackmod.spec.levels import MAX_VOLUME
 
 from optisample.dsp.level import Level
 from optisample.dsp.loop import Loop
@@ -6,7 +7,6 @@ from optisample.dsp.quantize import apply_gain
 from optisample.dsp.resample import resample_num
 from optisample.dsp.surrogate.sample import Signal, StoredSample
 from optisample.music import semitone_ratio
-from trackmod.spec.levels import MAX_VOLUME
 
 
 def _fit_length(signal: Signal, length: int) -> Signal:

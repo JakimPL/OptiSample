@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pytest
+from trackmod import BitDepth
 
 from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
@@ -20,7 +21,6 @@ from optisample.optimize.operating_points import (
 )
 from optisample.synth import NoteSpec, synthesize
 from tests.conftest import TEST_CONFIG_DIR
-from trackmod.core.samples.depth import BitDepth
 
 SR = 44_100
 _HELD_S = 3.0  # a pad long enough for the stage to place a loop inside and still leave a sustain tail

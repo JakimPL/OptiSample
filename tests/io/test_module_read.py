@@ -3,13 +3,12 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from trackmod import BitDepth, Sample
 
 from optisample.config.tracker import TrackerFormat
 from optisample.io.module_read import RippedSample, _parse_name, read_module_samples
 from optisample.io.tracker.target import ExportTarget
 from tests.io.conftest import ProbeModule
-from trackmod.core.samples.depth import BitDepth
-from trackmod.core.samples.sample import Sample
 
 _SINE_FRAMES = 400
 _RAMP_FRAMES = 240

@@ -3,14 +3,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
+from trackmod import Song, extract
+
 from optisample.artifacts.documents.bank import BankDocument, bank_document
 from optisample.artifacts.documents.velocity import VelocityMapDocument
 from optisample.artifacts.serialize import json_text
 from optisample.io.tracker.target import ExportTarget
 from optisample.io.tracker.voices import routed_voices
 from optisample.optimize.layers.slots import SlotLayout
-from trackmod.core.instruments.transfer import extract
-from trackmod.core.songs.song import Song
 
 MANIFEST_NAME: Final = "bank.json"
 INSTRUMENTS_ENTRY: Final = "instruments"

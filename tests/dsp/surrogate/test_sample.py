@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from trackmod import BitDepth
 
 from optisample.dsp.surrogate import StoredSample
-from trackmod.core.samples.depth import BitDepth
 
 
 def test_stored_sample_properties() -> None:

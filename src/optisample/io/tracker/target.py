@@ -2,34 +2,37 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
 
-from optisample.config.tracker import TrackerConfig, TrackerFormat
-from optisample.music import note_name
-from trackmod.core.instruments.unit import InstrumentUnit
+from trackmod import (
+    Compliance,
+    InstrumentFile,
+    InstrumentUnit,
+    ITInstrumentFile,
+    ITModule,
+    Song,
+    TrackerModule,
+    XMInstrumentFile,
+    XMModule,
+)
 from trackmod.core.notes.command import NoteCommand
 from trackmod.core.notes.pitch import Note
 from trackmod.core.patterns.cell import Cell
-from trackmod.core.songs.song import Song
 from trackmod.limits.bound import Bound
 from trackmod.limits.capability import Capability
-from trackmod.limits.compliance import Compliance
 from trackmod.limits.table import Limits
-from trackmod.module.instrument import InstrumentFile
-from trackmod.module.protocol import TrackerModule
 from trackmod.module.storage import Storage
 from trackmod.spec.levels import MAX_VOLUME
-from trackmod.trackers.it.instrument_file import ITInstrumentFile
 from trackmod.trackers.it.limits import it_limits
-from trackmod.trackers.it.module import ITModule
 from trackmod.trackers.it.settings import ITSettings
 from trackmod.trackers.it.spec.identity import INSTRUMENT_EXTENSION as IT_INSTRUMENT_EXTENSION
 from trackmod.trackers.it.spec.storage import IT_STORAGE
 from trackmod.trackers.xm.effects.catalog import XM_EFFECTS
-from trackmod.trackers.xm.instrument_file import XMInstrumentFile
 from trackmod.trackers.xm.limits import xm_limits
-from trackmod.trackers.xm.module import XMModule
 from trackmod.trackers.xm.settings import XMSettings
 from trackmod.trackers.xm.spec.identity import INSTRUMENT_EXTENSION as XM_INSTRUMENT_EXTENSION
 from trackmod.trackers.xm.spec.storage import XM_STORAGE
+
+from optisample.config.tracker import TrackerConfig, TrackerFormat
+from optisample.music import note_name
 
 _ON_THE_ROW: Final = 0
 _SAMPLE_LABEL_CHARS: Final = 13  # instrument-id chars kept before the " <note> v<velocity>" suffix, XM's 22

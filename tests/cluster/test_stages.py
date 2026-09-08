@@ -11,7 +11,7 @@ from optisample.artifacts.documents.plan import (
     BudgetRecord,
     InstrumentRecord,
     KeyboardRecord,
-    ModuleSizeRecord,
+    ModuleRecord,
     PitchItemRecord,
     PlanDocument,
     ZoneItemRecord,
@@ -118,7 +118,15 @@ def _plan_document(strategy: str) -> PlanDocument:
         "budget": BudgetRecord(
             module_budget_bytes=8_192, sample_budget_bytes=8_000, used_bytes=1_200, module_bytes=1_400
         ),
-        "module": ModuleSizeRecord(total_bytes=1_400, header_bytes=100, pcm_bytes=1_200, pattern_bytes=100),
+        "module": ModuleRecord(
+            total_bytes=1_400,
+            header_bytes=100,
+            pcm_bytes=1_200,
+            pattern_bytes=100,
+            reach="canonical",
+            exceeded=0,
+            provenance="TrackMod",
+        ),
         "keyboard": KeyboardRecord(numbered=120, played=3, answered=120),
         "reduction": ReductionDocument(
             listed_recordings=3, kept_recordings=3, played_notes=3, scored_classes=3, recordings=[], grids=[]

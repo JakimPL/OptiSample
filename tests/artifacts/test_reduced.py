@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+from trackmod import Compliance, ITInstrumentFile
 
 from optisample.artifacts import DumpSettings, ReducedInstrument, dump_reduced
 from optisample.artifacts.documents.sample import (
@@ -40,8 +41,6 @@ from optisample.optimize.orchestrate.settings import OptimizeSettings
 from optisample.optimize.reduce.summary import KeptRecording
 from optisample.optimize.reduce.trim import NO_SCREEN
 from optisample.optimize.tasks import AudioMap, StoredRecordings
-from trackmod.limits.compliance import Compliance
-from trackmod.trackers.it.instrument_file import ITInstrumentFile
 
 Recordings = Callable[..., StoredRecordings]
 

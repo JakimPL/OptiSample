@@ -7,6 +7,13 @@ import numpy as np
 import pytest
 import soundfile as sf
 from numpy.typing import NDArray
+from trackmod import TrackerModule
+from trackmod.core.instruments.keymap import KeyAssignment
+from trackmod.core.notes.pitch import Note
+from trackmod.module.storage import Storage
+from trackmod.spec.levels import MAX_VOLUME
+from trackmod.spec.pitch import RATE_NOTE
+from trackmod.trackers.xm.spec.sizes import NAME_BYTES as _NARROWEST_NAME_BYTES
 
 from optisample.config.optimize import SweepConfig
 from optisample.config.render import RenderConfig
@@ -40,13 +47,6 @@ from optisample.optimize.reduce.summary import ReductionSummary
 from optisample.optimize.tasks import StoredRecordings
 from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
 from tests.optimize.export.demo import SR
-from trackmod.core.instruments.keymap import KeyAssignment
-from trackmod.core.notes.pitch import Note
-from trackmod.module.protocol import TrackerModule
-from trackmod.module.storage import Storage
-from trackmod.spec.levels import MAX_VOLUME
-from trackmod.spec.pitch import RATE_NOTE
-from trackmod.trackers.xm.spec.sizes import NAME_BYTES as _NARROWEST_NAME_BYTES
 
 Recordings = Callable[..., StoredRecordings]
 

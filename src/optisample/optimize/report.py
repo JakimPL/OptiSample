@@ -2,6 +2,7 @@ from collections.abc import Iterable, Sequence
 from typing import Final
 
 from optisample.dsp.surrogate import EncodingParams
+from optisample.io.tracker.written import WrittenModule
 from optisample.metrics.size import bytes_to_kib
 from optisample.music import note_name
 from optisample.optimize.export.coverage import KeyCoverage
@@ -17,7 +18,6 @@ from optisample.optimize.plans.budget import (
     populated_instrument_bytes,
 )
 from optisample.optimize.reduce.summary import ReductionSummary
-from trackmod.module.size import SizeReport
 
 RULE_WIDTH: Final = 70
 SECTION_RULE: Final = "=" * RULE_WIDTH
@@ -115,7 +115,7 @@ def format_reduction_block(reduction: ReductionSummary) -> str:
     return "\n".join(lines + _format_shortfalls(reduction))
 
 
-def format_budget_block(plan: BudgetedPlanMixin, size: SizeReport) -> list[str]:
+def format_budget_block(plan: BudgetedPlanMixin, written: WrittenModule) -> list[str]:
     """The ``Budget:``/``Used:``/``Written:`` summary shared by the ungrouped and grouped reports.
 
     The first two lines account for the instrument's own footprint, which is what the solver allocated
@@ -132,8 +132,11 @@ def format_budget_block(plan: BudgetedPlanMixin, size: SizeReport) -> list[str]:
         f"{plan.budget.instruments} x instrument {populated_instrument_bytes(storage)})",
         f"Used:      {bytes_to_kib(used):7.1f} KiB samples  ({fraction:6.1%} of budget, "
         f"{bytes_to_kib(headroom):.1f} KiB free)  ->  {bytes_to_kib(plan.module_bytes):.1f} KiB module",
-        f"Written:   {bytes_to_kib(size.total):7.1f} KiB module  "
-        f"(records {size.headers} B + samples {size.pcm} B + patterns {size.patterns} B)",
+        f"Written:   {bytes_to_kib(written.size.total):7.1f} KiB module  "
+        f"(records {written.size.headers} B + samples {written.size.pcm} B "
+        f"+ patterns {written.size.patterns} B)",
+        f"Reaches:   {written.reach_label} ({len(written.exceeded)} bounds passed)"
+        f"{'' if written.provenance is None else f', written by {written.provenance}'}",
     ]
 
 
@@ -188,9 +191,11 @@ def _format_header(title: str, blocks: Sequence[str], summary: str) -> str:
     return "\n".join((title, SECTION_RULE, *blocks, summary))
 
 
-def _shared_blocks(plan: BudgetedPlanMixin, size: SizeReport, coverage: KeyCoverage, layout: SlotLayout) -> list[str]:
+def _shared_blocks(
+    plan: BudgetedPlanMixin, written: WrittenModule, coverage: KeyCoverage, layout: SlotLayout
+) -> list[str]:
     """What every report opens with: the byte budget, the keyboard answered and the instruments written."""
-    return [*format_budget_block(plan, size), format_keyboard_line(coverage), format_instruments_line(plan, layout)]
+    return [*format_budget_block(plan, written), format_keyboard_line(coverage), format_instruments_line(plan, layout)]
 
 
 def _weighting_note(plan: StrategyPlan) -> str:
@@ -198,10 +203,10 @@ def _weighting_note(plan: StrategyPlan) -> str:
     return f"energy^{plan.energy_exponent:g}-weighted"
 
 
-def _ungrouped_header(plan: InstrumentPlan, size: SizeReport, coverage: KeyCoverage, layout: SlotLayout) -> str:
+def _ungrouped_header(plan: InstrumentPlan, written: WrittenModule, coverage: KeyCoverage, layout: SlotLayout) -> str:
     return _format_header(
         f"Instrument {plan.instrument_id!r} - budget solver (method: {plan.method})",
-        _shared_blocks(plan, size, coverage, layout),
+        _shared_blocks(plan, written, coverage, layout),
         f"Objective: {plan.objective:8.4f}  ({_weighting_note(plan)}, over "
         f"{len(plan.pitches)} pitches, {plan.total_weight:.1f} s of material)",
     )
@@ -255,10 +260,10 @@ def _format_curve(plan: InstrumentPlan) -> str:
     return "\n".join(lines)
 
 
-def format_report(plan: InstrumentPlan, size: SizeReport, coverage: KeyCoverage, layout: SlotLayout) -> str:
+def format_report(plan: InstrumentPlan, written: WrittenModule, coverage: KeyCoverage, layout: SlotLayout) -> str:
     """Render a human-readable summary of an instrument optimization."""
     sections = (
-        _ungrouped_header(plan, size, coverage, layout),
+        _ungrouped_header(plan, written, coverage, layout),
         format_reduction_block(plan.reduction),
         _format_pitches(plan),
         _format_velocity_map(plan),
@@ -267,10 +272,12 @@ def format_report(plan: InstrumentPlan, size: SizeReport, coverage: KeyCoverage,
     return "\n\n".join(sections) + "\n"
 
 
-def _grouped_header(plan: GroupedInstrumentPlan, size: SizeReport, coverage: KeyCoverage, layout: SlotLayout) -> str:
+def _grouped_header(
+    plan: GroupedInstrumentPlan, written: WrittenModule, coverage: KeyCoverage, layout: SlotLayout
+) -> str:
     return _format_header(
         f"Instrument {plan.instrument_id!r} - pitch-zone grouping (exact partition + allocation DP)",
-        [*_shared_blocks(plan, size, coverage, layout), format_samples_line(plan)],
+        [*_shared_blocks(plan, written, coverage, layout), format_samples_line(plan)],
         f"Grouping:  {_counted(len(plan.zones), 'zone')} over {_counted(len(plan.pitches), 'key')} and "
         f"{_counted(plan.layers.count, 'velocity layer')}  "
         f"(objective {plan.objective:.4f}, {_weighting_note(plan)}, "
@@ -318,11 +325,11 @@ def _format_zones(plan: GroupedInstrumentPlan) -> str:
 
 
 def format_grouping_report(
-    plan: GroupedInstrumentPlan, size: SizeReport, coverage: KeyCoverage, layout: SlotLayout
+    plan: GroupedInstrumentPlan, written: WrittenModule, coverage: KeyCoverage, layout: SlotLayout
 ) -> str:
     """Render a human-readable summary of a grouped optimization."""
     sections = (
-        _grouped_header(plan, size, coverage, layout),
+        _grouped_header(plan, written, coverage, layout),
         format_reduction_block(plan.reduction),
         _format_instruments(layout),
         _format_zones(plan),

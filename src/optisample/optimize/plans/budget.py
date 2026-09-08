@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from typing import Final
 
-from optisample.metrics.size import kib_to_bytes
 from trackmod.module.storage import Storage
+
+from optisample.metrics.size import kib_to_bytes
 
 _POPULATED_INSTRUMENT: Final = 1  # slot count that puts an instrument in its format's full header form
 

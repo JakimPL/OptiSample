@@ -4,6 +4,7 @@ from collections.abc import Sequence
 
 import numpy as np
 import pytest
+from trackmod.spec.levels import MAX_VOLUME
 
 from optisample.dsp.loop import Loop
 from optisample.dsp.series import Series
@@ -23,7 +24,6 @@ from optisample.optimize.layers.slots import InstrumentSlot, SlotLayout
 from optisample.optimize.plans import SampleUnit
 from optisample.optimize.tasks import StoredRecordings
 from optisample.optimize.velocity_map import VelocityAnchor, VelocityVolumeMap
-from trackmod.spec.levels import MAX_VOLUME
 
 _SR = 22_050
 _ROOT = 60

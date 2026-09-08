@@ -3,11 +3,12 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from optisample.io.tracker.target import ExportTarget
-from optisample.optimize.plans import SampleUnit
 from trackmod.core.instruments.keymap import KeyAssignment, Keymap
 from trackmod.core.notes.pitch import Note
 from trackmod.spec.pitch import NOTE_COUNT
+
+from optisample.io.tracker.target import ExportTarget
+from optisample.optimize.plans import SampleUnit
 
 
 @dataclass(frozen=True)

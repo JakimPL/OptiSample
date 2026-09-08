@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from trackmod.module.storage import Storage
+
 from notebooks.utils.viz import SpectrogramStyle
 from optisample.config import OptiConfig, load_config
 from optisample.io.tracker.target import ExportTarget, export_target
 from optisample.metrics import CompositeFidelity, build_composite
-from trackmod.module.storage import Storage
 
 
 @dataclass(frozen=True)

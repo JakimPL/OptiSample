@@ -58,6 +58,7 @@ target-version = ["py313"]
 profile = "black"
 line_length = 120
 known_first_party = ["optisample"]
+known_third_party = ["trackmod"]
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib --cov -p tests.threads"
