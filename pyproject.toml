@@ -53,12 +53,14 @@ packages = ["src/optisample", "src/opticonfig"]
 [tool.black]
 line-length = 120
 target-version = ["py313"]
+extend-exclude = "^/trackmod/"
 
 [tool.isort]
 profile = "black"
 line_length = 120
 known_first_party = ["optisample"]
 known_third_party = ["trackmod"]
+extend_skip_glob = ["trackmod/*"]
 
 [tool.pytest.ini_options]
 addopts = "--import-mode=importlib --cov -p tests.threads"
