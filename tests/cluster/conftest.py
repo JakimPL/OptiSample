@@ -14,7 +14,7 @@ SR = 44_100
 
 Signal = NDArray[np.float64]
 
-_NOISE_FLOOR = 1e-5  # the floor a synthesised take stands on, so every bin carries content to read
+_NOISE_FLOOR = 1e-5  # the floor a synthesized take stands on, so every bin carries content to read
 _BALANCE = (1.0, 0.5, 0.25, 0.12, 0.06)  # the amplitude each partial of a bright take rings at
 _DULL_BALANCE = (1.0, 0.05, 0.01, 0.005, 0.002)  # the same note with its upper partials taken away
 

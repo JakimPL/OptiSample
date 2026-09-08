@@ -1,6 +1,6 @@
 # How the space is cut into groups and which member stands for each (optisample.config.cluster.PartitionConfig).
 algorithm: hierarchical  # a hierarchy read at one height, which consumes the block distance directly
-linkage: ward            # joins the pair adding the least spread, favouring groups of a similar size
+linkage: ward            # joins the pair adding the least spread, favoring groups of a similar size
 groups: 8                # how many groups the space is cut into
 max_groups: 16           # how far the sweep climbs while it reports what each count is worth
 representative: medoid   # the member standing closest to the rest, which is a take a listener can play

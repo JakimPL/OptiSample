@@ -95,7 +95,7 @@ def nearest_key(available: Sequence[SampleKey], velocity: int) -> SampleKey:
 
     This is the many-to-one lookup that routes a played note to the recording it is scored against: a
     whole span of velocities resolves to one key, which is what lets those notes be scored once. Ties
-    favour the louder recording, then the lowest CC bucket, so a pitch with several timbral variants at
+    favor the louder recording, then the lowest CC bucket, so a pitch with several timbral variants at
     one velocity still resolves to the same reference on every run.
     """
     return min(available, key=lambda key: (abs(key.velocity - velocity), -key.velocity, key.cc))

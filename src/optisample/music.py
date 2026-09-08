@@ -30,8 +30,8 @@ def named_pitch(name: str) -> int:
     """The MIDI note number a scientific pitch name spells (``C4`` -> 60, ``Bb2`` -> 46).
 
     Both spellings of a black key are read, so a set of recordings named with flats resolves the same
-    keys a set named with sharps does, and the letter is read in either case so a name is recognised
-    however its writer capitalised it.
+    keys a set named with sharps does, and the letter is read in either case so a name is recognized
+    however its writer capitalized it.
 
     Raises:
         ValueError: when ``name`` spells no pitch name, or spells one outside the MIDI range.
@@ -59,7 +59,7 @@ def pitch_label(pitch: int) -> str:
     return f"{_LABEL_PREFIX}{pitch:03d}{_LABEL_SEPARATOR}{note_name(pitch)}"
 
 
-def labelled_pitch(label: str) -> int:
+def labeled_pitch(label: str) -> int:
     """The MIDI note number :func:`pitch_label` filed an artifact under (``p060_C4`` -> 60).
 
     Reads the number back off the one spelling that wrote it, so a reader walking a directory recovers

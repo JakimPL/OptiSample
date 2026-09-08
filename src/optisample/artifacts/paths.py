@@ -78,7 +78,7 @@ class LoopedPaths:
     """Where one instrument's looped dataset and its loop decisions land under the output root.
 
     ``notes_json`` and ``samples_dir`` are the sibling pair a later ingest resolves by default, so the
-    output root is itself a NoteExtractor dataset -- the recordings as the stage analysed them, onset
+    output root is itself a NoteExtractor dataset -- the recordings as the stage analyzed them, onset
     aligned and at one rate, which is what makes the frames a loop names index into them, each beside the
     container carrying it (:func:`calibrated_path`). What the stage decided sits apart under
     ``loops_json``, and ``auditions_dir`` holds each loop played out.

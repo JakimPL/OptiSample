@@ -254,7 +254,7 @@ def _candidate_keys(
 
 
 def _scored_event(merged: MergedEvent, inputs: TaskInputs) -> Event:
-    """One merged class with the audio it is judged against, and what its level makes that judgement worth."""
+    """One merged class with the audio it is judged against, and what its level makes that judgment worth."""
     reference = inputs.audio[merged.reference_key]
     scored = _scored_span(reference, merged.duration_s, inputs.sample_rate)
     return Event(

@@ -30,13 +30,13 @@ _REPRESENTATIVE_SOLID_SIZE: Final = 11  # how big that ring is drawn in a box, o
 _REPRESENTATIVE_SYMBOL: Final = "diamond-open"  # the one outline both the plane and the box draw it with
 _RING_WIDTH: Final = 3.0  # how thick that outline is stroked, well above the field it stands over
 _ON_SCREEN_SIZE: Final = 13  # how big the count a sweep curve is being read at is ringed
-_GROUP_COLUMN: Final = "group"  # the column naming the group a take fell into, which rings it in that colour
+_GROUP_COLUMN: Final = "group"  # the column naming the group a take fell into, which rings it in that color
 _HEIGHT: Final = 620  # pixels a scatter is given, ample for a group to be picked out by eye
 _CURVE_HEIGHT: Final = 320  # pixels the two reading curves are given
 _FLOAT_FORMAT: Final = ":.3f"  # how a measured reading is spelled in a hover
 _PLAIN: Final = ""  # how a name or a count is spelled there
-_CUT_COLOUR: Final = "#d62728"
-_LINK_COLOUR: Final = "#4c78a8"
+_CUT_COLOR: Final = "#d62728"
+_LINK_COLOR: Final = "#4c78a8"
 _LEAF_SCALE: Final = 10.0  # the width scipy spaces dendrogram leaves by, which its own coordinates count in
 _MERGES_TO_LEAVES: Final = 1  # the one leaf a tree holds beyond the merges that joined them
 _LAST_KEPT: Final = 1  # the step back from the first merge a cut drops to the last one it keeps
@@ -119,58 +119,58 @@ def _marker_size(placement: Placement) -> int:
 
 
 @dataclass(frozen=True)
-class Colouring:
-    """Which reading a field is drawn by, and the colour each group of the cut holds.
+class Coloring:
+    """Which reading a field is drawn by, and the color each group of the cut holds.
 
-    ``column`` names the reading every point is coloured by: a column of names draws one colour and one
-    legend entry apiece, a column of measurements shades along a scale. ``groups`` is the colour each group
+    ``column`` names the reading every point is colored by: a column of names draws one color and one
+    legend entry apiece, a column of measurements shades along a scale. ``groups`` is the color each group
     goes by, read off the key the take standing for it plays -- it strokes the rings over the field
-    whatever the field is coloured by, and colours the field itself where a reader is colouring by group.
+    whatever the field is colored by, and colors the field itself where a reader is coloring by group.
     """
 
     column: str
     groups: Mapping[str, str]
 
 
-def _colours(names: Sequence[str]) -> dict[str, str]:
-    """The colour each name is drawn in, which is the one spelling every trace of a picture reads it by."""
+def _colors(names: Sequence[str]) -> dict[str, str]:
+    """The color each name is drawn in, which is the one spelling every trace of a picture reads it by."""
     return {name: _PALETTE[position % len(_PALETTE)] for position, name in enumerate(names)}
 
 
-def _set_colours(rows: Sequence[Row], colouring: Colouring) -> dict[str, str]:
-    """The colour each set of the colouring column is drawn in, the sets in the order a legend lists them.
+def _set_colors(rows: Sequence[Row], coloring: Coloring) -> dict[str, str]:
+    """The color each set of the coloring column is drawn in, the sets in the order a legend lists them.
 
-    Colouring by group hands each set the colour its own key turned, so a field, its legend and the rings
+    Coloring by group hands each set the color its own key turned, so a field, its legend and the rings
     over it all carry the keyboard; any other column of names is handed the palette, which tells its sets
     apart without claiming to say anything about the keys.
     """
-    names = sorted({str(row[colouring.column]) for row in rows})
-    if colouring.column == _GROUP_COLUMN:
-        return {name: colouring.groups[name] for name in names}
+    names = sorted({str(row[coloring.column]) for row in rows})
+    if coloring.column == _GROUP_COLUMN:
+        return {name: coloring.groups[name] for name in names}
 
-    return _colours(names)
+    return _colors(names)
 
 
-def _named_traces(placement: Placement, read: _Reading, colouring: Colouring) -> list[_Drawn]:
-    """One trace per value the colouring column names, so each reads as its own colour and legend entry."""
+def _named_traces(placement: Placement, read: _Reading, coloring: Coloring) -> list[_Drawn]:
+    """One trace per value the coloring column names, so each reads as its own color and legend entry."""
     rows = read.rows
-    column = colouring.column
+    column = coloring.column
     return [
         _trace(
             placement,
             places=[index for index, row in enumerate(rows) if str(row[column]) == name],
             name=name,
-            marker={"size": _marker_size(placement), "color": colour},
+            marker={"size": _marker_size(placement), "color": color},
             customdata=[read.carried[index] for index, row in enumerate(rows) if str(row[column]) == name],
             hovertemplate=read.hover,
         )
-        for name, colour in _set_colours(rows, colouring).items()
+        for name, color in _set_colors(rows, coloring).items()
     ]
 
 
-def _scaled_trace(placement: Placement, read: _Reading, colouring: Colouring) -> _Drawn:
-    """Every recording in one trace, shaded along the reading the colouring column holds."""
-    column = colouring.column
+def _scaled_trace(placement: Placement, read: _Reading, coloring: Coloring) -> _Drawn:
+    """Every recording in one trace, shaded along the reading the coloring column holds."""
+    column = coloring.column
     return _trace(
         placement,
         places=list(range(len(read.rows))),
@@ -190,14 +190,14 @@ def _scaled_trace(placement: Placement, read: _Reading, colouring: Colouring) ->
 def _representative_trace(
     placement: Placement,
     read: _Reading,
-    colouring: Colouring,
+    coloring: Coloring,
     representatives: Sequence[int],
 ) -> _Drawn:
     """The takes standing for their groups, ringed over the field so a selection reads at a glance.
 
-    The ring stands well clear of the point it surrounds and is stroked in the colour of the group that
+    The ring stands well clear of the point it surrounds and is stroked in the color of the group that
     take was chosen for, so a representative is picked out of the field by eye and read as a member of its
-    own group at once -- whichever reading the field itself is coloured by.
+    own group at once -- whichever reading the field itself is colored by.
     """
     return _trace(
         placement,
@@ -206,7 +206,7 @@ def _representative_trace(
         marker={
             "size": _REPRESENTATIVE_SIZE if placement.is_plane else _REPRESENTATIVE_SOLID_SIZE,
             "symbol": _REPRESENTATIVE_SYMBOL,
-            "color": [colouring.groups[str(read.rows[place][_GROUP_COLUMN])] for place in representatives],
+            "color": [coloring.groups[str(read.rows[place][_GROUP_COLUMN])] for place in representatives],
             "line": {"width": _RING_WIDTH},
         },
         customdata=[read.carried[place] for place in representatives],
@@ -231,22 +231,22 @@ def field(
     placement: Placement,
     rows: Sequence[Row],
     *,
-    colouring: Colouring,
+    coloring: Coloring,
     representatives: Sequence[int],
     title: str,
 ) -> Picture:
     """Every recording where ``placement`` puts it, shaded by one of its readings and hovering all of them.
 
-    A column holding names -- the group a take fell into, the note it plays -- draws one colour and one
+    A column holding names -- the group a take fell into, the note it plays -- draws one color and one
     legend entry per name, so a click on the legend isolates that set; a column holding measurements is
     shaded along a scale beside the picture. The takes standing for their groups are ringed over the top,
     and the picture keeps which recording each trace drew, which is what turns a click into a recording.
     """
     read = _reading(rows)
-    named = isinstance(rows[0][colouring.column], str) if rows else False
+    named = isinstance(rows[0][coloring.column], str) if rows else False
     drawn = [
-        *(_named_traces(placement, read, colouring) if named else [_scaled_trace(placement, read, colouring)]),
-        _representative_trace(placement, read, colouring, representatives),
+        *(_named_traces(placement, read, coloring) if named else [_scaled_trace(placement, read, coloring)]),
+        _representative_trace(placement, read, coloring, representatives),
     ]
     figure = go.Figure(data=[one.trace for one in drawn])
     figure.update_layout(
@@ -329,13 +329,13 @@ def sweep_curve(rows: Sequence[Row], *, title: str) -> go.Figure:
     on_screen = [index for index, row in enumerate(rows) if bool(row["on_screen"])]
     figure = go.Figure(
         data=[
-            go.Scatter(x=counts, y=scores, mode="lines+markers", name="silhouette", line={"color": _LINK_COLOUR}),
+            go.Scatter(x=counts, y=scores, mode="lines+markers", name="silhouette", line={"color": _LINK_COLOR}),
             go.Scatter(
                 x=[counts[index] for index in on_screen],
                 y=[scores[index] for index in on_screen],
                 mode="markers",
                 name="on screen",
-                marker={"size": _ON_SCREEN_SIZE, "symbol": "circle-open", "color": _CUT_COLOUR},
+                marker={"size": _ON_SCREEN_SIZE, "symbol": "circle-open", "color": _CUT_COLOR},
             ),
         ]
     )
@@ -383,10 +383,10 @@ def dendrogram_figure(tree: Tree, *, groups: int, leaves: int, title: str) -> go
     drawn = dendrogram(tree, no_plot=True, truncate_mode="lastp", p=leaves)
     across, upward = _link_lines(drawn["icoord"], drawn["dcoord"])
     height = cut_height(tree, groups)
-    figure = go.Figure(data=[go.Scatter(x=across, y=upward, mode="lines", name="merges", line={"color": _LINK_COLOUR})])
+    figure = go.Figure(data=[go.Scatter(x=across, y=upward, mode="lines", name="merges", line={"color": _LINK_COLOR})])
     figure.add_hline(
         y=height,
-        line={"color": _CUT_COLOUR, "dash": "dash"},
+        line={"color": _CUT_COLOR, "dash": "dash"},
         annotation_text=f"{groups} groups at {height:.2f}",
     )
     figure.update_layout(

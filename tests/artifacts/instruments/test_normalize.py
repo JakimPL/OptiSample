@@ -376,7 +376,7 @@ def test_the_fields_take_as_much_of_the_level_as_they_state_and_the_waveform_the
 def test_a_waveform_already_filling_its_headroom_is_delivered_under_the_level_it_was_captured_at(
     target: ExportTarget,
 ) -> None:
-    """A recording the levelling leaves no room to scale up is stored as hot as it allows and reports the gap."""
+    """A recording the leveling leaves no room to scale up is stored as hot as it allows and reports the gap."""
     level = stored_level(0.25, steps=target.sample_level_bounds)
 
     assert level.steps == tuple(bound.maximum for bound in target.sample_level_bounds)
@@ -403,7 +403,7 @@ def test_a_recording_captured_at_full_scale_reports_the_level_it_falls_short_of(
     target: ExportTarget,
     grid_for: Grids,
 ) -> None:
-    """A levelled waveform asking for more than full scale is stored as hot as it can be and says so."""
+    """A leveled waveform asking for more than full scale is stored as hot as it can be and says so."""
     written = recording_instrument(
         normalized_recording(_recording(recorded(peak=1.0), sample_rate), encode_config),
         target=target,

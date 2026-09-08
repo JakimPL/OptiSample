@@ -30,7 +30,7 @@ def _apply_loop(shaped: Signal, rate: int, loop: Loop, context: EncodeContext) -
     Preparation runs on the resampled waveform, so the region is held at the level the stored copy carries
     and the seam is blended over exactly the frames a player wraps between. The level is read over two
     periods of the pitch the clip was recorded at and at the rate the copy is stored at, which is the same
-    reading the loop stage levelled by and so the same waveform it measured.
+    reading the loop stage leveled by and so the same waveform it measured.
 
     A context asking for the post-loop carries the rest of the recording along behind the region. The tail
     is taken from the waveform before its loop was readied, since preparation rewrites the frames meeting
@@ -66,7 +66,7 @@ def _looped_span(
 ) -> _Span | None:
     """The looped span these params ask for, over the loop of the clip's frontier they name.
 
-    The loop stage settled the region on the recording at the rate it was analysed at, so the bounds are
+    The loop stage settled the region on the recording at the rate it was analyzed at, so the bounds are
     scaled onto the copy being stored (:func:`~optisample.dsp.loop.loop_at_rate`) and name the frames a
     player wraps between. The level settled with the loop rides along, sounded as the note at the clip's own
     root makes it, which is what plays a held note down from the level the loop repeats.
@@ -106,7 +106,7 @@ def _stored_span(
 ) -> _Span:
     """The stretch of ``signal`` a sample holds: resampled, shaped where asked, then looped or trimmed.
 
-    Compression runs on the resampled waveform, ahead of the loop's preparation, so the region is levelled
+    Compression runs on the resampled waveform, ahead of the loop's preparation, so the region is leveled
     and its wrap blended over exactly the audio that will be stored. A looped span carries the level settled
     with its loop, which is how a held note declines while the PCM stays the material; a trimmed one keeps
     ``trim_s`` of the recording as it was played.

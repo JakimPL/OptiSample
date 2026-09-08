@@ -91,7 +91,7 @@ def held_back(signal: Signal, reading: LevelReading, config: LimitConfig) -> Sig
     The detector is the level curve the recording's own pitch settles
     (:func:`~optisample.dsp.envelope.local_level`), read symmetrically and zero-phase over a reach as long
     as the material asks for -- twenty milliseconds for anything above G#2, widening toward eighty at the
-    bottom of the band. Reading a frame from the material centred on it is what gives the pass its
+    bottom of the band. Reading a frame from the material centered on it is what gives the pass its
     lookahead, and ``attack_share`` and ``release_share`` spend it: the reduction is carried forward and
     back over shares of that reach (:func:`_sustained`), so a sub-unit attack has the hold open before the
     peak arrives and a longer release keeps it open through the decay behind it. ``ceiling_db`` then holds

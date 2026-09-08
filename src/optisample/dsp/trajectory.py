@@ -16,7 +16,7 @@ Groups = NDArray[np.intp]
 _FINEST_WINDOW_S: Final = 0.005  # the shortest stretch one reading of a trajectory averages over
 _SETTLED_DB: Final = 1e-6  # the widest an offset moves for the sweep that moved it to count as settled
 _MOST_SWEEPS: Final = 32  # sweeps the offsets are given to settle, which a handful of them spend
-_CLOCK_TOLERANCE_S: Final = 1e-9  # how far two moments stand apart and still centre the same window
+_CLOCK_TOLERANCE_S: Final = 1e-9  # how far two moments stand apart and still center the same window
 _NO_GAP_DB: Final = 0.0  # what a shape leaves behind on a set holding nothing to leave it on
 _ONE_AXIS: Final = 1  # offset axes a set states its members apart on, at the fewest
 
@@ -61,7 +61,7 @@ class SharedTrajectory:
     A tracker keeps one volume envelope per instrument and a level per sample and per pattern note, so
     what a set of notes can be written as is exactly this: one curve on the played clock, plus a level
     each member reaches through the axes it belongs to. ``offsets_db`` holds one level per group per axis,
-    centred on the set's own weighted level, so an offset states how far a sample or a dynamic stands from
+    centered on the set's own weighted level, so an offset states how far a sample or a dynamic stands from
     its instrument. ``gaps_db`` states, member by member, how far the written pair ends up from the
     trajectory that member actually makes.
     """
@@ -170,7 +170,7 @@ def _shared_values(stack: _Stack, offsets: Series) -> Series:
 def _axis_offsets(stack: _Stack, residual: Series, membership: Groups, groups: int) -> Series:
     """Each group's own level: the weighted mean of what its members hold above the shape they share.
 
-    The answer is centred on the set's own weighted level, which leaves the shape carrying where the
+    The answer is centered on the set's own weighted level, which leaves the shape carrying where the
     instrument sits and each offset stating how far one group stands from it. A group no member belongs to
     stands at the instrument's own level.
     """

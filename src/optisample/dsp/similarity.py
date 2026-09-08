@@ -76,7 +76,7 @@ def window_frames(sample_rate: int, config: FeatureConfig, root_hz: float) -> in
 
     Spanning ``window_periods`` periods of the pitch a recording was played at places that note's partials
     the same number of bins apart whatever the note, so the bottom two octaves are resolved as clearly as
-    the top -- a window fixed in seconds reads a deep note's partials as leakage between neighbouring mel
+    the top -- a window fixed in seconds reads a deep note's partials as leakage between neighboring mel
     bands. ``min_window_s`` floors the stretch, which keeps a high note's frame long enough to carry a
     spectrum, and the count is held even so the transform runs on a whole number of bins.
     """
@@ -130,12 +130,12 @@ def shape_travel(shape: Signal, lag: int) -> Signal:
 def change_rate(series: FrameSeries, config: FeatureConfig) -> Signal:
     """How fast the shape moves at each frame of ``series``, in decibels per second.
 
-    The reading at one frame is how far the shape has travelled ``change_span_s`` later, stated per second
+    The reading at one frame is how far the shape has traveled ``change_span_s`` later, stated per second
     of that span. Reading across a span leaves the movement of the material in the curve and divides the
     wobble of one reading out of it: a drift accumulates over the whole span while the jitter two
     overlapping windows make stays the size of one reading. Measured on real piano material that holds the
     rate a note sustains at within 7.3-14.3 dB/s across the keyboard, against 10.2-39.3 for the same
-    contrast reached by smoothing and then reading neighbouring frames.
+    contrast reached by smoothing and then reading neighboring frames.
 
     Stating a rate rather than the depth of one step is what lets a single threshold answer for every
     recording, whatever hop its own pitch set. A series shorter than the span answers an empty curve,

@@ -70,7 +70,7 @@ class _Written:
 
 
 def _write_recordings(recordings: Sequence[CalibratedRecording], sample_rate: int, samples_dir: Path) -> _Written:
-    """Write each recording as the stage analysed it, so the frames a loop names index into the file.
+    """Write each recording as the stage analyzed it, so the frames a loop names index into the file.
 
     The audio written here is what the ingest produced: onset aligned, at the run's one rate, and trimmed
     to the span worth storing.
@@ -91,8 +91,8 @@ def _offered(settlement: Settlement | None) -> tuple[StoredLoop, ...]:
     return settlement.offered
 
 
-def _analysed_recordings(looped: LoopedInstrument) -> tuple[CalibratedRecording, ...]:
-    """Every recording the stage analysed, each carrying the loops it settled over that recording.
+def _analyzed_recordings(looped: LoopedInstrument) -> tuple[CalibratedRecording, ...]:
+    """Every recording the stage analyzed, each carrying the loops it settled over that recording.
 
     Recordings are numbered in key order, so the same dataset reduces to the same filenames on every run
     and the WAV, the container and the instruments of one recording all share a stem.
@@ -204,7 +204,7 @@ def dump_looped(
 ) -> LoopedInstrumentArtifacts:
     """Write one instrument's settled loops and the dataset they were measured over under ``out_dir``.
 
-    The output root is itself a NoteExtractor dataset -- one WAV per recording as the stage analysed it, and
+    The output root is itself a NoteExtractor dataset -- one WAV per recording as the stage analyzed it, and
     the material routed onto those recordings -- so the reduction picks up from here over audio the loop
     frames already index into. Each recording is written a second time as a ``.sample`` of the same stem,
     the calibrated unit carrying its level/carrier split and the loops settled over it, and a third time as
@@ -219,7 +219,7 @@ def dump_looped(
     loaded = looped.loaded
     paths = looped_paths(Path(out_dir), loaded.instrument.id)
     material = loaded.instrument.material
-    recordings = _analysed_recordings(looped)
+    recordings = _analyzed_recordings(looped)
     written = _write_recordings(recordings, loaded.sample_rate, paths.samples_dir)
     write_calibrated(
         recordings,

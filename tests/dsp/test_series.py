@@ -10,7 +10,7 @@ _PERIOD = 40  # points one round of the repeating series below spans
 
 @pytest.mark.parametrize("span", [0, 1, 4, 9, 64])
 def test_a_weighting_carries_one_unit_of_weight_read_from_both_sides(span: int) -> None:
-    """A unit sum leaves a mean on the scale of what it averages, and an odd count centres the reading."""
+    """A unit sum leaves a mean on the scale of what it averages, and an odd count centers the reading."""
     kernel = hann_kernel(span)
 
     assert kernel.size % 2 == 1
@@ -50,7 +50,7 @@ def test_autocorrelation_peaks_at_the_lag_the_series_repeats_on() -> None:
 
 
 def test_a_series_holding_one_value_correlates_with_nothing() -> None:
-    """Centring leaves a flat series with no movement to match, which is material a period has no purchase on."""
+    """Centering leaves a flat series with no movement to match, which is material a period has no purchase on."""
     assert np.array_equal(autocorrelation(np.full(32, 5.0)), np.zeros(32))
 
 
@@ -63,7 +63,7 @@ def test_a_peak_between_two_points_is_read_between_them() -> None:
 @pytest.mark.parametrize(
     ("correlation", "lag"),
     [
-        pytest.param(np.array([0.2, 0.9, 0.4]), 0, id="the first lag searched has no neighbour before it"),
+        pytest.param(np.array([0.2, 0.9, 0.4]), 0, id="the first lag searched has no neighbor before it"),
         pytest.param(np.array([0.2, 0.9, 0.4]), 2, id="the last has none after it"),
         pytest.param(np.ones(5), 2, id="a flat top makes no parabola to place a lag on"),
     ],

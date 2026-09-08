@@ -79,7 +79,7 @@ def test_a_band_covers_the_velocities_between_its_bounds(velocity: int, covered:
     assert VelocityBand(0, 63).covers(velocity) is covered
 
 
-def test_a_band_is_labelled_by_the_span_it_answers_for() -> None:
+def test_a_band_is_labeled_by_the_span_it_answers_for() -> None:
     assert VelocityBand(0, 63).label == "v000-v063"
 
 

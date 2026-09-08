@@ -14,7 +14,7 @@ from optisample.music import midi_to_freq
 SR = 22_050
 ROOT_PITCH = 60
 TEMPO_BPM = 115.0
-RECORDED_PEAK = 0.3  # where a captured note sits under full scale, which is the room its levelled form needs
+RECORDED_PEAK = 0.3  # where a captured note sits under full scale, which is the room its leveled form needs
 
 _DB_PER_DECADE = 20.0
 

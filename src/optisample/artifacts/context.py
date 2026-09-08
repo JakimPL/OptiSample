@@ -20,7 +20,7 @@ class DumpSettings:
 
     ``optimize``/``render``/``playback``/``envelope`` carry the config the run needs; the CLI builds them
     from a loaded ``OptiConfig`` (see :func:`optisample.cli.settings._dump_settings`). The remaining flags are
-    behavioural toggles, so they keep ergonomic defaults.
+    behavioral toggles, so they keep ergonomic defaults.
 
     ``post_loop`` says whether the standalone file written for each stored voice keeps the rest of its take
     behind the region it wraps on. It reaches those files alone: the module, the bank and the sample WAVs
@@ -73,7 +73,7 @@ class DumpContext:
 
     @property
     def sample_rate(self) -> int:
-        """The rate every recording was analysed at, which every stored sample is measured against."""
+        """The rate every recording was analyzed at, which every stored sample is measured against."""
         return self.recordings.sample_rate
 
     @property

@@ -74,7 +74,7 @@ def test_a_plan_whose_instruments_carry_no_shape_names_unity_itself() -> None:
 
 
 def test_two_instruments_written_against_one_level_stay_as_far_apart_as_their_shapes() -> None:
-    """Normalising each curve against its own peak would move two velocity layers together by their difference."""
+    """Normalizing each curve against its own peak would move two velocity layers together by their difference."""
     reference_db = loudest_db([curve_level(curve, Clock.PLAYED) for curve in (_STRUCK, _QUIET)])
 
     louder, quieter = (_written(curve, reference_db=reference_db).points[0].value for curve in (_STRUCK, _QUIET))

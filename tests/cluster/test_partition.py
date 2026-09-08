@@ -5,7 +5,7 @@ import pytest
 
 from optisample.cluster.partition import (
     Labels,
-    centres,
+    centers,
     compact,
     cut,
     hierarchy,
@@ -71,8 +71,8 @@ def test_a_hierarchy_cut_at_three_finds_the_three_huddles(
     }
 
 
-def test_moving_centres_find_the_three_huddles(corners: Coordinates, truth: Labels) -> None:
-    labels = centres(corners, len(_CORNERS))
+def test_moving_centers_find_the_three_huddles(corners: Coordinates, truth: Labels) -> None:
+    labels = centers(corners, len(_CORNERS))
 
     assert {frozenset(np.flatnonzero(labels == group).tolist()) for group in np.unique(labels)} == {
         frozenset(np.flatnonzero(truth == group).tolist()) for group in np.unique(truth)
@@ -80,8 +80,8 @@ def test_moving_centres_find_the_three_huddles(corners: Coordinates, truth: Labe
 
 
 def test_one_space_read_twice_states_one_cut(corners: Coordinates) -> None:
-    """The centres open from a settled seed, so a notebook re-reading a space sees the groups it saw before."""
-    assert np.array_equal(centres(corners, len(_CORNERS)), centres(corners, len(_CORNERS)))
+    """The centers open from a settled seed, so a notebook re-reading a space sees the groups it saw before."""
+    assert np.array_equal(centers(corners, len(_CORNERS)), centers(corners, len(_CORNERS)))
 
 
 def test_the_silhouette_matches_a_reading_taken_recording_by_recording(corners: Coordinates, truth: Labels) -> None:

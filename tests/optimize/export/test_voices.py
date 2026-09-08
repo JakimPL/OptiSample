@@ -61,7 +61,7 @@ def _stored(*, looped: bool = True) -> StoredSample:
     levels = _falling(_LOOP_END_S)
     loop = Loop(start=round(_LOOP_START_S * _SR), end=round(_LOOP_END_S * _SR)) if looped else None
     if loop is not None:
-        levels[loop.start :] = levels[loop.start]  # a settled loop region is levelled flat, which is what it holds
+        levels[loop.start :] = levels[loop.start]  # a settled loop region is leveled flat, which is what it holds
 
     return StoredSample(pcm=_tone(levels), sample_rate=_SR, depth_bits=16, root_pitch=_ROOT, loop=loop)
 

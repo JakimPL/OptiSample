@@ -15,7 +15,7 @@ class KeyCoverage:
     """How much of a format's keyboard the written instruments answer.
 
     ``numbered`` is the keys the format offers, ``played`` the keys the material itself reached, and
-    ``answered`` how many resolve to a sample once the rest are filled from their nearest neighbour.
+    ``answered`` how many resolve to a sample once the rest are filled from their nearest neighbor.
     """
 
     numbered: int

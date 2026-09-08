@@ -14,7 +14,7 @@ _PEAK_CURVATURE: Final = 1e-12  # concavity a peak holds for a parabola to read 
 
 @dataclass(frozen=True, eq=False)
 class Readings:
-    """A stretch read in windows: one value per window, beside the moment that window centres on.
+    """A stretch read in windows: one value per window, beside the moment that window centers on.
 
     Reading a stretch this way leaves a curve short enough to fit whole and smooth enough to follow, and
     carrying each value's own moment beside it puts every fit on the played timeline -- so readings taken
@@ -47,7 +47,7 @@ class Readings:
 def hann_kernel(span: int) -> Series:
     """A unit-sum Hann weighting spanning ``span`` points, with an odd tap count.
 
-    An odd count reads each point from the material centred on it, and a unit sum leaves a mean taken
+    An odd count reads each point from the material centered on it, and a unit sum leaves a mean taken
     under the weighting on the scale of what it averages. A span of zero is one tap, which is the point
     itself.
     """
@@ -68,7 +68,7 @@ def weighted_mean(values: Series, kernel: Series) -> Series:
 def autocorrelation(series: Series) -> Series:
     """How alike ``series`` is to itself at each lag from ``0`` to its length, normalized so lag 0 reads 1.0.
 
-    Centring first leaves the reading a statement about the movement the series makes rather than the
+    Centering first leaves the reading a statement about the movement the series makes rather than the
     level it sits at, and the transform runs over a power of two past twice the length so the wrap a
     circular correlation makes lands outside the lags read.
 
@@ -91,10 +91,10 @@ def refined_lag(correlation: Series, lag: int) -> float:
 
     A peak read to the nearest point sits up to half of one from the material's own cycle, and a loop
     spans several periods, so that error accumulates into a wrap landing part-way through a cycle.
-    Fitting a parabola to the peak and its two neighbours states the lag to a fraction of a point, which
-    is what lets a whole number of periods mean what it says at every rate a recording is analysed at.
+    Fitting a parabola to the peak and its two neighbors states the lag to a fraction of a point, which
+    is what lets a whole number of periods mean what it says at every rate a recording is analyzed at.
 
-    A peak on the first or last lag searched, or one the neighbours make no concave top with, is read at
+    A peak on the first or last lag searched, or one the neighbors make no concave top with, is read at
     its own point -- there is no parabola through it to place the lag between points.
     """
     if lag <= 0 or lag >= correlation.size - 1:

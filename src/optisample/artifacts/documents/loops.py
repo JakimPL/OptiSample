@@ -104,7 +104,7 @@ class RecordingLoopsRecord(Frozen):
 class LoopsDocument(Frozen):
     """Every loop one instrument's recordings offer, beside the dataset they were read from.
 
-    ``sample_rate`` is the rate the recordings were analysed at, which the frames in every
+    ``sample_rate`` is the rate the recordings were analyzed at, which the frames in every
     :class:`SettledLoopRecord` are counted in. Reading this back is what lets a later stage store the loops
     a run already settled, hand-tuned or as they came.
     """

@@ -73,7 +73,7 @@ def bank_contents(
 
     The entries stand in the order the module numbers its instruments, which is the order the manifest
     states its layers in, so a note's dynamic and pitch resolve to the entry the allocation stored them
-    in. Each instrument is serialised once here and the caller decides where those bytes land.
+    in. Each instrument is serialized once here and the caller decides where those bytes land.
 
     The song's own tempo is written into the manifest, since an instrument file carries no clock of its
     own and its envelopes were fitted in ticks of this one.

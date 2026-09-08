@@ -70,7 +70,7 @@ def test_dynamics_the_volume_map_cannot_tell_apart_merge(
 
     assert len(merged) == 1
     assert merged[0].volume == 64
-    assert merged[0].velocity == 100  # labelled by the loudest note it covers
+    assert merged[0].velocity == 100  # labeled by the loudest note it covers
     assert merged[0].weight == pytest.approx(1.0)
 
 

@@ -236,7 +236,7 @@ def _resolved_crossovers(
 
 
 def _rising_step(freqs: Signal, crossover_hz: float, transition_octaves: float) -> Signal:
-    """A raised-cosine climb from 0 to 1 spanning ``transition_octaves`` centred on ``crossover_hz``."""
+    """A raised-cosine climb from 0 to 1 spanning ``transition_octaves`` centered on ``crossover_hz``."""
     progress = np.log2(np.maximum(freqs, _LOG_FLOOR) / crossover_hz) / transition_octaves + 0.5
     return np.asarray(np.sin(0.5 * np.pi * np.clip(progress, 0.0, 1.0)) ** 2, dtype=np.float64)
 

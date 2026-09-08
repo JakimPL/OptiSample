@@ -27,7 +27,7 @@ _FIRST: Final = 0
 
 
 @dataclass(frozen=True)
-class LabellingSession:
+class LabelingSession:
     """One written listening set opened for answering: the questions in order, and the sheet so far.
 
     The manifest is read for the order alone, so what a panel can put on screen is the audio and the
@@ -58,11 +58,11 @@ class LabellingSession:
         return pair_clips(self.paths, self.directories[place])
 
 
-def open_session(root: Path, instrument_id: str) -> LabellingSession:
+def open_session(root: Path, instrument_id: str) -> LabelingSession:
     """The listening set written under ``root`` for ``instrument_id``, with its answer sheet as it stands."""
     paths = ranking_paths(root, instrument_id)
     document = read_ranking_set(paths)
-    return LabellingSession(
+    return LabelingSession(
         paths=paths,
         directories=tuple(record.directory for record in document.pairs),
         sheet=read_label_sheet(paths),
@@ -70,13 +70,13 @@ def open_session(root: Path, instrument_id: str) -> LabellingSession:
 
 
 def answer(
-    session: LabellingSession,
+    session: LabelingSession,
     place: int,
     *,
     verdict: Verdict | None,
     fault: Fault | None,
     note: str,
-) -> LabellingSession:
+) -> LabelingSession:
     """``session`` with the question at ``place`` settled and the sheet put back on disk.
 
     Writing on every answer is what makes the session survive a closed browser: the sheet on disk is
@@ -84,10 +84,10 @@ def answer(
     """
     updated = settled(session.sheet, session.directories[place], verdict=verdict, fault=fault, note=note)
     write_label_sheet(updated, session.paths)
-    return LabellingSession(paths=session.paths, directories=session.directories, sheet=updated)
+    return LabelingSession(paths=session.paths, directories=session.directories, sheet=updated)
 
 
-def following(session: LabellingSession, place: int) -> int:
+def following(session: LabelingSession, place: int) -> int:
     """Where to go after answering ``place``: the next question still open, or ``place`` once none are."""
     waiting = next_open(session.sheet, place)
     return place if waiting is None else waiting
@@ -120,12 +120,12 @@ def choice_label(choices: dict[str, Verdict | None] | dict[str, Fault | None], h
     return OPEN_CHOICE
 
 
-def session_summary(session: LabellingSession) -> str:
+def session_summary(session: LabelingSession) -> str:
     """How far through the set the listener is, as a line a panel prints above the controls."""
     return f"{session.answered} of {session.total} answered, {session.sheet.outstanding} to go"
 
 
-def first_open(session: LabellingSession) -> int:
+def first_open(session: LabelingSession) -> int:
     """Where a session opens: the first question still waiting, or the start once every one is settled."""
     if session.sheet.labels and not session.sheet.labels[_FIRST].answered:
         return _FIRST

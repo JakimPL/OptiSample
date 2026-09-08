@@ -100,7 +100,7 @@ def anchor_stack(level_db: Readings, depths_db: Sequence[float], hop_s: float) -
 
 
 def pooled_rows(readings: Readings, stack: AnchorStack, span: int) -> Readings:
-    """The mean of ``readings`` over the ``span`` frames centred on each anchor: ``(depths, columns)``.
+    """The mean of ``readings`` over the ``span`` frames centered on each anchor: ``(depths, columns)``.
 
     Averaging a stretch around an anchor rather than reading the single frame at it states what the note
     held while it passed that depth, so the reading carries the material's own sound and leaves the wobble

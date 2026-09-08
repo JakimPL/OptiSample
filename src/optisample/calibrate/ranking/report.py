@@ -15,7 +15,7 @@ from optisample.calibrate.ranking.verdicts import Verdict
 
 _RANKABLE: Final = 2  # readings a rank correlation needs before it states anything
 _PAIRED: Final = 2  # occurrences a repeated question is read across at a time
-_AUDIBLE_GAP_LU: Final = 1.0  # the level difference a listener begins to hear on programme material
+_AUDIBLE_GAP_LU: Final = 1.0  # the level difference a listener begins to hear on program material
 
 
 def heard_strength(verdict: Verdict) -> int:
@@ -34,7 +34,7 @@ def heard_strength(verdict: Verdict) -> int:
 
 
 @dataclass(frozen=True)
-class Judgement:
+class Judgment:
     """One answered question, read as the signed strength a metric is measured against.
 
     ``heard`` is signed toward :attr:`Side.A`, which is the way a listener met the pair. ``swapped``
@@ -213,53 +213,53 @@ def _agreeing(stated: float, heard: float) -> bool:
     return (stated > 0 and heard > 0) or (stated < 0 and heard < 0)
 
 
-def _agreement(judgements: Sequence[Judgement], read: Mapping[str, float]) -> Agreement:
-    """One metric read against the questions in ``judgements``."""
-    decided = [judgement for judgement in judgements if judgement.decided]
+def _agreement(judgments: Sequence[Judgment], read: Mapping[str, float]) -> Agreement:
+    """One metric read against the questions in ``judgments``."""
+    decided = [judgment for judgment in judgments if judgment.decided]
     return Agreement(
         tau=_kendall_tau(
-            [judgement.heard for judgement in judgements],
-            [read[judgement.directory] for judgement in judgements],
+            [judgment.heard for judgment in judgments],
+            [read[judgment.directory] for judgment in judgments],
         ),
         decided=len(decided),
-        matched=sum(1 for judgement in decided if _agreeing(read[judgement.directory], judgement.heard)),
+        matched=sum(1 for judgment in decided if _agreeing(read[judgment.directory], judgment.heard)),
     )
 
 
-def _median_margin(judgements: Sequence[Judgement], read: Mapping[str, float]) -> float | None:
+def _median_margin(judgments: Sequence[Judgment], read: Mapping[str, float]) -> float | None:
     """How far apart a metric puts the two sides of a typical question here, absent where there are none."""
-    if not judgements:
+    if not judgments:
         return None
 
-    return median(abs(read[judgement.directory]) for judgement in judgements)
+    return median(abs(read[judgment.directory]) for judgment in judgments)
 
 
-def metric_agreement(readings: MetricReadings, judgements: Sequence[Judgement]) -> MetricAgreement:
+def metric_agreement(readings: MetricReadings, judgments: Sequence[Judgment]) -> MetricAgreement:
     """Rank one metric against the answered questions, whole and question by question.
 
     The per-axis reading is what turns a poor total into a change worth making: a metric agreeing on
     every axis but one has a term missing rather than a weighting wrong.
     """
-    asked = {judgement.axis for judgement in judgements}
+    asked = {judgment.axis for judgment in judgments}
     return MetricAgreement(
         name=readings.name,
-        overall=_agreement(judgements, readings.read),
+        overall=_agreement(judgments, readings.read),
         by_axis={
-            axis: _agreement([judgement for judgement in judgements if judgement.axis is axis], readings.read)
+            axis: _agreement([judgment for judgment in judgments if judgment.axis is axis], readings.read)
             for axis in PairAxis
             if axis in asked
         },
-        decided_margin=_median_margin([one for one in judgements if one.decided], readings.read),
-        tied_margin=_median_margin([one for one in judgements if not one.decided], readings.read),
-        identical_margin=_median_margin([one for one in judgements if one.identical], readings.read),
+        decided_margin=_median_margin([one for one in judgments if one.decided], readings.read),
+        tied_margin=_median_margin([one for one in judgments if not one.decided], readings.read),
+        identical_margin=_median_margin([one for one in judgments if one.identical], readings.read),
     )
 
 
-def self_agreement(judgements: Sequence[Judgement]) -> SelfAgreement:
+def self_agreement(judgments: Sequence[Judgment]) -> SelfAgreement:
     """How far the listener stands from themselves on the questions the set put more than once."""
-    grouped: dict[int, list[Judgement]] = defaultdict(list)
-    for judgement in judgements:
-        grouped[judgement.question_id].append(judgement)
+    grouped: dict[int, list[Judgment]] = defaultdict(list)
+    for judgment in judgments:
+        grouped[judgment.question_id].append(judgment)
 
     repeated = [group for group in grouped.values() if len(group) >= _PAIRED]
     occurrences = [met for group in repeated for met in combinations(group, _PAIRED)]
@@ -275,25 +275,23 @@ def self_agreement(judgements: Sequence[Judgement]) -> SelfAgreement:
     )
 
 
-def level_confound(judgements: Sequence[Judgement]) -> LevelConfound:
+def level_confound(judgments: Sequence[Judgment]) -> LevelConfound:
     """Read the answered questions against the level their two sides played at rather than the recording."""
     gapped = [
-        judgement
-        for judgement in judgements
-        if judgement.decided and abs(judgement.loudness_delta_lu) >= _AUDIBLE_GAP_LU
+        judgment for judgment in judgments if judgment.decided and abs(judgment.loudness_delta_lu) >= _AUDIBLE_GAP_LU
     ]
     return LevelConfound(
         tau=_kendall_tau(
-            [judgement.heard for judgement in judgements],
-            [judgement.loudness_delta_lu for judgement in judgements],
+            [judgment.heard for judgment in judgments],
+            [judgment.loudness_delta_lu for judgment in judgments],
         ),
         gapped=len(gapped),
-        louder=sum(1 for judgement in gapped if _agreeing(judgement.loudness_delta_lu, judgement.heard)),
+        louder=sum(1 for judgment in gapped if _agreeing(judgment.loudness_delta_lu, judgment.heard)),
     )
 
 
 def ranking_report(
-    judgements: Sequence[Judgement],
+    judgments: Sequence[Judgment],
     readings: Sequence[MetricReadings],
     *,
     instrument_id: str,
@@ -306,9 +304,9 @@ def ranking_report(
     """
     return RankingReport(
         instrument_id=instrument_id,
-        answered=len(judgements),
+        answered=len(judgments),
         outstanding=outstanding,
-        metrics=tuple(metric_agreement(reading, judgements) for reading in readings),
-        ceiling=self_agreement(judgements),
-        level=level_confound(judgements),
+        metrics=tuple(metric_agreement(reading, judgments) for reading in readings),
+        ceiling=self_agreement(judgments),
+        level=level_confound(judgments),
     )

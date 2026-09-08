@@ -26,7 +26,7 @@ class LimitConfig(HoldConfig):
     reduction takes to arrive and how long it stays, each as a share of the reach the level detector already
     spans (:attr:`~optisample.dsp.envelope.LevelReading.reach`), so both follow the pitch the recording was
     played at rather than a span fixed for every note alike. The detector reads a frame from the material
-    centred on it, which is the lookahead an attack shorter than that reach acts inside: a share under 1.0
+    centered on it, which is the lookahead an attack shorter than that reach acts inside: a share under 1.0
     brings the reduction in ahead of the peak that asked for it, which is what makes the pass hold a
     transient rather than follow it. A release longer than the attack keeps the reduction through the decay
     behind a peak, so the level settles once instead of moving with every cycle. Shares of zero hold the

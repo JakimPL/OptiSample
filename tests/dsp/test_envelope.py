@@ -50,7 +50,7 @@ def test_the_weighting_spans_two_periods_of_the_frequency_it_is_formed_at() -> N
     assert float(np.sum(kernel)) == pytest.approx(1.0)
     assert (kernel.size - 1) / SR == pytest.approx(2.0 / FREQ)
     assert kernel.size % 2 == 1
-    assert np.allclose(kernel, kernel[::-1])  # symmetric, so each frame is read from the material centred on it
+    assert np.allclose(kernel, kernel[::-1])  # symmetric, so each frame is read from the material centered on it
 
 
 def test_a_note_is_read_over_two_periods_of_its_own_pitch(envelope_config: EnvelopeConfig) -> None:
@@ -130,7 +130,7 @@ def test_the_quietest_level_read_sits_the_floor_under_the_recording_own_peak(
 def test_reading_a_stretch_answers_what_the_whole_recording_says_of_that_stretch(
     envelope_config: EnvelopeConfig, start: int, end: int
 ) -> None:
-    """The weighting has a finite reach, so levelling a loop region costs the region's own length."""
+    """The weighting has a finite reach, so leveling a loop region costs the region's own length."""
     signal = _ringing(_QUIETER_DB)
     reading = _reading(envelope_config)
 

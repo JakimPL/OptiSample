@@ -20,12 +20,12 @@ _PITCH_AXIS: Final = "pitch"  # the note a take plays, which the keys are read a
 _VELOCITY_AXIS: Final = "velocity"  # how hard it was struck, which the keys are read up
 _DURATION_AXIS: Final = "dur_s"  # how long it rings, the third axis the keys are given in a box
 _DURATION_TITLE: Final = "duration (s)"  # what that axis is called, the column holding it going by seconds
-_NEIGHBOUR_SHARES: Final = 0  # shares a layout placing points by their company states, its axes carrying none
-_TSNE_PERPLEXITY: Final = 30.0  # neighbours t-SNE weighs a point against where the corpus affords that many
-_PERPLEXITY_SHARE: Final = 3.0  # recordings per neighbour a smaller corpus holds its perplexity to
-_MIN_PERPLEXITY: Final = 2.0  # neighbours t-SNE weighs a point against at the fewest
-_UMAP_NEIGHBOURS: Final = 15  # company UMAP reads a point's neighbourhood over where the corpus affords it
-_MIN_NEIGHBOURS: Final = 2  # company UMAP reads a neighbourhood over at the fewest
+_NEIGHBOR_SHARES: Final = 0  # shares a layout placing points by their company states, its axes carrying none
+_TSNE_PERPLEXITY: Final = 30.0  # neighbors t-SNE weighs a point against where the corpus affords that many
+_PERPLEXITY_SHARE: Final = 3.0  # recordings per neighbor a smaller corpus holds its perplexity to
+_MIN_PERPLEXITY: Final = 2.0  # neighbors t-SNE weighs a point against at the fewest
+_UMAP_NEIGHBORS: Final = 15  # company UMAP reads a point's neighborhood over where the corpus affords it
+_MIN_NEIGHBORS: Final = 2  # company UMAP reads a neighborhood over at the fewest
 _TSNE_INIT: Final = "pca"  # where t-SNE opens, which is the layout the space's own widest axes give
 
 
@@ -36,7 +36,7 @@ class Layout(StrEnum):
     ``PCA`` turns the space onto the axes carrying most of its spread and ``MDS`` places points to match
     their distances, so both draw the geometry a group was cut in and what is read off the picture holds in
     the space. ``TSNE`` and ``UMAP`` place each recording beside the company it keeps, which draws a group
-    as a cluster while the room between clusters follows the neighbourhoods rather than the distances --
+    as a cluster while the room between clusters follows the neighborhoods rather than the distances --
     they are variants for the eye, and the numbers every panel reports stay the space's own. ``KEYS``
     leaves the space aside and lays the corpus out as the keyboard holds it, which reads a grouping against
     the keys it came from.
@@ -82,7 +82,7 @@ class Placement:
 
     A picture drawn from a layout that reads the space carries the components an embedding placed each
     recording on; one drawn from the keys carries the note it plays, the velocity it was struck at and, in
-    a box, how long it rings. Both stand here in the one shape, so a field is coloured, hovered and clicked
+    a box, how long it rings. Both stand here in the one shape, so a field is colored, hovered and clicked
     the same way whichever of the two it draws.
     """
 
@@ -101,19 +101,19 @@ class Placement:
 
 
 def _placed(coordinates: Coordinates) -> Embedding:
-    """A neighbour layout's placement as an embedding, stating the shares its axes carry as none.
+    """A neighbor layout's placement as an embedding, stating the shares its axes carry as none.
 
     The axes of such a layout carry the company each point keeps rather than a share of the space's spread,
     so what it has to state is the placement alone.
     """
     return Embedding(
         coordinates=np.asarray(coordinates, dtype=np.float64),
-        explained=np.zeros(_NEIGHBOUR_SHARES, dtype=np.float64),
+        explained=np.zeros(_NEIGHBOR_SHARES, dtype=np.float64),
     )
 
 
 def _tsne(coordinates: Coordinates, *, components: int, seed: int) -> Embedding:
-    """``coordinates`` placed by t-SNE, its perplexity held inside what the corpus has neighbours for."""
+    """``coordinates`` placed by t-SNE, its perplexity held inside what the corpus has neighbors for."""
     from sklearn.manifold import TSNE  # pylint: disable=import-outside-toplevel
 
     samples = int(coordinates.shape[0])
@@ -123,12 +123,12 @@ def _tsne(coordinates: Coordinates, *, components: int, seed: int) -> Embedding:
 
 
 def _umap(coordinates: Coordinates, *, components: int, seed: int) -> Embedding:
-    """``coordinates`` placed by UMAP, its neighbourhood held inside the company the corpus offers."""
+    """``coordinates`` placed by UMAP, its neighborhood held inside the company the corpus offers."""
     from umap import UMAP  # pylint: disable=import-outside-toplevel
 
     samples = int(coordinates.shape[0])
-    neighbours = max(_MIN_NEIGHBOURS, min(_UMAP_NEIGHBOURS, samples - 1))
-    model = UMAP(n_components=components, n_neighbors=neighbours, random_state=seed)
+    neighbors = max(_MIN_NEIGHBORS, min(_UMAP_NEIGHBORS, samples - 1))
+    model = UMAP(n_components=components, n_neighbors=neighbors, random_state=seed)
     return _placed(np.asarray(model.fit_transform(coordinates), dtype=np.float64))
 
 
@@ -195,7 +195,7 @@ def place(coordinates: Coordinates, rows: Sequence[Row], *, layout: Layout, comp
 
     A layout reading the space places each recording by the geometry its groups were cut in; the keys place
     it at what it plays, which reads a grouping against the keyboard it came from. Both answer in the one
-    shape, so a field is coloured, hovered and clicked the same way whichever a reader picked.
+    shape, so a field is colored, hovered and clicked the same way whichever a reader picked.
     """
     if layout.reads_the_space:
         return _laid_out(draw(coordinates, layout=layout, components=components, seed=seed))

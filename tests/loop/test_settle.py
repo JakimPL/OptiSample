@@ -15,8 +15,8 @@ from tests.conftest import recorded
 SR = 22_050
 _FREQ = 220.0
 _HELD_S = 3.0  # long enough for the frontier to lay out several candidates and still leave a tail
-_DECLINE_WINDOW_S: Final = 0.05  # the window a decline's last reading centres on, which bounds where it lands
-# the last whole window centres half a window before the material it covers ends, and the reading stops at
+_DECLINE_WINDOW_S: Final = 0.05  # the window a decline's last reading centers on, which bounds where it lands
+# the last whole window centers half a window before the material it covers ends, and the reading stops at
 # the last whole window, so the furthest moment a decline states sits within one and a half of the end
 _DECLINE_REACH_S: Final = 1.5 * _DECLINE_WINDOW_S
 _BRIGHTENS_AT = round(_HELD_S / 2 * SR)  # the frame a brightening recording changes its timbre at
@@ -203,7 +203,7 @@ def test_a_struck_note_carries_the_decline_the_recording_goes_on_making(loop: Lo
 
 
 def test_a_region_falling_across_itself_is_offered_with_the_fall_it_states(loop: LoopFactory) -> None:
-    """Levelling answers for the decline, so a steep region is offered and reports the fall it flattened."""
+    """Leveling answers for the decline, so a steep region is offered and reports the fall it flattened."""
     settlement = settle_loop(_decaying(), SR, loop(quality=_WIDE_OPEN), root_hz=_FREQ, search_s=_HELD_S)
 
     assert settlement.loops

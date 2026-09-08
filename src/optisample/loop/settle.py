@@ -96,12 +96,12 @@ class Settlement:
 
 
 def _failed_gate(quality: LoopQuality, config: QualityConfig) -> Gate | None:
-    """The gate ``quality`` falls outside of, read in the order the artefacts are heard in.
+    """The gate ``quality`` falls outside of, read in the order the artifacts are heard in.
 
     Returns ``None`` for a candidate clearing every gate, which is a loop worth storing. The wrap comes
     first because a step there is a click once per round wherever the rest sits, and the timbre second
     because a loop holding a sound the material has moved on from is the subtler of the two. How far the
-    region's level falls is measured and reported beside them, and it is levelling that answers for it
+    region's level falls is measured and reported beside them, and it is leveling that answers for it
     (:func:`~optisample.dsp.loop.level_loop`), which reads the same curve the drift is read off.
     """
     if quality.seam_step > config.max_seam_step:
@@ -141,7 +141,7 @@ def settle_loop(
     (:func:`~optisample.dsp.loop.loop_search`) and its level read over two of
     (:func:`~optisample.dsp.envelope.level_reading`), so both readings are taken over the stretch this note
     repeats in. One reading serves every candidate, so all of them are measured alike and each region
-    that ends up stored is levelled by the same curve that admitted it.
+    that ends up stored is leveled by the same curve that admitted it.
 
     Candidates are measured over the first ``search_s`` of the recording -- the longest stretch the
     material asks of it -- because a loop ending past that stores more than keeping the played span would

@@ -18,7 +18,7 @@ from optisample.artifacts.ranking.sets import (
 )
 from optisample.artifacts.serialize import write_json
 from optisample.calibrate.ranking import (
-    Judgement,
+    Judgment,
     MetricReadings,
     RankingReport,
     Verdict,
@@ -50,9 +50,9 @@ def _encoding_order(record: RenditionRecord) -> tuple[int, int, int, int]:
     )
 
 
-def _judgement(record: ListeningPairRecord, verdict: Verdict) -> Judgement:
+def _judgment(record: ListeningPairRecord, verdict: Verdict) -> Judgment:
     """One answered question as the report reads it: the verdict signed, and the blinding it was given under."""
-    return Judgement(
+    return Judgment(
         directory=record.directory,
         axis=record.axis,
         question_id=record.question_id,
@@ -122,7 +122,7 @@ def rank_metrics(paths: RankingPaths, composite: CompositeFidelity, progress: Pr
         for record in progress.track(answered, label=_SCORE_LABEL, total=len(answered))
     }
     return ranking_report(
-        [_judgement(record, verdicts[record.directory]) for record in answered],
+        [_judgment(record, verdicts[record.directory]) for record in answered],
         _metric_readings(apart),
         instrument_id=document.instrument_id,
         outstanding=sheet.outstanding,

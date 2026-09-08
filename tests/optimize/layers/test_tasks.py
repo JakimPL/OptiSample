@@ -76,7 +76,7 @@ def test_one_band_over_the_whole_axis_reproduces_the_unlayered_tasks(
     graded_velocity_map: VelocityVolumeMap,
     task_inputs: TaskInputsFactory,
 ) -> None:
-    """The behaviour freeze: a single full-range layer is the plan the optimizer builds today."""
+    """The behavior freeze: a single full-range layer is the plan the optimizer builds today."""
     instrument = _instrument(_both_dynamics())
     expected = build_tasks(instrument, task_inputs(audio, graded_velocity_map))
     layered = band_tasks(instrument, task_inputs(audio, graded_velocity_map), WHOLE_AXIS)

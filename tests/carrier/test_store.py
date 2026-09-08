@@ -91,7 +91,7 @@ def test_the_waveform_is_kept_at_the_depth_asked_for(source: Sourcer, carrier_se
 
 
 def test_the_waveform_is_kept_at_the_rate_asked_for(source: Sourcer, carrier_settings: Settings) -> None:
-    """A stored rate is the caller's, so a set lands on one clock whatever it was analysed at."""
+    """A stored rate is the caller's, so a set lands on one clock whatever it was analyzed at."""
     stored = store_carrier(
         source(),
         NO_ENVELOPE,

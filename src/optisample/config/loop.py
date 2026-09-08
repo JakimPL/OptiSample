@@ -123,7 +123,7 @@ class FrontierConfig(ConfigModel):
 
 
 class EnvelopeConfig(ConfigModel):
-    """How the level a recording holds is read off it, which is the curve levelling and the decay ramp read.
+    """How the level a recording holds is read off it, which is the curve leveling and the decay ramp read.
 
     The weighting spans two periods of the pitch the recording was played at
     (:func:`~optisample.dsp.envelope.power_kernel`), so the power ripple every tone from half of that pitch

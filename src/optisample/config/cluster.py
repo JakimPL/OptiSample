@@ -27,7 +27,7 @@ class FrequencyBasis(StrEnum):
 class LinkageMethod(StrEnum):
     """How far apart two groups stand while a hierarchy is built, which is the shape the groups take.
 
-    ``WARD`` joins the pair adding the least spread, which favours groups of a similar size and a round
+    ``WARD`` joins the pair adding the least spread, which favors groups of a similar size and a round
     shape; ``AVERAGE`` reads the mean distance across a pair and ``COMPLETE`` its widest, which lets a
     long-drawn group hold together and holds a group's diameter down respectively.
     """
@@ -39,7 +39,7 @@ class LinkageMethod(StrEnum):
 
 @unique
 class PartitionAlgorithm(StrEnum):
-    """Which rule cuts the space into groups: a hierarchy read at one height, or a run of moving centres."""
+    """Which rule cuts the space into groups: a hierarchy read at one height, or a run of moving centers."""
 
     HIERARCHICAL = "hierarchical"
     KMEANS = "kmeans"

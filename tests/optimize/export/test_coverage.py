@@ -76,7 +76,7 @@ def test_the_lowest_recording_reaches_the_bottom_key_and_the_highest_the_top(tar
     assert covered[target.key(target.max_pitch)].sample == _SECOND_SAMPLE
 
 
-def test_a_gap_is_split_between_its_neighbours_with_the_tie_going_down(target: ExportTarget) -> None:
+def test_a_gap_is_split_between_its_neighbors_with_the_tie_going_down(target: ExportTarget) -> None:
     """Equally distant recordings hand the key to the lower one, which is the transposition priced for."""
     covered = covered_routing(_routing(target, _LOWEST_PLAYED, _HIGHEST_PLAYED), target)
     midpoint = (_LOWEST_PLAYED + _HIGHEST_PLAYED) // 2

@@ -75,9 +75,9 @@ def test_material_holding_one_sound_moves_slower_than_material_that_travels(
     features_config: FeatureConfig,
 ) -> None:
     held = change_rate(frame_series(_sine(2 * SR), SR, features_config, FREQ), features_config)
-    travelling = change_rate(frame_series(_sweep(2 * SR), SR, features_config, FREQ), features_config)
+    traveling = change_rate(frame_series(_sweep(2 * SR), SR, features_config, FREQ), features_config)
 
-    assert float(np.max(held)) < features_config.settle_db_per_s < float(np.median(travelling))
+    assert float(np.max(held)) < features_config.settle_db_per_s < float(np.median(traveling))
 
 
 def test_a_recording_shorter_than_the_span_states_no_rate_and_settles_at_once(
@@ -94,14 +94,14 @@ def test_a_note_holding_one_sound_settles_at_its_first_frame(features_config: Fe
     assert settling_frame(frame_series(_sine(2 * SR), SR, features_config, FREQ), features_config) == 0
 
 
-def test_a_note_whose_sound_travels_settles_where_it_stops_travelling(features_config: FeatureConfig) -> None:
+def test_a_note_whose_sound_travels_settles_where_it_stops_traveling(features_config: FeatureConfig) -> None:
     """The onset each recording states is its own, so a sound still moving is read as still in its onset."""
-    travelling = _sweep(SR)
-    signal = np.concatenate([travelling, _sine(3 * SR, freq=_TRAVEL_HZ)])
+    traveling = _sweep(SR)
+    signal = np.concatenate([traveling, _sine(3 * SR, freq=_TRAVEL_HZ)])
 
     settled = settling_frame(frame_series(signal, SR, features_config, FREQ), features_config)
 
-    assert travelling.size // 2 < settled < travelling.size + SR // 2
+    assert traveling.size // 2 < settled < traveling.size + SR // 2
 
 
 def test_one_reading_dipping_under_the_threshold_leaves_the_material_unsettled(

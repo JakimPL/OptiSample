@@ -49,7 +49,7 @@ The filenames carry what the manifest would have said. A `p<number>` token state
 `v<number>` token the dynamic, which is how every dataset this project writes names them
 (`0000_p029_v018_cc0-0_cc1-0.wav`, `0000_p029_F1_v018.wav`, `0000_p60_v100.wav`); `cc<number>-<average>`
 tokens carry controller averages. A note name is read where no `p<number>` token appears, so a sample
-library named `C4.wav`, `Bb2.wav`, `Grand_F#3_take.wav` resolves too, in either capitalisation and in
+library named `C4.wav`, `Bb2.wav`, `Grand_F#3_take.wav` resolves too, in either capitalization and in
 either spelling of a black key.
 
 A directory states which keys were recorded and how hard, and says nothing of a song, so **each take is
@@ -331,7 +331,7 @@ the note, which a sweep of the whole pitched range reads instead on **19 of 120*
 wherever the even harmonics run strong. A period read off a finite window then lands between frames, and a
 loop spans a hundred of them, so a whole count of rounded periods drifts part-way through a cycle by the time
 it wraps. The peak of the autocorrelation is read between frames by the parabola through its top three, and
-the end is then chosen within half a period of the whole count by maximising how alike the approach to the
+the end is then chosen within half a period of the whole count by maximizing how alike the approach to the
 end and the approach to the start measure — so the wrap lands on the phase the material left.
 
 **The region is held at one level, and the seam is blended.** A struck note's region falls across itself, so
@@ -375,7 +375,7 @@ optisample reduce looped/Piano.notes.json --budget-kb 96      # picks up from th
 ```
 looped/
   Piano.notes.json                 # one entry per played note, pointing at the recording serving it
-  Piano/0000_p060_C4_v100.wav      # one WAV per recording, exactly as the stage analysed it
+  Piano/0000_p060_C4_v100.wav      # one WAV per recording, exactly as the stage analyzed it
   Piano/0000_p060_C4_v100.sample   # the same recording calibrated: level, carrier and its settled loops
   loops/Piano/
     loops.json                     # the loops each recording offers, and the candidates turned down
@@ -391,7 +391,7 @@ over it, which turns a seam step or a level pulse into a rhythm a listener hears
 
 Beside each WAV the stage writes a `.sample` of the same stem: the recording split into the **level** it
 moves through and the **carrier** that level scales (`dsp/envelope.decompose`), the loops settled over it,
-the pitch it was played at, the rate it was analysed at, and the run that wrote it. It is one msgpack
+the pitch it was played at, the rate it was analyzed at, and the run that wrote it. It is one msgpack
 document — the payloads are little-endian float32, one value per frame, so a curve travels as the bytes it
 already is rather than as a dozen characters a number.
 
@@ -459,7 +459,7 @@ holds its level to the end states no decline and carries no ramp.
 
 The ramp begins at the loop start, which is where the stored material stops following the recording's own
 envelope: the attack sounds as it was recorded, and from there the ramp restores exactly the decline
-levelling erased. Its seconds run on the played timeline, which is the clock a tracker's volume envelope
+leveling erased. Its seconds run on the played timeline, which is the clock a tracker's volume envelope
 runs on, so every key sounding the sample declines over the same stretch of time.
 
 **The written module carries that decline as a volume envelope.** `optimize/export/build.py` gives every
@@ -624,7 +624,7 @@ The map is written out in full where it is abbreviated above: `volumes` is the w
 note's velocity indexes, and `anchors` one record per measured dynamic (`velocity`, `loudness_lufs`,
 `volume`) stating the loudness the fit was made through. It travels inside the bank because each stored
 sample's gain is derived from it (see [Gain staging](#gain-staging-storing-hot-and-getting-the-level-back)),
-which makes the waveforms and the map one calibrated unit — so a bank travelling as a single file keeps a
+which makes the waveforms and the map one calibrated unit — so a bank traveling as a single file keeps a
 layer playing the dynamics its own recordings were written for however it is copied, renamed or handed on.
 Each band states its own velocities rather than the last one catching whatever fell through, so the
 manifest says out loud what the allocation decided. This is what
@@ -732,7 +732,7 @@ note does — `--keep-tail` stores it through that padding instead. Other flags:
 (see below), `--max-layers` the velocity bands a key may store and `--max-samples` how many samples a
 grouped plan may keep.
 
-Each long stage draws a labelled progress bar on stderr, carrying the count it will reach and an ETA, so
+Each long stage draws a labeled progress bar on stderr, carrying the count it will reach and an ETA, so
 a large instrument states how long it needs while it runs:
 
 ```

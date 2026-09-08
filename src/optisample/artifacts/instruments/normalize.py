@@ -159,7 +159,7 @@ def _stated_level(wanted: float, steps: Sequence[Bound]) -> tuple[int, ...]:
 def stored_level(room: float, *, steps: Sequence[Bound]) -> StoredLevel:
     """The level a recording asks for, split between the fields ``steps`` numbers and its own waveform.
 
-    ``room`` is how far the levelled waveform may be scaled up before it meets the headroom it is stored
+    ``room`` is how far the leveled waveform may be scaled up before it meets the headroom it is stored
     under, which is the whole of what playback has to give back. The fields take the lowest level they
     state at or above that, so what is left for the waveform is always a scaling down and the waveform
     stays inside its headroom however coarse a single grid runs near the floor.
@@ -170,7 +170,7 @@ def stored_level(room: float, *, steps: Sequence[Bound]) -> StoredLevel:
     format stating one grid meets the same levels to within a few decibels, which is what its waveform
     gives up.
 
-    A levelled waveform already filling the headroom at the top of every field is stored as hot as that
+    A leveled waveform already filling the headroom at the top of every field is stored as hot as that
     allows and sounds under the level its recording was captured at, which ``gap_db`` states -- a
     recording peaking within a decibel or two of full scale, whose flattened form asks for more than a
     tracker can put out.

@@ -96,7 +96,7 @@ def _zone_demand(range_tasks: Sequence[PitchTask], representative: int) -> ClipD
 
 
 def _capped_ranges(tasks: Sequence[PitchTask], max_semitones: int) -> Iterator[_Range]:
-    """Every run of neighbouring keys spanning at most ``max_semitones``, as half-open index ranges.
+    """Every run of neighboring keys spanning at most ``max_semitones``, as half-open index ranges.
 
     The cap states how far the material lets one recording reach: a wider zone asks a sample to stand in
     further from its root than repitching holds up over, and dropping those ranges is what keeps the

@@ -8,7 +8,7 @@ import numpy as np
 from optisample.cluster.space import Coordinates
 
 _EMPTY: Final = 0.0  # the spread a corpus standing at one point holds
-_PRODUCT_SCALE: Final = -0.5  # what turns double-centred squared distances into the inner products behind them
+_PRODUCT_SCALE: Final = -0.5  # what turns double-centered squared distances into the inner products behind them
 
 
 @dataclass(frozen=True)
@@ -36,16 +36,16 @@ class Embedding:
 def principal_components(coordinates: Coordinates, components: int) -> Embedding:
     """``coordinates`` turned onto the axes carrying most of their spread, the widest first.
 
-    The axes come from the singular value decomposition of the centred matrix, so the layout is settled by
+    The axes come from the singular value decomposition of the centered matrix, so the layout is settled by
     the material alone and one space read twice draws one picture. Distances along the kept axes are the
     space's own distances as far as those axes reach, which has a picture stand for the geometry a
     representative was chosen in.
     """
-    centred = np.asarray(coordinates - coordinates.mean(axis=0), dtype=np.float64)
-    _, strengths, axes = np.linalg.svd(centred, full_matrices=False)
+    centered = np.asarray(coordinates - coordinates.mean(axis=0), dtype=np.float64)
+    _, strengths, axes = np.linalg.svd(centered, full_matrices=False)
     kept = min(components, int(strengths.size))
     return Embedding(
-        coordinates=np.asarray(centred @ axes[:kept].T, dtype=np.float64),
+        coordinates=np.asarray(centered @ axes[:kept].T, dtype=np.float64),
         explained=_shares(np.square(strengths), kept),
     )
 
@@ -53,15 +53,15 @@ def principal_components(coordinates: Coordinates, components: int) -> Embedding
 def classical_scaling(distances: Coordinates, components: int) -> Embedding:
     """Points placed so their distances match ``distances`` as closely as ``components`` dimensions allow.
 
-    Double-centring the squared distances gives the inner products a set of points standing that far apart
+    Double-centering the squared distances gives the inner products a set of points standing that far apart
     would have, and the leading eigenvectors of those products place them. Distances that came from a
     Euclidean space are placed exactly where its principal components put them, up to a turn of the axes,
     so the two layouts read one geometry; distances from anywhere else are placed as near as this space
     reaches.
     """
     samples = int(distances.shape[0])
-    centring = np.eye(samples) - np.full((samples, samples), 1.0 / samples)
-    products = _PRODUCT_SCALE * centring @ np.square(distances) @ centring
+    centering = np.eye(samples) - np.full((samples, samples), 1.0 / samples)
+    products = _PRODUCT_SCALE * centering @ np.square(distances) @ centering
     strengths, axes = np.linalg.eigh(products)
     order = np.argsort(strengths)[::-1]
     carried = np.maximum(strengths[order], _EMPTY)

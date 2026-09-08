@@ -84,7 +84,7 @@ class EventsConfig(ConfigModel):
 
     ``duration_bucket_ratio`` sets geometric bucket edges that each note's held duration rounds up to,
     so one scored event stands for every note of a similar length. A ratio of 1.0 keeps every distinct
-    duration, which is the exact-per-note behaviour.
+    duration, which is the exact-per-note behavior.
     """
 
     duration_bucket_ratio: Annotated[float, Field(ge=1.0)]

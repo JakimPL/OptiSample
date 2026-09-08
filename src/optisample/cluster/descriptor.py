@@ -157,7 +157,7 @@ def _movement(series: FrameSeries, features: FeatureConfig, settled: int) -> Mov
 
     Material still on the move at its last frame leaves no settled span behind it, and the rate is then
     read across the whole curve -- which states what that material held throughout, and is what puts a
-    sound still travelling beside one that arrived somewhere.
+    sound still traveling beside one that arrived somewhere.
     """
     rate = change_rate(series, features)
     sustained = rate[min(settled, rate.size) :]

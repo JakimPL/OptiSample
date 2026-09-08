@@ -20,7 +20,7 @@ from optisample.optimize.tasks import Event, PitchTask
 _PITCHES = (60, 61, 62, 63)
 _PER_KEY_BYTES = 100  # what a zone's stored sample costs for each key it covers
 _PER_KEY_DISTORTION = 1.0  # what covering one more key from the same sample costs the objective
-_WIDE_ZONE_PENALTY = 4.0  # what a key served by a neighbour's recording costs beyond serving itself
+_WIDE_ZONE_PENALTY = 4.0  # what a key served by a neighbor's recording costs beyond serving itself
 _GENEROUS = 100_000
 _CHEAP_KEY = 10  # what a key of a zone costs where the budget is small enough to search to the byte
 _TIGHT = 254  # a budget whose charge window the refinements run all the way down

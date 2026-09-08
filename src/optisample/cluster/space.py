@@ -105,8 +105,8 @@ def standardize(values: Coordinates) -> Coordinates:
     """
     spread = values.std(axis=0)
     steady = spread > _NO_SPREAD
-    centred = values - values.mean(axis=0)
-    return np.asarray(np.where(steady, centred / np.where(steady, spread, 1.0), _NO_SPREAD), dtype=np.float64)
+    centered = values - values.mean(axis=0)
+    return np.asarray(np.where(steady, centered / np.where(steady, spread, 1.0), _NO_SPREAD), dtype=np.float64)
 
 
 def mean_pairwise_square(values: Coordinates) -> float:

@@ -102,7 +102,7 @@ def test_notes_sharing_a_reference_and_a_volume_are_scored_once(
     task = build_tasks(_instrument(material), task_inputs(audio, flat_velocity_map, reduce=exact))[0]
     assert len(task.events) == 1
     assert task.events[0].weight == pytest.approx(1.5)  # the two notes' playing time added up
-    assert task.events[0].velocity == 100  # the class is labelled by the loudest note it covers
+    assert task.events[0].velocity == 100  # the class is labeled by the loudest note it covers
 
 
 def test_duration_bucketing_scores_similar_lengths_as_one_class(

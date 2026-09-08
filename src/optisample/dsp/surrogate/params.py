@@ -18,7 +18,7 @@ POST_LOOP_DROPPED: Final = False  # a priced encoding stores the attack and the 
 class SettledLoop:
     """The loop a clip is stored around and the decline it goes on making past it.
 
-    Settled before any encoding runs, on the recording at the rate it was analysed at, so every copy of the
+    Settled before any encoding runs, on the recording at the rate it was analyzed at, so every copy of the
     clip reaches the same region of the material: :func:`~optisample.dsp.loop.loop_at_rate` scales the
     bounds onto whatever rate a copy is stored at. ``level`` is the curve a note held past the stored span
     sounds at (:func:`~optisample.dsp.loop.loop_decline`), which is how the level a loop repeats comes down

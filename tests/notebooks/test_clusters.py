@@ -15,15 +15,15 @@ _BLOCKS = 4  # readings a space is assembled from, each laying down a span of it
 _WHOLE = 1.0  # what the shares of the spread come to between them
 _QUIETEST = 0.25  # the saturation the softest take is drawn at
 _LOUDEST = 1.0  # the saturation the hardest-struck take fills
-_CHANNEL = 255  # what one colour channel is spelled out of in a hex triplet
-_HEX_TRIPLET = 7  # characters a colour is spelled in, the hash and the three channels
+_CHANNEL = 255  # what one color channel is spelled out of in a hex triplet
+_HEX_TRIPLET = 7  # characters a color is spelled in, the hash and the three channels
 _MIDDLE_C = 60
 _TOP_VELOCITY = 127
 
 
-def _hsv(colour: str) -> tuple[float, float, float]:
-    """A drawn colour read back as the hue, the saturation and the value a key turned it to."""
-    channels = (int(colour[place : place + 2], 16) / _CHANNEL for place in (1, 3, 5))
+def _hsv(color: str) -> tuple[float, float, float]:
+    """A drawn color read back as the hue, the saturation and the value a key turned it to."""
+    channels = (int(color[place : place + 2], 16) / _CHANNEL for place in (1, 3, 5))
     return rgb_to_hsv(*channels)
 
 
@@ -41,11 +41,11 @@ def test_group_names_sort_into_keyboard_order() -> None:
     assert sorted(names) == names
 
 
-def test_a_groups_colour_turns_with_its_pitch_and_fills_with_its_velocity() -> None:
-    """The keyboard read as colour: where a group sits sets the hue and how hard it was struck fills it in."""
-    low = _hsv(clusters.group_colour(SampleKey(pitch=24, velocity=_TOP_VELOCITY)))
-    high = _hsv(clusters.group_colour(SampleKey(pitch=96, velocity=_TOP_VELOCITY)))
-    soft = _hsv(clusters.group_colour(SampleKey(pitch=24, velocity=0)))
+def test_a_groups_color_turns_with_its_pitch_and_fills_with_its_velocity() -> None:
+    """The keyboard read as color: where a group sits sets the hue and how hard it was struck fills it in."""
+    low = _hsv(clusters.group_color(SampleKey(pitch=24, velocity=_TOP_VELOCITY)))
+    high = _hsv(clusters.group_color(SampleKey(pitch=96, velocity=_TOP_VELOCITY)))
+    soft = _hsv(clusters.group_color(SampleKey(pitch=24, velocity=0)))
 
     assert low[0] < high[0]
     assert low[1] == pytest.approx(_LOUDEST, abs=1e-2)
@@ -53,17 +53,17 @@ def test_a_groups_colour_turns_with_its_pitch_and_fills_with_its_velocity() -> N
     assert soft[0] == pytest.approx(low[0], abs=1e-2)
 
 
-def test_the_softest_take_keeps_a_colour_of_its_own() -> None:
+def test_the_softest_take_keeps_a_color_of_its_own() -> None:
     """The saturation opens a quarter of the way up, which is what tells quiet groups apart from each other."""
-    quiet = [clusters.group_colour(SampleKey(pitch=pitch, velocity=1)) for pitch in (24, 60, 96)]
+    quiet = [clusters.group_color(SampleKey(pitch=pitch, velocity=1)) for pitch in (24, 60, 96)]
 
     assert len(set(quiet)) == len(quiet)
-    assert all(len(colour) == _HEX_TRIPLET and colour.startswith("#") for colour in quiet)
+    assert all(len(color) == _HEX_TRIPLET and color.startswith("#") for color in quiet)
 
 
-def test_one_key_is_drawn_the_same_colour_wherever_it_is_read() -> None:
-    """The colour is read off the key alone, so a stage, a cut and a dataset all draw that key alike."""
-    assert clusters.group_colour(SampleKey(pitch=_MIDDLE_C, velocity=100)) == clusters.group_colour(
+def test_one_key_is_drawn_the_same_color_wherever_it_is_read() -> None:
+    """The color is read off the key alone, so a stage, a cut and a dataset all draw that key alike."""
+    assert clusters.group_color(SampleKey(pitch=_MIDDLE_C, velocity=100)) == clusters.group_color(
         SampleKey(pitch=_MIDDLE_C, velocity=100)
     )
 
@@ -101,16 +101,16 @@ def test_groups_stood_for_by_one_key_are_told_apart_by_their_names(clustered: Cl
 def test_a_named_group_carries_the_cut_it_was_read_off(clustered: Clustered) -> None:
     """Naming is what the panels add to a cut, so the group behind a name is the one the space settled."""
     assert all(named.group is group for named, group in zip(clustered.named, clustered.groups, strict=True))
-    assert clusters.group_colours(clustered.named) == {group.name: group.colour for group in clustered.named}
+    assert clusters.group_colors(clustered.named) == {group.name: group.color for group in clustered.named}
 
 
-def test_a_group_is_named_and_coloured_by_the_take_standing_for_it(clustered: Clustered) -> None:
-    """The word and the colour both come off the representative, so a legend says what a reader will hear."""
+def test_a_group_is_named_and_colored_by_the_take_standing_for_it(clustered: Clustered) -> None:
+    """The word and the color both come off the representative, so a legend says what a reader will hear."""
     for named in clustered.named:
         key = clustered.described.recordings[named.group.representative].key
 
         assert named.name == clusters.group_name(key)
-        assert named.colour == clusters.group_colour(key)
+        assert named.color == clusters.group_color(key)
 
 
 def test_every_recording_gets_one_row_naming_the_group_it_fell_into(clustered: Clustered) -> None:
@@ -127,7 +127,7 @@ def test_every_recording_gets_one_row_naming_the_group_it_fell_into(clustered: C
 
 
 def test_a_gathered_space_reads_every_point_back_to_the_set_it_came_from(gathered: Clustered) -> None:
-    """One field holds several sets, so every point carries the column a reader colours and filters them by."""
+    """One field holds several sets, so every point carries the column a reader colors and filters them by."""
     rows = clusters.point_rows(gathered.described, gathered.named, gathered.distances)
 
     assert len(rows) == gathered.described.size

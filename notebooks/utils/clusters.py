@@ -28,11 +28,11 @@ _LOG_BASE: Final = 10.0  # what the anchor times are stated in logs of, which re
 _NO_SPREAD: Final = 0.0  # the spread a set of readings standing at one point holds
 _REPRESENTATIVE: Final = "representative"  # what the member a group is stood for by is listed as
 _MEMBER: Final = "member"  # what every other recording of a group is listed as
-_HUE_SPAN: Final = 1.0  # of the colour wheel the keyboard is laid across, which holds its two ends apart
-_QUIETEST: Final = 0.25  # the saturation the softest take is drawn at, so a quiet group is still a colour
+_HUE_SPAN: Final = 1.0  # of the color wheel the keyboard is laid across, which holds its two ends apart
+_QUIETEST: Final = 0.25  # the saturation the softest take is drawn at, so a quiet group is still a color
 _LOUDEST: Final = 1.0  # the saturation the hardest-struck take fills, the velocity spanning what lies between
 _BRIGHTNESS: Final = 0.9  # the value a group is drawn at, one step under white so a light page holds it
-_CHANNEL: Final = 255  # what one colour channel is spelled out of in a hex triplet
+_CHANNEL: Final = 255  # what one color channel is spelled out of in a hex triplet
 _ONE_HOLDER: Final = 1  # groups a key stands for while its name still needs no number
 
 
@@ -66,13 +66,13 @@ def sources_label(sources: Sequence[RecordingSource]) -> str:
     return " + ".join(source.label for source in sources)
 
 
-def group_colour(key: SampleKey) -> str:
-    """The colour a group is drawn in, turned and filled by the key the take standing for it plays.
+def group_color(key: SampleKey) -> str:
+    """The color a group is drawn in, turned and filled by the key the take standing for it plays.
 
     Pitch turns the hue and velocity fills the saturation, so a picture carries the keyboard in its
-    colours: where a group sits on the keys and how hard its takes were struck are both read off the field
-    at a glance, and one key is drawn the same colour in every picture, at every stage and across datasets.
-    The saturation opens a quarter of the way up, which leaves the softest takes a colour of their own to
+    colors: where a group sits on the keys and how hard its takes were struck are both read off the field
+    at a glance, and one key is drawn the same color in every picture, at every stage and across datasets.
+    The saturation opens a quarter of the way up, which leaves the softest takes a color of their own to
     be told apart by, and the hue is laid across most of the wheel, which keeps the top of the keyboard
     clear of the bottom.
     """
@@ -84,20 +84,20 @@ def group_colour(key: SampleKey) -> str:
 
 @dataclass(frozen=True)
 class NamedGroup:
-    """One cut group as the panels read it: the group itself, the word it goes by and the colour it holds.
+    """One cut group as the panels read it: the group itself, the word it goes by and the color it holds.
 
-    ``name`` and ``colour`` are both read off the take standing for the group, so a legend entry, a table
+    ``name`` and ``color`` are both read off the take standing for the group, so a legend entry, a table
     cell, a dropdown option and a ring over the field all name one group by the key a reader is about to
     hear, and moving the cut moves every one of them together.
     """
 
     group: Group
     name: str
-    colour: str
+    color: str
 
 
 def named_groups(described: DescribedCorpus, groups: Sequence[Group]) -> tuple[NamedGroup, ...]:
-    """Every group beside the word it goes by and the colour it is drawn in, in the order they were cut.
+    """Every group beside the word it goes by and the color it is drawn in, in the order they were cut.
 
     Two groups can be stood for by takes of one key -- a corpus holding several renditions of a note
     places them apart, and a cut can hand each its own group -- so the second holder of a name onward
@@ -115,16 +115,16 @@ def named_groups(described: DescribedCorpus, groups: Sequence[Group]) -> tuple[N
             NamedGroup(
                 group=group,
                 name=spelling if held <= _ONE_HOLDER else f"{spelling}#{held}",
-                colour=group_colour(key),
+                color=group_color(key),
             )
         )
 
     return tuple(named)
 
 
-def group_colours(groups: Sequence[NamedGroup]) -> dict[str, str]:
-    """The colour each group is drawn in, under the word it goes by, as one picture reads them all."""
-    return {named.name: named.colour for named in groups}
+def group_colors(groups: Sequence[NamedGroup]) -> dict[str, str]:
+    """The color each group is drawn in, under the word it goes by, as one picture reads them all."""
+    return {named.name: named.color for named in groups}
 
 
 def _group_of(groups: Sequence[NamedGroup], samples: int) -> tuple[int, ...]:
@@ -142,7 +142,7 @@ def point_rows(described: DescribedCorpus, groups: Sequence[NamedGroup], distanc
 
     These are the rows the scatter hovers and the member tables list, so a point picked off the picture and
     a line read out of a table say the same things about the same take. ``set`` names the source the take
-    came from, which is what colours a gathered space by the sets it holds and tells two of them apart on a
+    came from, which is what colors a gathered space by the sets it holds and tells two of them apart on a
     field they now share.
     """
     placed = _group_of(groups, described.size)
@@ -309,7 +309,7 @@ def reach_rows(
 ) -> list[Row]:
     """How far one recording stands from every group, so the company it nearly kept reads beside its own.
 
-    A take sitting almost as close to a neighbouring group as to its own is where a cut is finely balanced,
+    A take sitting almost as close to a neighboring group as to its own is where a cut is finely balanced,
     which is what says whether one more group would tell this corpus apart better.
     """
     reach = distances[place]

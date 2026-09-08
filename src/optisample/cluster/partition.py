@@ -19,8 +19,8 @@ _MIN_GROUPS: Final = 2  # groups a separation is read across at the fewest
 _ALONE: Final = 1  # members a group holds when its recording keeps its own company
 _NO_SEPARATION: Final = 0.0  # what a cut with nothing to compare against states
 _MAXCLUST: Final = "maxclust"  # scipy's rule for reading a hierarchy at the height leaving a count standing
-_KMEANS_INIT: Final = "++"  # scipy's spread-out seeding, which opens the centres far apart across the material
-_KMEANS_ROUNDS: Final = 50  # passes the centres are moved over, ample for a corpus of a few hundred takes
+_KMEANS_INIT: Final = "++"  # scipy's spread-out seeding, which opens the centers far apart across the material
+_KMEANS_ROUNDS: Final = 50  # passes the centers are moved over, ample for a corpus of a few hundred takes
 
 
 @dataclass(frozen=True)
@@ -57,11 +57,11 @@ def cut(tree: Tree, groups: int) -> Labels:
     return compact(np.asarray(fcluster(tree, t=groups, criterion=_MAXCLUST), dtype=np.intp))
 
 
-def centres(coordinates: Coordinates, groups: int) -> Labels:
-    """The groups ``coordinates`` fall into around ``groups`` centres moved until they settle.
+def centers(coordinates: Coordinates, groups: int) -> Labels:
+    """The groups ``coordinates`` fall into around ``groups`` centers moved until they settle.
 
-    The centres open spread out across the material and the run dithers from :data:`DEFAULT_SEED`, so one
-    space read twice states one cut. A centre that draws members away from every other leaves the cut
+    The centers open spread out across the material and the run dithers from :data:`DEFAULT_SEED`, so one
+    space read twice states one cut. A center that draws members away from every other leaves the cut
     holding the groups that kept theirs.
     """
     _, labels = kmeans2(
@@ -127,7 +127,7 @@ def sweep(coordinates: Coordinates, config: PartitionConfig) -> tuple[Partition,
             return tuple(_scored(cut(tree, groups), distances) for groups in counts)
 
         case PartitionAlgorithm.KMEANS:
-            return tuple(_scored(centres(coordinates, groups), distances) for groups in counts)
+            return tuple(_scored(centers(coordinates, groups), distances) for groups in counts)
 
 
 def _labels(coordinates: Coordinates, *, groups: int, config: PartitionConfig) -> Labels:
@@ -137,7 +137,7 @@ def _labels(coordinates: Coordinates, *, groups: int, config: PartitionConfig) -
             return cut(hierarchy(coordinates, config.linkage), groups)
 
         case PartitionAlgorithm.KMEANS:
-            return centres(coordinates, groups)
+            return centers(coordinates, groups)
 
 
 def _scored(labels: Labels, distances: Coordinates) -> Partition:

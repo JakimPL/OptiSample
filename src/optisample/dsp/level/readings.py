@@ -32,7 +32,7 @@ class DecayTrend:
 
 
 def level_readings(signal: Signal, sample_rate: int, *, window_s: float) -> Readings:
-    """``signal``'s level in decibels, read in whole ``window_s`` windows, beside the moment each centres on.
+    """``signal``'s level in decibels, read in whole ``window_s`` windows, beside the moment each centers on.
 
     Reading the level this way leaves the material's envelope in the series and the phase of its waveform
     out of it, which is what a line or a curve is drawn through. The window length is the caller's because

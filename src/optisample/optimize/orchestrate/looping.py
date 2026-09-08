@@ -70,7 +70,7 @@ def settle_run_loops(
     workers: int,
     progress: ProgressSink,
 ) -> LoopedInstrument:
-    """Settle the loop of every recording a run holds, at the rate the run analyses them at.
+    """Settle the loop of every recording a run holds, at the rate the run analyzes them at.
 
     Runs on the loaded audio, so the frames a loop names index into exactly the recordings the sweep goes on
     to encode and the stages after this one only ever shorten them.

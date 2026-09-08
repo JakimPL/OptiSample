@@ -17,7 +17,7 @@ _LOUD_GAIN = 4.0  # the gain a copy of a take is captured at, a power of two so 
 
 
 def test_each_partial_is_read_in_a_band_of_its_own(descriptor_config: DescriptorConfig) -> None:
-    """Half a pitch either side tiles the spectrum, so neighbouring partials stay told apart."""
+    """Half a pitch either side tiles the spectrum, so neighboring partials stay told apart."""
     bands = harmonic_bands(SR, PARAMS, ROOT_HZ, descriptor_config)
 
     assert len(bands) == descriptor_config.harmonics

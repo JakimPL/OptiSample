@@ -51,7 +51,7 @@ def pareto_frontier(points: Sequence[_RDPointT]) -> list[_RDPointT]:
 
 
 def _hull_pop(frontier: Sequence[_RDPointT]) -> list[_RDPointT]:
-    """Pass 2 -- convex-hull pop: drop Pareto points that sit above the chord of their neighbours.
+    """Pass 2 -- convex-hull pop: drop Pareto points that sit above the chord of their neighbors.
 
     Walking the byte-ordered frontier, a point whose incoming slope is no steeper than the previous
     edge's marks a concave kink; pop the middle point until every successive edge gets strictly

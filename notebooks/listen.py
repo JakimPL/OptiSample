@@ -17,9 +17,9 @@ def _():
 
     import marimo as mo
 
-    from notebooks.utils import labelling
+    from notebooks.utils import labeling
 
-    return Path, labelling, mo, root
+    return Path, labeling, mo, root
 
 
 @app.cell
@@ -63,11 +63,11 @@ def _(mo):
 
 
 @app.cell
-def _(Path, instrument, labelling, listening_root, mo, set_place, set_session):
+def _(Path, instrument, labeling, listening_root, mo, set_place, set_session):
     def _open(_value):
-        opened = labelling.open_session(Path(listening_root.value), instrument.value)
+        opened = labeling.open_session(Path(listening_root.value), instrument.value)
         set_session(opened)
-        set_place(labelling.first_open(opened))
+        set_place(labeling.first_open(opened))
 
     open_button = mo.ui.button(label="open the set", on_click=_open)
     open_button
@@ -75,13 +75,13 @@ def _(Path, instrument, labelling, listening_root, mo, set_place, set_session):
 
 
 @app.cell
-def _(get_place, get_session, labelling, mo):
+def _(get_place, get_session, labeling, mo):
     session = get_session()
     place = get_place()
     mo.stop(session is None, mo.md("*Open a set to begin.*"))
     mo.md(
         f"**{place + 1} of {session.total}** — `{session.directories[place]}`  \n"
-        f"{labelling.session_summary(session)}"
+        f"{labeling.session_summary(session)}"
     )
     return place, session
 
@@ -106,18 +106,18 @@ def _(mo, place, session):
 
 
 @app.cell
-def _(labelling, mo, place, session):
+def _(labeling, mo, place, session):
     _label = session.label(place)
-    _verdicts = labelling.verdict_choices()
-    _faults = labelling.fault_choices()
+    _verdicts = labeling.verdict_choices()
+    _faults = labeling.fault_choices()
     verdict = mo.ui.dropdown(
         options=list(_verdicts),
-        value=labelling.choice_label(_verdicts, _label.verdict),
+        value=labeling.choice_label(_verdicts, _label.verdict),
         label="closer to the reference",
     )
     fault = mo.ui.dropdown(
         options=list(_faults),
-        value=labelling.choice_label(_faults, _label.fault),
+        value=labeling.choice_label(_faults, _label.fault),
         label="what the rejected side does wrong",
     )
     note = mo.ui.text(value=_label.note, label="note", full_width=True)
@@ -126,17 +126,17 @@ def _(labelling, mo, place, session):
 
 
 @app.cell
-def _(fault, labelling, mo, note, place, session, set_place, set_session, verdict):
+def _(fault, labeling, mo, note, place, session, set_place, set_session, verdict):
     def _answer(_value):
-        answered = labelling.answer(
+        answered = labeling.answer(
             session,
             place,
-            verdict=labelling.verdict_choices()[verdict.value],
-            fault=labelling.fault_choices()[fault.value],
+            verdict=labeling.verdict_choices()[verdict.value],
+            fault=labeling.fault_choices()[fault.value],
             note=note.value,
         )
         set_session(answered)
-        set_place(labelling.following(answered, place))
+        set_place(labeling.following(answered, place))
 
     def _step(offset):
         set_place((place + offset) % session.total)

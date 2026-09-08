@@ -163,7 +163,7 @@ from a brass whose does not. This is what keeps the knob instrument-aware instea
 stored rate.
 
 **Levers.** `--rate-headroom` opens the rungs, `--discard-penalty` prices them; both default to the
-behaviour that prices a rung on the metrics alone.
+behavior that prices a rung on the metrics alone.
 
 ## 4. Bit depth: what 8 bits costs, and how to refuse it
 
@@ -220,7 +220,7 @@ covers, scaled by how much faster that key plays the sample. A zone whose keys h
 long sample; a zone whose keys hold blips stores 0.13 s.
 
 **A handful of held notes can set the length for the whole plan.** The measured material has a median note
-of **0.674 s** — and five notes, all at low velocity, held for **99 to 106 seconds** (pedalled, at pitches
+of **0.674 s** — and five notes, all at low velocity, held for **99 to 106 seconds** (pedaled, at pitches
 62, 69, 71, 76 and 88). Those five are why three zones asked for 68, 86 and 108 seconds of stored audio,
 were capped at ten, and then stored every second of it at the format their band asked for. Measured on the two
 samples they produced, the peak envelope falls 30 dB below its own peak within 2.3–4.0 s and 50 dB below it
@@ -330,11 +330,11 @@ Three things read as "a tail after the piano decays":
    recording reached and releasing to silence over `export.envelope.release_s`. Because a format gives the
    envelope to the instrument rather than the sample, the samples in one written slot share the median
    decline among them; `envelope_drift_db` in `plan.json` states what that costs the worst-served sample.
-3. **A neighbouring note inside the take.** One 10.16 s source take decays to −52 dB and then re-attacks to
+3. **A neighboring note inside the take.** One 10.16 s source take decays to −52 dB and then re-attacks to
    −19 dB, 0.29 s before it ends — the following event in the performance, captured inside this note's take.
    the 10 s cap in force at the time cut right at that onset, so the stored sample ended *on* the
    transient. Where takes overlap like this, a length cap is also a content decision: the 5 s cap now
-   shipped keeps the note and leaves the neighbour out.
+   shipped keeps the note and leaves the neighbor out.
 
 **Levers.** Which loop a sample repeats is settled by the loop stage (§8a), so the grid offers the settled
 loop beside the trimmed sample and a loop is bought only where the objective prefers it to storing the
@@ -355,7 +355,7 @@ an operating point the allocation buys rather than a decision taken ahead of it.
   series of log-mel frames spanning `window_periods: 3` periods of its own pitch (floored at
   `min_window_s: 0.023`, so the highest notes still carry a spectrum), each frame stated past the level it
   was played at, and the window opens where that shape slows to `settle_db_per_s: 15.0` and holds there for
-  `change_span_s: 0.2`. Reading the travel across a span rather than between neighbouring frames is what
+  `change_span_s: 0.2`. Reading the travel across a span rather than between neighboring frames is what
   holds the rate a note sustains at within 7.3-14.3 dB/s across the keyboard, which is why one threshold can
   answer for every note: set it just above that and what it excludes is the transient. On 60 real Piano
   recordings the onset lands at a median 109 ms and runs from the first frame out to half a second, against
@@ -403,9 +403,9 @@ an operating point the allocation buys rather than a decision taken ahead of it.
   Which of those two settings is right is an ear's decision rather than a measurement's: a wrap holding a
   timbre 18 dB from what it stands in for is only inaudible because the seam is blended across bands, so
   audition the cheap end (`auditions/looped0.wav`) before trusting it. How far a
-  region's level falls across it is measured and reported beside them; levelling answers for it directly,
-  and on 187 real offers the worst fall was 9.6 dB against the +12 dB levelling reaches.
-- **`loop/envelope.yaml`** states how the level a recording holds is read, which is the curve levelling
+  region's level falls across it is measured and reported beside them; leveling answers for it directly,
+  and on 187 real offers the worst fall was 9.6 dB against the +12 dB leveling reaches.
+- **`loop/envelope.yaml`** states how the level a recording holds is read, which is the curve leveling
   divides a region by and the level the fitted decay falls from. The weighting spans two periods of the
   note's own pitch, so a tone from half of that upward reads as the level it holds and a high note is
   followed as closely as the one below it. `lowest_hz: 25.0` and `highest_hz: 100.0` bound the frequency it
@@ -451,7 +451,7 @@ unlooped read apart — one the gates turned down, one they never saw.
 `1_looped/loops/<id>/auditions/` holds each offer played out against its recording as
 `looped<n>.wav`, which is the by-ear reading of the length axis the allocation prices.
 
-### 8b. What the composite says about levelling
+### 8b. What the composite says about leveling
 
 On the 62-note Piano slice at 128 KiB the plan is the same however wide the level weighting is set — the
 same 23 zones, the same 18 loops — and the objective moves monotonically with the width. (These readings
@@ -459,13 +459,13 @@ were taken before loop length became a priced axis, so the baseline has since mo
 the width ordering is a property of the composite and is unchanged by that.) Held at one frequency for
 every note: 6.25 Hz reads 1.2323, 25 Hz reads 1.2381, 40 Hz reads 1.2423, 200 Hz reads 1.2876.
 A 6.25 Hz weighting spans 320 ms — more than three times a 0.1 s loop region — so the level it reads over
-the region is near enough constant that levelling is close to a no-op, and that is the setting the composite
+the region is near enough constant that leveling is close to a no-op, and that is the setting the composite
 scores highest. Seeding the weighting from the note's own pitch reads 1.2455, which is the sharpest
-levelling of the lot and the worst score bar 200 Hz.
+leveling of the lot and the worst score bar 200 Hz.
 
-The composite compares a stored sample against the recording over the span the sample holds, and levelling
+The composite compares a stored sample against the recording over the span the sample holds, and leveling
 moves the stored waveform away from the recording on purpose: the pulse it removes is heard on the second
-round of a loop, past everything the composite looks at. So a levelling knob tuned to this objective tunes
+round of a loop, past everything the composite looks at. So a leveling knob tuned to this objective tunes
 toward leaving the pulse in. The shipped band is chosen from the material instead — two periods of the note
 being what averages its power ripple away — and it cuts the measured wrap pulse 2.6× against one weighting
 for every note alike. The auditions under `1_looped/` are where the question is actually settled.
@@ -507,7 +507,7 @@ were and the ceiling carries the change.
 
 `attack_share` and `release_share` are shares of the reach the level detector already spans, so they
 follow each recording's own pitch rather than a span fixed for every note alike. The detector reads a
-frame from the material centred on it, and an attack under `1.0` spends that lookahead by opening the hold
+frame from the material centered on it, and an attack under `1.0` spends that lookahead by opening the hold
 before the peak lands — the sub-unit attack that makes the pass hold a transient rather than follow it.
 On this material they measure neutral (crest within 0.01 across `0.0/0.0` through `0.5/4.0`), because the
 detector's reach already covers the timescale the remainder moves on; they are there for material whose
@@ -557,7 +557,7 @@ as the format numbers. Each extra sample is charged a reserve, so the run states
 | `--rate-headroom` | CLI (`optimize/sweep.yaml: rate_headroom`) | Band is not among the things the budget can buy. Offers each span at rungs above the one its content settled on; `0` prices the settled rung alone. Pair it with `--discard-penalty`, which is what makes a wider rung win. |
 | `--discard-penalty` | CLI (`reduce/bandwidth.yaml`) | **The knob that trades sample count for band.** Samples score well and sound dull, and spare budget goes unspent. Charges distortion per octave of spectrum a rung gives up, so the allocation buys a wider one and pays by storing fewer and wider samples. Instrument-aware: material that genuinely ends low is charged nothing. See §3a. |
 | `reduce.bandwidth.discard_floor_db` | `reduce/bandwidth.yaml` | The penalty charges too much or too little across the board. It is the floor the *charge* is read at, sitting at or below `content_floor_db`; the gap between them is the band being priced. |
-| `reduce.grouping.max_zone_semitones` | `reduce/grouping.yaml` | Repitching artefacts across a zone. |
+| `reduce.grouping.max_zone_semitones` | `reduce/grouping.yaml` | Repitching artifacts across a zone. |
 | `--max-layers` | CLI (`optimize/layers.yaml`) | Dynamics matter more (or less) than fidelity per note. |
 | `dedupe.transposition_headroom_semitones` | `reduce/dedupe.yaml` | Survivors are longer than the music needs. |
 | `reduce.events.duration_bucket_ratio` | `reduce/events.yaml` | Samples are cut mid-decay and click. |
@@ -574,11 +574,11 @@ as the format numbers. Each extra sample is charged a reserve, so the run states
 | `loop.phase.snap_periods`, `loop.phase.match_periods` | `loop/phase.yaml` | A wrap lands off-phase — the seam blends level but the waveform steps. |
 | `loop.seam.fade_share`, `loop.seam.min_fade_s` | `loop/seam.yaml` | The wrap is continuous but audible as a texture change. |
 | `loop.seam.crossovers_hz`, `loop.seam.crossover_octaves` | `loop/seam.yaml` | A wrap thins or dulls one part of the spectrum while the rest comes through. |
-| `loop.envelope.highest_hz` | `loop/envelope.yaml` | A held note pulses at the loop's rate, or a levelled region wavers where the recording was steady. |
+| `loop.envelope.highest_hz` | `loop/envelope.yaml` | A held note pulses at the loop's rate, or a leveled region wavers where the recording was steady. |
 | `loop.geometry.detune_semitones` | `loop/geometry.yaml` | A recording that is in tune loops well and one recorded off-pitch settles no loop at all. |
 | `export.envelope.release_s` | `export/envelope.yaml` | A released note is cut off abruptly, or hangs on after the key is let go. |
 | `export.instruments.compression.threshold_db`, `.ratio` | `export/instruments.yaml` | A clustered instrument's samples sound quiet for the depth they are stored at, one take of a band sitting far under the rest. Lower the threshold to catch more of what the shared curve missed; raise the ratio to hold it further down. A ratio of `1.0` stores each waveform exactly as the curve before it left it. |
-| `export.instruments.compression.attack_share`, `.release_share` | `export/instruments.yaml` | Transients still set the peak, so the depth is spent on them. Both are shares of the reach the level detector already spans, so they follow each recording's own pitch: the detector reads a frame from the material centred on it, and an attack under `1.0` spends that lookahead by opening the hold before the peak lands. `0.25` with a release of `4.0` is limiter behaviour — in ahead of the transient, out slowly enough that the level settles once. Shares of `0.0` state the curve on its own, which is how the pass behaved before the two were added. |
+| `export.instruments.compression.attack_share`, `.release_share` | `export/instruments.yaml` | Transients still set the peak, so the depth is spent on them. Both are shares of the reach the level detector already spans, so they follow each recording's own pitch: the detector reads a frame from the material centered on it, and an attack under `1.0` spends that lookahead by opening the hold before the peak lands. `0.25` with a release of `4.0` is limiter behavior — in ahead of the transient, out slowly enough that the level settles once. Shares of `0.0` state the curve on its own, which is how the pass behaved before the two were added. |
 | `export.instruments.compression.ceiling_db` | `export/instruments.yaml` | **The knob that moves this pass.** No frame is left standing further over the body of the material than this, whatever the ratio alone would pass. The level it acts on is already smooth, so the wall moves smoothly and leaves the waveform inside a cycle as it stands. See §8c for what each setting measures. |
 | `export.instruments.post_loop` | `export/instruments.yaml` | The instrument files a run writes carry the whole take, with the loop set inside it — delete the loop in a tracker and the recording plays on. Turn it off (or pass `--no-post-loop`) to end each file at the loop instead, which is what a set headed straight for a sampler with no editing wants. A player sounds the two identically; only the file size differs, and the module's own budget is untouched either way. |
 

@@ -209,7 +209,7 @@ def _settled_value(index: int, ticks: Series, values: Series, target_db: Series,
     """The step the node at ``index`` holds to run the played curve closest to the shape it stands for.
 
     Moving one node reaches only the two straight runs meeting at it, so the choice is priced over that
-    stretch alone and every step the grid offers is tried on it. A node its neighbours leave no moment
+    stretch alone and every step the grid offers is tried on it. A node its neighbors leave no moment
     between stays where it is, there being nothing there to price it against.
     """
     opening, closing = max(index - 1, 0), min(index + 1, values.size - 1)

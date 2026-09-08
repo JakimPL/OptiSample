@@ -178,9 +178,9 @@ def test_a_pitch_taking_two_notes_takes_its_quietest_and_its_loudest(source: Pat
 def test_a_subset_smaller_than_the_keyboard_spreads_the_pitches_it_keeps(source: Path) -> None:
     notes = _manifest(source).notes
     kept = [notes[position].pitch for position in select_positions(notes, 3 / _TOTAL)]
-    centre = (_PITCHES[0] + _PITCHES[-1]) / 2.0
+    center = (_PITCHES[0] + _PITCHES[-1]) / 2.0
     assert (kept[0], kept[-1]) == (_PITCHES[0], _PITCHES[-1])
-    assert abs(kept[1] - centre) <= 1.0
+    assert abs(kept[1] - center) <= 1.0
 
 
 def _lopsided() -> list[ManifestNote]:

@@ -56,7 +56,7 @@ def test_a_held_source_keeps_everything_but_its_level(source: Sourcer, config: O
 def test_a_take_standing_apart_from_the_shared_curve_is_held_back_to_it(
     source: Sourcer, carrier_settings: Settings
 ) -> None:
-    """One take carrying a burst its neighbours do not is what a single shared curve has no room to state."""
+    """One take carrying a burst its neighbors do not is what a single shared curve has no room to state."""
     apart, *rest = [source(pitch=ROOT_PITCH, spike_db=_SPIKE_DB)] + [source(pitch=ROOT_PITCH + step) for step in (2, 4)]
     restated, *others = _held([apart, *rest], carrier_settings())
 

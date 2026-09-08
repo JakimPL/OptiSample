@@ -62,7 +62,7 @@ class BudgetConfig(ConfigModel):
 
     ``max_samples`` is the most stored samples a plan may keep, which pitch-zone grouping meets by
     storing wider zones; :data:`EVERY_SAMPLE` keeps as many as the target format numbers. The cap is the
-    grouped strategy's to honour, the ungrouped one keeping a recording per key it plays.
+    grouped strategy's to honor, the ungrouped one keeping a recording per key it plays.
 
     ``resolution`` is the most byte totals a partition walk resolves a budget into
     (:func:`~optisample.optimize.dp.byte_grid`). The walk holds a row per total it can reach, so this is

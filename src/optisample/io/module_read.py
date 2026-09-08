@@ -35,7 +35,7 @@ def _parse_name(stem: str) -> tuple[int, str]:
 def read_module_samples(path: Path | str) -> list[RippedSample]:
     """Extract every sample from ``path`` with xmodits and return them as float PCM, ordered by index.
 
-    xmodits recognises the module format from the file itself, so this reads whichever format the
+    xmodits recognizes the module format from the file itself, so this reads whichever format the
     exporter wrote and gives an account of the stored samples independent of the writer that made them.
     """
     with tempfile.TemporaryDirectory() as tmp:

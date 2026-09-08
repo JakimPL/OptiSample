@@ -209,7 +209,7 @@ def test_a_shape_that_never_declines_is_written_at_unity_throughout() -> None:
     assert _shape_points(_written(flat)) == (MAX_VOLUME, MAX_VOLUME)
 
 
-def test_a_corner_its_neighbours_leave_no_moment_between_keeps_the_step_it_was_rounded_onto() -> None:
+def test_a_corner_its_neighbors_leave_no_moment_between_keeps_the_step_it_was_rounded_onto() -> None:
     """A curve running for minutes is priced at a thinned grid, which two corners can fall between."""
     span_s = 200.0
     crowded = PiecewiseCurve(

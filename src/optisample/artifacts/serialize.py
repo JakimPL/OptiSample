@@ -34,7 +34,7 @@ def json_text(document: BaseModel) -> str:
     """A document as pretty JSON, coercing numpy/non-finite values to JSON-safe Python.
 
     A document stored inside an archive is written from its text rather than from a file, so a manifest
-    travelling with the instruments it names reads exactly as one written beside them.
+    traveling with the instruments it names reads exactly as one written beside them.
     """
     return json.dumps(_json_safe(document.model_dump()), indent=2, allow_nan=False) + "\n"
 

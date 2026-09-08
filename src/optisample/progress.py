@@ -47,7 +47,7 @@ class TqdmProgress:
         self.stream = stream
 
     def track[ItemT](self, items: Iterable[ItemT], *, label: str, total: int) -> Iterator[ItemT]:
-        """Yield every item of ``items``, drawing its progress towards ``total`` as a labelled bar."""
+        """Yield every item of ``items``, drawing its progress towards ``total`` as a labeled bar."""
         yield from tqdm(items, desc=label, total=total, file=self.stream, bar_format=BAR_FORMAT, leave=True)
 
 

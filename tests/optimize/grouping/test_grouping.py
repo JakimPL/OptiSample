@@ -68,7 +68,7 @@ def _settings(sweep: SweepConfig, **sections: Mapping[str, object]) -> OptimizeS
     """The bundled settings over one sweep, storing at the rung ``_STORED_CEILING_HZ`` asks for.
 
     The ceiling states the band these zones store, which is what puts their samples on the 11 kHz rung and
-    leaves the budgets below about what a handful of them cost -- the scale the merging behaviour shows at.
+    leaves the budgets below about what a handful of them cost -- the scale the merging behavior shows at.
     """
     return OptimizeSettings(
         loop=_CONFIG.loop,
@@ -350,7 +350,7 @@ def test_zone_options_read_the_same_however_the_scoring_was_shared_out(
     assert shared == alone
 
 
-# --- end-to-end behaviour ------------------------------------------------------------------------
+# --- end-to-end behavior ------------------------------------------------------------------------
 
 
 def test_grouping_is_never_worse_than_ungrouped_at_a_feasible_budget(

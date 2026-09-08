@@ -20,7 +20,7 @@ from optisample.artifacts.documents.reduction import (
 )
 from optisample.artifacts.paths import PlanPaths, looped_paths, plan_paths, reduced_paths
 from optisample.metrics import bytes_to_kib
-from optisample.music import labelled_pitch, note_name
+from optisample.music import labeled_pitch, note_name
 from optisample.optimize.plans import FIRST_LAYER
 
 _STRATEGIES: Final = ("ungrouped", "grouped")
@@ -335,7 +335,7 @@ class ComparedNote:
     @property
     def pitch(self) -> int:
         """The MIDI pitch this pair was written for, which leads the stem it was filed under."""
-        return labelled_pitch(self.stem)
+        return labeled_pitch(self.stem)
 
     @property
     def label(self) -> str:

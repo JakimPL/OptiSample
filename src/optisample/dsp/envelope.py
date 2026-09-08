@@ -67,7 +67,7 @@ def power_kernel(sample_rate: int, frequency: float) -> Signal:
     the shape holds the sidelobes some 31 dB down, which keeps a tone landing between two of them as flat
     as one landing on one.
 
-    The tap count is odd, so the weighting reads each frame from the material centred on it.
+    The tap count is odd, so the weighting reads each frame from the material centered on it.
     """
     return hann_kernel(round(_PERIODS_PER_KERNEL * sample_rate / frequency))
 
@@ -99,7 +99,7 @@ def local_level_over(signal: Signal, reading: LevelReading, *, start: int, end: 
 
     The weighting reaches half its taps either side of a frame, so reading a stretch together with that much
     of the recording on each side answers what reading the whole recording and taking that stretch of it
-    answers. Levelling a loop region therefore costs the region's own length, whatever the recording it came
+    answers. Leveling a loop region therefore costs the region's own length, whatever the recording it came
     from runs to.
 
     The mean is taken of the material's power, with the level read off that afterwards, which is what puts

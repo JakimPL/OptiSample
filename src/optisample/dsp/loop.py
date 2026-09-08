@@ -148,7 +148,7 @@ def _octave_peaks(
     One band per octave, each searched over the lags that octave's own pitch makes
     (:func:`_searched_lags`), so the readings arrive shallowest first and a band the signal is too short to
     reach is left out. The bands stand an octave apart while each spans a semitone either side of its
-    centre, so they stay disjoint and the shallowest reading is the one at the smallest lag.
+    center, so they stay disjoint and the shallowest reading is the one at the smallest lag.
     """
     found: list[tuple[int, float]] = []
     for octave in range(config.octaves_below + 1):
@@ -470,7 +470,7 @@ def _seam_weights(correlation: float, progress: Signal) -> tuple[Signal, Signal]
     Material that came round in phase reads 1.0 and is weighted so the two sides sum to one; material whose
     partials arrived elsewhere reads 0.0 and is weighted so their squares do; material that came round
     inverted reads below 0.0, where the two sides take each other out and the weighting lifts them to make
-    up the difference. That lift reaches ``_MAX_SEAM_GAIN``, which is what a band cancelling outright is
+    up the difference. That lift reaches ``_MAX_SEAM_GAIN``, which is what a band canceling outright is
     left holding, and it is the reading a struck string's upper partials land on often enough to hear.
 
     Returns the weighting on the stretch being held and on the one being reached for.
@@ -486,7 +486,7 @@ def _banded_seam(signal: Signal, loop: Loop, fade: int, sample_rate: int, config
 
     Each split is read over the material surrounding its stretch as well -- as much again on each side as
     the stretch itself, where the recording holds it -- so what reaches the edges of each band is the
-    neighbouring material the recording actually made there. Both are read over the same span, which is what
+    neighboring material the recording actually made there. Both are read over the same span, which is what
     the tighter of the two has room for, so one bank serves them and the bands line up to be weighed against
     each other. The bands sum back to their stretch frame by frame
     (:func:`~optisample.dsp.spectral.split_bands`), so weighting them apart still carries the whole of it.
@@ -570,10 +570,10 @@ def loop_decline(signal: Signal, sample_rate: int, loop: Loop, reading: LevelRea
     """The level a note held on ``loop`` goes on sounding at, against the one level its region is stored at.
 
     A looped sample keeps the recording up to ``loop.end`` and wraps the region for as long as the note is
-    held, so the one thing its PCM stops carrying is the recording's own decline past the level levelling
+    held, so the one thing its PCM stops carrying is the recording's own decline past the level leveling
     pinned that region to (:func:`level_loop`). This states that decline: unit gain through the attack, and
     from ``loop.start`` on, the level the recording holds at each moment over the level the region is held
-    at, which is the very curve levelling divided out carried on past where the material stops being stored.
+    at, which is the very curve leveling divided out carried on past where the material stops being stored.
     A level holds its end values past both ends, so the one corner standing at ``loop.start`` is what leaves
     everything the PCM plays before the loop sounding as it was stored.
 
@@ -603,7 +603,7 @@ def loop_decline(signal: Signal, sample_rate: int, loop: Loop, reading: LevelRea
 def prepare_loop(signal: Signal, loop: Loop, sample_rate: int, seam: SeamConfig, reading: LevelReading) -> Signal:
     """``signal`` with its loop region ready to wrap: held at one level, then blended at the seam.
 
-    Levelling runs first, so the two stretches the blend joins sit at the same amplitude and the blend is
+    Leveling runs first, so the two stretches the blend joins sit at the same amplitude and the blend is
     left to join phase alone. Every stretch that measures, stores or plays a loop passes through here, which
     is what makes a report, an audition and a stored sample wrap the same waveform.
     """
@@ -631,10 +631,10 @@ def _seam_step(signal: Signal, loop: Loop) -> float:
 def _level_drift_db(signal: Signal, loop: Loop, reading: LevelReading) -> float:
     """How far the loop region's own level falls across it, in decibels, positive where it declines.
 
-    This is what holding the region at one level costs: the gain levelling asks of the material by the far
+    This is what holding the region at one level costs: the gain leveling asks of the material by the far
     end of the region. It is read off the region as the recording made it, which is the fall a listener would
     have heard step back up once per round. A region holding its level reads ``0.0``, and one that rises
-    across itself reads a negative fall, which is levelling holding it back to the level it starts on.
+    across itself reads a negative fall, which is leveling holding it back to the level it starts on.
     """
     level = local_level_over(signal, reading, start=loop.start, end=loop.end)
     return gain_to_db(float(level[0])) - gain_to_db(float(level[-1]))
@@ -677,7 +677,7 @@ def loop_quality(
     for is the steady region past its end -- the stretch a looped sample stops storing -- so a loop taken
     from a part of the note that has moved on in timbre reports the distance. A loop reaching the end of the
     steady region stands in for less than one analysis window and reports a distance of 0.0. The drift is
-    read off the recording as it stands, which is the fall levelling had to flatten.
+    read off the recording as it stands, which is the fall leveling had to flatten.
     """
     prepared = prepare_loop(signal, loop, sample_rate, config.seam, reading)
     tail = _steady_tail(signal, sample_rate, config.geometry)

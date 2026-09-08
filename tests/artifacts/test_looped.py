@@ -100,7 +100,7 @@ def test_the_stage_writes_a_dataset_a_later_ingest_reads_back(
     assert [instrument.id for instrument in reloaded.instruments] == ["pad"]
 
 
-def test_every_recording_is_written_as_the_stage_analysed_it(
+def test_every_recording_is_written_as_the_stage_analyzed_it(
     looped: LoopedInstrument, settings: OptimizeSettings, instrument_settings: InstrumentSettings, tmp_path: Path
 ) -> None:
     written = dump_looped(looped, tmp_path, settings, instrument_settings)

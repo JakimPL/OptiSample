@@ -126,7 +126,7 @@ class _Candidate:
 
 
 def _differing(left: EncodingParams, right: EncodingParams) -> tuple[PairAxis, ...]:
-    """The axes two encodings of one clip differ along, in the order a pair is labelled by.
+    """The axes two encodings of one clip differ along, in the order a pair is labeled by.
 
     The compressor counts among them because the pipeline ties it to depth: a pair reading as one
     question while it moves both the grid and the dynamics would carry a label that speaks for neither.

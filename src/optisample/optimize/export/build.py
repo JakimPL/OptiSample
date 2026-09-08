@@ -149,7 +149,7 @@ def _carried(
     )
 
 
-def _levelled(
+def _leveled(
     plan: StrategyPlan,
     layout: SlotLayout,
     recordings: StoredRecordings,
@@ -193,7 +193,7 @@ def written_voices(
     if context.carrier:
         return _carried(plan, layout, recordings, material, context)
 
-    return _levelled(plan, layout, recordings, material, context)
+    return _leveled(plan, layout, recordings, material, context)
 
 
 def build_song(
@@ -208,7 +208,7 @@ def build_song(
     those samples are written as (:func:`~optisample.optimize.layers.slots.pack_slots`); the material
     supplies the patterns that audition them and, beside the recordings, the trajectory each instrument's
     own envelope is fitted to. Which way round those two settle is what ``context.carrier`` states:
-    :func:`_carried` fits the curve first and stores what it leaves, :func:`_levelled` stores the recording
+    :func:`_carried` fits the curve first and stores what it leaves, :func:`_leveled` stores the recording
     and fits what its level leaves. Everything else -- the song name, the single channel, the clock -- is
     the same for both strategies, so it lives here once.
     """

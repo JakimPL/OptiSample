@@ -88,7 +88,7 @@ class _RunningTotals:
     def line_errors(self, opening: int) -> Series:
         """The error one straight line leaves on each stretch opening at ``opening``, closing later each time.
 
-        A stretch whose readings all centre on one moment carries no slope of its own, so the line through it
+        A stretch whose readings all center on one moment carries no slope of its own, so the line through it
         is the level they average to.
         """
         closes = slice(opening + _LINE_NODES, None)
@@ -155,7 +155,7 @@ def _corner_indices(errors: Series, segments: int) -> tuple[int, ...]:
 
 
 def _tent_basis(seconds: Series, corners: Series) -> Series:
-    """One shape per corner: full at its own corner, falling straight to nothing at each neighbour.
+    """One shape per corner: full at its own corner, falling straight to nothing at each neighbor.
 
     A curve through fixed corners is the sum of these scaled by the values those corners hold, so writing it
     this way turns the fit into a linear system the corner values solve.

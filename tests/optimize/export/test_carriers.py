@@ -219,12 +219,12 @@ def test_storing_recordings_and_storing_carriers_write_different_waveforms(
     layout = plan_slots(plan, export_context.target)
     material = demo_material()
 
-    levelled = written_voices(plan, layout, held, material, dataclasses.replace(export_context, carrier=False))
+    leveled = written_voices(plan, layout, held, material, dataclasses.replace(export_context, carrier=False))
     carried = written_voices(plan, layout, held, material, dataclasses.replace(export_context, carrier=True))
 
-    assert [sample.pcm.size for sample in levelled.planned.samples] == [
+    assert [sample.pcm.size for sample in leveled.planned.samples] == [
         sample.pcm.size for sample in carried.planned.samples
     ]
     assert any(
-        not np.allclose(left.pcm, right.pcm) for left, right in zip(levelled.planned.samples, carried.planned.samples)
+        not np.allclose(left.pcm, right.pcm) for left, right in zip(leveled.planned.samples, carried.planned.samples)
     )

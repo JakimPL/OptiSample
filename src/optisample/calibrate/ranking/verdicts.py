@@ -22,7 +22,7 @@ class Verdict(StrEnum):
     """Which side of a blinded pair a listener placed closer to the recording, and how clearly.
 
     The grades earn their place twice over. They let a near-miss cost a metric less than a blown call,
-    which is what makes agreement measure something a listener would recognise; and they let the size of
+    which is what makes agreement measure something a listener would recognize; and they let the size of
     a perceived gap be compared with the size of the margin the composite reads, which is what separates
     two metrics that order every pair alike and disagree on how far apart the sides stand.
 

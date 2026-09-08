@@ -21,7 +21,7 @@ from optisample.calibrate.ranking.renditions import (
 )
 from optisample.calibrate.ranking.report import (
     Agreement,
-    Judgement,
+    Judgment,
     LevelConfound,
     MetricAgreement,
     MetricReadings,
@@ -52,7 +52,7 @@ __all__ = [
     "ClipRenditions",
     "Fault",
     "HeardPair",
-    "Judgement",
+    "Judgment",
     "LabelSheet",
     "LevelConfound",
     "ListeningPair",

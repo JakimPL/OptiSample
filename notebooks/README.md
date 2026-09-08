@@ -76,7 +76,7 @@ read past each note's release, and how many workers share the reading; the frequ
 partials, or the mel bands the optimizer scores with), the fall depths, the harmonic count, the cepstral
 coefficients and the anchor span; the four block weights and the share of the corpus a depth must reach to
 be read at all; the algorithm, linkage, group count and which member stands for its group; then the layout,
-2D or 3D, and what to colour by — the set a take came from among the choices, which is what tells several of
+2D or 3D, and what to color by — the set a take came from among the choices, which is what tells several of
 them apart by eye.
 
 The reading of the recordings is the expensive half and is done once — moving a weight or a group count
@@ -84,27 +84,27 @@ re-reads the geometry off blocks already read, so those controls respond immedia
 set or another frequency axis re-reads the audio.
 
 **The space** — every recording where the layout placed it, hovering everything it was read for. A column
-holding names (the group, the note) draws one colour and one legend entry apiece, so clicking the legend
+holding names (the group, the note) draws one color and one legend entry apiece, so clicking the legend
 isolates a group; a column holding measurements is shaded along a scale. The takes standing for their groups
-are ringed, each in its own group's colour, so a selection is picked out by eye whatever the field is
-coloured by. Clicking any point of a flat picture plays that recording — normalized, so a quiet take is as
+are ringed, each in its own group's color, so a selection is picked out by eye whatever the field is
+colored by. Clicking any point of a flat picture plays that recording — normalized, so a quiet take is as
 audible as a loud one — and sends it to the examine panel below; a box is turned and read by eye, and a
 recording is picked out of one by naming it in that panel.
 
 Each group goes by the key of the take standing for it — `p060_v100` is a group stood for by middle C
-struck at velocity 100 — and is drawn in the colour that key turns: the pitch sets the hue and the velocity
-fills it in, opening a quarter of the way up so the softest takes keep a colour of their own. The field
-therefore carries the keyboard, and one key is drawn the same colour in every picture, at every stage and
+struck at velocity 100 — and is drawn in the color that key turns: the pitch sets the hue and the velocity
+fills it in, opening a quarter of the way up so the softest takes keep a color of their own. The field
+therefore carries the keyboard, and one key is drawn the same color in every picture, at every stage and
 across datasets. Where two groups are stood for by takes of one key, the second onward carries a number.
 
 PCA and MDS draw the space's own geometry, so what is read off the picture holds in the numbers. t-SNE
 and UMAP are additional variants for the eye — they place each recording beside the company it keeps, so
-a group reads as a cluster while the room between clusters follows the neighbourhoods. They appear in the
+a group reads as a cluster while the room between clusters follows the neighborhoods. They appear in the
 layout list when scikit-learn and umap-learn are installed; without them the notebook draws the pair that
 stands on the space's own distances. **Keys** leaves the space aside and lays the corpus out as the keyboard
 holds it: the note across, the velocity it was struck at up, and in three dimensions how long each take
 rings. That says which keys the sets kept a recording of and how a group sits across them, takes sharing a
-key standing on one point whichever set each of them came from — coloured, ringed and clicked exactly as
+key standing on one point whichever set each of them came from — colored, ringed and clicked exactly as
 the space is, since it is the same field drawn on other axes. Every number the panels report is the
 space's own whichever layout is on screen.
 

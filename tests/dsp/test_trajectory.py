@@ -30,7 +30,7 @@ _LIGHT_WEIGHT = 1.0
 
 
 def _clock(span_s: float) -> Series:
-    """The moments a stretch of ``span_s`` seconds is read at, each window centring on its own."""
+    """The moments a stretch of ``span_s`` seconds is read at, each window centering on its own."""
     count = round(span_s / _WINDOW_S)
     return (np.arange(count, dtype=np.float64) + 0.5) * _WINDOW_S
 
@@ -97,7 +97,7 @@ def test_members_falling_alike_at_levels_of_their_own_are_written_as_one_shape()
 
 
 def test_each_axis_states_how_far_its_own_groups_stand_from_the_instrument() -> None:
-    """Centring on the set leaves the shape carrying where the instrument sits and the offsets the spread."""
+    """Centering on the set leaves the shape carrying where the instrument sits and the offsets the spread."""
     shared = fit_shared_trajectory(_crossed(), nodes=_NODES)
 
     assert shared.offsets_db[0] == pytest.approx(_planted_offsets(_SAMPLE_OFFSETS_DB), abs=1e-6)

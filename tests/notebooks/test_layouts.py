@@ -11,7 +11,7 @@ _SEED = 0
 _PLANE = 2
 _BOX = 3
 _WHOLE = 1.0  # what the shares of every axis a distance-preserving layout keeps come to
-_STATES_NONE = 0  # shares a neighbour layout reports, its axes carrying the company a point keeps
+_STATES_NONE = 0  # shares a neighbor layout reports, its axes carrying the company a point keeps
 _ACROSS = 0  # the axis a picture is read across
 _UP = 1  # the axis it is read up
 _AWAY = 2  # the axis a box is read into
@@ -57,7 +57,7 @@ def test_a_layout_places_every_recording_in_the_dimensions_it_was_asked_for(
 ) -> None:
     """One row per recording however the placement was reached, so a picture indexes the corpus.
 
-    A layout placing by neighbourhoods states its shares as none, its axes carrying the company each point
+    A layout placing by neighborhoods states its shares as none, its axes carrying the company each point
     keeps rather than a share of the space's spread.
     """
     for layout in _space_layouts():
@@ -148,8 +148,8 @@ def test_the_keys_read_in_a_box_carry_how_long_each_take_rings(clustered: Cluste
     assert placement.axes[_AWAY] == tuple(float(row["dur_s"]) for row in rows)
 
 
-def test_a_layout_placing_by_neighbourhoods_names_its_axes_by_their_number(clustered: Clustered) -> None:
-    """A neighbour layout's axes carry the company a point keeps, so each is named by its number alone."""
+def test_a_layout_placing_by_neighborhoods_names_its_axes_by_their_number(clustered: Clustered) -> None:
+    """A neighbor layout's axes carry the company a point keeps, so each is named by its number alone."""
     for layout in (found for found in _space_layouts() if not found.preserves_distance):
         placement = layouts.place(
             clustered.space.coordinates, _rows(clustered), layout=layout, components=_PLANE, seed=_SEED

@@ -111,7 +111,7 @@ def _clustered(corpus: RecordingCorpus, config: OptiConfig) -> Clustered:
 
 @pytest.fixture(scope="session")
 def clustered(config: OptiConfig) -> Clustered:
-    """A handful of synthesised takes carried the whole way a notebook carries them, ready to draw."""
+    """A handful of synthesized takes carried the whole way a notebook carries them, ready to draw."""
     source = _source(Stage.SUBSET)
     return _clustered(RecordingCorpus(sources=(source,), recordings=_recordings(source, seeded_from=0)), config)
 

@@ -137,7 +137,7 @@ def velocity_cells(material: Sequence[NoteEvent], nodes: int) -> VelocityCells:
 def partitions(cells: VelocityCells, max_layers: int) -> Iterator[VelocityLayers]:
     """Every split of ``cells`` into at most ``max_layers`` bands, fewest layers first.
 
-    A layer is a run of neighbouring cells, so a split is a choice of which cell boundaries to keep as
+    A layer is a run of neighboring cells, so a split is a choice of which cell boundaries to keep as
     layer boundaries: over ``V`` cells there are ``C(V-1, L-1)`` splits into ``L`` layers. Ordering them by
     layer count states the single-layer split first, which is the plan every richer one has to beat by the
     configured margin.

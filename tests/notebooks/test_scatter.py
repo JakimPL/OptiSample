@@ -31,9 +31,9 @@ def _placed(clustered: Clustered, components: int, layout: layouts.Layout = layo
     )
 
 
-def _colouring(clustered: Clustered, column: str) -> scatter.Colouring:
-    """What a field is drawn by, carrying the colour each group's own key turned, as the notebook builds it."""
-    return scatter.Colouring(column=column, groups=clusters.group_colours(clustered.named))
+def _coloring(clustered: Clustered, column: str) -> scatter.Coloring:
+    """What a field is drawn by, carrying the color each group's own key turned, as the notebook builds it."""
+    return scatter.Coloring(column=column, groups=clusters.group_colors(clustered.named))
 
 
 def _picture(
@@ -43,11 +43,11 @@ def _picture(
     components: int = _PLANE,
     layout: layouts.Layout = layouts.Layout.PCA,
 ) -> scatter.Picture:
-    """One whole field as the notebook draws it: every recording, ringed and coloured, ready to be clicked."""
+    """One whole field as the notebook draws it: every recording, ringed and colored, ready to be clicked."""
     return scatter.field(
         _placed(clustered, components, layout),
         _rows(clustered),
-        colouring=_colouring(clustered, column),
+        coloring=_coloring(clustered, column),
         representatives=[group.representative for group in clustered.groups],
         title=column,
     )
@@ -57,7 +57,7 @@ def _picture(
 def test_a_named_column_draws_one_trace_per_name_beside_the_representatives(
     clustered: Clustered, components: int
 ) -> None:
-    """A column holding names draws one colour and one legend entry apiece, so a click isolates a group."""
+    """A column holding names draws one color and one legend entry apiece, so a click isolates a group."""
     picture = _picture(clustered, "group", components=components)
     traces = picture.figure.data
 
@@ -75,20 +75,20 @@ def test_a_measured_column_draws_one_trace_shaded_along_a_scale(clustered: Clust
     assert list(picture.figure.data[_FIRST].marker.color) == [row["pitch"] for row in rows]
 
 
-def test_a_field_coloured_by_group_draws_each_one_in_its_own_keys_colour(clustered: Clustered) -> None:
-    """The keyboard is what the field carries, so a legend entry is the colour its group's key turned."""
+def test_a_field_colored_by_group_draws_each_one_in_its_own_keys_color(clustered: Clustered) -> None:
+    """The keyboard is what the field carries, so a legend entry is the color its group's key turned."""
     picture = _picture(clustered, "group")
     drawn = {trace.name: trace.marker.color for trace in picture.figure.data[_FIELD]}
 
-    assert drawn == clusters.group_colours(clustered.named)
+    assert drawn == clusters.group_colors(clustered.named)
 
 
-def test_a_field_coloured_by_another_name_is_handed_the_palette(clustered: Clustered) -> None:
-    """A column saying nothing about the keys is told apart by the palette rather than by a key's colour."""
+def test_a_field_colored_by_another_name_is_handed_the_palette(clustered: Clustered) -> None:
+    """A column saying nothing about the keys is told apart by the palette rather than by a key's color."""
     picture = _picture(clustered, "role")
     drawn = {str(trace.marker.color) for trace in picture.figure.data[_FIELD]}
 
-    assert drawn.isdisjoint(set(clusters.group_colours(clustered.named).values()))
+    assert drawn.isdisjoint(set(clusters.group_colors(clustered.named).values()))
 
 
 def test_a_flat_trace_is_drawn_as_the_run_of_markers_a_click_comes_back_from(clustered: Clustered) -> None:
@@ -140,16 +140,14 @@ def test_the_keys_are_drawn_on_the_axes_the_keyboard_names(clustered: Clustered)
 
 
 @pytest.mark.parametrize("column", ["group", "pitch"])
-def test_the_take_standing_for_a_group_is_ringed_in_that_groups_colour(clustered: Clustered, column: str) -> None:
-    """A ring says which take was chosen and which group chose it, whatever the field is coloured by."""
+def test_the_take_standing_for_a_group_is_ringed_in_that_groups_color(clustered: Clustered, column: str) -> None:
+    """A ring says which take was chosen and which group chose it, whatever the field is colored by."""
     rows = _rows(clustered)
     picture = _picture(clustered, column)
-    colours = clusters.group_colours(clustered.named)
+    colors = clusters.group_colors(clustered.named)
     ringed = picture.figure.data[_RINGS]
 
-    assert list(ringed.marker.color) == [
-        colours[str(rows[group.representative]["group"])] for group in clustered.groups
-    ]
+    assert list(ringed.marker.color) == [colors[str(rows[group.representative]["group"])] for group in clustered.groups]
     assert ringed.marker.size > picture.figure.data[_FIRST].marker.size
     assert "open" in ringed.marker.symbol
 

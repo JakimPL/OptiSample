@@ -40,14 +40,14 @@ class ProvenanceRecord(Frozen):
 class SampleDocument(Frozen):
     """One recording as the calibrated unit a later stage stores it from: its carrier, level and loops.
 
-    ``level * carrier`` is the recording as the loop stage analysed it
+    ``level * carrier`` is the recording as the loop stage analyzed it
     (:class:`~optisample.dsp.envelope.Decomposition`), so the pair between them carries everything the WAV
     beside it holds, while a copy stored from the carrier alone spends the whole depth of its grid on the
     waveform -- worth +5.4...+26.1 dB segmental SNR at 8 bits, since the attack transient stops setting the
     code range and the level travels as a curve instead.
 
     ``root_pitch`` is the pitch the recording was played at, which its level was read over two periods of
-    and every candidate loop searched around, and ``sample_rate`` the rate the stage analysed it at, which
+    and every candidate loop searched around, and ``sample_rate`` the rate the stage analyzed it at, which
     the frames of both payloads and of every loop are counted in. ``loops`` runs from the cheapest stored
     span upward, the order an encoding indexes them by, so the container names the stretches of its own
     carrier a player may wrap on. ``carrier`` and ``level`` hold one :data:`PAYLOAD_DTYPE` value per frame
@@ -142,7 +142,7 @@ def faithful_loop(document: SampleDocument) -> Loop | None:
     """The region a player wraps on to hold a note the container's recording sounds past its own end.
 
     This is :func:`faithful_offer` as the frames it names, which is what a reading of the recording whole
-    -- one waveform, at the rate the stage analysed it -- repeats to sustain the note.
+    -- one waveform, at the rate the stage analyzed it -- repeats to sustain the note.
     """
     offer = faithful_offer(document)
     if offer is None:

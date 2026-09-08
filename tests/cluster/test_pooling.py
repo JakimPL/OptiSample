@@ -81,7 +81,7 @@ def test_a_level_curve_holding_no_readings_anchors_to_nothing() -> None:
         anchor_stack(np.zeros(0), DEPTHS, HOP_S)
 
 
-def test_each_anchor_reads_the_stretch_of_material_centred_on_it() -> None:
+def test_each_anchor_reads_the_stretch_of_material_centered_on_it() -> None:
     rows = np.arange(400.0).reshape(100, 4)
     stack = anchor_stack(_falling(100, decay_db=40.0), DEPTHS, HOP_S)
     pooled = pooled_rows(rows, stack, span=6)

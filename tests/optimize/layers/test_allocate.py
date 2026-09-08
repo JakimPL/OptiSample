@@ -115,7 +115,7 @@ def test_one_layer_stores_a_single_band_over_the_whole_axis(
     instrument: InstrumentSpec,
     allocate: Callable[..., LayeredAllocation],
 ) -> None:
-    """The behaviour freeze: capping the layers at one is the plan pitch grouping produced before."""
+    """The behavior freeze: capping the layers at one is the plan pitch grouping produced before."""
     allocation = allocate(instrument, max_layers=_ONE_LAYER)
     assert allocation.layers == VelocityLayers((_WHOLE_AXIS,))
     assert allocation.budget.instruments == SINGLE_LAYER

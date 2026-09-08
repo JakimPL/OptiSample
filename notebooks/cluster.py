@@ -450,7 +450,7 @@ def _(layouts, mo):
         label="layout — the space's own geometry, or the keys the corpus covers",
     )
     components = mo.ui.dropdown(options={"2D": 2, "3D": 3}, value="2D", label="components")
-    colour_by = mo.ui.dropdown(
+    color_by = mo.ui.dropdown(
         options=[
             "group",
             "set",
@@ -465,22 +465,22 @@ def _(layouts, mo):
             "to_medoid",
         ],
         value="group",
-        label="colour by",
+        label="color by",
     )
     play_on_click = mo.ui.checkbox(value=True, label="play the clicked recording, normalized")
     mo.vstack(
         [
             mo.md("## The space — and the keyboard it was recorded from"),
-            mo.hstack([layout, components, colour_by, play_on_click], justify="start", gap=2),
+            mo.hstack([layout, components, color_by, play_on_click], justify="start", gap=2),
         ]
     )
-    return colour_by, components, layout, play_on_click
+    return color_by, components, layout, play_on_click
 
 
 @app.cell
-def _(clusters, colour_by, named, scatter):
-    colouring = scatter.Colouring(column=colour_by.value, groups=clusters.group_colours(named))
-    return (colouring,)
+def _(clusters, color_by, named, scatter):
+    coloring = scatter.Coloring(column=color_by.value, groups=clusters.group_colors(named))
+    return (coloring,)
 
 
 @app.cell
@@ -494,8 +494,8 @@ def _(components, layout, layouts, mo, points, space):
 
 @app.cell
 def _(
-    colour_by,
-    colouring,
+    color_by,
+    coloring,
     gathered,
     layout,
     mo,
@@ -508,9 +508,9 @@ def _(
     _picture = scatter.field(
         placement,
         points,
-        colouring=colouring,
+        coloring=coloring,
         representatives=representatives,
-        title=f"{gathered} — {layout.value}, coloured by {colour_by.value}",
+        title=f"{gathered} — {layout.value}, colored by {color_by.value}",
     )
     space_plot = mo.ui.plotly(
         _picture.figure,
@@ -520,7 +520,7 @@ def _(
         mo.md(
             "Hover a point for everything it was read for; click one to hear it and to examine it below. The "
             "legend isolates a group, and the ringed diamonds are the takes standing for theirs, each ringed "
-            "in its own group's colour."
+            "in its own group's color."
         )
     ]
     if not layout.value.reads_the_space:
@@ -536,7 +536,7 @@ def _(
         _said.append(
             mo.md(
                 "This layout places each recording beside the company it keeps, so a group reads as a cluster "
-                "while the room between clusters follows the neighbourhoods. Every number reported below is "
+                "while the room between clusters follows the neighborhoods. Every number reported below is "
                 "the space's own."
             )
         )
@@ -619,9 +619,9 @@ def _(clusters, described, mo, named, panels, space):
         [
             mo.md("## Groups — what each one gathered, and the take standing for it"),
             mo.md(
-                "Each group goes by the key of the take standing for it, and is drawn in the colour that "
+                "Each group goes by the key of the take standing for it, and is drawn in the color that "
                 "key turns: the pitch sets the hue and the velocity fills it in, so the field carries the "
-                "keyboard and one key is the same colour in every picture and at every stage."
+                "keyboard and one key is the same color in every picture and at every stage."
             ),
             panels.table(clusters.group_rows(described, named)),
             mo.md("**How tightly each group holds together, block by block** — where the grouping came from:"),

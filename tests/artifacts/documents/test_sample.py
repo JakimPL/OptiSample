@@ -52,7 +52,7 @@ def key() -> SampleKey:
 
 @pytest.fixture
 def signal() -> NDArray[np.float64]:
-    """A tone that decays steeply, so the level carries movement the carrier is normalised against."""
+    """A tone that decays steeply, so the level carries movement the carrier is normalized against."""
     times = np.arange(_FRAMES, dtype=np.float64) / SR
     return np.asarray(np.exp(-_DECAY_RATE * times) * np.sin(2.0 * np.pi * midi_to_freq(_PITCH) * times))
 
@@ -103,7 +103,7 @@ def test_a_container_states_the_identity_and_the_rate_its_frames_are_counted_in(
 def test_the_pair_a_container_holds_puts_the_recording_back_together(
     written: Path, signal: NDArray[np.float64]
 ) -> None:
-    """Level times carrier is the recording as the stage analysed it, which is what makes the split a carrier."""
+    """Level times carrier is the recording as the stage analyzed it, which is what makes the split a carrier."""
     recombined = sample_decomposition(read_sample(written)).recombined()
 
     assert recombined == pytest.approx(signal, abs=1e-6)

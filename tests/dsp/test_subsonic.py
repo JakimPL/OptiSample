@@ -73,7 +73,7 @@ def test_the_curve_passes_the_material_and_falls_away_under_it(case: ShapeCase) 
 
 
 def test_a_steady_offset_leaves_the_recording() -> None:
-    """A recording sitting off zero comes back centred, an offset being the deepest content there is."""
+    """A recording sitting off zero comes back centered, an offset being the deepest content there is."""
     signal = tone(_PASSBAND_HZ) + 0.5
     cleaned = remove_subsonic(signal, SR, _CONFIG)
     assert abs(float(np.mean(cleaned[_SETTLED]))) < 1.0e-6

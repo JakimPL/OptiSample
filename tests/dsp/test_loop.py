@@ -74,7 +74,7 @@ def _band_level_db(signal: NDArray[np.float64], band: tuple[float, float]) -> fl
 
 
 def _reading(config: EnvelopeConfig, root_hz: float = FREQ) -> LevelReading:
-    """How a note played at ``root_hz`` has its level read, which every levelling below is taken under."""
+    """How a note played at ``root_hz`` has its level read, which every leveling below is taken under."""
     return level_reading(SR, config, root_hz)
 
 
@@ -361,7 +361,7 @@ def test_a_note_that_settles_late_has_its_candidates_placed_past_the_stretch_it_
 ) -> None:
     """The window opens off the material, so a recording whose sound keeps moving offers only what follows.
 
-    Noise gives way to a steady tone here, which is a spectrum travelling as fast as a shape can and then
+    Noise gives way to a steady tone here, which is a spectrum traveling as fast as a shape can and then
     holding still -- so where the candidates begin states where the reading placed the change.
     """
     rng = np.random.default_rng(0)
@@ -438,24 +438,24 @@ def test_a_region_that_falls_as_it_rings_is_held_at_the_level_it_starts_on(envel
     loop = _LOOP
     window = round(0.1 * SR)
 
-    levelled = level_loop(signal, loop, _reading(envelope_config))
+    leveled = level_loop(signal, loop, _reading(envelope_config))
 
-    opening = _level_of(levelled[loop.start : loop.start + window])
-    closing = _level_of(levelled[loop.end - window : loop.end])
+    opening = _level_of(leveled[loop.start : loop.start + window])
+    closing = _level_of(leveled[loop.end - window : loop.end])
     assert closing == pytest.approx(opening, rel=0.05)
     assert opening == pytest.approx(_level_of(signal[loop.start : loop.start + window]), rel=0.05)
 
 
-def test_levelling_leaves_the_attack_the_region_runs_out_of_untouched(envelope_config: EnvelopeConfig) -> None:
+def test_leveling_leaves_the_attack_the_region_runs_out_of_untouched(envelope_config: EnvelopeConfig) -> None:
     """Pinning the gain at the loop start is what runs the attack into the region without a step."""
     signal = _declining(4 * SR, _GENTLE_TAU_S)
     loop = _LOOP
 
-    levelled = level_loop(signal, loop, _reading(envelope_config))
+    leveled = level_loop(signal, loop, _reading(envelope_config))
 
-    assert np.array_equal(levelled[: loop.start], signal[: loop.start])
-    assert np.array_equal(levelled[loop.end :], signal[loop.end :])
-    assert levelled[loop.start] == pytest.approx(signal[loop.start], rel=0.01)
+    assert np.array_equal(leveled[: loop.start], signal[: loop.start])
+    assert np.array_equal(leveled[loop.end :], signal[loop.end :])
+    assert leveled[loop.start] == pytest.approx(signal[loop.start], rel=0.01)
 
 
 @pytest.mark.parametrize(
@@ -466,7 +466,7 @@ def test_levelling_leaves_the_attack_the_region_runs_out_of_untouched(envelope_c
     ],
 )
 def test_a_region_carrying_no_sound_is_left_as_it_stands(loop: Loop, envelope_config: EnvelopeConfig) -> None:
-    """Levelling asks a gain of the material it is given, so silence comes back out as the silence it was."""
+    """Leveling asks a gain of the material it is given, so silence comes back out as the silence it was."""
     signal = np.concatenate([np.zeros(SR), _sine(SR)])
 
     assert np.array_equal(level_loop(signal, loop, _reading(envelope_config)), signal)
@@ -551,7 +551,7 @@ def test_the_decline_follows_a_note_that_rings_down_and_then_holds(envelope_conf
 def test_the_decline_reads_the_level_where_the_region_starts_however_long_the_region_runs(
     envelope_config: EnvelopeConfig,
 ) -> None:
-    """Levelling pins a region at the level it opens on, so where it closes leaves the decline where it was."""
+    """Leveling pins a region at the level it opens on, so where it closes leaves the decline where it was."""
     signal = _declining(_RUNS_ON, _STEEP_TAU_S)
     reads = np.asarray([_RUNS_ON / SR])
 
@@ -579,22 +579,22 @@ def test_a_recording_holding_too_little_past_the_loop_states_no_decline(envelope
 def test_a_region_shorter_than_a_level_reading_is_held_at_one_level_all_the_same(
     envelope_config: EnvelopeConfig, root_hz_of: Callable[[EnvelopeConfig], float]
 ) -> None:
-    """The level is read with the material around the region, so a brief region is levelled like a long one."""
+    """The level is read with the material around the region, so a brief region is leveled like a long one."""
     signal = _declining(4 * SR, _STEEP_TAU_S)
     brief = Loop(start=SR, end=SR + round(0.05 * SR))
     window = brief.length // 4
 
-    levelled = level_loop(signal, brief, _reading(envelope_config, root_hz_of(envelope_config)))
+    leveled = level_loop(signal, brief, _reading(envelope_config, root_hz_of(envelope_config)))
 
     fell = _level_of(signal[brief.end - window : brief.end]) / _level_of(signal[brief.start : brief.start + window])
-    opening = _level_of(levelled[brief.start : brief.start + window])
-    closing = _level_of(levelled[brief.end - window : brief.end])
+    opening = _level_of(leveled[brief.start : brief.start + window])
+    closing = _level_of(leveled[brief.end - window : brief.end])
     assert fell < 0.95  # the material the region is taken from does fall across it
     assert closing == pytest.approx(opening, rel=0.02)
 
 
 def test_a_prepared_region_is_held_at_one_level_and_blended_at_its_wrap(envelope_config: EnvelopeConfig) -> None:
-    """Levelling before the blend is what leaves the blend joining phase over two stretches of one level."""
+    """Leveling before the blend is what leaves the blend joining phase over two stretches of one level."""
     signal = _declining(4 * SR, _GENTLE_TAU_S)
     loop = _LOOP
 
@@ -663,7 +663,7 @@ def test_a_loop_of_one_frame_has_no_step_to_measure_the_seam_against(loop_config
     )
 
 
-def test_a_region_falling_as_it_rings_states_the_drift_levelling_had_to_flatten(loop_config: LoopConfig) -> None:
+def test_a_region_falling_as_it_rings_states_the_drift_leveling_had_to_flatten(loop_config: LoopConfig) -> None:
     """The drift is read off the recording, so it states the gain flattening asked of the material."""
     steep = loop_quality(_declining(4 * SR, _STEEP_TAU_S), _LOOP, SR, loop_config, _reading(loop_config.envelope))
     gentle = loop_quality(_declining(4 * SR, _GENTLE_TAU_S), _LOOP, SR, loop_config, _reading(loop_config.envelope))
