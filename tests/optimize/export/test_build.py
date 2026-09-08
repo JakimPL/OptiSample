@@ -14,10 +14,11 @@ from optisample.dsp.piecewise import CurveNode, PiecewiseCurve
 from optisample.dsp.trajectory import SharedTrajectory
 from optisample.io.tracker.envelope import NO_ENVELOPE, EnvelopeGrid, volume_envelope
 from optisample.io.tracker.voices import routed_voices
-from optisample.optimize.export.build import slot_envelope, slot_level
+from optisample.optimize.export.build import replayed, slot_envelope, slot_level
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.voices import NO_SHAPE
 from optisample.optimize.plans import InstrumentPlan
+from tests.optimize.export.demo import demo_material
 
 _TEMPO = 125
 _TICK_S = tick_seconds(_TEMPO)
@@ -108,3 +109,21 @@ def test_the_written_module_plays_a_looped_note_down_rather_than_ringing(
     assert any(loops), "the demo plan stores no loop, so this test would prove nothing"
     assert all(envelope is not None for envelope in envelopes)
     assert any(min(_shape_points(envelope)) < MAX_VOLUME for envelope in envelopes if envelope is not None)
+
+
+def test_a_module_replayed_over_other_notes_carries_the_voices_it_was_written_with(
+    build: Callable[..., tuple[InstrumentPlan, TrackerModule]], export_context: ExportContext
+) -> None:
+    """A carrier waveform is its recording divided by a curve fitted to the plan's own notes.
+
+    Re-encoding for a shorter song would fit that curve to the notes that song plays, so the audition
+    would sound a sample the written file never carries. Replaying states the same voices over fresh
+    patterns, which is what makes a single-note render a render of the module itself.
+    """
+    plan, module = build()
+    one_note = replayed(module, plan, demo_material()[:1], export_context)
+    written, sounded = routed_voices(module.song), routed_voices(one_note.song)
+
+    assert sounded.samples == written.samples
+    assert sounded.instruments == written.instruments  # the same curves, so the same levels are played
+    assert one_note.size().patterns < module.size().patterns

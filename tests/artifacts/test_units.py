@@ -72,11 +72,13 @@ def test_make_kind_packages_an_ungrouped_plan(ungrouped_plan: InstrumentPlan, du
 def test_make_kind_rebuilds_the_module_over_other_material(
     ungrouped_plan: InstrumentPlan, dump_context: DumpContext
 ) -> None:
+    """The audition a pitch is compared against sounds the very voices the written module carries."""
     kind = make_kind(ungrouped_plan, dump_context)
     one_note = kind.make_module(list(dump_context.material[:1]))
-    assert (
-        routed_voices(one_note.song).samples == routed_voices(kind.module.song).samples
-    )  # the same stored samples, a shorter song
+    written, sounded = routed_voices(kind.module.song), routed_voices(one_note.song)
+
+    assert sounded.samples == written.samples  # the same stored samples, a shorter song
+    assert sounded.instruments == written.instruments  # played down by the same curves
     assert one_note.size().patterns < kind.module.size().patterns
 
 

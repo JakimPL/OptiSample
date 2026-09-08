@@ -11,7 +11,7 @@ from optisample.io.tracker.voices import routed_voices
 from optisample.io.tracker.written import written_module
 from optisample.keys import SampleKey
 from optisample.model import NoteEvent
-from optisample.optimize.export import build_module
+from optisample.optimize.export import build_module, replayed
 from optisample.optimize.export.build import written_voices
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.coverage import key_coverage, played_keys
@@ -59,9 +59,11 @@ class PlanKind:
     """A strategy reduced to the pieces the dumper serializes, so it is plan-type agnostic.
 
     ``module`` is the plan playing the instrument's whole material -- the one the dumper writes and
-    renders -- while ``make_module`` rebuilds it over any other material, which is how each pitch gets
-    its own single-note A/B render. ``layout`` names the instruments the module numbers, so the dumper
-    writes each one on its own and files a unit's artifacts under the band that plays them.
+    renders -- while ``make_module`` sounds those very voices over any other notes
+    (:func:`~optisample.optimize.export.build.replayed`), which is how each pitch gets its own
+    single-note A/B render against the samples the written file carries. ``layout`` names the instruments
+    the module numbers, so the dumper writes each one on its own and files a unit's artifacts under the
+    band that plays them.
     """
 
     name: str
@@ -196,10 +198,11 @@ def make_kind(plan: InstrumentPlan | GroupedInstrumentPlan, dump_context: DumpCo
     export_context = _export_context(dump_context)
     encoded = [unit.stored for unit in units]
 
-    def make_module(material: Sequence[NoteEvent]) -> TrackerModule:
-        return build_module(plan, dump_context.recordings, list(material), export_context)
+    module = build_module(plan, dump_context.recordings, list(dump_context.material), export_context)
 
-    module = make_module(dump_context.material)
+    def make_module(material: Sequence[NoteEvent]) -> TrackerModule:
+        return replayed(module, plan, list(material), export_context)
+
     stated = written_module(module)
     layout = plan_slots(plan, export_context.target)
     coverage = key_coverage(

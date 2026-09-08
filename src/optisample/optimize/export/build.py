@@ -183,6 +183,10 @@ def build_song(
     :func:`_carried` fits the curve first and stores what it leaves, :func:`_leveled` stores the recording
     and fits what its level leaves. Everything else -- the song name, the single channel, the clock -- is
     the same for both strategies, so it lives here once.
+
+    The material states both halves of the song, so this is the plan's own material: it names the notes
+    the patterns play, and the keys, dynamics and held lengths each instrument's curve is fitted to.
+    A song sounding the same instrument over other notes is written by :func:`replayed`.
     """
     layout = plan_slots(plan, context.target)
     written = written_voices(plan, layout, recordings, material, context)
@@ -209,3 +213,22 @@ def build_module(
 ) -> TrackerModule:
     """Assemble a complete module from either strategy's plan, bound to the target tracker format."""
     return context.target.bind(build_song(plan, recordings, material, context))
+
+
+def replayed(
+    module: TrackerModule,
+    plan: StrategyPlan,
+    material: Sequence[NoteEvent],
+    context: ExportContext,
+) -> TrackerModule:
+    """``module`` playing other notes, carrying the very voices it was written with.
+
+    An instrument's envelope is fitted from the notes its plan was made for, and a stored waveform under
+    ``carrier`` is its recording divided by the gain that curve applies, so the voices a module holds
+    belong to the plan rather than to the song any one render plays. Writing fresh patterns over the
+    voices already built is what lets a single-note audition sound the sample the module itself carries,
+    which is what makes the comparison it is rendered for a comparison against the written file.
+    """
+    voicing = Voicing(layout=plan_slots(plan, context.target), velocity_map=plan.velocity_map)
+    patterns, order = material_patterns(material, voicing, context.playback, context.target)
+    return context.target.bind(module.song.model_copy(update={"patterns": patterns, "order": order}))
