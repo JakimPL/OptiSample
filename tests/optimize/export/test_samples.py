@@ -5,9 +5,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-import soundfile as sf
 from numpy.typing import NDArray
-from trackmod import BitDepth, TrackerModule
+from trackmod import BitDepth, TrackerModule, load_voices
 from trackmod.core.instruments.keymap import KeyAssignment
 from trackmod.core.notes.pitch import Note
 from trackmod.module.storage import Storage
@@ -21,7 +20,7 @@ from optisample.config.tracker import TrackerFormat
 from optisample.dsp.surrogate import EncodingParams, StoredSample
 from optisample.io.render import openmpt123_available, render_module
 from optisample.io.tracker.target import ExportTarget
-from optisample.io.tracker.voices import routed_voices
+from optisample.io.tracker.voices import routed, routed_voices
 from optisample.keys import SampleKey
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.music import MIDI_MAX_VELOCITY
@@ -377,17 +376,18 @@ def test_looped_note_sustains_in_openmpt_past_the_stored_length(
 
 
 @pytest.mark.parametrize("builder", ["build", "grouped_build"])
-def test_written_file_round_trips_through_xmodits(builder: str, tmp_path: Path, request: pytest.FixtureRequest) -> None:
-    xmodits = pytest.importorskip("xmodits")
+def test_a_written_file_holds_the_waveforms_the_plan_stored(
+    builder: str, tmp_path: Path, request: pytest.FixtureRequest
+) -> None:
+    """Every sample the plan paid for reaches the file at the length and the rate it was stored at."""
     _, module = request.getfixturevalue(builder)()
     path = tmp_path / f"module{module.extension}"
     module.save(path)
-    destination = tmp_path / "out"
-    destination.mkdir()
-    xmodits.dump(str(path), str(destination), format="wav")
-    extracted = sorted(destination.glob("*.wav"))
-    assert len(extracted) == len(routed_voices(module.song).samples)
-    for wav, sample in zip(extracted, routed_voices(module.song).samples):
-        data, sample_rate = sf.read(str(wav), dtype="float64", always_2d=False)
-        assert np.asarray(data).size == sample.frames
-        assert sample_rate == sample.rate  # the tagged rate is the rate the sample really stores
+    stored = routed_voices(module.song).samples
+    read_back = routed(load_voices(path), held_by=f"module {path.name!r}").samples
+
+    assert len(read_back) == len(stored)
+    for sample, original in zip(read_back, stored):
+        assert sample.frames == original.frames
+        assert sample.rate == original.rate  # the tagged rate is the rate the sample really stores
+        assert np.max(np.abs(np.asarray(sample.pcm) - np.asarray(original.pcm))) < 1.0 / original.depth.scale

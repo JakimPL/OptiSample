@@ -664,7 +664,6 @@ dev = [
     { name = "scikit-learn" },
     { name = "types-pyyaml" },
     { name = "umap-learn" },
-    { name = "xmodits-py" },
 ]
 
 [package.metadata]
@@ -697,7 +696,6 @@ dev = [
     { name = "scikit-learn", specifier = ">=1.9.0" },
     { name = "types-pyyaml", specifier = "==6.0.12.20260518" },
     { name = "umap-learn", specifier = ">=0.5.12" },
-    { name = "xmodits-py", specifier = ">=0.3.5" },
 ]
 
 [[package]]
@@ -1352,20 +1350,4 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/e8/dc/5cbfcb41824502f6af93b8f3943a4d06c67c23c7d2e31eb18748c4a5b2a7/websockets-16.1.1-cp313-cp313-win32.whl", hash = "sha256:cfb70b4eb56cac4da0a83588f3ad50d46beb0690391082f3d4e2d488c70b68ea", size = 179928, upload-time = "2026-07-17T22:50:01.685Z" },
     { url = "https://files.pythonhosted.org/packages/b0/c1/71e5deb5b7f8f226997ab64908c184ac3105c0155ce2d486f318e5dd08a8/websockets-16.1.1-cp313-cp313-win_amd64.whl", hash = "sha256:d9531d9cbeac99af6f038fb1bc351403531f7d634a2c2e10e2f7c854c6ed5b68", size = 180242, upload-time = "2026-07-17T22:50:03.117Z" },
     { url = "https://files.pythonhosted.org/packages/be/4d/2d0d67834092e354d2b0498f014a41249a89556bc406cf86f3e1557bb463/websockets-16.1.1-py3-none-any.whl", hash = "sha256:6abbd3e82c731c8e531714466acd5d87b5e88ac3243465337ba71d68e23ae7e3", size = 173814, upload-time = "2026-07-17T22:51:04.184Z" },
-]
-
-[[package]]
-name = "xmodits-py"
-version = "0.3.5"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/87/40/424baab8a35359a468d34eb07ce6dff8758ec5ec488a098473b366e2fa09/xmodits_py-0.3.5.tar.gz", hash = "sha256:f9d5489af6c216ca9da55bb06c34837800e7bc43b011a347597c703ff9767b51", size = 25778, upload-time = "2024-08-26T20:09:53.265Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/1b/85/8120ba01bada6750a593a6d974497c1f5077ca097c2aa302414115993fc9/xmodits_py-0.3.5-cp37-abi3-macosx_10_12_x86_64.whl", hash = "sha256:aa1ccde473a7eb3aaa2e3ce850275a4ed289556947d38cf8f6b0365894c91724", size = 244326, upload-time = "2024-08-26T20:09:42.143Z" },
-    { url = "https://files.pythonhosted.org/packages/70/bc/833e848f8aac09ca2b54caabc3334d99a09cebcea0e2994212907341e98f/xmodits_py-0.3.5-cp37-abi3-macosx_11_0_arm64.whl", hash = "sha256:3b14e9252aae311d0399f316d9bae5d3b64e3e70a2dd1a772b19fe882a553034", size = 234688, upload-time = "2024-08-26T20:09:43.701Z" },
-    { url = "https://files.pythonhosted.org/packages/1c/aa/b7c6a6c4ac80fa4ded014c91f27e421dd137fb7f6f468d5f14a558f8e33d/xmodits_py-0.3.5-cp37-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:dfb12cb9289587ad8e706aa69a7a73131e4ca2e2ee9b954166be315460648279", size = 246246, upload-time = "2024-08-26T20:09:45.356Z" },
-    { url = "https://files.pythonhosted.org/packages/6d/10/b000a8667f5eb7d0216dff9f0a2543995c9b7ccc3d8f8eb5ca6b7e9a33e9/xmodits_py-0.3.5-cp37-abi3-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:db6b0d796ab48a09175e67b1268b0e61d5e32c9fef9fd18ba38b5822fa9b01e8", size = 252761, upload-time = "2024-08-26T20:09:46.884Z" },
-    { url = "https://files.pythonhosted.org/packages/d7/37/7cd625edacb2ca240dcacccd1a8677cad7fa5d6eca105dc8634b875c9302/xmodits_py-0.3.5-cp37-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:275bc025752cfc2093a716fc647e8a167658b89025e193428f08ec0cb328f211", size = 261010, upload-time = "2024-08-26T20:09:47.972Z" },
-    { url = "https://files.pythonhosted.org/packages/93/be/1e4d693f85084013fe10a80b10c52aea49c7e393f278fc95efe15fc31a66/xmodits_py-0.3.5-cp37-abi3-manylinux_2_5_i686.manylinux1_i686.whl", hash = "sha256:28b680bb420e9416b4537898978c2aadeba7671a586f3671250d1018eb7d5112", size = 267900, upload-time = "2024-08-26T20:09:49.021Z" },
-    { url = "https://files.pythonhosted.org/packages/04/95/5918a946e922b8b4519daa93dff2b29d08b8f3953d758dbc3b8cfcb6e00c/xmodits_py-0.3.5-cp37-abi3-win32.whl", hash = "sha256:f5c16b752338a0dbc8f7011da27ec705104c03bf68f5594d54ca5b9306f6e4c8", size = 177892, upload-time = "2024-08-26T20:09:50.69Z" },
-    { url = "https://files.pythonhosted.org/packages/bc/2c/e8b26d72ac1fce5a3a4b0f40825a61ffdbec55b408e8b89cd03ae7c60cfe/xmodits_py-0.3.5-cp37-abi3-win_amd64.whl", hash = "sha256:bee3c483e29c660870e1ed439b980fdb285331fca6f44421b1ad01f68d385451", size = 189309, upload-time = "2024-08-26T20:09:52.26Z" },
 ]

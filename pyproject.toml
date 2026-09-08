@@ -37,7 +37,6 @@ dev = [
     "scikit-learn>=1.9.0",
     "types-PyYAML==6.0.12.20260518",
     "umap-learn>=0.5.12",
-    "xmodits-py>=0.3.5",
 ]
 
 [tool.uv.sources]
@@ -90,7 +89,6 @@ warn_required_dynamic_aliases = true
 
 [tool.pylint.main]
 ignore-paths = ['(.*/)?notebooks/[^/]+\.py$']
-ignored-modules = ["xmodits"]
 
 [tool.pylint."messages control"]
 disable = [
