@@ -4,6 +4,7 @@ from optisample.calibrate.context import NoteProbe
 from optisample.config.render import PlaybackConfig
 from optisample.dsp.surrogate import StoredSample
 from optisample.io.tracker.target import ExportTarget
+from optisample.io.tracker.voices import instrument_voices
 from optisample.music import sounded_note
 from optisample.optimize.export.material import CHANNELS
 from trackmod.core.instruments.instrument import Instrument
@@ -78,8 +79,10 @@ def single_note_module(
         channels=CHANNELS,
         patterns=(builder.build(),),
         order=OrderList.sequential(_ORDERS),
-        instruments=(Instrument(name=name, keymap=keymap),),
-        samples=(Sample(name=name, pcm=stored.pcm, rate=stored.sample_rate, depth=stored.depth),),
+        voices=instrument_voices(
+            (Instrument(name=name, keymap=keymap),),
+            (Sample(name=name, pcm=stored.pcm, rate=stored.sample_rate, depth=stored.depth),),
+        ),
         playback=Playback(speed=playback.speed, tempo=playback.tempo),
     )
     return target.bind(song)

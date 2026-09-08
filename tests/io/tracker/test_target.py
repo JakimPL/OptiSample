@@ -13,6 +13,7 @@ from optisample.config.tracker import (
     XMTrackerConfig,
 )
 from optisample.io.tracker.target import ExportTarget, balanced_gains, export_target, sample_label
+from optisample.io.tracker.voices import instrument_voices, routed_voices
 from trackmod.core.effects.effect import Effect
 from trackmod.core.instruments.instrument import Instrument
 from trackmod.core.instruments.keymap import KeyAssignment, routed_keymap
@@ -56,8 +57,10 @@ def song(rows: int) -> Song:
         channels=_CHANNELS,
         patterns=(builder.build(),),
         order=OrderList.sequential(1),
-        instruments=(Instrument(name="probe", keymap=routed_keymap({_KEY: KeyAssignment(sample=0, note=_KEY)})),),
-        samples=(Sample(name="s", pcm=np.zeros(64, dtype=np.float64), rate=22_050, depth=BitDepth.SIXTEEN),),
+        voices=instrument_voices(
+            (Instrument(name="probe", keymap=routed_keymap({_KEY: KeyAssignment(sample=0, note=_KEY)})),),
+            (Sample(name="s", pcm=np.zeros(64, dtype=np.float64), rate=22_050, depth=BitDepth.SIXTEEN),),
+        ),
         playback=Playback(speed=6, tempo=125),
     )
 
@@ -100,7 +103,7 @@ def test_an_instrument_is_bound_as_the_file_its_own_format_writes(
 ) -> None:
     """One voice out of a song stands on its own, written the way the run's format writes instruments."""
     target = retarget(tracker_format)
-    written = target.instrument_file(extract(song(target.min_rows), 0))
+    written = target.instrument_file(extract(routed_voices(song(target.min_rows)), 0))
     assert written.extension == extension
     assert written.violations() == ()
     assert written.size().total == len(written.to_bytes())
@@ -113,7 +116,7 @@ def test_an_instrument_file_carries_the_samples_its_keymap_reaches(
 ) -> None:
     """The file is portable because the unit numbers its own samples, so nothing points back at the song."""
     target = retarget(tracker_format)
-    unit = extract(song(target.min_rows), 0)
+    unit = extract(routed_voices(song(target.min_rows)), 0)
     written = target.instrument_file(unit)
     assert written.unit.samples == unit.samples
     assert written.unit.instrument.keymap == unit.instrument.keymap
@@ -144,7 +147,7 @@ def test_the_release_cell_silences_a_channel(
 ) -> None:
     target = retarget(tracker_format)
     cell = target.release_cell()
-    assert not cell.is_empty
+    assert cell != Cell()
     assert target.bind(song(target.min_rows)).violations() == ()  # a cell the format can write
 
 
@@ -213,7 +216,9 @@ def test_a_split_transposition_is_refused_by_the_format_that_cannot_hold_it(
         }
     )
     built = song(PROBE_ROWS)
-    disagreeing = built.model_copy(update={"instruments": (Instrument(name="probe", keymap=split),)})
+    disagreeing = built.model_copy(
+        update={"voices": instrument_voices((Instrument(name="probe", keymap=split),), routed_voices(built).samples)}
+    )
 
     assert retarget(TrackerFormat.IT).bind(disagreeing).to_bytes()  # a per-key keymap holds it
     with pytest.raises(ValueError, match="transposes sample 0 differently"):
@@ -222,9 +227,38 @@ def test_a_split_transposition_is_refused_by_the_format_that_cannot_hold_it(
 
 def test_the_row_bounds_come_from_the_compliance_level(target: ExportTarget) -> None:
     extended = dataclasses.replace(target, compliance=Compliance.EXTENDED)
+    structural = dataclasses.replace(target, compliance=Compliance.STRUCTURAL)
     assert target.compliance is Compliance.CANONICAL
     assert target.min_rows > extended.min_rows  # the original tracker refuses patterns its format could hold
-    assert target.max_rows == extended.max_rows
+    assert target.max_rows < extended.max_rows < structural.max_rows  # each level reaches further than the last
+
+
+_IT_CANONICAL_SLOTS = 99  # what Impulse Tracker's own editor numbers, where the layout has room for 255
+
+
+def test_the_canonical_level_numbers_the_slots_the_original_tracker_offers(target: ExportTarget) -> None:
+    """Writing for the tracker the format names is what caps a plan's instruments and its stored samples.
+
+    The three levels widen in step, so a plan asking for more slots than the editor lists is one asking to
+    be played by something descended from it rather than by Impulse Tracker itself.
+    """
+    structural = dataclasses.replace(target, compliance=Compliance.STRUCTURAL)
+    assert target.compliance is Compliance.CANONICAL
+    assert (target.max_instruments, target.max_samples) == (_IT_CANONICAL_SLOTS, _IT_CANONICAL_SLOTS)
+    assert structural.max_instruments > target.max_instruments
+    assert structural.max_samples > target.max_samples
+
+
+@pytest.mark.parametrize("compliance", tuple(Compliance))
+def test_every_level_a_format_states_answers_for_the_bounds_a_plan_reads(
+    compliance: Compliance, target: ExportTarget
+) -> None:
+    """Each of the three ceilings is a level a run may be configured at, and each answers every bound."""
+    held = dataclasses.replace(target, compliance=compliance)
+    assert held.limits.compliance is compliance
+    assert held.min_rows <= held.max_rows
+    assert held.max_samples_per_instrument > 0
+    assert held.envelope_point_bound.maximum > held.envelope_tick_bound.minimum
 
 
 def test_a_pattern_below_the_canonical_floor_is_reported(target: ExportTarget) -> None:

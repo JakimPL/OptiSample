@@ -5,6 +5,7 @@ import pytest
 
 from optisample.config.render import PlaybackConfig
 from optisample.io.tracker.target import ExportTarget
+from optisample.io.tracker.voices import instrument_voices
 from trackmod.core.instruments.instrument import Instrument
 from trackmod.core.instruments.keymap import KeyAssignment, routed_keymap
 from trackmod.core.notes.pitch import Note
@@ -61,8 +62,7 @@ def probe_module(playback_config: PlaybackConfig, target: ExportTarget) -> Probe
             channels=_CHANNELS,
             patterns=(builder.build(),),
             order=OrderList.sequential(1),
-            instruments=(Instrument(name="probe", keymap=keymap),),
-            samples=tuple(samples),
+            voices=instrument_voices((Instrument(name="probe", keymap=keymap),), samples),
             playback=Playback(speed=playback_config.speed, tempo=playback_config.tempo),
         )
         return bound.bind(song)

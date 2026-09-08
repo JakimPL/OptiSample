@@ -5,6 +5,7 @@ from typing import Final
 from optisample.dsp.level import Clock, Level, curve_level, loudest_db, written_level
 from optisample.dsp.trajectory import SharedTrajectory
 from optisample.io.tracker.envelope import NO_ENVELOPE, shape_nodes, volume_envelope
+from optisample.io.tracker.voices import instrument_voices
 from optisample.model import NoteEvent
 from optisample.optimize.export.carriers import plan_trajectories
 from optisample.optimize.export.context import ExportContext
@@ -221,8 +222,10 @@ def build_song(
         channels=CHANNELS,
         patterns=patterns,
         order=order,
-        instruments=_slot_instruments(plan, layout, written.planned.keymaps, written.envelopes),
-        samples=written.planned.samples,
+        voices=instrument_voices(
+            _slot_instruments(plan, layout, written.planned.keymaps, written.envelopes),
+            written.planned.samples,
+        ),
         playback=Playback(speed=context.playback.speed, tempo=context.playback.tempo),
     )
 

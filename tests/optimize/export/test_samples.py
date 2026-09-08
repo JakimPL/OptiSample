@@ -14,6 +14,7 @@ from optisample.config.tracker import TrackerFormat
 from optisample.dsp.surrogate import EncodingParams, StoredSample
 from optisample.io.render import openmpt123_available, render_module
 from optisample.io.tracker.target import ExportTarget
+from optisample.io.tracker.voices import routed_voices
 from optisample.keys import SampleKey
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.music import MIDI_MAX_VELOCITY
@@ -63,10 +64,10 @@ def test_one_sample_per_planned_pitch_each_sounding_its_own_key(
 ) -> None:
     plan, module = build()
     song = module.song
-    assert len(song.samples) == len(plan.pitches)
-    assert len(song.instruments) == 1
+    assert len(routed_voices(song).samples) == len(plan.pitches)
+    assert len(routed_voices(song).instruments) == 1
     for index, pitch_plan in enumerate(plan.pitches):
-        assignment = song.instruments[0].assignment(Note.from_midi(pitch_plan.pitch))
+        assignment = routed_voices(song).instruments[0].assignment(Note.from_midi(pitch_plan.pitch))
         assert assignment is not None
         assert assignment.sample == index
         # a key playing its own recording needs no transposition, so it sounds the reference note
@@ -77,7 +78,7 @@ def test_stored_samples_match_the_chosen_operating_points(
     build: Callable[..., tuple[InstrumentPlan, TrackerModule]],
 ) -> None:
     plan, module = build()
-    for pitch_plan, sample in zip(plan.pitches, module.song.samples):
+    for pitch_plan, sample in zip(plan.pitches, routed_voices(module.song).samples):
         assert sample.depth == pitch_plan.chosen.params.depth_bits
         assert sample.frames == pitch_plan.chosen.frames
         assert sample.rate == pitch_plan.chosen.params.target_rate  # the true stored rate, untransposed
@@ -87,10 +88,10 @@ def test_sample_names_carry_the_instrument_and_the_recording_stored(
     build: Callable[..., tuple[InstrumentPlan, TrackerModule]],
 ) -> None:
     plan, module = build()
-    assert [sample.name for sample in module.song.samples] == [
+    assert [sample.name for sample in routed_voices(module.song).samples] == [
         sample_name(plan.instrument_id, unit) for unit in plan.sample_units()
     ]
-    assert [sample.name for sample in module.song.samples] == ["piano C4 v100", "piano G4 v100"]
+    assert [sample.name for sample in routed_voices(module.song).samples] == ["piano C4 v100", "piano G4 v100"]
 
 
 def test_sample_names_tell_one_key_s_velocity_layers_apart(
@@ -98,7 +99,7 @@ def test_sample_names_tell_one_key_s_velocity_layers_apart(
 ) -> None:
     """A key stores a recording per band, so naming the recording is what keeps the two listed apart."""
     _, module = layered_build()
-    names = [sample.name for sample in module.song.samples]
+    names = [sample.name for sample in routed_voices(module.song).samples]
     assert len(set(names)) == len(names)
     assert all(len(name) <= _NARROWEST_NAME_BYTES for name in names)
 
@@ -107,7 +108,7 @@ def test_sample_names_tell_one_key_s_velocity_layers_apart(
 def test_sample_bytes_equal_the_budgeted_amount(builder: str, request: pytest.FixtureRequest) -> None:
     plan, module = request.getfixturevalue(builder)()
     storage = module.storage
-    stored = sum(storage.sample_bytes(frames=s.frames, depth=s.depth) for s in module.song.samples)
+    stored = sum(storage.sample_bytes(frames=s.frames, depth=s.depth) for s in routed_voices(module.song).samples)
     assert stored == plan.used_bytes  # frames plus the records the format charges is what the solver budgeted
 
 
@@ -213,14 +214,14 @@ def test_the_written_module_grades_its_samples_against_the_one_needing_most(
 ) -> None:
     """End to end: the plan's samples reach the module carrying the balance the recordings were made with."""
     _, module = build()
-    gains = [sample.gain for sample in module.song.samples]
+    gains = [sample.gain for sample in routed_voices(module.song).samples]
     assert max(gains) == MAX_VOLUME
     assert all(0 < gain <= MAX_VOLUME for gain in gains)
 
 
 def _assignment(module: TrackerModule, target: ExportTarget, pitch: int) -> KeyAssignment | None:
     """What the written instrument plays at ``pitch``, as the module itself states it."""
-    return module.song.instruments[0].assignment(target.key(pitch))
+    return routed_voices(module.song).instruments[0].assignment(target.key(pitch))
 
 
 def test_a_written_instrument_answers_far_past_the_keys_it_was_recorded_over(
@@ -256,10 +257,10 @@ def test_grouped_module_shares_one_sample_across_a_merged_zone(
 ) -> None:
     plan, module = grouped_build()
     assert len(plan.zones) == 1  # the tight budget merged both keys into one zone
-    assert len(module.song.samples) == 1  # ... served by a single stored sample
+    assert len(routed_voices(module.song).samples) == 1  # ... served by a single stored sample
     representative = plan.zones[0].representative
     for pitch in plan.zones[0].pitches:
-        assignment = module.song.instruments[0].assignment(Note.from_midi(pitch))
+        assignment = routed_voices(module.song).instruments[0].assignment(Note.from_midi(pitch))
         assert assignment is not None
         assert assignment.sample == 0  # every covered key reaches the shared sample
         assert assignment.note == Note(RATE_NOTE + pitch - representative)  # transposed from the representative
@@ -269,7 +270,7 @@ def test_grouped_sample_keeps_the_representatives_stored_rate(
     grouped_build: Callable[..., tuple[GroupedInstrumentPlan, TrackerModule]],
 ) -> None:
     plan, module = grouped_build()
-    assert module.song.samples[0].rate == plan.zones[0].chosen.params.target_rate
+    assert routed_voices(module.song).samples[0].rate == plan.zones[0].chosen.params.target_rate
 
 
 def test_a_grouped_pitch_the_format_does_not_number_raises(
@@ -353,7 +354,7 @@ def test_looped_plan_carries_loop_points_into_the_module(
 ) -> None:
     plan, module = looped_build()
     assert plan.pitches[0].chosen.params.loop_index is not None  # 3 s stored whole overruns the budget
-    sample = module.song.samples[0]
+    sample = routed_voices(module.song).samples[0]
     assert sample.loop is not None
     assert 0 <= sample.loop.begin < sample.loop.end <= sample.frames  # the loop lies inside the stored sample
     assert sample.loop.end / sample.rate < 1.0  # storage is attack + a ~0.5 s loop, not the whole 3 s recording
@@ -382,8 +383,8 @@ def test_written_file_round_trips_through_xmodits(builder: str, tmp_path: Path, 
     destination.mkdir()
     xmodits.dump(str(path), str(destination), format="wav")
     extracted = sorted(destination.glob("*.wav"))
-    assert len(extracted) == len(module.song.samples)
-    for wav, sample in zip(extracted, module.song.samples):
+    assert len(extracted) == len(routed_voices(module.song).samples)
+    for wav, sample in zip(extracted, routed_voices(module.song).samples):
         data, sample_rate = sf.read(str(wav), dtype="float64", always_2d=False)
         assert np.asarray(data).size == sample.frames
         assert sample_rate == sample.rate  # the tagged rate is the rate the sample really stores

@@ -5,6 +5,7 @@ from optisample.artifacts.context import DumpContext
 from optisample.artifacts.documents.plan import PlanDocument, plan_document
 from optisample.dsp.surrogate import StoredSample
 from optisample.io.tracker.envelope import shape_nodes
+from optisample.io.tracker.voices import routed_voices
 from optisample.keys import SampleKey
 from optisample.model import NoteEvent
 from optisample.optimize.export import build_module
@@ -200,7 +201,7 @@ def make_kind(plan: InstrumentPlan | GroupedInstrumentPlan, dump_context: DumpCo
     size = module.size()
     layout = plan_slots(plan, export_context.target)
     coverage = key_coverage(
-        [instrument.keymap for instrument in module.song.instruments],
+        [instrument.keymap for instrument in routed_voices(module.song).instruments],
         export_context.target,
         played=played_keys(plan.sample_units()),
     )

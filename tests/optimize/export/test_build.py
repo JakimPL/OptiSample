@@ -8,6 +8,7 @@ from optisample.dsp.level import Clock, curve_level, gain_to_db, loudest_db, wri
 from optisample.dsp.piecewise import CurveNode, PiecewiseCurve
 from optisample.dsp.trajectory import SharedTrajectory
 from optisample.io.tracker.envelope import NO_ENVELOPE, EnvelopeGrid, volume_envelope
+from optisample.io.tracker.voices import routed_voices
 from optisample.optimize.export.build import slot_envelope, slot_level
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.voices import NO_SHAPE
@@ -101,8 +102,8 @@ def test_the_written_module_plays_a_looped_note_down_rather_than_ringing(
     """
     _, module = build(budget_kb=_LOOPED_BUDGET_KB)
     song = module.song
-    envelopes = [instrument.volume_envelope for instrument in song.instruments]
-    loops = [sample.loop is not None for sample in song.samples]
+    envelopes = [instrument.volume_envelope for instrument in routed_voices(song).instruments]
+    loops = [sample.loop is not None for sample in routed_voices(song).samples]
 
     assert any(loops), "the demo plan stores no loop, so this test would prove nothing"
     assert all(envelope is not None for envelope in envelopes)

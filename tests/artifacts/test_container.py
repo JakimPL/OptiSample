@@ -17,6 +17,7 @@ from optisample.artifacts.documents.velocity import VelocityMapDocument
 from optisample.artifacts.serialize import json_text
 from optisample.config.tracker import TrackerFormat
 from optisample.io.tracker.target import ExportTarget
+from optisample.io.tracker.voices import instrument_voices, routed_voices
 from optisample.music import MIDI_MAX_VELOCITY
 from optisample.optimize.layers.bands import VelocityBand, VelocityLayers
 from optisample.optimize.layers.slots import InstrumentSlot, SlotLayout
@@ -56,13 +57,15 @@ def _song(rows: int) -> Song:
         channels=_CHANNELS,
         patterns=(builder.build(),),
         order=OrderList.sequential(1),
-        instruments=tuple(
-            Instrument(name=f"{_NAME} {index}", keymap=routed_keymap({key: KeyAssignment(sample=index, note=key)}))
-            for index, key in enumerate(_KEYS)
-        ),
-        samples=tuple(
-            Sample(name=f"s{index}", pcm=np.full(_FRAMES, 0.5), rate=_RATE, depth=BitDepth.SIXTEEN)
-            for index in range(len(_KEYS))
+        voices=instrument_voices(
+            tuple(
+                Instrument(name=f"{_NAME} {index}", keymap=routed_keymap({key: KeyAssignment(sample=index, note=key)}))
+                for index, key in enumerate(_KEYS)
+            ),
+            tuple(
+                Sample(name=f"s{index}", pcm=np.full(_FRAMES, 0.5), rate=_RATE, depth=BitDepth.SIXTEEN)
+                for index in range(len(_KEYS))
+            ),
         ),
         playback=Playback(speed=6, tempo=125),
     )
@@ -125,7 +128,7 @@ def test_an_entry_loads_back_as_the_voice_the_song_numbers(
     with zipfile.ZipFile(container) as archive:
         for index, layer in enumerate(contents.document.layers):
             loaded = ITInstrumentFile.parse(archive.read(layer.source.file)).unit
-            held = extract(song, index)
+            held = extract(routed_voices(song), index)
             assert loaded.instrument.keymap == held.instrument.keymap
             assert all(np.array_equal(one.pcm, other.pcm) for one, other in zip(loaded.samples, held.samples))
 

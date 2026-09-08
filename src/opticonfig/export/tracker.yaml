@@ -1,5 +1,6 @@
 format: it
-compliance: canonical
+compliance: canonical # which ceiling a module is graded against:
+# canonical = the tracker's own editor | extended = the players descended from it | structural = the record layout
 it:
   global_volume: 128
   mix_volume: 48

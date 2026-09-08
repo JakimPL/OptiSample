@@ -7,6 +7,7 @@ from optisample.artifacts.documents.bank import BankDocument, bank_document
 from optisample.artifacts.documents.velocity import VelocityMapDocument
 from optisample.artifacts.serialize import json_text
 from optisample.io.tracker.target import ExportTarget
+from optisample.io.tracker.voices import routed_voices
 from optisample.optimize.layers.slots import SlotLayout
 from trackmod.core.instruments.transfer import extract
 from trackmod.core.songs.song import Song
@@ -55,7 +56,7 @@ def _instrument_entry(song: Song, layout: SlotLayout, index: int, target: Export
     into a song knowing nothing of the one it was written beside. The name states the keys and the
     dynamics the instrument answers, so a bank reads as the map of which voice plays what.
     """
-    written = target.instrument_file(extract(song, index))
+    written = target.instrument_file(extract(routed_voices(song), index))
     return BankEntry(
         name=f"{INSTRUMENTS_ENTRY}/{layout.slots[index].file_label}{written.extension}",
         data=written.to_bytes(),

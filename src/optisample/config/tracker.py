@@ -32,8 +32,13 @@ class XMTrackerConfig(ConfigModel):
 class TrackerConfig(ConfigModel):
     """Which format a module is written as, how strictly it holds to it, and its per-format settings.
 
-    ``compliance`` decides which bounds the module is graded against: ``canonical`` keeps within what the
-    original tracker itself reads, ``extended`` allows everything the record layout can hold.
+    ``compliance`` decides which of a format's three ceilings the module is graded against, in the terms
+    :class:`~trackmod.limits.compliance.Compliance` states them: ``canonical`` keeps within what the
+    tracker the format names allowed in its own editor, ``extended`` within what the players descended
+    from it read, and ``structural`` within what the record layout physically holds. Writing at
+    ``canonical`` is what makes a module the original tracker opens, and it is the tightest of the three
+    -- Impulse Tracker numbers ninety-nine instruments and ninety-nine samples there, where the layout
+    itself has room for two hundred and fifty-five.
     """
 
     format: TrackerFormat

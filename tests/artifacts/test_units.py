@@ -6,6 +6,7 @@ import numpy as np
 
 from optisample.artifacts.context import DumpContext, DumpSettings
 from optisample.artifacts.units import build_units, make_kind
+from optisample.io.tracker.voices import routed_voices
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
 
 
@@ -64,7 +65,7 @@ def test_make_kind_packages_an_ungrouped_plan(ungrouped_plan: InstrumentPlan, du
     assert kind.plan_document.strategy == "ungrouped"
     assert len(kind.units) == len(ungrouped_plan.pitches)
     assert kind.report_text.strip()  # a non-empty human report
-    assert len(kind.module.song.samples) == len(kind.units)  # one stored sample per unit
+    assert len(routed_voices(kind.module.song).samples) == len(kind.units)  # one stored sample per unit
     assert kind.plan_document.module.total_bytes == kind.module.size().total
 
 
@@ -73,7 +74,9 @@ def test_make_kind_rebuilds_the_module_over_other_material(
 ) -> None:
     kind = make_kind(ungrouped_plan, dump_context)
     one_note = kind.make_module(list(dump_context.material[:1]))
-    assert one_note.song.samples == kind.module.song.samples  # the same stored samples, a shorter song
+    assert (
+        routed_voices(one_note.song).samples == routed_voices(kind.module.song).samples
+    )  # the same stored samples, a shorter song
     assert one_note.size().patterns < kind.module.size().patterns
 
 

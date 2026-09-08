@@ -8,6 +8,7 @@ import pytest
 from optisample.config.render import PlaybackConfig, RenderConfig
 from optisample.io.render import openmpt123_available, render_module
 from optisample.io.tracker.target import ExportTarget
+from optisample.io.tracker.voices import routed_voices
 from optisample.model import NoteEvent
 from optisample.optimize.export.material import Voicing, event_rows, material_patterns
 from optisample.optimize.plans import GroupedInstrumentPlan, InstrumentPlan
@@ -32,7 +33,7 @@ def song_cells(module: TrackerModule) -> list[Cell]:
         cell
         for pattern in module.song.patterns
         for row in range(pattern.rows)
-        if not (cell := pattern.cell(row, _CHANNEL)).is_empty
+        if (cell := pattern.cell(row, _CHANNEL)) != Cell()
     ]
 
 
@@ -60,7 +61,7 @@ def test_every_note_names_the_only_instrument_the_module_carries(
     _, module = build()
     notes = [cell for cell in song_cells(module) if cell.note != NoteCommand.CUT]
     assert all(cell.instrument == 0 for cell in notes)
-    assert len(module.song.instruments) == 1
+    assert len(routed_voices(module.song).instruments) == 1
 
 
 def test_long_material_spills_into_multiple_ordered_patterns(

@@ -6,6 +6,7 @@ import pytest
 from optisample.config.render import RenderConfig
 from optisample.dsp.surrogate.params import EncodingParams
 from optisample.io.render import openmpt123_available, render_module
+from optisample.io.tracker.voices import routed_voices
 from optisample.keys import SampleKey
 from optisample.optimize.export.build import _NAME_CHARS, instrument_name
 from optisample.optimize.layers.bands import UNSPLIT, VelocityBand, VelocityLayers
@@ -32,7 +33,7 @@ def test_a_layered_plan_writes_one_instrument_per_velocity_band(
     layered_build: Callable[..., tuple[GroupedInstrumentPlan, TrackerModule]],
 ) -> None:
     plan, module = layered_build()
-    instruments = module.song.instruments
+    instruments = routed_voices(module.song).instruments
     assert len(instruments) == plan.layers.count
     assert [instrument.name for instrument in instruments] == [f"piano {band.label}" for band in plan.layers.bands]
 
@@ -55,7 +56,7 @@ def test_each_layer_routes_only_to_the_samples_its_own_band_stores(
     for index, unit in enumerate(plan.sample_units()):
         stored[unit.layer].add(index)
 
-    for layer, instrument in enumerate(module.song.instruments):
+    for layer, instrument in enumerate(routed_voices(module.song).instruments):
         assert set(instrument.samples) == stored[layer]
 
 

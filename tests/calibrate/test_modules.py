@@ -6,6 +6,7 @@ from optisample.calibrate import NoteProbe, single_note_module
 from optisample.config.render import PlaybackConfig
 from optisample.dsp.surrogate import StoredSample
 from optisample.io.tracker.target import ExportTarget
+from optisample.io.tracker.voices import routed_voices
 from trackmod.core.notes.pitch import Note
 from trackmod.core.timing.clock import row_seconds
 from trackmod.spec.pitch import RATE_NOTE
@@ -22,9 +23,9 @@ def test_single_note_module_wires_one_sample_to_the_probed_key(
     probe = NoteProbe(pitch=_PROBE_PITCH, volume=50, duration_s=0.5)
     song = single_note_module(sample, probe, playback_config, target).song
     key = Note.from_midi(_PROBE_PITCH)
-    assert len(song.samples) == 1
-    assert song.samples[0].rate == 22_050  # the sample states the rate it was actually stored at
-    assignment = song.instruments[0].assignment(key)
+    assert len(routed_voices(song).samples) == 1
+    assert routed_voices(song).samples[0].rate == 22_050  # the sample states the rate it was actually stored at
+    assignment = routed_voices(song).instruments[0].assignment(key)
     assert assignment is not None
     assert assignment.sample == 0
     # a whole octave above the recording's own key, so the key sounds an octave above the reference

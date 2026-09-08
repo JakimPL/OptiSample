@@ -10,6 +10,7 @@ from optisample.config.render import RenderConfig
 from optisample.config.tracker import TrackerFormat
 from optisample.io.render import openmpt123_available, render_module
 from optisample.io.tracker.target import ExportTarget
+from optisample.io.tracker.voices import routed_voices
 from optisample.keys import SampleKey
 from optisample.model import InstrumentSpec, NoteEvent, SourceSample
 from optisample.optimize.export import build_module
@@ -49,7 +50,7 @@ def test_every_format_writes_the_plan_it_is_given(
 ) -> None:
     plan, module = build(None, tracker_format)
     assert module.violations() == ()
-    assert len(module.song.samples) == len(plan.pitches)
+    assert len(routed_voices(module.song).samples) == len(plan.pitches)
     assert module.size().total == len(module.to_bytes())  # the size model accounts for every byte written
 
 
@@ -150,8 +151,8 @@ def test_a_plan_holding_more_samples_than_an_xm_instrument_owns_is_written_as_se
 
     assert len(plan.sample_units()) == len(_WIDE_KEYS)  # every key kept its own recording
     assert module.violations() == ()
-    assert len(module.song.instruments) == 2
-    assert all(len(written.samples) <= per_instrument for written in module.song.instruments)
+    assert len(routed_voices(module.song).instruments) == 2
+    assert all(len(written.samples) <= per_instrument for written in routed_voices(module.song).instruments)
 
 
 def test_one_instrument_holds_the_whole_plan_where_the_format_numbers_samples_freely(
@@ -170,8 +171,8 @@ def test_one_instrument_holds_the_whole_plan_where_the_format_numbers_samples_fr
     module = build_module(plan, recordings(audio, SR), instrument.material, as_format(TrackerFormat.IT))
 
     assert module.violations() == ()
-    assert len(module.song.instruments) == 1
-    assert len(module.song.instruments[0].samples) == len(_WIDE_KEYS)
+    assert len(routed_voices(module.song).instruments) == 1
+    assert len(routed_voices(module.song).instruments[0].samples) == len(_WIDE_KEYS)
 
 
 def test_every_note_of_a_cut_plan_names_the_instrument_its_key_resolves_to(
@@ -196,5 +197,8 @@ def test_every_note_of_a_cut_plan_names_the_instrument_its_key_resolves_to(
         0 if index < per_instrument else 1 for index in range(len(_WIDE_KEYS))
     ]
     for cell in played:
-        assignment = module.song.instruments[cell.instrument].assignment(cell.note)
-        assert assignment is not None and assignment.sample in module.song.instruments[cell.instrument].samples
+        assignment = routed_voices(module.song).instruments[cell.instrument].assignment(cell.note)
+        assert (
+            assignment is not None
+            and assignment.sample in routed_voices(module.song).instruments[cell.instrument].samples
+        )
