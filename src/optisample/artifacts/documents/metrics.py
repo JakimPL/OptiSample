@@ -58,7 +58,16 @@ class NoteMetricRecord(Frozen):
 
 
 class MetricsDocument(Frozen):
-    """Per-note surrogate fidelity for one strategy; ``objective`` reproduces the plan's objective."""
+    """Per-note surrogate fidelity for one strategy, beside the two objectives a written plan states.
+
+    ``objective`` is what the stored samples deliver, summed from the notes below it, and
+    ``plan_objective`` what the allocation compared its candidates by. A run storing each recording as it
+    was played reaches the same number twice, the sweep having priced the very waveform that gets written.
+    A run storing carriers (:attr:`~optisample.config.optimize.SweepConfig.carrier`) prices each clip
+    against the curve that clip alone states, while the module plays one shared envelope per instrument,
+    written on its format's own grid -- so the gap between the two is what that shared curve costs the keys
+    written under it.
+    """
 
     strategy: str
     instrument_id: str
@@ -131,7 +140,7 @@ def metrics_document(
     plan_objective: float,
     notes: Sequence[NoteMetricRecord],
 ) -> MetricsDocument:
-    """The per-note metrics document; its ``objective`` sums the notes back to ``plan.objective``."""
+    """The per-note metrics document; its ``objective`` sums what the stored samples deliver."""
     return MetricsDocument(
         strategy=strategy,
         instrument_id=instrument_id,

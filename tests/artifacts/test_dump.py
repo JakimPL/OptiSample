@@ -1,6 +1,7 @@
 import json
 import zipfile
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -109,6 +110,21 @@ def _settled_recordings(instrument: InstrumentSpec, audio: AudioMap) -> StoredRe
     return run_loops(loaded, NO_RENDER.optimize).recordings
 
 
+STORED_LEVELS = replace(
+    NO_RENDER,
+    optimize=replace(NO_RENDER.optimize, sweep=NO_RENDER.optimize.sweep.model_copy(update={"carrier": False})),
+)  # every waveform stored as it was played, which is the encoding the sweep prices directly
+
+
+@pytest.fixture(scope="module")
+def stored_levels(tmp_path_factory: pytest.TempPathFactory, demo_audio_map: AudioFactory) -> Path:
+    """The same instrument dumped with each recording's own level left in its waveform."""
+    out = tmp_path_factory.mktemp("stored_levels")
+    instrument = _instrument(48.0)
+    dump_instrument(instrument, _settled_recordings(instrument, demo_audio_map()), out, STORED_LEVELS)
+    return out
+
+
 @pytest.fixture(scope="module")
 def generous(tmp_path_factory: pytest.TempPathFactory, demo_audio_map: AudioFactory) -> Path:
     out = tmp_path_factory.mktemp("generous")
@@ -205,12 +221,27 @@ def test_the_bank_hands_every_dynamic_to_the_band_the_plan_stored_it_in(generous
     assert selected == stored
 
 
-def test_metrics_objective_reproduces_plan_objective(generous: Path) -> None:
+def test_metrics_states_the_objective_the_allocation_was_made_on(generous: Path) -> None:
+    """The plan's own objective travels into the metrics beside what the stored samples deliver."""
     for name in ("ungrouped", "grouped"):
         plan = _load(generous / name / "plan.json")
         metrics = _load(generous / name / "metrics.json")
-        assert metrics["objective"] == pytest.approx(plan["objective"])  # the surrogate scores are the objective
         assert metrics["plan_objective"] == pytest.approx(plan["objective"])
+        contributions = sum(note["objective_contribution"] for note in metrics["notes"])
+        assert metrics["objective"] == pytest.approx(contributions)  # the notes are the whole of it
+
+
+def test_a_plan_storing_recordings_delivers_the_objective_it_was_allocated_by(stored_levels: Path) -> None:
+    """A waveform stored as it was played is the waveform the sweep priced, so the two objectives agree.
+
+    This is the contract a run storing carriers trades away: there the sweep prices each clip against the
+    curve that clip alone states, while the module plays one shared envelope per instrument written on the
+    format's own grid, and what the two objectives differ by is what that shared curve costs.
+    """
+    for name in ("ungrouped", "grouped"):
+        plan = _load(stored_levels / name / "plan.json")
+        metrics = _load(stored_levels / name / "metrics.json")
+        assert metrics["objective"] == pytest.approx(plan["objective"])
 
 
 def test_ungrouped_dumps_one_sample_per_pitch(generous: Path) -> None:
@@ -433,7 +464,6 @@ def test_a_layered_plan_scores_each_key_once_per_band_it_is_played_in(layered: P
     metrics = _load(layered / "grouped" / "metrics.json")
     covered = [(note["layer"], note["pitch"]) for note in metrics["notes"]]
     assert len(covered) == len(set(covered))  # one record per (layer, pitch), never a silent overwrite
-    assert metrics["objective"] == pytest.approx(_load(layered / "grouped" / "plan.json")["objective"], rel=1e-4)
 
 
 def test_a_layered_plan_writes_one_instrument_file_per_band(layered: Path) -> None:

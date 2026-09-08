@@ -31,7 +31,7 @@ _FORMATS = tuple(TrackerFormat)
 
 _ABOVE_XM_PITCH = 108  # the first key past FastTracker 2's eight octaves, which Impulse Tracker still numbers
 
-_RMS_TOLERANCE = 0.002
+_LEVEL_TOLERANCE_DB = 1.0  # what the two formats' envelope grids and per-sample steps can put between them
 _SILENCE = 1e-6
 
 
@@ -42,6 +42,11 @@ def rms(audio: NDArray[np.float64]) -> float:
 def peak(audio: NDArray[np.float64]) -> float:
     """The loudest frame, reading a render that stops here as silent."""
     return float(np.max(np.abs(audio), initial=0.0))
+
+
+def level_gap_db(one: NDArray[np.float64], other: NDArray[np.float64]) -> float:
+    """How far apart two renders sit in level, which is the reading a tolerance in decibels applies to."""
+    return abs(20.0 * np.log10(rms(one) / rms(other)))
 
 
 @pytest.mark.parametrize("tracker_format", _FORMATS)
@@ -71,13 +76,16 @@ def test_every_format_names_its_file_after_itself(
 def test_both_formats_play_the_same_music(
     build: Callable[..., tuple[InstrumentPlan, TrackerModule]], render_config: RenderConfig
 ) -> None:
-    """One plan written two ways sounds the same, within what each format's pitch lattice allows.
+    """One plan written two ways sounds the same, within what each format's own lattices allow.
 
     Impulse Tracker stores a sample's rate outright while FastTracker 2 reaches it by transposing the
     key, so the two land on pitches a fraction of a cent apart and the waveforms drift out of phase over
-    a long note. The level each key sounds at is what the two formats agree on. The renders run to
-    different lengths because the canonical Impulse Tracker pattern floor pads its song with rows the
-    material never reaches, which play as trailing silence.
+    a long note. The level lands within a decibel: a stored carrier is its recording divided by the curve
+    its instrument plays, and the two formats write that one curve on grids of different resolution --
+    twenty-five breakpoints against twelve -- so what a curve cannot state stays in the waveform and in
+    the per-sample step it is played at. The renders run to different lengths because the canonical
+    Impulse Tracker pattern floor pads its song with rows the material never reaches, which play as
+    trailing silence.
     """
     _, it_module = build(None, TrackerFormat.IT)
     _, xm_module = build(None, TrackerFormat.XM)
@@ -86,7 +94,7 @@ def test_both_formats_play_the_same_music(
     played = min(it_audio.size, xm_audio.size)
 
     assert (it_rate, xm_rate) == (render_config.sample_rate, render_config.sample_rate)
-    assert abs(rms(it_audio[:played]) - rms(xm_audio[:played])) < _RMS_TOLERANCE
+    assert level_gap_db(it_audio[:played], xm_audio[:played]) < _LEVEL_TOLERANCE_DB
     assert peak(it_audio[played:]) < _SILENCE  # the longer render only carries the padding rows
     assert peak(xm_audio[played:]) < _SILENCE
 

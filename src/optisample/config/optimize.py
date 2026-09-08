@@ -40,8 +40,8 @@ class SweepConfig(ConfigModel):
     (:attr:`~optisample.dsp.surrogate.sample.StoredSample.level`), so the surrogate renderer
     (:func:`~optisample.dsp.surrogate.render.render`) puts one out at the level the module plays it at and
     every reading taken from a written plan is taken on what a listener hears. The sweep itself prices each
-    clip against the curve that clip alone states, so what a plan's own readings stand above the sweep's is
-    what one shared envelope costs the keys written under it.
+    clip against the curve that clip alone states, so what stands between a plan's own readings and the
+    sweep's is what one shared envelope costs the keys written under it.
     """
 
     rates: Annotated[tuple[int, ...], Field(min_length=1)]
