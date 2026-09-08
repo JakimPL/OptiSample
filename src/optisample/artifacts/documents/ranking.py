@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from trackmod import BitDepth
+
 from optisample.artifacts.serialize import Frozen
 from optisample.calibrate.ranking import (
     Agreement,
@@ -24,7 +26,7 @@ class RenditionRecord(Frozen):
 
     side: Side
     target_rate: int
-    depth_bits: int
+    depth: BitDepth
     compress: bool
     loop_index: int | None
     stored_bytes: int
@@ -81,7 +83,7 @@ def _rendition_record(rendition: Rendition, side: Side) -> RenditionRecord:
     return RenditionRecord(
         side=side,
         target_rate=rendition.params.target_rate,
-        depth_bits=rendition.params.depth_bits,
+        depth=rendition.params.depth,
         compress=rendition.params.compress,
         loop_index=rendition.params.loop_index,
         stored_bytes=rendition.stored_bytes,

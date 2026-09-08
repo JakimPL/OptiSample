@@ -4,6 +4,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+from trackmod import BitDepth
 
 from optisample.config.codec import EncodeConfig
 from optisample.config.loop import GeometryConfig
@@ -46,9 +47,11 @@ def test_encode_sets_rate_depth_and_gain(
     make_encode_ctx: Callable[..., EncodeContext],
     encode_config: EncodeConfig,
 ) -> None:
-    stored = encode(_QUIET * sine(_TONE_HZ), SR, EncodingParams(target_rate=22_050, depth_bits=8), make_encode_ctx(57))
+    stored = encode(
+        _QUIET * sine(_TONE_HZ), SR, EncodingParams(target_rate=22_050, depth=BitDepth.EIGHT), make_encode_ctx(57)
+    )
     assert stored.sample_rate == 22_050
-    assert stored.depth_bits == 8
+    assert stored.depth == 8
     assert stored.root_pitch == 57
     assert stored.frames == pytest.approx(int(round(SR * 1.0 * 22_050 / SR)), abs=2)
     assert stored.gain * _QUIET == pytest.approx(headroom_peak(encode_config.headroom_db), rel=1e-3)
@@ -57,7 +60,7 @@ def test_encode_sets_rate_depth_and_gain(
 def test_encode_trims_to_duration(
     sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
 ) -> None:
-    params = EncodingParams(target_rate=SR, depth_bits=16, trim_s=0.5)
+    params = EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN, trim_s=0.5)
     stored = encode(sine(_TONE_HZ, dur=2.0), SR, params, make_encode_ctx(60))
     assert stored.frames == pytest.approx(int(round(0.5 * SR)), abs=2)
 
@@ -70,7 +73,7 @@ def test_encode_loop_stores_attack_plus_loop_and_drops_the_tail(
 ) -> None:
     recording = sine(_TONE_HZ, dur=_TONE_S)
     settled = settle(recording, SR, root_hz=_TONE_HZ, search_s=_TONE_S)
-    params = EncodingParams(target_rate=SR, depth_bits=16, loop_index=_CHEAPEST)
+    params = EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN, loop_index=_CHEAPEST)
     stored = encode(recording, SR, params, make_encode_ctx(60, settled=settled))
     assert stored.loop is not None
     assert stored.frames == stored.loop.end  # storage is trimmed to [0, loop.end)
@@ -87,7 +90,7 @@ def test_a_sample_asked_for_the_post_loop_stores_the_rest_of_the_recording_behin
     recording = sine(_TONE_HZ, dur=_TONE_S)
     settled = settle(recording, SR, root_hz=_TONE_HZ, search_s=_TONE_S)
     context = make_encode_ctx(60, settled=settled)
-    params = EncodingParams(target_rate=SR, depth_bits=16, loop_index=_CHEAPEST)
+    params = EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN, loop_index=_CHEAPEST)
     kept = encode(recording, SR, params, replace(context, post_loop=True))
     dropped = encode(recording, SR, params, context)
 
@@ -110,7 +113,7 @@ def test_the_span_a_kept_post_loop_wraps_on_sounds_as_the_one_stored_without_it(
     recording = sine(_TONE_HZ, dur=_TONE_S)
     settled = settle(recording, SR, root_hz=_TONE_HZ, search_s=_TONE_S)
     context = make_encode_ctx(60, settled=settled)
-    params = EncodingParams(target_rate=SR, depth_bits=16, loop_index=_CHEAPEST, dither=False)
+    params = EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN, loop_index=_CHEAPEST, dither=False)
     kept = encode(recording, SR, params, replace(context, post_loop=True))
     dropped = encode(recording, SR, params, context)
 
@@ -123,7 +126,7 @@ def test_a_sample_storing_no_loop_is_stored_the_same_whichever_post_loop_asks_fo
 ) -> None:
     """There is no region to store behind, so a recording kept as it was played reaches the same bytes."""
     recording = sine(_TONE_HZ, dur=_TONE_S)
-    params = EncodingParams(target_rate=SR, depth_bits=16, trim_s=_HALF_S, dither=False)
+    params = EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN, trim_s=_HALF_S, dither=False)
     kept = encode(recording, SR, params, replace(make_encode_ctx(60), post_loop=True))
     dropped = encode(recording, SR, params, make_encode_ctx(60))
 
@@ -136,7 +139,7 @@ def test_a_trimmed_sample_closes_on_the_release_ramp(
     encode_config: EncodeConfig,
 ) -> None:
     """A cut at the length the material asks for lands mid-tone, so the stored span ends on silence."""
-    params = EncodingParams(target_rate=SR, depth_bits=16, trim_s=_HALF_S, loop_index=UNLOOPED)
+    params = EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN, trim_s=_HALF_S, loop_index=UNLOOPED)
     faded = encode(sine(_TONE_HZ, dur=2.0), SR, params, make_encode_ctx(60))
     stepped = encode(sine(_TONE_HZ, dur=2.0), SR, params, make_encode_ctx(60, release_fade_s=0.0))
 
@@ -154,7 +157,7 @@ def test_a_looped_sample_keeps_the_wrap_point_the_crossfade_made(
     """A loop ends where playback returns to its start, so the span is stored as the crossfade left it."""
     recording = sine(_TONE_HZ, dur=_TONE_S)
     settled = settle(recording, SR, root_hz=_TONE_HZ, search_s=_TONE_S)
-    params = EncodingParams(target_rate=SR, depth_bits=16, loop_index=_CHEAPEST)
+    params = EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN, loop_index=_CHEAPEST)
     faded = encode(recording, SR, params, make_encode_ctx(60, settled=settled))
     unfaded = encode(recording, SR, params, make_encode_ctx(60, release_fade_s=0.0, settled=settled))
 
@@ -174,8 +177,10 @@ def test_a_stored_copy_wraps_the_same_stretch_of_the_recording_at_a_lower_rate(
     assert settled
     cheapest = settled[_CHEAPEST].loop
     context = make_encode_ctx(60, settled=settled)
-    own = encode(recording, SR, EncodingParams(target_rate=SR, depth_bits=16, loop_index=_CHEAPEST), context)
-    cheap = encode(recording, SR, EncodingParams(target_rate=11_025, depth_bits=16, loop_index=_CHEAPEST), context)
+    own = encode(recording, SR, EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN, loop_index=_CHEAPEST), context)
+    cheap = encode(
+        recording, SR, EncodingParams(target_rate=11_025, depth=BitDepth.SIXTEEN, loop_index=_CHEAPEST), context
+    )
 
     assert own.loop == cheapest  # stored at its own rate, the bounds are the settled ones
     assert cheap.loop is not None
@@ -187,7 +192,7 @@ def test_a_clip_the_stage_settled_no_loop_for_stores_the_trimmed_sample(
     sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
 ) -> None:
     """Params ask to be looped and the settlement decides whether there is one, so the trim carries the rest."""
-    params = EncodingParams(target_rate=SR, depth_bits=16, trim_s=_HALF_S, loop_index=_CHEAPEST)
+    params = EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN, trim_s=_HALF_S, loop_index=_CHEAPEST)
     stored = encode(sine(_TONE_HZ, dur=_TONE_S), SR, params, make_encode_ctx(60, settled=NO_LOOPS))
 
     assert stored.loop is None
@@ -202,7 +207,7 @@ def test_non_periodic_material_is_settled_no_loop_and_stored_as_its_trim(
     settled = settle(noise, SR, root_hz=_TONE_HZ, search_s=1.0)
     assert settled == NO_LOOPS  # noise is not periodic enough to loop
 
-    params = EncodingParams(target_rate=SR, depth_bits=16, trim_s=0.5, loop_index=_CHEAPEST)
+    params = EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN, trim_s=0.5, loop_index=_CHEAPEST)
     looped = encode(noise, SR, params, make_encode_ctx(60, settled=settled))
     plain = encode(noise, SR, replace(params, loop_index=UNLOOPED), make_encode_ctx(60))
 
@@ -220,7 +225,7 @@ def test_normalization_reads_the_span_the_sample_stores(
 ) -> None:
     """A peak in a stretch the trim discards leaves the stored sample at exactly the level it asked for."""
     signal = np.concatenate([_QUIET * sine(_TONE_HZ, dur=_HALF_S), sine(_TONE_HZ, dur=_HALF_S)])
-    params = EncodingParams(target_rate=SR, depth_bits=16, trim_s=_HALF_S)
+    params = EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN, trim_s=_HALF_S)
     stored = encode(signal, SR, params, make_encode_ctx(60))
     assert peak_amplitude(stored.pcm) == pytest.approx(headroom_peak(encode_config.headroom_db), rel=1e-3)
 
@@ -231,7 +236,7 @@ def test_a_shared_reference_keeps_the_margin_between_two_recordings(
     """What a format keeping no per-sample gain needs: the quieter recording stays quieter in the PCM."""
     loud = sine(_TONE_HZ)
     config = encode_config.model_copy(update={"peak_reference": peak_amplitude(loud)})
-    params = EncodingParams(target_rate=SR, depth_bits=16, trim_s=_HALF_S, dither=False)
+    params = EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN, trim_s=_HALF_S, dither=False)
     stored_loud = encode(loud, SR, params, EncodeContext(root_pitch=60, config=config))
     stored_quiet = encode(_QUIET * loud, SR, params, EncodeContext(root_pitch=60, config=config))
     assert stored_loud.gain == stored_quiet.gain
@@ -246,7 +251,7 @@ def test_a_compressed_encoding_fills_more_of_the_grid_at_the_same_peak(
 ) -> None:
     """Both encodings normalize to the same peak, so what compression buys shows as level under it."""
     swell = _swelling_tone()
-    params = EncodingParams(target_rate=SR, depth_bits=8, trim_s=1.0, dither=False)
+    params = EncodingParams(target_rate=SR, depth=BitDepth.EIGHT, trim_s=1.0, dither=False)
     plain = encode(swell, SR, params, make_encode_ctx(60))
     shaped = encode(swell, SR, replace(params, compress=True), make_encode_ctx(60))
     assert peak_amplitude(shaped.pcm) == pytest.approx(peak_amplitude(plain.pcm), rel=1e-2)
@@ -261,7 +266,7 @@ def test_compression_runs_before_the_loop_seam_is_crossfaded(
     """Ordering the two that way is what keeps a looped sample's seam continuous on the audio stored."""
     recording = sine(_TONE_HZ, dur=_TONE_S)
     settled = settle(recording, SR, root_hz=_TONE_HZ, search_s=_TONE_S)
-    params = EncodingParams(target_rate=SR, depth_bits=8, loop_index=_CHEAPEST, compress=True, dither=False)
+    params = EncodingParams(target_rate=SR, depth=BitDepth.EIGHT, loop_index=_CHEAPEST, compress=True, dither=False)
     stored = encode(recording, SR, params, make_encode_ctx(60, settled=settled))
     assert stored.loop is not None
     assert stored.frames == stored.loop.end

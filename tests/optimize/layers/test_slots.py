@@ -1,3 +1,5 @@
+from trackmod import BitDepth
+
 from optisample.dsp.surrogate.params import EncodingParams
 from optisample.keys import SampleKey
 from optisample.music import MIDI_HIGHEST_PITCH, MIDI_LOWEST_PITCH, MIDI_MAX_VELOCITY
@@ -19,7 +21,7 @@ def _unit(layer: int, keys: tuple[int, ...], *, stored_bytes: int, share: float,
         representative_key=SampleKey(keys[0], _VELOCITY),
         layer=layer,
         keys=keys,
-        params=EncodingParams(target_rate=22_050, depth_bits=16),
+        params=EncodingParams(target_rate=22_050, depth=BitDepth.SIXTEEN),
         frames=2400,
         stored_bytes=stored_bytes,
         distortion=share,

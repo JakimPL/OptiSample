@@ -1,6 +1,7 @@
 from typing import Annotated
 
 from pydantic import Field
+from trackmod import BitDepth
 
 from optisample.config.base import ConfigModel
 
@@ -36,7 +37,7 @@ class RankingConfig(ConfigModel):
     settles the order the pairs are met in, where the repeats fall, and the side each member takes.
     """
 
-    depths: Annotated[tuple[int, ...], Field(min_length=1)]
+    depths: Annotated[tuple[BitDepth, ...], Field(min_length=1)]
     rate_steps: Annotated[int, Field(ge=0)]
     quota: RankingQuotaConfig
     byte_tolerance: Annotated[float, Field(ge=0.0, le=1.0)]

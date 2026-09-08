@@ -1,6 +1,5 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Final
 
 from trackmod import Instrument, Song, TrackerModule
 from trackmod.core.envelopes.envelope import Envelope
@@ -10,51 +9,23 @@ from trackmod.core.songs.playback import Playback
 from optisample.dsp.level import Clock, Level, curve_level, loudest_db, written_level
 from optisample.dsp.trajectory import SharedTrajectory
 from optisample.io.tracker.envelope import NO_ENVELOPE, shape_nodes, volume_envelope
+from optisample.io.tracker.target import ExportTarget
 from optisample.io.tracker.voices import instrument_voices
 from optisample.model import NoteEvent
 from optisample.optimize.export.carriers import plan_trajectories
 from optisample.optimize.export.context import ExportContext
 from optisample.optimize.export.material import CHANNELS, Voicing, material_patterns
 from optisample.optimize.export.samples import PlannedSamples, plan_samples
-from optisample.optimize.export.voices import NO_SHAPE, PlannedVoices, PlayedVoices, instrument_shapes
-from optisample.optimize.layers.slots import ONE_SLOT, SlotLayout, plan_slots
-from optisample.optimize.plans import SINGLE_LAYER, StrategyPlan
+from optisample.optimize.export.voices import (
+    NO_SHAPE,
+    PlannedVoices,
+    PlayedVoices,
+    instrument_name,
+    instrument_shapes,
+)
+from optisample.optimize.layers.slots import SlotLayout, plan_slots
+from optisample.optimize.plans import StrategyPlan
 from optisample.optimize.tasks import StoredRecordings
-
-_NAME_CHARS: Final = 22  # the narrowest instrument-name field a target format keeps, FastTracker 2's
-_SHORTEST_ID: Final = 1  # instrument-id characters a name keeps however long the axes it states are
-
-
-def _axes(layout: SlotLayout, index: int) -> str:
-    """The axes the plan split, as the suffix telling one written instrument from its siblings apart.
-
-    A name states each axis the plan actually split: the velocity band once several layers are stored,
-    and the stretch of keyboard once a band is written as several instruments. One layer written whole is
-    told apart by nothing, so it answers with an empty suffix and carries the instrument's own name.
-    """
-    slot = layout.slots[index]
-    stated = []
-    if layout.layers.count > SINGLE_LAYER:
-        stated.append(slot.band.label)
-
-    if len(layout.layer_slots(slot.layer)) > ONE_SLOT:
-        stated.append(slot.span)
-
-    return " ".join(stated)
-
-
-def instrument_name(instrument_id: str, layout: SlotLayout, index: int) -> str:
-    """What the tracker's instrument list calls one written instrument.
-
-    The whole name fits the narrowest field a target format keeps for it, and the axes the plan split
-    (:func:`_axes`) are what the room is kept for, so a list read in the tracker states which dynamics
-    and which keys play through which instrument.
-    """
-    axes = _axes(layout, index)
-    if not axes:
-        return instrument_id[:_NAME_CHARS]
-
-    return f"{instrument_id[: max(_SHORTEST_ID, _NAME_CHARS - len(axes) - 1)]} {axes}"
 
 
 def slot_level(shape: SharedTrajectory | None) -> Level | None:
@@ -91,11 +62,12 @@ def _slot_instruments(
     layout: SlotLayout,
     keymaps: Sequence[Keymap],
     envelopes: Sequence[Envelope | None],
+    target: ExportTarget,
 ) -> tuple[Instrument, ...]:
     """One instrument per written slot, so a note's dynamic and pitch name the one it plays."""
     return tuple(
         Instrument(
-            name=instrument_name(plan.instrument_id, layout, index),
+            name=instrument_name(plan.instrument_id, layout, index, target),
             keymap=keymap,
             volume_envelope=envelopes[index],
         )
@@ -222,7 +194,7 @@ def build_song(
         patterns=patterns,
         order=order,
         voices=instrument_voices(
-            _slot_instruments(plan, layout, written.planned.keymaps, written.envelopes),
+            _slot_instruments(plan, layout, written.planned.keymaps, written.envelopes, context.target),
             written.planned.samples,
         ),
         playback=Playback(speed=context.playback.speed, tempo=context.playback.tempo),

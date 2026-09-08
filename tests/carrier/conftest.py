@@ -4,6 +4,7 @@ from collections.abc import Callable, Sequence
 
 import numpy as np
 import pytest
+from trackmod import BitDepth
 
 from optisample.carrier.source import CarrierSource
 from optisample.carrier.store import CarrierSettings
@@ -106,7 +107,7 @@ def carrier_settings(config: OptiConfig, target: ExportTarget) -> Callable[..., 
 
     def _settings(
         *,
-        depth: int = 16,
+        depth: BitDepth = BitDepth.SIXTEEN,
         rate: int = SR,
         written: ExportTarget | None = None,
         ratio: float | None = None,
@@ -117,7 +118,7 @@ def carrier_settings(config: OptiConfig, target: ExportTarget) -> Callable[..., 
         return CarrierSettings(
             target=chosen,
             grid=envelope_grid(chosen, tempo=TEMPO, release_s=config.export.envelope.release_s),
-            params=EncodingParams(target_rate=rate, depth_bits=depth),
+            params=EncodingParams(target_rate=rate, depth=depth),
             config=config.encode,
             compression=held if ratio is None else held.model_copy(update={"ratio": ratio}),
             post_loop=post_loop,

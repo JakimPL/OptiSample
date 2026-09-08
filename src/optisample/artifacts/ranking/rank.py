@@ -44,7 +44,7 @@ def _encoding_order(record: RenditionRecord) -> tuple[int, int, int, int]:
     """
     return (
         record.target_rate,
-        record.depth_bits,
+        record.depth,
         int(record.compress),
         _UNLOOPED_ORDER if record.loop_index is None else record.loop_index,
     )

@@ -234,7 +234,7 @@ def test_plan_json_records_budget_and_params(generous: Path) -> None:
     assert plan["strategy"] == "ungrouped"
     assert plan["budget"]["used_bytes"] <= plan["budget"]["sample_budget_bytes"]
     first = plan["pitches"][0]
-    assert {"pitch", "note", "target_rate", "depth_bits", "stored_bytes", "distortion"} <= set(first)
+    assert {"pitch", "note", "target_rate", "depth", "stored_bytes", "distortion"} <= set(first)
 
 
 def test_reduction_json_states_what_the_pre_pass_left(generous: Path) -> None:

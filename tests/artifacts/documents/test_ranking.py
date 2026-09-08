@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import pytest
+from trackmod import BitDepth
 
 from optisample.artifacts.documents.ranking import (
     RankingSetDocument,
@@ -32,14 +33,14 @@ _HEARD_GAINS = (12.5, 3.25)
 def _rendition(
     *,
     rate: int,
-    depth: int,
+    depth: BitDepth,
     loop: int | None,
     stored_bytes: int,
     distortion: float,
     loudness_lufs: float = _LOUDNESS,
 ) -> Rendition:
     return Rendition(
-        params=EncodingParams(target_rate=rate, depth_bits=depth, trim_s=1.0, loop_index=loop, compress=depth <= 8),
+        params=EncodingParams(target_rate=rate, depth=depth, trim_s=1.0, loop_index=loop, compress=depth <= 8),
         stored_bytes=stored_bytes,
         distortion=distortion,
         loudness_lufs=loudness_lufs,
@@ -60,17 +61,22 @@ def pairs(clip: ClipRenditions) -> tuple[ListeningPair, ...]:
             clip=clip,
             axis=PairAxis.DEPTH,
             question_id=0,
-            first=_rendition(rate=16_000, depth=16, loop=UNLOOPED, stored_bytes=8_000, distortion=1.0),
+            first=_rendition(rate=16_000, depth=BitDepth.SIXTEEN, loop=UNLOOPED, stored_bytes=8_000, distortion=1.0),
             second=_rendition(
-                rate=16_000, depth=8, loop=UNLOOPED, stored_bytes=4_000, distortion=1.5, loudness_lufs=-23.4
+                rate=16_000,
+                depth=BitDepth.EIGHT,
+                loop=UNLOOPED,
+                stored_bytes=4_000,
+                distortion=1.5,
+                loudness_lufs=-23.4,
             ),
         ),
         ListeningPair(
             clip=clip,
             axis=PairAxis.LOOP,
             question_id=1,
-            first=_rendition(rate=16_000, depth=16, loop=0, stored_bytes=3_000, distortion=2.0),
-            second=_rendition(rate=16_000, depth=16, loop=UNLOOPED, stored_bytes=8_000, distortion=1.2),
+            first=_rendition(rate=16_000, depth=BitDepth.SIXTEEN, loop=0, stored_bytes=3_000, distortion=2.0),
+            second=_rendition(rate=16_000, depth=BitDepth.SIXTEEN, loop=UNLOOPED, stored_bytes=8_000, distortion=1.2),
         ),
     )
 
@@ -102,7 +108,7 @@ def test_a_pair_directory_carries_nothing_of_the_question_it_asks(pairs: Sequenc
 def test_the_manifest_decodes_both_sides_of_every_pair(pairs: Sequence[ListeningPair]) -> None:
     document = _document(pairs)
 
-    stated = [(record.first.depth_bits, record.second.depth_bits) for record in document.pairs]
+    stated = [(record.first.depth, record.second.depth) for record in document.pairs]
     assert stated == [(16, 8), (16, 16)]
 
 

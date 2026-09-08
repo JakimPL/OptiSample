@@ -3,6 +3,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from trackmod import BitDepth
 
 from notebooks.utils import runs
 
@@ -25,7 +26,7 @@ def fields(tmp_path: Path) -> runs.Fields:
         dedupe_key="pitch_velocity",
         content_floor_db=60.0,
         rates=(22_050, 11_025),
-        depth=16,
+        depth=BitDepth.SIXTEEN,
         loop=True,
         workers=2,
         seed=7,

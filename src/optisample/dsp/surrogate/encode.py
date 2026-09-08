@@ -156,7 +156,7 @@ def encode(
     )
     pcm = requantize(
         normalized,
-        params.depth_bits,
+        params.depth,
         dither=params.dither,
         noise_shaping=params.noise_shaping,
         rng=context.rng,
@@ -164,7 +164,7 @@ def encode(
     return StoredSample(
         pcm=pcm,
         sample_rate=params.target_rate,
-        depth_bits=params.depth_bits,
+        depth=params.depth,
         root_pitch=context.root_pitch,
         gain=gain,
         loop=span.loop,

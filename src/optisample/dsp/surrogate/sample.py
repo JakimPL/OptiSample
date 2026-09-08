@@ -29,7 +29,7 @@ class StoredSample:
 
     pcm: Signal
     sample_rate: int
-    depth_bits: int
+    depth: BitDepth
     root_pitch: int
     gain: float = 1.0
     loop: Loop | None = None
@@ -39,15 +39,6 @@ class StoredSample:
     @property
     def frames(self) -> int:
         return int(self.pcm.size)
-
-    @property
-    def depth(self) -> BitDepth:
-        """The stored depth as the tracker vocabulary names it, which is what prices the frames.
-
-        Raises:
-            ValueError: when the sample was encoded at a depth no tracker format stores.
-        """
-        return BitDepth(self.depth_bits)
 
     @property
     def playback_gain(self) -> float:

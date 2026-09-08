@@ -6,6 +6,7 @@ from typing import Final
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+from trackmod import BitDepth
 from trackmod.module.storage import Storage
 from trackmod.spec.levels import MAX_VOLUME
 
@@ -545,8 +546,8 @@ def reduction() -> ReductionSummary:
             NarrowedGrid(
                 pitch=60,
                 useful_rate_hz=10_500.0,
-                stored=StoredFormat(target_rate=11_025, depth_bits=16, compress=False),
-                encodings=(EncodingParams(target_rate=11_025, depth_bits=16),),
+                stored=StoredFormat(target_rate=11_025, depth=BitDepth.SIXTEEN, compress=False),
+                encodings=(EncodingParams(target_rate=11_025, depth=BitDepth.SIXTEEN),),
             ),
         ),
     )

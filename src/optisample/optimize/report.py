@@ -222,7 +222,7 @@ def _format_pitches(plan: InstrumentPlan) -> str:
         point = pitch.chosen
         rows.append(
             f"{pitch.pitch:>5}  {note_name(pitch.pitch):>4}  {pitch.weight:>9.1f}  "
-            f"{pitch.representative_key.velocity:>7}  {point.params.target_rate:>8}  {point.params.depth_bits:>5}  "
+            f"{pitch.representative_key.velocity:>7}  {point.params.target_rate:>8}  {point.params.depth:>5}  "
             f"{_compression_mark(point.params):>4}  {bytes_to_kib(point.stored_bytes):>9.1f}  "
             f"{point.distortion:>10.4f}  {len(pitch.hull):>4}"
         )
@@ -317,7 +317,7 @@ def _format_zones(plan: GroupedInstrumentPlan) -> str:
         span = f"{keys} ({len(zone.pitches)})"
         rows.append(
             f"{zone.layer:>5}  {span:>11}  {zone.representative:>4}  {zone.representative_key.velocity:>7}  "
-            f"{option.params.target_rate:>8}  {option.params.depth_bits:>5}  "
+            f"{option.params.target_rate:>8}  {option.params.depth:>5}  "
             f"{_compression_mark(option.params):>4}  {bytes_to_kib(option.stored_bytes):>9.1f}  "
             f"{option.distortion:>10.4f}  {len(zone.hull):>7}"
         )

@@ -45,7 +45,7 @@ def _rendition(encoding: _Encoding) -> Rendition:
     return Rendition(
         params=EncodingParams(
             target_rate=encoding.rate,
-            depth_bits=encoding.depth,
+            depth=encoding.depth,
             trim_s=2.0,
             loop_index=encoding.loop,
             compress=encoding.compress,

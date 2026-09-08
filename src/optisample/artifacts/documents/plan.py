@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from typing import Any, Final
 
 from pydantic import SerializerFunctionWrapHandler, model_serializer
+from trackmod import BitDepth
 
 from optisample.artifacts.documents.loops import LevelRecord, LoopRecord, level_record, loop_record
 from optisample.artifacts.documents.reduction import ReductionDocument, reduction_document
@@ -12,7 +13,6 @@ from optisample.artifacts.serialize import Frozen
 from optisample.dsp.surrogate import StoredSample
 from optisample.io.tracker.written import WrittenModule
 from optisample.music import note_name
-from optisample.optimize.export.build import instrument_name
 from optisample.optimize.export.coverage import KeyCoverage
 from optisample.optimize.export.voices import WrittenInstruments
 from optisample.optimize.layers.slots import InstrumentSlot
@@ -70,7 +70,7 @@ class EncodingRecord(Frozen):
     """
 
     target_rate: int
-    depth_bits: int
+    depth: BitDepth
     compress: bool
     trim_s: float | None
     loop_index: int | None
@@ -235,7 +235,7 @@ def _keyboard_record(coverage: KeyCoverage) -> KeyboardRecord:
 def _encoding_record(unit: SampleUnit, stored: StoredSample) -> EncodingRecord:
     return EncodingRecord(
         target_rate=unit.params.target_rate,
-        depth_bits=unit.params.depth_bits,
+        depth=unit.params.depth,
         compress=unit.params.compress,
         trim_s=unit.params.trim_s,
         loop_index=unit.params.loop_index,
@@ -283,12 +283,11 @@ def _instrument_record(
     )
 
 
-def _instrument_records(plan: StrategyPlan, written: WrittenInstruments) -> list[InstrumentRecord]:
+def _instrument_records(written: WrittenInstruments) -> list[InstrumentRecord]:
     """One record per written instrument, named exactly as the module's own instrument list names it."""
-    layout = written.layout
     return [
-        _instrument_record(index, slot, instrument_name(plan.instrument_id, layout, index), written.drifts[index])
-        for index, slot in enumerate(layout.slots)
+        _instrument_record(index, slot, written.names[index], written.drifts[index])
+        for index, slot in enumerate(written.layout.slots)
     ]
 
 
@@ -334,7 +333,7 @@ def plan_document(
     keyboard = _keyboard_record(coverage)
     reduction = reduction_document(plan.reduction)
     velocity_map = velocity_map_document(plan.velocity_map)
-    instruments = _instrument_records(plan, written)
+    instruments = _instrument_records(written)
     if plan.strategy == "grouped":
         return PlanDocument(
             strategy="grouped",

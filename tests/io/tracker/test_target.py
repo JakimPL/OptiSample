@@ -287,14 +287,18 @@ def test_a_set_holding_nothing_is_balanced_against_nothing(target: ExportTarget)
     assert balanced_gains([], target) == ()
 
 
-def test_a_sample_is_named_for_the_recording_it_holds() -> None:
+def test_a_sample_is_named_for_the_recording_it_holds(target: ExportTarget) -> None:
     """One key may be stored once per velocity band, so the name states the dynamic as well as the note."""
-    assert sample_label("Piano", pitch=60, velocity=100) == "Piano C4 v100"
+    assert sample_label("Piano", pitch=60, velocity=100, target=target) == "Piano C4 v100"
 
 
-def test_a_long_instrument_id_is_cut_to_the_field_that_holds_it() -> None:
-    """The whole name fits the narrowest field a target format keeps for it."""
-    name = sample_label("AnUnreasonablyLongInstrumentName", pitch=60, velocity=100)
+@pytest.mark.parametrize("tracker_format", _FORMATS)
+def test_a_long_instrument_id_is_cut_to_the_field_that_holds_it(
+    tracker_format: TrackerFormat, retarget: Callable[[TrackerFormat], ExportTarget]
+) -> None:
+    """The whole name fits the field its own format keeps, and the key and dynamic are what survive."""
+    held = retarget(tracker_format)
+    name = sample_label("AnUnreasonablyLongInstrumentName", pitch=60, velocity=100, target=held)
 
     assert name.endswith(" C4 v100")
-    assert len(name) <= 22
+    assert len(name) <= held.name_bytes

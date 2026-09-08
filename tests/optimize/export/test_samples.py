@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 from numpy.typing import NDArray
-from trackmod import TrackerModule
+from trackmod import BitDepth, TrackerModule
 from trackmod.core.instruments.keymap import KeyAssignment
 from trackmod.core.notes.pitch import Note
 from trackmod.module.storage import Storage
@@ -79,17 +79,18 @@ def test_stored_samples_match_the_chosen_operating_points(
 ) -> None:
     plan, module = build()
     for pitch_plan, sample in zip(plan.pitches, routed_voices(module.song).samples):
-        assert sample.depth == pitch_plan.chosen.params.depth_bits
+        assert sample.depth == pitch_plan.chosen.params.depth
         assert sample.frames == pitch_plan.chosen.frames
         assert sample.rate == pitch_plan.chosen.params.target_rate  # the true stored rate, untransposed
 
 
 def test_sample_names_carry_the_instrument_and_the_recording_stored(
     build: Callable[..., tuple[InstrumentPlan, TrackerModule]],
+    target: ExportTarget,
 ) -> None:
     plan, module = build()
     assert [sample.name for sample in routed_voices(module.song).samples] == [
-        sample_name(plan.instrument_id, unit) for unit in plan.sample_units()
+        sample_name(plan.instrument_id, unit, target) for unit in plan.sample_units()
     ]
     assert [sample.name for sample in routed_voices(module.song).samples] == ["piano C4 v100", "piano G4 v100"]
 
@@ -134,7 +135,7 @@ def test_a_pitch_the_format_does_not_number_raises(
         samples=[SourceSample(file=Path("p.wav"), pitch=_UNREACHABLE_PITCH, velocity=100)],
         material=[NoteEvent(pitch=_UNREACHABLE_PITCH, velocity=100, duration_s=0.4)],
     )
-    settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depth=16))
+    settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depth=BitDepth.SIXTEEN))
     plan = optimize_instrument(instrument, recordings(audio, SR), settings)
     with pytest.raises(ValueError, match="outside the IT key range"):
         build_module(plan, recordings(audio, SR), instrument.material or [], export_context)
@@ -147,7 +148,7 @@ def _encoded(gain: float, velocity: int = _LOUDEST_VELOCITY) -> tuple[SampleUnit
         representative_key=SampleKey(60, velocity),
         layer=FIRST_LAYER,
         keys=(60,),
-        params=EncodingParams(22_050, 8),
+        params=EncodingParams(22_050, BitDepth.EIGHT),
         frames=8,
         stored_bytes=8,
         distortion=0.0,
@@ -155,7 +156,9 @@ def _encoded(gain: float, velocity: int = _LOUDEST_VELOCITY) -> tuple[SampleUnit
         hull_size=1,
         weight=1.0,
     )
-    stored = StoredSample(pcm=np.zeros(8, dtype=np.float64), sample_rate=22_050, depth_bits=8, root_pitch=60, gain=gain)
+    stored = StoredSample(
+        pcm=np.zeros(8, dtype=np.float64), sample_rate=22_050, depth=BitDepth.EIGHT, root_pitch=60, gain=gain
+    )
     return unit, stored
 
 
@@ -282,7 +285,7 @@ def test_a_grouped_pitch_the_format_does_not_number_raises(
 ) -> None:
     option = ZoneOption(
         representative=_UNREACHABLE_PITCH,
-        params=EncodingParams(11_025, 8, 0.2),
+        params=EncodingParams(11_025, BitDepth.EIGHT, 0.2),
         stored_bytes=100,
         distortion=0.0,
         frames=20,
@@ -342,7 +345,7 @@ def looped_build(
             samples=[SourceSample(file=Path("60.wav"), pitch=60, velocity=100)],
             material=material,
         )
-        settings = optimize_settings(sweep=sweep(rates=(_LOOP_RATE,), depth=16, dither=False))
+        settings = optimize_settings(sweep=sweep(rates=(_LOOP_RATE,), depth=BitDepth.SIXTEEN, dither=False))
         plan = optimize_instrument(instrument, recordings(audio, SR), settings)
         return plan, build_module(plan, recordings(audio, SR), material, export_context)
 

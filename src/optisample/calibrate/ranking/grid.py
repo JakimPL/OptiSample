@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 
+from trackmod import BitDepth
+
 from optisample.config.optimize import SweepConfig
 from optisample.dsp.surrogate import EncodingParams
 from optisample.optimize.operating_points import compresses, sweep_rates
@@ -28,7 +30,7 @@ class RankingGrid:
     once and a label on it would speak for neither.
     """
 
-    depths: tuple[int, ...]
+    depths: tuple[BitDepth, ...]
     rate_steps: int
 
 
@@ -61,7 +63,7 @@ def widened_encodings(
     for rate in _rate_ladder(span.target_rate, sweep, sample_rate, grid.rate_steps):
         for depth in grid.depths:
             for compress in dict.fromkeys((compresses(sweep, depth), span.compress)):
-                member = replace(span, target_rate=rate, depth_bits=depth, compress=compress)
+                member = replace(span, target_rate=rate, depth=depth, compress=compress)
                 if member not in widened:
                     widened.append(member)
 

@@ -4,6 +4,7 @@ import itertools
 
 import numpy as np
 import pytest
+from trackmod import BitDepth
 
 from optisample.dsp.surrogate import EncodingParams
 from optisample.optimize.dp import BudgetInfeasibleError
@@ -18,7 +19,7 @@ from optisample.optimize.operating_points import OperatingPoint
 
 
 def op(stored_bytes: int, distortion: float) -> OperatingPoint:
-    return OperatingPoint(EncodingParams(target_rate=1, depth_bits=16), stored_bytes, distortion, stored_bytes)
+    return OperatingPoint(EncodingParams(target_rate=1, depth=BitDepth.SIXTEEN), stored_bytes, distortion, stored_bytes)
 
 
 def item(key: str, weight: float, points: list[tuple[int, float]]) -> KnapsackItem:

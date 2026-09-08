@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from trackmod import BitDepth
+
 from optisample.artifacts.serialize import Frozen
 from optisample.config.reduce import DedupeKey
 from optisample.music import note_name
@@ -30,7 +32,7 @@ class StoredFormatRecord(Frozen):
     """
 
     target_rate: int
-    depth_bits: int
+    depth: BitDepth
     compress: bool
 
 
@@ -147,7 +149,7 @@ def reduction_document(reduction: ReductionSummary) -> ReductionDocument:
                 useful_rate_hz=grid.useful_rate_hz,
                 stored=StoredFormatRecord(
                     target_rate=grid.stored.target_rate,
-                    depth_bits=grid.stored.depth_bits,
+                    depth=grid.stored.depth,
                     compress=grid.stored.compress,
                 ),
                 swept=len(grid.encodings),

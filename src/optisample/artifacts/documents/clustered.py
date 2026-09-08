@@ -73,7 +73,7 @@ def _sample_record(carrier: StoredCarrier, gain: int, members: int) -> CarrierSa
         members=members,
         frames=stored.frames,
         rate=stored.sample_rate,
-        depth=stored.depth_bits,
+        depth=stored.depth,
         gain=gain,
         looped=stored.loop is not None,
     )

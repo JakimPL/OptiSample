@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
+from trackmod import BitDepth
 from trackmod.core.instruments.keymap import KeyAssignment, Keymap, routed_keymap
 from trackmod.core.notes.pitch import Note
 
@@ -39,7 +40,7 @@ def _unit(pitch: int, keys: tuple[int, ...]) -> SampleUnit:
         representative_key=SampleKey(pitch, _RECORDED_VELOCITY),
         layer=FIRST_LAYER,
         keys=keys,
-        params=EncodingParams(target_rate=22_050, depth_bits=16),
+        params=EncodingParams(target_rate=22_050, depth=BitDepth.SIXTEEN),
         frames=0,
         stored_bytes=0,
         distortion=0.0,

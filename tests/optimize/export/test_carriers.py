@@ -6,6 +6,7 @@ from collections.abc import Callable
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+from trackmod import BitDepth
 
 from optisample.config.optimize import SweepConfig
 from optisample.dsp.level import gain_to_db
@@ -44,7 +45,7 @@ def planned(
     recordings: Recordings,
 ) -> tuple[InstrumentPlan, StoredRecordings]:
     """A plan over the demo instrument, beside the recordings it was allocated from."""
-    settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depth=16))
+    settings = optimize_settings(sweep=sweep(rates=(44_100, 11_025), depth=BitDepth.SIXTEEN))
     held = recordings(demo_audio, SR)
     return optimize_instrument(demo_instrument(), held, settings), held
 

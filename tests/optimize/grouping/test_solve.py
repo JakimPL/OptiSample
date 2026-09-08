@@ -4,6 +4,7 @@ from typing import Final
 
 import numpy as np
 import pytest
+from trackmod import BitDepth
 
 from optisample.dsp.surrogate import EncodingParams
 from optisample.keys import SampleKey
@@ -46,7 +47,11 @@ def _fake_options(pitches: tuple[int, ...], seed: int) -> dict[tuple[int, int], 
             for k in range(3):
                 rep = pitches[i + (k % (j - i))]
                 nbytes = int(rng.integers(80, 400))
-                built.append(ZoneOption(rep, EncodingParams(11_025, 16, 1.0), nbytes, float(rng.uniform(0.01, 5.0)), 1))
+                built.append(
+                    ZoneOption(
+                        rep, EncodingParams(11_025, BitDepth.SIXTEEN, 1.0), nbytes, float(rng.uniform(0.01, 5.0)), 1
+                    )
+                )
             options[(i, j)] = tuple(built)
     return options
 

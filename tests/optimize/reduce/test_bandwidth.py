@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+from trackmod import BitDepth
 
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import BandwidthConfig, ReduceConfig
@@ -30,8 +31,8 @@ _NO_TRANSPOSE = 0
 _RATES = (16_000, 8_000, 4_000)  # an explicit ladder, so a test states which rung it expects back
 _CHEAPEST_RUNG = min(_RATES)
 _RATE_PER_BANDWIDTH = 2.0  # Nyquist, which turns a content-edge tolerance into a rate tolerance
-_DEEP_DEPTH = 16  # bits, where the quantizer already sits below what compression would protect
-_SHALLOW_DEPTH = 8  # bits, where compression buys headroom the quantizer can be heard against
+_DEEP_DEPTH = BitDepth.SIXTEEN  # where the quantizer already sits below what compression would protect
+_SHALLOW_DEPTH = BitDepth.EIGHT  # where compression buys headroom the quantizer can be heard against
 
 ReduceFactory = Callable[..., ReduceConfig]
 SweepFactory = Callable[..., SweepConfig]
@@ -71,7 +72,7 @@ def tone(freq: float, amplitude: float = 0.5) -> NDArray[np.float64]:
 
 def stored_as(target_rate: int) -> EncodingParams:
     """One encoding of the trim window at ``target_rate``, which is all the pricer reads of it."""
-    return EncodingParams(target_rate=target_rate, depth_bits=_DEEP_DEPTH, trim_s=_TRIM_S)
+    return EncodingParams(target_rate=target_rate, depth=_DEEP_DEPTH, trim_s=_TRIM_S)
 
 
 def broadband(amplitude: float = 0.5) -> NDArray[np.float64]:
@@ -155,7 +156,7 @@ def test_a_sample_transposed_up_is_stored_at_a_lower_rung(make_context: Callable
 
 def test_the_depth_is_the_one_the_run_stores_every_sample_at(make_context: Callable[..., _Context]) -> None:
     context = make_context(depth=_SHALLOW_DEPTH)
-    assert stored_format(broadband(), UNTRANSPOSED, context).depth_bits == _SHALLOW_DEPTH
+    assert stored_format(broadband(), UNTRANSPOSED, context).depth == _SHALLOW_DEPTH
 
 
 @pytest.mark.parametrize(
@@ -166,7 +167,7 @@ def test_the_depth_is_the_one_the_run_stores_every_sample_at(make_context: Calla
     ],
 )
 def test_compression_reaches_the_depths_that_stand_to_win_by_it(
-    make_context: Callable[..., _Context], depth: int, compressed: bool
+    make_context: Callable[..., _Context], depth: BitDepth, compressed: bool
 ) -> None:
     context = make_context(depth=depth, compress=True)
     assert stored_format(broadband(), UNTRANSPOSED, context).compress is compressed
@@ -209,8 +210,8 @@ def test_every_stored_span_is_offered_at_the_one_settled_format(make_context: Ca
     offered = stored_encodings(stored, context.sweep, sample_rate=SR, trim_s=_TRIM_S, loops=3)
 
     assert [params.loop_index for params in offered] == [UNLOOPED, 0, 1, 2]
-    assert {(params.target_rate, params.depth_bits, params.compress) for params in offered} == {
-        (stored.target_rate, stored.depth_bits, stored.compress)
+    assert {(params.target_rate, params.depth, params.compress) for params in offered} == {
+        (stored.target_rate, stored.depth, stored.compress)
     }
 
 

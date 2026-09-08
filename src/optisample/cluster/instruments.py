@@ -220,7 +220,7 @@ def _carrier_settings(settings: ClusterSettings) -> CarrierSettings:
     return CarrierSettings(
         target=settings.target,
         grid=envelope_grid(settings.target, tempo=settings.tempo, release_s=settings.release_s),
-        params=EncodingParams(target_rate=stored.rate, depth_bits=stored.depth),
+        params=EncodingParams(target_rate=stored.rate, depth=stored.depth),
         config=settings.encode,
         compression=settings.instruments.compression,
         post_loop=settings.instruments.post_loop,

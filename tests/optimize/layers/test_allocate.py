@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+from trackmod import BitDepth
 
 from optisample.config.layers import LayersConfig
 from optisample.config.optimize import SweepConfig
@@ -102,7 +103,7 @@ def allocate(
         instrument: InstrumentSpec, *, max_samples: int | None = None, **overrides: object
     ) -> LayeredAllocation:
         settings = optimize_settings(
-            sweep=sweep(rates=(11_025,), depth=8, dither=False),
+            sweep=sweep(rates=(11_025,), depth=BitDepth.EIGHT, dither=False),
             layers=layers(nodes=len(VELOCITIES), **overrides),
             max_samples=max_samples,
         )
@@ -172,7 +173,7 @@ def test_a_band_several_splits_share_is_scored_once_between_them(
 ) -> None:
     """A band's keys are the same wherever it appears, so the whole search scores each band once."""
     settings = optimize_settings(
-        sweep=sweep(rates=(11_025,), depth=8, dither=False),
+        sweep=sweep(rates=(11_025,), depth=BitDepth.EIGHT, dither=False),
         layers=layers(max_layers=_THREE_LAYERS, nodes=len(VELOCITIES)),
     )
     inputs = prepare_run(instrument, recordings(audio, SR), settings)
@@ -278,7 +279,7 @@ def test_asking_for_more_layers_than_the_format_numbers_is_refused(
     recordings: Recordings,
 ) -> None:
     settings = optimize_settings(
-        sweep=sweep(rates=(11_025,), depth=8, dither=False),
+        sweep=sweep(rates=(11_025,), depth=BitDepth.EIGHT, dither=False),
         layers=layers(max_layers=target.max_instruments + 1),
     )
     inputs = prepare_run(instrument, recordings(audio, SR), settings)
@@ -296,7 +297,7 @@ def test_the_plan_carries_the_layers_it_settled_on(
     plan = optimize_instrument_grouped(
         instrument,
         recordings(audio, SR),
-        optimize_settings(sweep=sweep(rates=(11_025,), depth=8, dither=False)),
+        optimize_settings(sweep=sweep(rates=(11_025,), depth=BitDepth.EIGHT, dither=False)),
     )
     assert plan.layers.count == plan.budget.instruments
     assert {unit.layer for unit in plan.sample_units()} == {zone.layer for zone in plan.zones}

@@ -4,6 +4,7 @@ from collections.abc import Callable, Sequence
 
 import numpy as np
 import pytest
+from trackmod import BitDepth
 from trackmod.spec.levels import MAX_VOLUME
 
 from optisample.carrier.instrument import CarrierInstrument, carrier_instrument
@@ -58,8 +59,8 @@ def test_the_written_pair_plays_the_recordings_back(source: Sourcer, carrier_set
 def test_a_shallower_depth_stores_half_the_bytes(source: Sourcer, carrier_settings: Settings) -> None:
     """Halving the depth is what doubles what a budget buys, which is the trade the carrier affords."""
     sources = [source(pitch=ROOT_PITCH + step, loop=_LOOP) for step in (0, 4)]
-    deep = _build(sources, carrier_settings(depth=16))
-    shallow = _build(sources, carrier_settings(depth=8))
+    deep = _build(sources, carrier_settings(depth=BitDepth.SIXTEEN))
+    shallow = _build(sources, carrier_settings(depth=BitDepth.EIGHT))
 
     assert shallow.stored_bytes * 2 == deep.stored_bytes
 
@@ -135,8 +136,8 @@ def test_what_the_shared_curve_had_no_room_for_stops_setting_the_stored_peak(
     stretch the burst stands in.
     """
     sources = [source(pitch=ROOT_PITCH, spike_db=18.0)] + [source(pitch=ROOT_PITCH + step) for step in (2, 4)]
-    held = _build(sources, carrier_settings(depth=8))
-    plain = _build(sources, carrier_settings(depth=8, ratio=1.0))
+    held = _build(sources, carrier_settings(depth=BitDepth.EIGHT))
+    plain = _build(sources, carrier_settings(depth=BitDepth.EIGHT, ratio=1.0))
 
     assert _crest_db(held.stored[0].stored.pcm) < _crest_db(plain.stored[0].stored.pcm)
 
@@ -146,8 +147,8 @@ def test_a_set_the_curve_already_states_is_stored_as_the_one_pass_answer(
 ) -> None:
     """The hold opens over the body, so recordings a shared curve follows closely reach the encoder untouched."""
     sources = [source(pitch=ROOT_PITCH + step, loop=_LOOP) for step in (0, 2, 4)]
-    held = _build(sources, carrier_settings(depth=8))
-    plain = _build(sources, carrier_settings(depth=8, ratio=1.0))
+    held = _build(sources, carrier_settings(depth=BitDepth.EIGHT))
+    plain = _build(sources, carrier_settings(depth=BitDepth.EIGHT, ratio=1.0))
 
     for one, other in zip(held.stored, plain.stored):
         assert one.stored.pcm == pytest.approx(other.stored.pcm)
@@ -156,8 +157,8 @@ def test_a_set_the_curve_already_states_is_stored_as_the_one_pass_answer(
 def test_the_bytes_a_set_is_written_as_reproduce(source: Sourcer, carrier_settings: Settings) -> None:
     """One seeded generator advances once per source, so a set written twice lands identically."""
     sources = [source(pitch=ROOT_PITCH + step, loop=_LOOP) for step in (0, 3)]
-    first = _build(sources, carrier_settings(depth=8))
-    again = _build(sources, carrier_settings(depth=8))
+    first = _build(sources, carrier_settings(depth=BitDepth.EIGHT))
+    again = _build(sources, carrier_settings(depth=BitDepth.EIGHT))
 
     for left, right in zip(first.stored, again.stored):
         assert left.stored.pcm == pytest.approx(right.stored.pcm)

@@ -6,6 +6,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+from trackmod import BitDepth
 from trackmod.spec.levels import MAX_VOLUME
 
 from optisample.dsp.level import Clock, unit_level
@@ -41,7 +42,7 @@ def test_encode_render_round_trip_is_near_lossless(
     source = sine(_TONE_HZ)
     normalized = source / float(np.max(np.abs(source)))
     context = make_encode_ctx(60, release_fade_s=0.0)
-    stored = encode(source, SR, EncodingParams(target_rate=SR, depth_bits=16, dither=False), context)
+    stored = encode(source, SR, EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN, dither=False), context)
     rendered = render(stored, SR, pitch=60)
     length = min(rendered.size, normalized.size)
     assert snr(normalized[:length], rendered[:length]) > 80.0
@@ -50,7 +51,7 @@ def test_encode_render_round_trip_is_near_lossless(
 def test_render_transpose_octave_halves_length(
     sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
 ) -> None:
-    stored = encode(sine(_TONE_HZ), SR, EncodingParams(target_rate=SR, depth_bits=16), make_encode_ctx(60))
+    stored = encode(sine(_TONE_HZ), SR, EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN), make_encode_ctx(60))
     base = render(stored, SR, pitch=60)
     octave_up = render(stored, SR, pitch=72)  # +12 semitones → plays twice as fast
     assert octave_up.size == pytest.approx(base.size // 2, abs=2)
@@ -61,7 +62,9 @@ def test_a_quiet_recording_plays_back_as_quietly_as_it_was_recorded(
 ) -> None:
     """Storing hot spends the depth on one recording; playback undoes it, so the instrument keeps its balance."""
     quiet = 0.25 * sine(_TONE_HZ)
-    stored = encode(quiet, SR, EncodingParams(target_rate=SR, depth_bits=16, dither=False), make_encode_ctx(60))
+    stored = encode(
+        quiet, SR, EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN, dither=False), make_encode_ctx(60)
+    )
     rendered = render(stored, SR, pitch=60)
     assert float(np.max(np.abs(rendered))) == pytest.approx(0.25, rel=1e-3)
 
@@ -70,7 +73,7 @@ def test_render_volume_scales_amplitude(
     sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
 ) -> None:
     stored = encode(
-        sine(_TONE_HZ), SR, EncodingParams(target_rate=SR, depth_bits=16, dither=False), make_encode_ctx(60)
+        sine(_TONE_HZ), SR, EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN, dither=False), make_encode_ctx(60)
     )
     full = render(stored, SR, pitch=60, volume=MAX_VOLUME)
     half = render(stored, SR, pitch=60, volume=MAX_VOLUME // 2)
@@ -81,14 +84,16 @@ def test_render_volume_scales_amplitude(
 def test_render_zero_duration_is_empty(
     sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
 ) -> None:
-    stored = encode(sine(_TONE_HZ), SR, EncodingParams(target_rate=SR, depth_bits=16), make_encode_ctx(60))
+    stored = encode(sine(_TONE_HZ), SR, EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN), make_encode_ctx(60))
     assert render(stored, SR, pitch=60, duration_s=0.0).size == 0
 
 
 def test_render_duration_pads_and_truncates(
     sine: Callable[..., NDArray[np.float64]], make_encode_ctx: Callable[..., EncodeContext]
 ) -> None:
-    stored = encode(sine(_TONE_HZ, dur=1.0), SR, EncodingParams(target_rate=SR, depth_bits=16), make_encode_ctx(60))
+    stored = encode(
+        sine(_TONE_HZ, dur=1.0), SR, EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN), make_encode_ctx(60)
+    )
     padded = render(stored, SR, pitch=60, duration_s=2.0)  # longer than the sample → zero-padded
     truncated = render(stored, SR, pitch=60, duration_s=0.25)  # shorter → cut
     assert padded.size == pytest.approx(int(round(2.0 * SR)), abs=1)
@@ -102,7 +107,7 @@ def test_render_loop_sustains_a_note_held_past_the_stored_length(
     settle: SettleLoops,
 ) -> None:
     recording = sine(_TONE_HZ, dur=_TONE_S)
-    params = EncodingParams(target_rate=SR, depth_bits=16, loop_index=_CHEAPEST)
+    params = EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN, loop_index=_CHEAPEST)
     stored = encode(
         recording, SR, params, make_encode_ctx(60, settled=settle(recording, SR, root_hz=_TONE_HZ, search_s=_TONE_S))
     )
@@ -120,7 +125,7 @@ def test_a_sample_carrying_a_tail_is_played_the_way_a_tracker_plays_it(
     recording = sine(_TONE_HZ, dur=_TONE_S)
     settled = settle(recording, SR, root_hz=_TONE_HZ, search_s=_TONE_S)
     context = make_encode_ctx(60, settled=settled)
-    params = EncodingParams(target_rate=SR, depth_bits=16, loop_index=_CHEAPEST)
+    params = EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN, loop_index=_CHEAPEST)
     kept = encode(recording, SR, params, replace(context, post_loop=True))
     dropped = encode(recording, SR, params, context)
 
@@ -158,7 +163,7 @@ def test_a_held_loop_declines_the_way_the_recording_it_stands_for_did(
 ) -> None:
     """A struck note stored as attack plus loop ends near the level its recording ended at."""
     source = _decaying(sine, half_life_s=0.6)
-    params = EncodingParams(target_rate=SR, depth_bits=16, loop_index=_CHEAPEST)
+    params = EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN, loop_index=_CHEAPEST)
     stored = encode(
         source, SR, params, make_encode_ctx(_ROOT, settled=settle(source, SR, root_hz=_TONE_HZ, search_s=_TONE_S))
     )
@@ -181,7 +186,7 @@ def test_a_steady_recording_is_played_at_the_level_its_loop_was_stored_at(
 ) -> None:
     """A recording holding one level states a flat decline, so its loop goes on sounding where it was stored."""
     recording = sine(_TONE_HZ, dur=_TONE_S)
-    params = EncodingParams(target_rate=SR, depth_bits=16, loop_index=_CHEAPEST)
+    params = EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN, loop_index=_CHEAPEST)
     stored = encode(
         recording, SR, params, make_encode_ctx(_ROOT, settled=settle(recording, SR, root_hz=_TONE_HZ, search_s=_TONE_S))
     )
@@ -205,7 +210,7 @@ def _stored_half_second(
     settled = settle(recording, SR, root_hz=_TONE_HZ, search_s=_TONE_S) if looped else NO_LOOPS
     params = EncodingParams(
         target_rate=SR,
-        depth_bits=16,
+        depth=BitDepth.SIXTEEN,
         trim_s=_TRIM_S,
         loop_index=_CHEAPEST if looped else UNLOOPED,
     )

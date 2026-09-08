@@ -2,9 +2,8 @@ import re
 from typing import Final
 
 from trackmod.core.notes.pitch import Note
-from trackmod.spec.pitch import RATE_NOTE
+from trackmod.spec.pitch import NOTES_PER_OCTAVE, RATE_NOTE
 
-SEMITONES_PER_OCTAVE: Final = 12
 MIDI_A4: Final = 69
 A4_FREQ_HZ: Final = 440.0
 MIDI_MAX_VELOCITY: Final = 127
@@ -23,7 +22,7 @@ _NOTE_NAME_PATTERN: Final = re.compile(r"^([A-Ga-g])([#b]?)(-?\d+)$")
 
 def note_name(pitch: int) -> str:
     """MIDI note number -> scientific pitch name (60 -> ``C4``)."""
-    return f"{NOTE_NAMES[pitch % SEMITONES_PER_OCTAVE]}{pitch // SEMITONES_PER_OCTAVE - 1}"
+    return f"{NOTE_NAMES[pitch % NOTES_PER_OCTAVE]}{pitch // NOTES_PER_OCTAVE - 1}"
 
 
 def named_pitch(name: str) -> int:
@@ -42,7 +41,7 @@ def named_pitch(name: str) -> int:
 
     letter, accidental, octave = match.groups()
     semitone = NOTE_NAMES.index(letter.upper()) + _ACCIDENTAL_STEPS[accidental]
-    pitch = semitone + (int(octave) - _LOWEST_OCTAVE) * SEMITONES_PER_OCTAVE
+    pitch = semitone + (int(octave) - _LOWEST_OCTAVE) * NOTES_PER_OCTAVE
     if not MIDI_LOWEST_PITCH <= pitch <= MIDI_HIGHEST_PITCH:
         raise ValueError(f"pitch name {name!r} lands outside the MIDI range")
 
@@ -73,7 +72,7 @@ def labeled_pitch(label: str) -> int:
 
 def semitone_ratio(semitones: float) -> float:
     """Playback speed / frequency ratio for a pitch shift of ``semitones`` (12 semitones = 2x)."""
-    return float(2.0 ** (semitones / SEMITONES_PER_OCTAVE))
+    return float(2.0 ** (semitones / NOTES_PER_OCTAVE))
 
 
 def midi_to_freq(pitch: int) -> float:

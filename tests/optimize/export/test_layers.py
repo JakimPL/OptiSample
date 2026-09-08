@@ -2,15 +2,16 @@ from collections.abc import Callable
 
 import numpy as np
 import pytest
-from trackmod import TrackerModule
+from trackmod import BitDepth, TrackerModule
 from trackmod.core.notes.command import NoteCommand
 
 from optisample.config.render import RenderConfig
 from optisample.dsp.surrogate.params import EncodingParams
 from optisample.io.render import openmpt123_available, render_module
+from optisample.io.tracker.target import ExportTarget
 from optisample.io.tracker.voices import routed_voices
 from optisample.keys import SampleKey
-from optisample.optimize.export.build import _NAME_CHARS, instrument_name
+from optisample.optimize.export.build import instrument_name
 from optisample.optimize.layers.bands import UNSPLIT, VelocityBand, VelocityLayers
 from optisample.optimize.layers.slots import SlotLayout, pack_slots
 from optisample.optimize.plans import GroupedInstrumentPlan, SampleUnit
@@ -90,7 +91,7 @@ def _unit(layer: int, pitch: int) -> SampleUnit:
         representative_key=SampleKey(pitch, 100),
         layer=layer,
         keys=(pitch,),
-        params=EncodingParams(target_rate=22_050, depth_bits=16),
+        params=EncodingParams(target_rate=22_050, depth=BitDepth.SIXTEEN),
         frames=2400,
         stored_bytes=1000,
         distortion=1.0,
@@ -126,21 +127,21 @@ def _layout(layers: VelocityLayers, per_instrument: int) -> SlotLayout:
     ],
 )
 def test_instrument_name_states_each_axis_the_plan_split(
-    layers: VelocityLayers, per_instrument: int, index: int, expected: str
+    layers: VelocityLayers, per_instrument: int, index: int, expected: str, target: ExportTarget
 ) -> None:
-    assert instrument_name("piano", _layout(layers, per_instrument), index) == expected
+    assert instrument_name("piano", _layout(layers, per_instrument), index, target) == expected
 
 
-def test_a_long_instrument_id_is_shortened_to_leave_the_axes_it_states_room() -> None:
+def test_a_long_instrument_id_is_shortened_to_leave_the_axes_it_states_room(target: ExportTarget) -> None:
     """Every format writes the name into a fixed field, so the part telling instruments apart survives."""
-    name = instrument_name(_LONG_ID, _layout(_SPLIT, _CUT_AT), 1)
+    name = instrument_name(_LONG_ID, _layout(_SPLIT, _CUT_AT), 1, target)
     assert name.endswith(" v000-v050 C6-C6")
-    assert len(name) <= _NAME_CHARS
+    assert len(name) <= target.name_bytes
 
 
-def test_a_long_instrument_id_fits_the_field_even_with_nothing_to_state_beside_it() -> None:
+def test_a_long_instrument_id_fits_the_field_even_with_nothing_to_state_beside_it(target: ExportTarget) -> None:
     """A document records the name the module holds, so the fit is settled here rather than at the writer."""
-    assert instrument_name(_LONG_ID, _layout(UNSPLIT, _WHOLE_TABLE), 0) == _LONG_ID[:_NAME_CHARS]
+    assert instrument_name(_LONG_ID, _layout(UNSPLIT, _WHOLE_TABLE), 0, target) == _LONG_ID[: target.name_bytes]
 
 
 @requires_openmpt

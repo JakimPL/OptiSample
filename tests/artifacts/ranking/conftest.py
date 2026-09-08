@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+from trackmod import BitDepth
 
 from optisample.artifacts.ranking import ListeningSet, dump_ranking
 from optisample.calibrate.ranking import (
@@ -59,14 +60,14 @@ def listening_settings(
     optimize_settings: Callable[..., OptimizeSettings],
 ) -> OptimizeSettings:
     """A run settled over a short rate ladder, so a widened grid has rungs to step down to."""
-    return optimize_settings(sweep=sweep(rates=_LADDER, depth=16), seed=_SEED)
+    return optimize_settings(sweep=sweep(rates=_LADDER, depth=BitDepth.SIXTEEN), seed=_SEED)
 
 
 @pytest.fixture
 def ranking_settings() -> RankingSettings:
     """A small listening set: both depths, one rung down, and one question of each put twice."""
     return RankingSettings(
-        grid=RankingGrid(depths=(16, 8), rate_steps=1),
+        grid=RankingGrid(depths=(BitDepth.SIXTEEN, BitDepth.EIGHT), rate_steps=1),
         quota=PairQuota(loop=1, rate=1, depth=1, compress=0, trade=1),
         byte_tolerance=0.15,
         min_duration_s=NOTE_S / 2,

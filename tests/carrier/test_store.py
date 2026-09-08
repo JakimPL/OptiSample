@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 import numpy as np
 import pytest
+from trackmod import BitDepth
 
 from optisample.carrier.instrument import written_shape
 from optisample.carrier.store import CarrierSettings, store_carrier
@@ -77,8 +78,10 @@ def test_a_source_naming_no_loop_is_stored_as_the_span_it_plays(
     assert stored.loop is None
 
 
-@pytest.mark.parametrize("depth", [8, 16])
-def test_the_waveform_is_kept_at_the_depth_asked_for(source: Sourcer, carrier_settings: Settings, depth: int) -> None:
+@pytest.mark.parametrize("depth", [BitDepth.EIGHT, BitDepth.SIXTEEN])
+def test_the_waveform_is_kept_at_the_depth_asked_for(
+    source: Sourcer, carrier_settings: Settings, depth: BitDepth
+) -> None:
     """Depth is the axis a flattened waveform buys its bytes back on, so it is stored as asked."""
     stored = store_carrier(
         source(),
@@ -87,7 +90,7 @@ def test_the_waveform_is_kept_at_the_depth_asked_for(source: Sourcer, carrier_se
         rng=np.random.default_rng(0),
     ).stored
 
-    assert stored.depth_bits == depth
+    assert stored.depth == depth
 
 
 def test_the_waveform_is_kept_at_the_rate_asked_for(source: Sourcer, carrier_settings: Settings) -> None:

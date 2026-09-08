@@ -5,6 +5,7 @@ from collections.abc import Callable
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+from trackmod import BitDepth
 
 from optisample.calibrate import (
     CalibrationContext,
@@ -53,7 +54,9 @@ def test_render_note_openmpt_matches_requested_duration(
     recording: Callable[..., NDArray[np.float64]],
     calibration_context: CalibrationContext,
 ) -> None:
-    stored = encode(recording("piano", 60, 1.5), SAMPLE_RATE, EncodingParams(44_100, 16), make_encode_ctx(60))
+    stored = encode(
+        recording("piano", 60, 1.5), SAMPLE_RATE, EncodingParams(44_100, BitDepth.SIXTEEN), make_encode_ctx(60)
+    )
     out = render_note_openmpt(stored, NoteProbe(pitch=60, duration_s=1.0), calibration_context)
     assert out.size == int(round(1.0 * calibration_context.render.sample_rate))
 
@@ -66,7 +69,9 @@ def test_surrogate_agrees_with_openmpt_at_root_pitch(
     recording: Callable[..., NDArray[np.float64]],
     calibration_context: CalibrationContext,
 ) -> None:
-    stored = encode(recording(archetype, 60, 2.0), SAMPLE_RATE, EncodingParams(44_100, 16), make_encode_ctx(60))
+    stored = encode(
+        recording(archetype, 60, 2.0), SAMPLE_RATE, EncodingParams(44_100, BitDepth.SIXTEEN), make_encode_ctx(60)
+    )
     agree = renderer_agreement(stored, NoteProbe(pitch=60, duration_s=1.5), calibration_context)
     assert isinstance(agree, RendererAgreement)
     assert agree.distance < 0.05  # observed ~0.001-0.002; the two engines are near-identical at root
@@ -80,7 +85,9 @@ def test_surrogate_agrees_with_openmpt_when_transposed(
     recording: Callable[..., NDArray[np.float64]],
     calibration_context: CalibrationContext,
 ) -> None:
-    stored = encode(recording("piano", 60, 2.0), SAMPLE_RATE, EncodingParams(44_100, 16), make_encode_ctx(60))
+    stored = encode(
+        recording("piano", 60, 2.0), SAMPLE_RATE, EncodingParams(44_100, BitDepth.SIXTEEN), make_encode_ctx(60)
+    )
     agree = renderer_agreement(stored, NoteProbe(pitch=67, duration_s=1.0), calibration_context)  # +7 semitones
     assert agree.distance < 0.1  # observed ~0.013; larger than root (resampler differences) but small
 
@@ -101,10 +108,10 @@ def test_surrogate_ranks_operating_points_like_openmpt(
     # effectively lossless (~0.002, inaudible), so their relative order is numerical noise, not a claim
     # ground truth can adjudicate.
     grid = [
-        EncodingParams(target_rate=44_100, depth_bits=16),
-        EncodingParams(target_rate=11_025, depth_bits=16),
-        EncodingParams(target_rate=11_025, depth_bits=8),
-        EncodingParams(target_rate=22_050, depth_bits=8),
+        EncodingParams(target_rate=44_100, depth=BitDepth.SIXTEEN),
+        EncodingParams(target_rate=11_025, depth=BitDepth.SIXTEEN),
+        EncodingParams(target_rate=11_025, depth=BitDepth.EIGHT),
+        EncodingParams(target_rate=22_050, depth=BitDepth.EIGHT),
     ]
     surrogate, openmpt = [], []
     for params in grid:

@@ -1,5 +1,7 @@
 from collections.abc import Sequence
 
+from trackmod import BitDepth
+
 from optisample.artifacts.documents.bank import MANIFEST_VERSION, BankDocument, bank_document
 from optisample.artifacts.documents.velocity import VelocityMapDocument
 from optisample.dsp.surrogate.params import EncodingParams
@@ -49,7 +51,7 @@ def _unit(pitch: int) -> SampleUnit:
         representative_key=SampleKey(pitch, MIDI_MAX_VELOCITY),
         layer=0,
         keys=(pitch,),
-        params=EncodingParams(target_rate=22_050, depth_bits=16),
+        params=EncodingParams(target_rate=22_050, depth=BitDepth.SIXTEEN),
         frames=2400,
         stored_bytes=1000,
         distortion=1.0,

@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+from trackmod import BitDepth
 
 from optisample.config import load_config
 from optisample.config.optimize import SweepConfig
@@ -91,9 +92,9 @@ def _one_layer(tasks: Sequence[PitchTask]) -> tuple[ZoneSegment, ...]:
     return (tuple(tasks),)
 
 
-GRID = _grid(rates=(44_100, 11_025), depth=16, dither=False)
-GRID_TINY = _grid(rates=(11_025,), depth=8, dither=False)
-GRID_DITHERED = _grid(rates=(11_025,), depth=8, dither=True)  # a grid whose encodes draw noise
+GRID = _grid(rates=(44_100, 11_025), depth=BitDepth.SIXTEEN, dither=False)
+GRID_TINY = _grid(rates=(11_025,), depth=BitDepth.EIGHT, dither=False)
+GRID_DITHERED = _grid(rates=(11_025,), depth=BitDepth.EIGHT, dither=True)  # a grid whose encodes draw noise
 
 
 def _note(pitch: int, velocity: int, dur: float) -> NDArray[np.float64]:
@@ -440,7 +441,7 @@ def test_run_instrument_grouped_reads_wavs_from_disk(tmp_path: Path) -> None:
     assert grouped.used_bytes <= grouped.sample_budget_bytes
 
 
-GRID_HEADROOM = _grid(rates=(44_100, 11_025), depth=16, dither=False, rate_headroom=1)
+GRID_HEADROOM = _grid(rates=(44_100, 11_025), depth=BitDepth.SIXTEEN, dither=False, rate_headroom=1)
 
 _PRICED_KB = 96.0  # room a grouped plan leaves unspent while the metrics alone price its rungs
 

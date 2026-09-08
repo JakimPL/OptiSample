@@ -24,18 +24,20 @@ from trackmod.spec.levels import MAX_VOLUME
 from trackmod.trackers.it.limits import it_limits
 from trackmod.trackers.it.settings import ITSettings
 from trackmod.trackers.it.spec.identity import INSTRUMENT_EXTENSION as IT_INSTRUMENT_EXTENSION
+from trackmod.trackers.it.spec.sizes import NAME_BYTES as IT_NAME_BYTES
 from trackmod.trackers.it.spec.storage import IT_STORAGE
 from trackmod.trackers.xm.effects.catalog import XM_EFFECTS
 from trackmod.trackers.xm.limits import xm_limits
 from trackmod.trackers.xm.settings import XMSettings
 from trackmod.trackers.xm.spec.identity import INSTRUMENT_EXTENSION as XM_INSTRUMENT_EXTENSION
+from trackmod.trackers.xm.spec.sizes import NAME_BYTES as XM_NAME_BYTES
 from trackmod.trackers.xm.spec.storage import XM_STORAGE
 
 from optisample.config.tracker import TrackerConfig, TrackerFormat
 from optisample.music import note_name
 
 _ON_THE_ROW: Final = 0
-_SAMPLE_LABEL_CHARS: Final = 13  # instrument-id chars kept before the " <note> v<velocity>" suffix, XM's 22
+_SHORTEST_ID: Final = 1  # instrument-id characters a label keeps however wide the key and dynamic run
 _UNIT_MAKEUP: Final = 1.0  # what a set holding nothing states as the level it is balanced against
 _QUIETEST_STEP: Final = 1  # the softest step that still sounds, so a quiet sample is heard rather than dropped
 
@@ -143,6 +145,20 @@ class ExportTarget:
             return SampleLevels(volume=MAX_VOLUME, gain=stated, instrument=instrument)
 
         return SampleLevels(volume=stated, gain=MAX_VOLUME, instrument=instrument)
+
+    @property
+    def name_bytes(self) -> int:
+        """How wide a name field this format keeps for an instrument and for a sample.
+
+        Impulse Tracker spends twenty-six bytes on a name and FastTracker 2 twenty-two, and a writer fills
+        the width exactly, so a name longer than its format holds is cut where the field ends. Reading the
+        width off the format is what lets a name be fitted before it is written.
+        """
+        match self.format:
+            case TrackerFormat.IT:
+                return IT_NAME_BYTES
+            case TrackerFormat.XM:
+                return XM_NAME_BYTES
 
     @property
     def instrument_extension(self) -> str:
@@ -274,14 +290,18 @@ class ExportTarget:
                 return Cell(effect=XM_EFFECTS.note_cut(_ON_THE_ROW))
 
 
-def sample_label(instrument_id: str, *, pitch: int, velocity: int) -> str:
+def sample_label(instrument_id: str, *, pitch: int, velocity: int, target: ExportTarget) -> str:
     """The name a tracker's own sample list calls one stored recording.
 
     Naming the recording rather than the key tells the samples of a layered instrument apart, since one
-    key may be stored once per velocity band and the tracker lists them side by side. The whole name fits
-    the narrowest field a target format keeps for it.
+    key may be stored once per velocity band and the tracker lists them side by side. The key and the
+    dynamic are what tell them apart, so the recording's own name gives up whatever room the pair asks
+    for and the whole label lands inside the field the format keeps
+    (:attr:`ExportTarget.name_bytes`).
     """
-    return f"{instrument_id[:_SAMPLE_LABEL_CHARS]} {note_name(pitch)} v{velocity}"
+    stated = f"{note_name(pitch)} v{velocity}"
+    kept = max(_SHORTEST_ID, target.name_bytes - len(stated) - 1)
+    return f"{instrument_id[:kept]} {stated}"
 
 
 def balanced_gains(makeups: Sequence[float], target: ExportTarget) -> tuple[int, ...]:

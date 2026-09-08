@@ -1,22 +1,22 @@
-from typing import Final
-
 import numpy as np
 from numpy.typing import NDArray
+from trackmod import BitDepth
+from trackmod.binary.pcm.quantize import dequantize, quantize
 
 from optisample.dsp.level import db_to_gain, peak_amplitude
 from optisample.seed import SURROGATE_SEED
 
 Signal = NDArray[np.float64]
 
-VALID_DEPTHS: Final = (8, 16)
 
+def quantization_step(depth: BitDepth) -> float:
+    """Grid spacing of a signed ``depth`` quantizer over ``[-1, 1)`` (one LSB).
 
-def quantization_step(bits: int) -> float:
-    """Grid spacing of a signed ``bits``-bit quantizer over ``[-1, 1)`` (one LSB)."""
-    if bits not in VALID_DEPTHS:
-        raise ValueError(f"IT samples are 8- or 16-bit, got {bits}")
-
-    return 2.0 ** (1 - bits)
+    The depth states the integer range its frames are stored across
+    (:attr:`~trackmod.core.samples.depth.BitDepth.scale`), and one step of the float grid is one of
+    those integers, so the two are the same fact read from opposite ends.
+    """
+    return 1.0 / depth.scale
 
 
 def headroom_peak(headroom_db: float) -> float:
@@ -82,38 +82,47 @@ def _tpdf_dither(size: int, step: float, rng: np.random.Generator) -> Signal:
     return np.asarray(step * (rng.random(size) - rng.random(size)), dtype=np.float64)
 
 
-def _quantize_grid(values: Signal, step: float) -> Signal:
-    """Round to the signed grid and clip to ``[-1, 1 - step]`` (IT's asymmetric signed range)."""
-    grid = np.round(np.asarray(values, dtype=np.float64) / step) * step
-    return np.asarray(np.clip(grid, -1.0, 1.0 - step), dtype=np.float64)
+def _quantize_grid(values: Signal, depth: BitDepth) -> Signal:
+    """``values`` on the signed integer grid ``depth`` stores, read back as float.
+
+    The rounding and the clipping are the ones a writer applies on its way to bytes
+    (:func:`~trackmod.binary.pcm.quantize.quantize`), so a proxy encode is priced against the very grid
+    the stored sample lands on rather than against a restatement of it.
+    """
+    return np.asarray(dequantize(quantize(np.asarray(values, dtype=np.float64), depth), depth), dtype=np.float64)
 
 
-def _noise_shape(data: Signal, dither: Signal, step: float) -> Signal:
-    """First-order error diffusion: carry the rounding residual forward so its spectrum is high-pass."""
+def _noise_shape(data: Signal, dither: Signal, depth: BitDepth) -> Signal:
+    """First-order error diffusion: carry the rounding residual forward so its spectrum is high-pass.
+
+    Each frame is placed on the grid one at a time, since the residual it leaves is what the next one is
+    offered, so this walks the signal where :func:`_quantize_grid` places the whole of it at once.
+    """
+    scale = depth.scale
     out = np.empty_like(data)
     carry = 0.0
     for index in range(data.size):
         desired = float(data[index]) + float(dither[index]) + carry
-        quantized = float(np.clip(round(desired / step) * step, -1.0, 1.0 - step))
-        carry = desired - quantized
-        out[index] = quantized
+        placed = min(max(round(desired * scale), -scale), scale - 1) / scale
+        carry = desired - placed
+        out[index] = placed
 
     return out
 
 
 def requantize(
     signal: Signal,
-    bits: int,
+    depth: BitDepth,
     *,
     dither: bool = True,
     noise_shaping: bool = False,
     rng: np.random.Generator | None = None,
 ) -> Signal:
-    """Requantize ``signal`` to ``bits`` bits over ``[-1, 1)`` with optional TPDF dither / noise shaping.
+    """Requantize ``signal`` onto the grid ``depth`` stores, with optional TPDF dither / noise shaping.
 
     ``rng`` defaults to a fixed seed so encoding is reproducible; pass one to vary the dither.
     """
-    step = quantization_step(bits)
+    step = quantization_step(depth)
     data = np.asarray(signal, dtype=np.float64)
     if data.size == 0:
         return data.copy()
@@ -128,6 +137,6 @@ def requantize(
         )
     )
     if noise_shaping:
-        return _noise_shape(data, noise, step)
+        return _noise_shape(data, noise, depth)
 
-    return _quantize_grid(data + noise, step)
+    return _quantize_grid(data + noise, depth)

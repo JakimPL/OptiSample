@@ -60,7 +60,7 @@ class CarrierInstrument:
     @property
     def stored_bytes(self) -> int:
         """What the waveforms occupy, which is what this many samples cost before any record is counted."""
-        return sum(carrier.stored.frames * carrier.stored.depth_bits // _BITS_PER_BYTE for carrier in self.stored)
+        return sum(carrier.stored.frames * carrier.stored.depth // _BITS_PER_BYTE for carrier in self.stored)
 
 
 def _routing(sources: Sequence[CarrierSource], target: ExportTarget) -> dict[Note, KeyAssignment]:
@@ -137,7 +137,12 @@ def carrier_instrument(
     gains = balanced_gains([carrier.playback_gain for carrier in stored], settings.target)
     samples = tuple(
         Sample(
-            name=sample_label(instrument_id, pitch=carrier.source.root_pitch, velocity=carrier.source.key.velocity),
+            name=sample_label(
+                instrument_id,
+                pitch=carrier.source.root_pitch,
+                velocity=carrier.source.key.velocity,
+                target=settings.target,
+            ),
             pcm=carrier.stored.pcm,
             rate=carrier.stored.sample_rate,
             depth=carrier.stored.depth,

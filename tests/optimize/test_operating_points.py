@@ -58,7 +58,7 @@ def harmonic_tone(freq: float = _PERIODIC_HZ, dur: float = 3.0) -> np.ndarray:
 
 def stored_as(rate: int, *, loop_index: int | None = UNLOOPED, trim_s: float | None = None) -> EncodingParams:
     """One encoding as the reduction settles it: a stored rate at 16 bits, held for ``trim_s``."""
-    return EncodingParams(target_rate=rate, depth_bits=16, trim_s=trim_s, dither=False, loop_index=loop_index)
+    return EncodingParams(target_rate=rate, depth=BitDepth.SIXTEEN, trim_s=trim_s, dither=False, loop_index=loop_index)
 
 
 def _looped_clip(settle: SettleLoops) -> SourceClip:
@@ -133,22 +133,26 @@ def test_a_recording_at_a_listed_rate_is_offered_it_once(sweep: Callable[..., Sw
 
 def test_evaluate_encoding_lossless_beats_aggressive(sweep_context: SweepContext) -> None:
     clip = SourceClip(signal=bright_piano(), sample_rate=SR, root_pitch=84, duration_s=1.0)
-    lossless = evaluate_encoding(clip, EncodingParams(target_rate=SR, depth_bits=16, dither=False), sweep_context)
-    aggressive = evaluate_encoding(clip, EncodingParams(target_rate=5_512, depth_bits=8), sweep_context)
+    lossless = evaluate_encoding(
+        clip, EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN, dither=False), sweep_context
+    )
+    aggressive = evaluate_encoding(clip, EncodingParams(target_rate=5_512, depth=BitDepth.EIGHT), sweep_context)
     assert lossless.distortion < aggressive.distortion
     assert lossless.stored_bytes > aggressive.stored_bytes
 
 
 def test_evaluate_encoding_without_duration_stores_full_clip(sweep_context: SweepContext) -> None:
     clip = SourceClip(signal=bright_piano(dur=0.5), sample_rate=SR, root_pitch=84)  # duration_s=None → no trim
-    result = evaluate_encoding(clip, EncodingParams(target_rate=SR, depth_bits=16, dither=False), sweep_context)
+    result = evaluate_encoding(
+        clip, EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN, dither=False), sweep_context
+    )
     assert result.frames == pytest.approx(int(0.5 * SR), abs=2)
     assert result.kib == pytest.approx(result.stored_bytes / 1024.0)
 
 
 def test_evaluate_encoding_bytes_match_the_formats_cost_table(sweep_context: SweepContext) -> None:
     clip = SourceClip(signal=bright_piano(), sample_rate=SR, root_pitch=84, duration_s=1.0)
-    result = evaluate_encoding(clip, EncodingParams(target_rate=22_050, depth_bits=16), sweep_context)
+    result = evaluate_encoding(clip, EncodingParams(target_rate=22_050, depth=BitDepth.SIXTEEN), sweep_context)
     assert result.stored_bytes == sweep_context.storage.sample_bytes(frames=result.frames, depth=BitDepth.SIXTEEN)
 
 

@@ -55,7 +55,7 @@ _DATASET_STAGES = (Stage.SUBSET, Stage.LOOPED, Stage.REDUCED)
 
 _ENCODING = {
     "target_rate": _STORED_RATE,
-    "depth_bits": 8,
+    "depth": 8,
     "compress": False,
     "trim_s": _STORED_S,
     "loop_index": None,

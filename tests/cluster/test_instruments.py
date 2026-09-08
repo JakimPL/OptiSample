@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+from trackmod import BitDepth
 
 from optisample.artifacts.documents.clustered import ClusteredDocument
 from optisample.artifacts.documents.loops import LevelRecord, LoopQualityRecord, SettledLoopRecord
@@ -77,7 +78,7 @@ def cluster_settings(config: OptiConfig, run_root: Path) -> Callable[..., Cluste
         *,
         groups: int = _GROUPS,
         layers: int = _LAYERS,
-        depth: int = 8,
+        depth: BitDepth = BitDepth.EIGHT,
         progress: ProgressSink = NO_PROGRESS,
     ) -> ClusterSettings:
         cluster = config.cluster.model_dump()
@@ -282,8 +283,8 @@ def test_a_shallower_depth_stores_fewer_bytes(
     cluster_settings: Callable[..., ClusterSettings],
 ) -> None:
     """Depth is the axis the carrier buys its bytes back on, and the run states what it spent."""
-    deep = write_clustered(tmp_path / "deep", cluster_settings(depth=16))
-    shallow = write_clustered(tmp_path / "shallow", cluster_settings(depth=8))
+    deep = write_clustered(tmp_path / "deep", cluster_settings(depth=BitDepth.SIXTEEN))
+    shallow = write_clustered(tmp_path / "shallow", cluster_settings(depth=BitDepth.EIGHT))
 
     assert sum(band.stored_bytes for band in shallow.bands) * 2 == sum(band.stored_bytes for band in deep.bands)
 

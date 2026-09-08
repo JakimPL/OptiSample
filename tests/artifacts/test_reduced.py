@@ -267,7 +267,7 @@ def test_an_audition_is_named_by_the_encoding_it_holds(reduced: ReducedInstrumen
     grid = _document(reduced)["reduction"]["grids"][0]  # type: ignore[index]
     folder = reduced.paths.auditions_dir / f"p{grid['pitch']:03d}_{grid['note']}"
     stored = grid["stored"]
-    stem = f"r{stored['target_rate']}_d{stored['depth_bits']}"
+    stem = f"r{stored['target_rate']}_d{stored['depth']}"
     dynamics = ("", "_c") if stored["compress"] else ("",)
     spans = ["", *(f"_loop{index}" for index in range(grid["swept"] // len(dynamics) - _TRIMMED_ONLY))]
 

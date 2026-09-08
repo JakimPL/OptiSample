@@ -7,7 +7,6 @@ from trackmod.core.envelopes.envelope import Envelope
 from optisample.artifacts.context import DumpContext
 from optisample.artifacts.documents.plan import PlanDocument, plan_document
 from optisample.dsp.surrogate import StoredSample
-from optisample.io.tracker.envelope import shape_nodes
 from optisample.io.tracker.voices import routed_voices
 from optisample.io.tracker.written import written_module
 from optisample.keys import SampleKey
@@ -180,7 +179,8 @@ def _written_instruments(
         layout,
         encoded,
         sources,
-        nodes=shape_nodes(export_context.target.envelope_point_bound),
+        instrument_id=plan.instrument_id,
+        target=export_context.target,
     )
 
 

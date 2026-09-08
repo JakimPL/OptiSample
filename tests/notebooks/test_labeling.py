@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from trackmod import BitDepth
 
 from notebooks.utils import labeling
 from notebooks.utils.labeling import LabelingSession
@@ -34,7 +35,7 @@ def _rendition(side: Side) -> RenditionRecord:
     return RenditionRecord(
         side=side,
         target_rate=16_000,
-        depth_bits=16,
+        depth=BitDepth.SIXTEEN,
         compress=False,
         loop_index=None,
         stored_bytes=8_000,

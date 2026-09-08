@@ -4,11 +4,13 @@ from collections.abc import Sequence
 
 import numpy as np
 import pytest
+from trackmod import BitDepth
 from trackmod.spec.levels import MAX_VOLUME
 
 from optisample.dsp.loop import Loop
 from optisample.dsp.series import Series
 from optisample.dsp.surrogate import EncodingParams, StoredSample
+from optisample.io.tracker.target import ExportTarget
 from optisample.keys import SampleKey
 from optisample.model import NoteEvent
 from optisample.optimize.export.voices import (
@@ -63,7 +65,7 @@ def _stored(*, looped: bool = True) -> StoredSample:
     if loop is not None:
         levels[loop.start :] = levels[loop.start]  # a settled loop region is leveled flat, which is what it holds
 
-    return StoredSample(pcm=_tone(levels), sample_rate=_SR, depth_bits=16, root_pitch=_ROOT, loop=loop)
+    return StoredSample(pcm=_tone(levels), sample_rate=_SR, depth=BitDepth.SIXTEEN, root_pitch=_ROOT, loop=loop)
 
 
 def _unit(keys: tuple[int, ...]) -> SampleUnit:
@@ -72,7 +74,7 @@ def _unit(keys: tuple[int, ...]) -> SampleUnit:
         representative_key=SampleKey(_ROOT, _VELOCITY),
         layer=0,
         keys=keys,
-        params=EncodingParams(target_rate=_SR, depth_bits=16),
+        params=EncodingParams(target_rate=_SR, depth=BitDepth.SIXTEEN),
         frames=round(_LOOP_END_S * _SR),
         stored_bytes=1000,
         distortion=1.0,
@@ -208,19 +210,19 @@ def test_a_sample_stored_whole_is_measured_over_the_stretch_it_keeps_sounding() 
 # --- what the whole layout reports -------------------------------------------------------------------------
 
 
-def test_every_written_instrument_reports_what_its_one_envelope_leaves_its_keys() -> None:
+def test_every_written_instrument_reports_what_its_one_envelope_leaves_its_keys(target: ExportTarget) -> None:
     layout = SlotLayout(layers=VelocityLayers(bands=UNSPLIT.bands), slots=(_slot(),))
 
-    written = written_instruments(layout, (_stored(),), _sources(), nodes=_NODES)
+    written = written_instruments(layout, (_stored(),), _sources(), instrument_id="piano", target=target)
 
     assert written.layout is layout
     assert len(written.drifts) == 1
     assert written.drifts[0] > NO_DRIFT
 
 
-def test_an_instrument_carrying_no_shape_gives_up_nothing_for_sharing_one() -> None:
+def test_an_instrument_carrying_no_shape_gives_up_nothing_for_sharing_one(target: ExportTarget) -> None:
     layout = SlotLayout(layers=VelocityLayers(bands=UNSPLIT.bands), slots=(_slot(),))
 
-    written = written_instruments(layout, (_stored(),), _sources(material=[]), nodes=_NODES)
+    written = written_instruments(layout, (_stored(),), _sources(material=[]), instrument_id="piano", target=target)
 
     assert written.drifts == (NO_DRIFT,)

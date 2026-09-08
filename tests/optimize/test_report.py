@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Final
 
-from trackmod import Compliance
+from trackmod import BitDepth, Compliance
 from trackmod.module.size import SizeReport
 from trackmod.module.storage import Storage
 
@@ -62,8 +62,10 @@ def _layout(plan: StrategyPlan, per_instrument: int = _WHOLE_TABLE) -> SlotLayou
     return pack_slots(plan.sample_units(), plan.layers, per_instrument)
 
 
-def _point(rate: int = 22_050, depth: int = 16, size: int = 5000, distortion: float = 0.1) -> OperatingPoint:
-    return OperatingPoint(EncodingParams(target_rate=rate, depth_bits=depth), size, distortion, 2400)
+def _point(
+    rate: int = 22_050, depth: BitDepth = BitDepth.SIXTEEN, size: int = 5000, distortion: float = 0.1
+) -> OperatingPoint:
+    return OperatingPoint(EncodingParams(target_rate=rate, depth=depth), size, distortion, 2400)
 
 
 def _ungrouped_plan(
@@ -172,8 +174,8 @@ def _grouped_plan(
 
 
 def test_grouping_report_has_the_expected_sections(storage: Storage, reduction: ReductionSummary) -> None:
-    multi = ZoneOption(61, EncodingParams(target_rate=22_050, depth_bits=16), 6000, 0.2, 2400)
-    single = ZoneOption(67, EncodingParams(target_rate=11_025, depth_bits=8), 3000, 0.3, 1200)
+    multi = ZoneOption(61, EncodingParams(target_rate=22_050, depth=BitDepth.SIXTEEN), 6000, 0.2, 2400)
+    single = ZoneOption(67, EncodingParams(target_rate=11_025, depth=BitDepth.EIGHT), 3000, 0.3, 1200)
     plan = _grouped_plan(
         zones=(
             Zone((60, 61, 62), FIRST_LAYER, SampleKey(61, 100), 3.0, multi, (multi,)),  # a merged, multi-key zone
@@ -193,8 +195,8 @@ def test_grouping_report_has_the_expected_sections(storage: Storage, reduction: 
 
 def _layered_plan(storage: Storage, reduction: ReductionSummary) -> GroupedInstrumentPlan:
     """Two keys stored twice over: once for the dynamics under v50 and once for those above it."""
-    quiet = ZoneOption(60, EncodingParams(target_rate=11_025, depth_bits=8), 3000, 0.4, 1200)
-    loud = ZoneOption(61, EncodingParams(target_rate=22_050, depth_bits=16), 6000, 0.2, 2400)
+    quiet = ZoneOption(60, EncodingParams(target_rate=11_025, depth=BitDepth.EIGHT), 3000, 0.4, 1200)
+    loud = ZoneOption(61, EncodingParams(target_rate=22_050, depth=BitDepth.SIXTEEN), 6000, 0.2, 2400)
     return _grouped_plan(
         zones=(
             Zone((60, 61), 0, SampleKey(60, 50), 2.0, quiet, (quiet,)),
@@ -216,8 +218,8 @@ def test_a_layered_report_prices_the_split_band_by_band(storage: Storage, reduct
 
 def test_a_band_written_as_several_instruments_prices_each_one(storage: Storage, reduction: ReductionSummary) -> None:
     """A format numbering few samples per instrument cuts a band, and each row states the keys it owns."""
-    multi = ZoneOption(61, EncodingParams(target_rate=22_050, depth_bits=16), 6000, 0.2, 2400)
-    single = ZoneOption(67, EncodingParams(target_rate=11_025, depth_bits=8), 3000, 0.3, 1200)
+    multi = ZoneOption(61, EncodingParams(target_rate=22_050, depth=BitDepth.SIXTEEN), 6000, 0.2, 2400)
+    single = ZoneOption(67, EncodingParams(target_rate=11_025, depth=BitDepth.EIGHT), 3000, 0.3, 1200)
     plan = _grouped_plan(
         zones=(
             Zone((60, 61, 62), FIRST_LAYER, SampleKey(61, 100), 3.0, multi, (multi,)),
@@ -266,8 +268,8 @@ def test_every_zone_states_the_layer_it_answers_for(storage: Storage, reduction:
 
 
 _COVERED: Final = (KeptRecording(SampleKey(60, 100), duration_s=1.0, required_duration_s=0.8),)
-_STORED: Final = StoredFormat(target_rate=11_025, depth_bits=16, compress=False)
-_ONE_GRID: Final = (NarrowedGrid(60, 10_500.0, _STORED, (EncodingParams(target_rate=11_025, depth_bits=16),)),)
+_STORED: Final = StoredFormat(target_rate=11_025, depth=BitDepth.SIXTEEN, compress=False)
+_ONE_GRID: Final = (NarrowedGrid(60, 10_500.0, _STORED, (EncodingParams(target_rate=11_025, depth=BitDepth.SIXTEEN),)),)
 
 
 def _summary(
@@ -321,7 +323,7 @@ def test_an_instrument_playing_nothing_says_its_format_is_yet_to_be_settled() ->
 
 def test_a_run_storing_every_key_at_one_rate_states_that_rate_once() -> None:
     """Two keys settling on the same rung read as one figure, which is what the run actually stored."""
-    second = NarrowedGrid(67, 10_500.0, _STORED, (EncodingParams(target_rate=11_025, depth_bits=16),))
+    second = NarrowedGrid(67, 10_500.0, _STORED, (EncodingParams(target_rate=11_025, depth=BitDepth.SIXTEEN),))
     block = format_reduction_block(_summary(grids=(*_ONE_GRID, second)))
     assert "11.0 kHz stored" in block and "11.0-11.0" not in block
 
@@ -336,7 +338,7 @@ def test_both_strategies_report_the_reduction(storage: Storage, reduction: Reduc
         reduction=reduction,
     )
     ungrouped = format_report(plan, _WRITTEN, _COVERAGE, _layout(plan))
-    option = ZoneOption(60, EncodingParams(target_rate=22_050, depth_bits=16), 6000, 0.2, 2400)
+    option = ZoneOption(60, EncodingParams(target_rate=22_050, depth=BitDepth.SIXTEEN), 6000, 0.2, 2400)
     zoned = _grouped_plan(
         zones=(Zone((60,), FIRST_LAYER, SampleKey(60, 100), 1.0, option, (option,)),),
         layers=_WHOLE_AXIS,
@@ -350,7 +352,7 @@ def test_both_strategies_report_the_reduction(storage: Storage, reduction: Reduc
 
 def test_a_grouped_report_states_the_sample_cap_it_was_held_to(storage: Storage, reduction: ReductionSummary) -> None:
     """A cap the plan already meets is stated as met, so a reader sees the room the format still has."""
-    option = ZoneOption(60, EncodingParams(target_rate=22_050, depth_bits=16), 6000, 0.2, 2400)
+    option = ZoneOption(60, EncodingParams(target_rate=22_050, depth=BitDepth.SIXTEEN), 6000, 0.2, 2400)
     zones = (Zone((60,), FIRST_LAYER, SampleKey(60, 100), 1.0, option, (option,)),)
     free = _grouped_plan(zones=zones, layers=_WHOLE_AXIS, storage=storage, reduction=reduction)
     report = format_grouping_report(free, _WRITTEN, _COVERAGE, _layout(free))
@@ -360,7 +362,7 @@ def test_a_grouped_report_states_the_sample_cap_it_was_held_to(storage: Storage,
 
 def test_a_grouped_report_prices_the_cap_that_decided_the_plan(storage: Storage, reduction: ReductionSummary) -> None:
     """A cap met by charging states the charge and the objective the same budget reached without it."""
-    option = ZoneOption(60, EncodingParams(target_rate=22_050, depth_bits=16), 6000, 0.2, 2400)
+    option = ZoneOption(60, EncodingParams(target_rate=22_050, depth=BitDepth.SIXTEEN), 6000, 0.2, 2400)
     zones = (Zone((60, 61), FIRST_LAYER, SampleKey(60, 100), 1.0, option, (option,)),)
     capped = _grouped_plan(zones=zones, layers=_WHOLE_AXIS, storage=storage, reduction=reduction, reserve=_CHARGED)
     report = format_grouping_report(capped, _WRITTEN, _COVERAGE, _layout(capped))

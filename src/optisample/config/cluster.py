@@ -4,6 +4,7 @@ from enum import StrEnum, unique
 from typing import Annotated, Self
 
 from pydantic import Field, model_validator
+from trackmod import BitDepth
 
 from optisample.config.base import ConfigModel
 from optisample.config.stage import StageConfig
@@ -187,7 +188,7 @@ class InstrumentConfig(ConfigModel):
 
     layers: Annotated[int, Field(ge=1)]
     rate: Annotated[int, Field(gt=0)]
-    depth: Annotated[int, Field(gt=0)]
+    depth: BitDepth
 
 
 class ClusterConfig(StageConfig):

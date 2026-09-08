@@ -3,6 +3,7 @@ from typing import Final
 
 import numpy as np
 import pytest
+from trackmod import BitDepth
 
 from optisample.dsp.surrogate import EncodingParams
 from optisample.keys import SampleKey
@@ -70,7 +71,7 @@ class _Keyboard:
                 options[(start, stop)] = (
                     ZoneOption(
                         self.pitches[start],
-                        EncodingParams(11_025, 16, 1.0),
+                        EncodingParams(11_025, BitDepth.SIXTEEN, 1.0),
                         self.per_key_bytes * width,
                         _PER_KEY_DISTORTION * width + _WIDE_ZONE_PENALTY * (width - 1),
                         1,

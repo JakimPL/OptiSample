@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Final
 
 import numpy as np
+from trackmod import BitDepth
 from trackmod.module.storage import Storage
 
 from optisample.config.codec import EncodeConfig
@@ -80,7 +81,7 @@ def sweep_rates(sweep: SweepConfig, sample_rate: int) -> list[int]:
     return sorted({rate for rate in sweep.rates if rate < sample_rate} | {sample_rate}, reverse=True)
 
 
-def compresses(sweep: SweepConfig, depth: int) -> bool:
+def compresses(sweep: SweepConfig, depth: BitDepth) -> bool:
     """Whether a sample stored at ``depth`` runs through dynamics on the way to the quantizer.
 
     Compression trades waveform for headroom against the quantizer, a bargain a depth shallow enough to

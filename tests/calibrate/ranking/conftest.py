@@ -5,6 +5,7 @@ from collections.abc import Callable
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+from trackmod import BitDepth
 
 from optisample.calibrate.ranking import PairQuota, RankingGrid, RankingSettings
 from optisample.config.optimize import SweepConfig
@@ -20,7 +21,7 @@ _SEED = 137
 _NOTE_S = 0.5
 _RECORDED_S = 0.6
 _LADDER = (11_025, 16_000, 22_050)
-_STORED_DEPTH = 16
+_STORED_DEPTH = BitDepth.SIXTEEN
 
 
 @pytest.fixture
@@ -64,7 +65,7 @@ def priced_run(
 def ranking_settings() -> RankingSettings:
     """A small listening set: both depths, one rung down, and a couple of pairs of each question."""
     return RankingSettings(
-        grid=RankingGrid(depths=(16, 8), rate_steps=1),
+        grid=RankingGrid(depths=(BitDepth.SIXTEEN, BitDepth.EIGHT), rate_steps=1),
         quota=PairQuota(loop=1, rate=1, depth=1, compress=0, trade=1),
         byte_tolerance=0.15,
         min_duration_s=_NOTE_S / 2,

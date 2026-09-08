@@ -3,6 +3,7 @@ from dataclasses import dataclass, field, replace
 from typing import Final, Protocol
 
 import numpy as np
+from trackmod import BitDepth
 
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import BandwidthConfig
@@ -138,7 +139,7 @@ class StoredFormat:
     """
 
     target_rate: int
-    depth_bits: int
+    depth: BitDepth
     compress: bool
 
 
@@ -161,11 +162,11 @@ def format_from_band(content_hz: float, demand: ClipDemand, context: FormatInput
     already measured.
     """
     useful_rate = _audible_rate_hz(content_hz, demand.delta_semitones, context.sample_rate, context.bandwidth)
-    depth_bits = context.sweep.depth
+    depth = context.sweep.depth
     return StoredFormat(
         target_rate=_lowest_rung(sweep_rates(context.sweep, context.sample_rate), useful_rate),
-        depth_bits=depth_bits,
-        compress=compresses(context.sweep, depth_bits),
+        depth=depth,
+        compress=compresses(context.sweep, depth),
     )
 
 
@@ -278,7 +279,7 @@ def stored_encodings(
     """
     plain = EncodingParams(
         target_rate=stored.target_rate,
-        depth_bits=stored.depth_bits,
+        depth=stored.depth,
         trim_s=trim_s,
         dither=sweep.dither,
         noise_shaping=sweep.noise_shaping,

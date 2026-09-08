@@ -106,7 +106,7 @@ def recording_rows(reduction: ReductionDocument) -> list[Row]:
 def _format_label(stored: StoredFormatRecord) -> str:
     """The settled format as a table cell reads it: stored rate, depth, and whether it is compressed."""
     marks = "c" if stored.compress else ""
-    return f"{stored.target_rate // 1000}k/{stored.depth_bits}{marks}"
+    return f"{stored.target_rate // 1000}k/{stored.depth}{marks}"
 
 
 def stored_format_rows(reduction: ReductionDocument) -> list[Row]:
@@ -221,7 +221,7 @@ def _encoding_cells(encoding: EncodingRecord) -> Row:
     """
     return {
         "rate_hz": encoding.target_rate,
-        "depth": encoding.depth_bits,
+        "depth": encoding.depth,
         "comp": _ON if encoding.compress else _OFF,
         "loop": _OFF if encoding.loop_index is None else encoding.loop_index,
         "decline_db": round(encoding.level.values_db[-1], 1),

@@ -148,10 +148,10 @@ def sample_gains(
     return balanced_gains([_makeup(unit, stored, velocity_map) for unit, stored in encoded], target)
 
 
-def sample_name(instrument_id: str, unit: SampleUnit) -> str:
+def sample_name(instrument_id: str, unit: SampleUnit, target: ExportTarget) -> str:
     """The stored sample's display name, taken from the recording the unit re-encodes."""
     key = unit.representative_key
-    return sample_label(instrument_id, pitch=key.pitch, velocity=key.velocity)
+    return sample_label(instrument_id, pitch=key.pitch, velocity=key.velocity, target=target)
 
 
 def _unit_assignments(unit: SampleUnit, sample: int, target: ExportTarget) -> dict[Note, KeyAssignment]:
@@ -247,7 +247,7 @@ def plan_samples(
     gains = sample_gains(encoded, plan.velocity_map, context.target)
     samples = tuple(
         Sample(
-            name=sample_name(plan.instrument_id, unit),
+            name=sample_name(plan.instrument_id, unit, context.target),
             pcm=stored.pcm,
             rate=stored.sample_rate,
             depth=stored.depth,

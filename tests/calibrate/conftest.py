@@ -3,6 +3,7 @@ from collections.abc import Callable
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+from trackmod import BitDepth
 
 from optisample.calibrate import CalibrationContext
 from optisample.config.render import PlaybackConfig, RenderConfig
@@ -33,7 +34,7 @@ def stored() -> Callable[..., StoredSample]:
     def _stored(root_pitch: int = 60, rate: int = 22_050, frames: int = 8_000) -> StoredSample:
         time = np.arange(frames) / rate
         pcm = 0.6 * np.sin(2 * np.pi * 220 * time)
-        return StoredSample(pcm=pcm, sample_rate=rate, depth_bits=16, root_pitch=root_pitch)
+        return StoredSample(pcm=pcm, sample_rate=rate, depth=BitDepth.SIXTEEN, root_pitch=root_pitch)
 
     return _stored
 

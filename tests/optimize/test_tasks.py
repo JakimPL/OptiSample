@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from numpy.typing import NDArray
+from trackmod import BitDepth
 
 from optisample.config.optimize import SweepConfig
 from optisample.config.reduce import ReduceConfig, Representatives
@@ -250,10 +251,10 @@ def scoring(
         SampleKey(pitch, 100): piano_note(pitch, 100, dur=0.6, seed=pitch * 137 + 100) for pitch in PITCHES
     }
     material = [NoteEvent(pitch=pitch, velocity=100, duration_s=0.5, count=2) for pitch in PITCHES]
-    settings = optimize_settings(sweep=sweep(rates=(SR,), depth=16, dither=False))
+    settings = optimize_settings(sweep=sweep(rates=(SR,), depth=BitDepth.SIXTEEN, dither=False))
     inputs = prepare_run(_instrument(material), recordings(audio, SR), settings)
     task = inputs.tasks[0]
-    params = EncodingParams(target_rate=SR, depth_bits=16, dither=False)
+    params = EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN, dither=False)
     stored = encode(task.representative, SR, params, make_encode_ctx(task.pitch))
     return _Scoring(task=task, context=inputs.context, stored=stored)
 
@@ -306,7 +307,7 @@ def test_a_class_is_measured_over_its_source_note_held_for_its_scored_length(sco
 
 def _stored_to_the_note(task: PitchTask, make_encode_ctx: Callable[..., EncodeContext]) -> StoredSample:
     """A pitch's recording stored for exactly the longest note it serves, so its ramp closes that note."""
-    params = EncodingParams(target_rate=SR, depth_bits=16, dither=False, trim_s=task.max_duration_s)
+    params = EncodingParams(target_rate=SR, depth=BitDepth.SIXTEEN, dither=False, trim_s=task.max_duration_s)
     return encode(task.representative, SR, params, make_encode_ctx(task.pitch))
 
 
@@ -353,7 +354,7 @@ def test_the_representative_is_the_most_played_class(
         NoteEvent(pitch=60, velocity=40, duration_s=0.5, count=1),
         NoteEvent(pitch=60, velocity=100, duration_s=0.5, count=4),
     ]
-    settings = optimize_settings(sweep=sweep(rates=(SR,), depth=16, dither=False))
+    settings = optimize_settings(sweep=sweep(rates=(SR,), depth=BitDepth.SIXTEEN, dither=False))
     task = prepare_run(_instrument(material), recordings(audio, SR), settings).tasks[0]
     assert task.representative_event.velocity == 100
     assert task.representative_event.weight == max(event.weight for event in task.events)

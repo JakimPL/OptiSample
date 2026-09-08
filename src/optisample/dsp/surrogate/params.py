@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Final
 
 import numpy as np
+from trackmod import BitDepth
 
 from optisample.config.codec import EncodeConfig
 from optisample.dsp.level import Level
@@ -47,7 +48,7 @@ class EncodingParams:
     """
 
     target_rate: int
-    depth_bits: int
+    depth: BitDepth
     trim_s: float | None = None
     dither: bool = True
     noise_shaping: bool = False

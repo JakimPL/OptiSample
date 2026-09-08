@@ -169,7 +169,7 @@ def _calibrated_run(loaded: LoadedInstrument, paths: ReducedPaths, config: LoopC
 
 def _encoding_stem(params: EncodingParams) -> str:
     """The audition filename for one swept encoding: every axis it asks for, in the sweep's order."""
-    parts = [f"r{params.target_rate}", f"d{params.depth_bits}"]
+    parts = [f"r{params.target_rate}", f"d{params.depth}"]
     if params.compress:
         parts.append("c")
     if params.loop_index is not None:

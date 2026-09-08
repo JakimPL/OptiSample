@@ -1,6 +1,7 @@
 from typing import Annotated, Final, Literal
 
 from pydantic import Field
+from trackmod import BitDepth
 
 from optisample.config.base import ConfigModel
 from optisample.config.layers import LayersConfig
@@ -45,7 +46,7 @@ class SweepConfig(ConfigModel):
 
     rates: Annotated[tuple[int, ...], Field(min_length=1)]
     rate_headroom: Annotated[int, Field(ge=0)]
-    depth: Annotated[int, Field(gt=0)]
+    depth: BitDepth
     dither: bool
     noise_shaping: bool
     compress: bool

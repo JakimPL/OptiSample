@@ -13,12 +13,14 @@ from optisample.dsp.series import Readings, Series
 from optisample.dsp.surrogate import StoredSample
 from optisample.dsp.timebase import seconds_to_frames
 from optisample.dsp.trajectory import SharedTrajectory, TrajectoryMember, fit_shared_trajectory, reading_window_s
+from optisample.io.tracker.envelope import shape_nodes
+from optisample.io.tracker.target import ExportTarget
 from optisample.keys import SampleKey, keys_by_pitch, nearest_key
 from optisample.model import NoteEvent
 from optisample.music import semitone_ratio
 from optisample.optimize.layers.bands import VelocityBand
-from optisample.optimize.layers.slots import InstrumentSlot, SlotLayout
-from optisample.optimize.plans import SampleUnit
+from optisample.optimize.layers.slots import ONE_SLOT, InstrumentSlot, SlotLayout
+from optisample.optimize.plans import SINGLE_LAYER, SampleUnit
 from optisample.optimize.tasks import StoredRecordings
 from optisample.optimize.velocity_map import VelocityVolumeMap
 
@@ -283,15 +285,54 @@ def instrument_shapes(
     return tuple(instrument_shape(slot, stored, sources, nodes=nodes) for slot in layout.slots)
 
 
+_NAME_CHARS_LEAST: Final = 1  # instrument-id characters a name keeps however long the axes it states are
+
+
+def _axes(layout: SlotLayout, index: int) -> str:
+    """The axes the plan split, as the suffix telling one written instrument from its siblings apart.
+
+    A name states each axis the plan actually split: the velocity band once several layers are stored,
+    and the stretch of keyboard once a band is written as several instruments. One layer written whole is
+    told apart by nothing, so it answers with an empty suffix and carries the instrument's own name.
+    """
+    slot = layout.slots[index]
+    stated = []
+    if layout.layers.count > SINGLE_LAYER:
+        stated.append(slot.band.label)
+
+    if len(layout.layer_slots(slot.layer)) > ONE_SLOT:
+        stated.append(slot.span)
+
+    return " ".join(stated)
+
+
+def instrument_name(instrument_id: str, layout: SlotLayout, index: int, target: ExportTarget) -> str:
+    """What the tracker's instrument list calls one written instrument.
+
+    The whole name fits the field the target format keeps for it
+    (:attr:`~optisample.io.tracker.target.ExportTarget.name_bytes`), and the axes the plan split
+    (:func:`_axes`) are what the room is kept for, so a list read in the tracker states which dynamics
+    and which keys play through which instrument.
+    """
+    axes = _axes(layout, index)
+    if not axes:
+        return instrument_id[: target.name_bytes]
+
+    return f"{instrument_id[: max(_NAME_CHARS_LEAST, target.name_bytes - len(axes) - 1)]} {axes}"
+
+
 @dataclass(frozen=True)
 class WrittenInstruments:
     """The instruments a plan is written as, beside what each one's single volume envelope leaves its keys.
 
-    The module and every artifact describing it answer for the same instruments, so the layout and the
-    reading each slot earned travel together and a reader states both from one value.
+    The module and every artifact describing it answer for the same instruments, so the layout, the name
+    each slot is written under and the reading it earned travel together and a reader states all three
+    from one value. The names are the ones the module's own instrument list holds, fitted to the field
+    the target format keeps, so a document never restates a fit the writer already made.
     """
 
     layout: SlotLayout
+    names: tuple[str, ...]
     drifts: tuple[float, ...]
 
 
@@ -300,14 +341,20 @@ def written_instruments(
     stored: Sequence[StoredSample],
     sources: PlayedVoices,
     *,
-    nodes: int,
+    instrument_id: str,
+    target: ExportTarget,
 ) -> WrittenInstruments:
-    """``layout`` beside the dispersion the one envelope each of its instruments carries leaves its keys.
+    """``layout`` beside the name and the dispersion each of its instruments is written with.
+
+    The corners a shape may turn through are what the target numbers the release out of
+    (:func:`~optisample.io.tracker.envelope.shape_nodes`), so they are read off the format here rather
+    than asked of a caller who would read them off the same place.
 
     An instrument the material plays no recorded key of carries no envelope, so it leaves ``NO_DRIFT``.
     """
-    shapes = instrument_shapes(layout, stored, sources, nodes=nodes)
+    shapes = instrument_shapes(layout, stored, sources, nodes=shape_nodes(target.envelope_point_bound))
     return WrittenInstruments(
         layout=layout,
+        names=tuple(instrument_name(instrument_id, layout, index, target) for index in range(len(layout.slots))),
         drifts=tuple(NO_DRIFT if shape is NO_SHAPE else shape.dispersion_db for shape in shapes),
     )

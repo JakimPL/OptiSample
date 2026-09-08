@@ -138,7 +138,7 @@ def _differing(left: EncodingParams, right: EncodingParams) -> tuple[PairAxis, .
     if left.target_rate != right.target_rate:
         axes.append(PairAxis.RATE)
 
-    if left.depth_bits != right.depth_bits:
+    if left.depth != right.depth:
         axes.append(PairAxis.DEPTH)
 
     if left.compress != right.compress:

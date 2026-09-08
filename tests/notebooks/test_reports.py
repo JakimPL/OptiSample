@@ -2,6 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from trackmod import BitDepth
 
 from notebooks.utils import reports
 from notebooks.utils.reports import ComparedNote
@@ -48,7 +49,7 @@ _INSTRUMENT = "Piano"
 _LAYER = "v000-v127"  # the one band an unlayered plan writes, which is the folder its pairs land in
 _ENCODING = {
     "target_rate": 11_025,
-    "depth_bits": 8,
+    "depth": 8,
     "compress": True,
     "trim_s": 1.5,
     "loop_index": 1,
@@ -90,14 +91,14 @@ def _reduction() -> ReductionDocument:
                 pitch=60,
                 note="C4",
                 useful_rate_hz=12_345.6,
-                stored=StoredFormatRecord(target_rate=16_000, depth_bits=16, compress=False),
+                stored=StoredFormatRecord(target_rate=16_000, depth=BitDepth.SIXTEEN, compress=False),
                 swept=4,
             ),
             NarrowedGridRecord(
                 pitch=67,
                 note="G4",
                 useful_rate_hz=9_000.0,
-                stored=StoredFormatRecord(target_rate=11_025, depth_bits=8, compress=True),
+                stored=StoredFormatRecord(target_rate=11_025, depth=BitDepth.EIGHT, compress=True),
                 swept=4,
             ),
         ],
